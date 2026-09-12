@@ -1,0 +1,60 @@
+{
+  "raw_timestamp_tag": "<RecordedAtTime>2026-09-11T07:09:37+00:00</RecordedAtTime>",
+  "source_zip": "https://data.datalibrary.uk/transport/BODS-ARCHIVE/sirivm/2026/09/11/sirivm-20260911T071002.zip",
+  "source_hash_matches": true,
+  "retained_timestamp_offsets": {
+    "+00:00": 3426
+  },
+  "quality": {
+    "rawActivitiesInArea": 4236,
+    "uniqueObservations": 3426,
+    "duplicateObservations": 740,
+    "conflictingObservations": 0,
+    "outsideCaptureWindow": 70,
+    "rejected": {},
+    "timetableMatched": false,
+    "scheduledCoverage": null
+  },
+  "duplicate_pct_of_raw": 17.47,
+  "archive_capture_gaps_seconds": [
+    61.0,
+    59.0,
+    60.0,
+    61.0,
+    59.0,
+    75.0,
+    45.0,
+    61.0,
+    59.0,
+    61.0
+  ],
+  "contrast": {
+    "reading_sample_body": 8.38,
+    "lime_link": 12.4,
+    "microcopy": 6.57
+  },
+  "sample_point": {
+    "time": 1789110577000,
+    "recordedAt": "2026-09-11T07:09:37+00:00",
+    "retrievedAt": "2026-09-12T15:35:59.714304+00:00",
+    "lat": 53.453961,
+    "lon": -2.245239,
+    "operator": "BNML",
+    "vehicle": "YN61BHA",
+    "route": "101",
+    "direction": "inbound",
+    "journeyRef": "7018",
+    "destination": "Piccadilly_Gardens",
+    "origin": "Wythenshawe_Interchange",
+    "aimedDeparture": "2026-09-11T06:07:00+00:00",
+    "sourceHash": "417ca2716487f1f47db0e12b1c4ae9744501c6791cdb86c313c14d056e4f2168",
+    "sourceMember": "siri.xml"
+  },
+  "source": {
+    "url": "https://data.datalibrary.uk/transport/BODS-ARCHIVE/sirivm/2026/09/11/sirivm-20260911T071002.zip",
+    "sha256": "417ca2716487f1f47db0e12b1c4ae9744501c6791cdb86c313c14d056e4f2168",
+    "bytes": 2489746,
+    "capturedAt": "2026-09-11T07:10:02+00:00",
+    "retrievedAt": "2026-09-12T15:35:59.714304+00:00"
+  }
+}

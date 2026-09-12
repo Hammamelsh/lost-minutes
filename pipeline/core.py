@@ -1,0 +1,161 @@
+"""Small, dependency-free source parser. No stop-arrival or delay inference here."""
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import math
+import os
+import zipfile
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from xml.etree import ElementTree as ET
+
+MAX_XML = 80_000_000
+BBOX = (-2.30, 53.42, -2.18, 53.51)
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def timestamp(value):
+    dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        raise ValueError('Timestamp has no timezone')
+    return int(dt.timestamp() * 1000)
+
+
+def redact_url(url):
+    p = urlsplit(url)
+    hidden = {'api_key', 'apikey', 'key', 'token', 'access_token'}
+    query = urlencode([(k, '[REDACTED]' if k.lower() in hidden else v)
+                       for k, v in parse_qsl(p.query, keep_blank_values=True)])
+    host = p.hostname or ''
+    if p.port:
+        host += ':' + str(p.port)
+    return urlunsplit((p.scheme, host, p.path, query, ''))
+
+
+def atomic_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + '.tmp')
+    temp.write_text(json.dumps(value, ensure_ascii=False, separators=(',', ':')) + '\n')
+    os.replace(temp, path)
+
+
+def xml_documents(body):
+    if body.startswith(b'PK'):
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            members = [m for m in archive.infolist() if not m.is_dir() and m.filename.lower().endswith('.xml')]
+            if not members or sum(m.file_size for m in members) > MAX_XML:
+                raise ValueError('Missing XML or oversized decompressed archive')
+            for member in members:
+                yield member.filename, archive.read(member)
+    else:
+        yield 'response.xml', body
+
+
+def observations(body, source_hash, retrieved_at, bounds=BBOX):
+    records, rejected = [], Counter()
+    for member, xml in xml_documents(body):
+        if len(xml) > MAX_XML or b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():
+            raise ValueError('Oversized XML or prohibited entity declaration')
+        root = ET.fromstring(xml)
+        for node in root.iter():
+            node.tag = node.tag.split('}')[-1]
+        for activity in root.iter('VehicleActivity'):
+            def field(name):
+                item = activity.find('.//' + name)
+                return (item.text or '').strip() if item is not None else ''
+            try:
+                lat, lon = float(field('Latitude')), float(field('Longitude'))
+                if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                    raise ValueError('invalid coordinate')
+                if not (bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]):
+                    continue
+                recorded_at = field('RecordedAtTime')
+                t = timestamp(recorded_at)
+                operator, vehicle = field('OperatorRef'), field('VehicleRef')
+                if not operator or not vehicle:
+                    rejected['missing_vehicle_identity'] += 1
+                    continue
+                record = {
+                    'time': t, 'recordedAt': recorded_at, 'retrievedAt': retrieved_at,
+                    'lat': lat, 'lon': lon, 'operator': operator, 'vehicle': vehicle,
+                    'route': field('LineRef') or 'Unspecified', 'direction': field('DirectionRef'),
+                    'journeyRef': field('DatedVehicleJourneyRef') or field('VehicleJourneyRef'),
+                    'destination': field('DestinationName'), 'origin': field('OriginName'),
+                    'aimedDeparture': field('OriginAimedDepartureTime'),
+                    'sourceHash': source_hash, 'sourceMember': member,
+                }
+                records.append(record)
+            except (ValueError, OverflowError):
+                rejected['invalid_coordinate_or_timestamp'] += 1
+    return records, dict(rejected)
+
+
+def observation_key(r):
+    return (r['operator'], r['vehicle'], r['route'], r['direction'], r['journeyRef'], r['time'])
+
+
+def deduplicate(records):
+    unique, conflicts = {}, set()
+    duplicates = 0
+    for record in records:
+        key = observation_key(record)
+        if key in unique:
+            previous = unique[key]
+            if (previous['lat'], previous['lon']) != (record['lat'], record['lon']):
+                conflicts.add(key)
+            else:
+                duplicates += 1
+        else:
+            unique[key] = record
+    return [r for k, r in unique.items() if k not in conflicts], duplicates, len(conflicts)
+
+
+def publish_replay(records, sources, path, rejected=None):
+    accepted, duplicates, conflicts = deduplicate(records)
+    # Exclude observations outside the captured archive window; old positions remain
+    # in raw snapshots and are counted separately, never silently called current.
+    capture_times = [timestamp(s['capturedAt']) for s in sources]
+    start, end = min(capture_times), max(capture_times)
+    usable = [r for r in accepted if start - 120_000 <= r['time'] <= end + 30_000]
+    tracks = defaultdict(list)
+    for record in usable:
+        key = '|'.join([record['operator'], record['vehicle'], record['route'], record['direction'], record['journeyRef'], record['recordedAt'][:10]])
+        tracks[key].append(record)
+    journeys = []
+    for key, points in tracks.items():
+        points.sort(key=lambda r: r['time'])
+        first = points[0]
+        journeys.append({
+            'id': hashlib.sha256(key.encode()).hexdigest()[:16],
+            **{k: first[k] for k in ['operator', 'vehicle', 'route', 'direction', 'journeyRef', 'destination', 'origin', 'aimedDeparture']},
+            'points': points,
+        })
+    journeys.sort(key=lambda j: (-len(j['points']), j['route'], j['vehicle']))
+    output = {
+        'schemaVersion': 1, 'mode': 'archive', 'generatedAt': utc_now(),
+        'start': start, 'end': end, 'frames': sorted(set(capture_times)),
+        'bounds': BBOX, 'journeys': journeys, 'sources': sources,
+        'quality': {'rawActivitiesInArea': len(records), 'uniqueObservations': len(usable),
+                    'duplicateObservations': duplicates, 'conflictingObservations': conflicts,
+                    'outsideCaptureWindow': len(accepted) - len(usable), 'rejected': rejected or {},
+                    'timetableMatched': False, 'scheduledCoverage': None},
+        'attribution': 'Bus location data: Department for Transport / contributing operators, via Open Innovations / National Data Library. Open Government Licence v3.0.',
+        'sourceUrl': 'https://data.datalibrary.uk/transport/BODS-ARCHIVE/',
+        'limitations': ['This is a sampled historical replay, not a live feed.',
+                       'This reconstruction uses observation timestamps, not a complete history of what a real-time subscriber knew at each moment.',
+                       'Routes are operator-supplied labels. Timetable identity has not been validated.',
+                       'Markers show last observations, with no invented intermediate positions.',
+                       'Connecting lines show observation order, not road-matched paths.',
+                       'Missing observations do not establish missing buses or cancelled services.',
+                       'No punctuality, passenger waiting-time or roadworks-causation claims are made.'],
+    }
+    atomic_json(path, output)
+    return output

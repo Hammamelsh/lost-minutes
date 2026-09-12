@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import gzip
+import io
 import hashlib
 import json
 import os
@@ -22,6 +23,8 @@ import re
 import sys
 import time
 import urllib.error
+import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -41,6 +44,15 @@ LOCK_PATH = Path('data/warehouse/collector.lock')
 LIVE_KIND = 'live_positions'
 MAX_BACKOFF = 300
 TIMETABLE_EVERY = 3600
+
+
+def emit(record):
+    """One JSON line per event, flushed immediately.
+
+    print() block-buffers when stdout is a pipe, so a collector run in the background or
+    piped to a log file would show nothing at all until it exited.
+    """
+    print(json.dumps(record) if isinstance(record, dict) else record, flush=True)
 
 
 class CollectorBusy(RuntimeError):
@@ -89,45 +101,111 @@ def store_payload(body, directory, kind):
     return digest, target
 
 
-def timetable_dates(body):
-    """Effective dates declared by a TransXChange file, where present.
+PATTERNS = (('effective_from', r'<(?:OperatingPeriod>\s*<)?StartDate>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})'),
+            ('effective_to', r'<EndDate>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})'),
+            ('modification_datetime', r'ModificationDateTime="([^"]{1,40})"'))
+MAX_TIMETABLE_BYTES = 40_000_000
+TIMETABLE_SCAN_BYTES = 600_000
+TIMETABLE_SCAN_FILES = 60
 
-    Absent values stay absent. Holding a timetable is not evidence that any journey in the
-    position feed has been matched to it.
-    """
-    head = body[:400_000]
-    if head[:2] == b'PK':  # a zipped dataset; the members are not opened here
-        return {}
-    text = head.decode('utf-8', 'replace')
+
+def _declared_dates(text):
     found = {}
-    for key, pattern in (('effective_from', r'<StartDate>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})'),
-                         ('effective_to', r'<EndDate>\s*([0-9]{4}-[0-9]{2}-[0-9]{2})'),
-                         ('modification_datetime', r'ModificationDateTime="([^"]{1,40})"')):
+    for key, pattern in PATTERNS:
         match = re.search(pattern, text)
         if match:
             found[key] = match.group(1)
     return found
 
 
-def collect_timetables(con, run_id, urls, directory, log):
-    for url in urls:
+def timetable_dates(body):
+    """Effective dates a TransXChange dataset declares, where it declares them.
+
+    Reads inside a zipped dataset, because BODS publishes timetables as zips. Absent values
+    stay absent: we never infer a validity period. Holding a timetable is not evidence that
+    any journey in the position feed has been matched to it.
+    """
+    if body[:2] == b'PK':
         try:
-            body, status, _ = fetch(url)
-        except Exception as error:  # never log the URL: it may carry a credential
-            log({'timetable': 'failed', 'errorClass': type(error).__name__})
+            with zipfile.ZipFile(io.BytesIO(body)) as archive:
+                members = [m for m in archive.infolist()
+                           if not m.is_dir() and m.filename.lower().endswith('.xml')]
+                scanned = sorted(members, key=lambda m: m.filename)[:TIMETABLE_SCAN_FILES]
+                starts, ends, modified = [], [], None
+                # The widest window the scanned services declare between them. Taking the
+                # first file's dates would report one service's operating period as though
+                # it were the whole dataset's validity, which is a different claim.
+                for member in scanned:
+                    with archive.open(member) as handle:
+                        dates = _declared_dates(handle.read(TIMETABLE_SCAN_BYTES)
+                                                .decode('utf-8', 'replace'))
+                    if dates.get('effective_from'):
+                        starts.append(dates['effective_from'])
+                    if dates.get('effective_to'):
+                        ends.append(dates['effective_to'])
+                    modified = modified or dates.get('modification_datetime')
+                return {'effective_from': min(starts) if starts else None,
+                        'effective_to': max(ends) if ends else None,
+                        'modification_datetime': modified,
+                        'member_count': len(members),
+                        'scanned_members': len(scanned)}
+        except (zipfile.BadZipFile, OSError, ValueError):
+            return {}
+    return _declared_dates(body[:TIMETABLE_SCAN_BYTES].decode('utf-8', 'replace'))
+
+
+def timetable_size(url, head_fn=None):
+    """Ask how big a timetable is before pulling it.
+
+    The national bulk archive is over 1.6 GB, so a blind download would be both rude and
+    useless here. Returns None when the server does not say.
+    """
+    try:
+        request = urllib.request.Request(url, method='HEAD', headers={
+            'User-Agent': 'LostMinutes/0.2 (bounded public-data research)'})
+        with (head_fn or urllib.request.urlopen)(request, timeout=30) as response:
+            length = response.headers.get('Content-Length')
+            return int(length) if length and length.isdigit() else None
+    except Exception:
+        return None
+
+
+def collect_timetables(con, run_id, urls, directory, log=emit, fetch_fn=None, size_fn=None):
+    """Preserve timetable versions with the dates they declare. No matching is attempted."""
+    stored = []
+    for url in urls:
+        size = (size_fn or timetable_size)(url)
+        if size is not None and size > MAX_TIMETABLE_BYTES:
+            log({'timetable': 'skipped_too_large', 'bytes': size,
+                 'limit': MAX_TIMETABLE_BYTES, 'url': redact_url(url)})
+            continue
+        try:
+            body, status, _ = (fetch_fn or fetch)(url)
+        except Exception as error:  # never log the URL body: it may carry a credential
+            log({'timetable': 'failed', 'errorClass': type(error).__name__,
+                 'url': redact_url(url)})
             continue
         digest, path = store_payload(body, directory, 'timetables')
+        declared = timetable_dates(body)
+        members = declared.pop('member_count', None)
+        scanned = declared.pop('scanned_members', None)
+        coverage = (f'declared window derived from {scanned} of {members} TransXChange files'
+                    if members else None)
+        label = [part for part in urlsplit(url).path.split('/') if part]
         record_timetable(con, run_id, content_sha256=digest, source_url=url,
                          stored_path=str(path), byte_size=len(body),
                          retrieved_at=datetime.now(timezone.utc),
-                         dataset_label=Path(urlsplit(url).path).name or None,
-                         **timetable_dates(body))
-        log({'timetable': 'stored', 'sha256': digest[:12], 'bytes': len(body), 'status': status})
+                         dataset_label='/'.join(label[-3:]) or None, coverage=coverage,
+                         **declared)
+        stored.append(digest)
+        log({'timetable': 'stored', 'sha256': digest[:12], 'bytes': len(body),
+             'status': status, 'coverage': coverage, **declared})
+    return stored
 
 
 def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable_urls=(),
             root=ROOT, db_path=None, fetch_fn=fetch, clock=time.monotonic, sleep=time.sleep,
-            log=print, api_key=None, publish=True):
+            log=emit, api_key=None, publish=True):
     """Poll the feed for a bounded window, recording every cycle and its outcome."""
     root = Path(root)
     key = api_key if api_key is not None else os.environ.get('BODS_API_KEY')
@@ -257,6 +335,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     # A local .env is read before anything else so the key never reaches the command line.
     load_env(ROOT / '.env')
+    # BODS_TIMETABLE_URL may name one or several datasets, separated by commas or spaces.
+    # Explicit --timetable-url arguments win.
+    if not args.timetable_url:
+        args.timetable_url = [u for u in re.split(r'[,\s]+',
+                              os.environ.get('BODS_TIMETABLE_URL', '')) if u]
     if not 0 < args.minutes <= 1440:
         parser.error('Use a positive duration up to 1440 minutes')
     try:

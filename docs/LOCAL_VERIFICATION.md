@@ -202,3 +202,96 @@ the freshest report; map labels clipped at the edges.
   `pipeline/env.py`) and run `.venv/bin/python -m pipeline.collect --minutes 10`.
 - No scheduler and no host. The collector runs in one local WSL process and stops when that
   process, the terminal or the machine stops.
+
+---
+
+# Real-feed and mobile milestone — 12 September 2026
+
+The first genuine BODS capture, plus the production data path and the reworked passenger
+view. A key was configured in a local `.env` during this session.
+
+## BODS access, checked against the official documentation
+Fetched `data.bus-data.dft.gov.uk/guidance/requirements/` directly (the site returns 403 to
+some tooling; a normal user agent works):
+- An API key is required and comes from Account Settings after free registration.
+- **No consumer rate limit is published** for `/api/v1/datafeed`. The documented 1 req/s
+  limit applies to archive downloads. Operator publication frequency (10–30s) is a different
+  thing and is not a consumer limit; the 20s default poll is a courtesy chosen against it.
+
+## The bounded live run
+`\.venv/bin/python -m pipeline.collect --minutes 10 --interval 20`, 21:42:37–21:52:37 UTC.
+
+| measure | value |
+| --- | --- |
+| requests | 30 issued, **30 succeeded, 0 failed**, 0 repeated payloads |
+| retrieved | 13.6 MB across 30 responses, 30 KB each gzipped on disk |
+| observations | 3,752 across **376 distinct vehicles**; 0 quarantined, 0 conflicts |
+| published | 155 vehicles in the final state, 8/8 validation checks passed |
+
+Freshness, measured on the live run and labelled as live (not borrowed from the archive):
+
+| measure | p50 | p95 | min | max | samples |
+| --- | --- | --- | --- | --- | --- |
+| observation age when received (theirs) | 9.9s | 4,165.9s | 0.9s | 86,047.9s | 3,752 |
+| our cycle: request → published (ours) | 0.7s | 1.1s | 0.7s | 4.4s | 30 |
+| report interval per vehicle | 21.0s | 28.0s | 5.0s | 8,526.0s | 3,376 |
+| our poll cadence | 20.0s | 20.0s | 20.0s | 20.0s | 29 |
+
+**The live feed carries positions up to 23.9 hours old**, confirming on live data what the
+archive first showed. 221 positions were withheld as expired in one published state. Ten
+minutes proves this run; it establishes nothing about long-term reliability.
+
+## One observation, end to end
+Vehicle 66074, route 2, operator BNSM:
+1. **Raw response** `4de2134e…22bd.bin.gz`, 456,134 bytes, retrieved 21:52:17 UTC, containing
+   `<RecordedAtTime>2026-09-12T21:52:12+00:00</RecordedAtTime>` — **5.9 seconds old**.
+2. **Stored** under identity `('BNSM','66074','2','outbound','151',1789249932000)` with the
+   source string untouched and `source_sha256` lineage.
+3. **Published** in `live-04f6511243ce507b-215237`, 155 vehicles, **8/8 checks passed**.
+4. **Served** over HTTP from the built `out/` with identical coordinates and matching hash.
+5. **Rendered** as a marker in the built application, with its destination, direction and age.
+
+## Production data path
+- A new publication reaches the built site **without a rebuild**: the `out/_next` fingerprint
+  was byte-identical (`035fb40e3c4aeb0d`) before and after, while the rendered page changed
+  from publication A (2 buses to Manchester Piccadilly) to publication B (3 buses to
+  Shudehill Interchange).
+- **Runtime repointing works**: setting `config.json.liveUrl` to `/data/live-alt.json` made
+  the built app read from there, no rebuild.
+- **Collector stop**: a state published 10 minutes earlier renders as `NOT UPDATING`,
+  "updated 741s ago", with its buses aged to "reported 12 min ago" rather than frozen.
+- **Every position expired**: the view now explains "Every position we hold has passed its
+  cut-off" instead of rendering nothing.
+- **Service worker**: registered and created its cache store in a real browser profile. Its
+  rules are verified directly in `tests/sw.test.mjs` — network-first for published data, a
+  cached copy served byte-identical with `X-Lost-Minutes-From-Cache`, a 503 when nothing is
+  cached, and a shell fallback for navigations. Rendering the page offline in headless Chrome
+  could not be confirmed and is **not** claimed.
+
+## Timetables preserved
+Configured in `.env` as `BODS_TIMETABLE_URL`, which the collector now reads (it previously
+advertised the variable and ignored it). Both need no API key.
+
+| dataset | size | declared window | overlap with observed routes |
+| --- | --- | --- | --- |
+| TfGM 17472 (BNML) | 11.55 MB | 2026-03-16 → 2026-10-25 | 18 of 114 |
+| TfGM 14928 (BNSM) | 9.81 MB | 2026-01-02 → 2031-08-30 | 7 of 114 |
+
+The national bulk archive (1.66 GB) is correctly skipped by the size guard. Declared windows
+are derived from 60 scanned TransXChange files per dataset and recorded as such.
+
+## Bugs this session found and fixed
+- `reportIntervalSeconds` was computed across **all** source kinds, so a live measurement
+  would have silently included archive observations.
+- Observation ages were measured against the payload's `publishedAt`, which **froze every age
+  the moment the collector stopped**. They now use the HTTP `Date` header as the server-clock
+  reference, so a stale state ages correctly.
+- The freshness bands left a gap: positions between 600s and the 900s cut-off were labelled
+  expired by the frontend and dropped, though the publisher had included them.
+- `timetable_dates` reported one service's operating period as the whole dataset's validity.
+- The collector's log was block-buffered, so a backgrounded run showed nothing until it exited.
+- With zero buses and a stale collector the Follow view rendered nothing at all.
+
+## Test counts
+29 Python tests, 34 Node tests (replay, operations, live, service worker, follow helpers),
+typecheck, lint and the static build all pass.

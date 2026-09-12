@@ -10,8 +10,9 @@ import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '@/compon
 import {cleanLabel,clock,gaps,Journey,lastObservation,latestVisible,percentile,parseReplay,parseRoadMap,Replay,RoadMap,routeKey,visibleJourneys} from '@/lib/replay';
 import {Operations,parseOperations} from '@/lib/operations';
 import OperationsView from '@/components/operations-view';
-import FollowView,{busesFromArchive,busesFromLive} from '@/components/follow-view';
-import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,SiteConfig} from '@/lib/live';
+import FollowView from '@/components/follow-view';
+import {busesFromArchive,busesFromLive} from '@/lib/follow';
+import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -47,6 +48,7 @@ export default function Home(){
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
  const [config,setConfig]=useState<SiteConfig>(DEFAULT_CONFIG);
  const [live,setLive]=useState<LiveState|null>(null),[liveFetchedAt,setLiveFetchedAt]=useState(0);
+ const [serverRef,setServerRef]=useState(0);
  const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
  const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
  const [nowMs,setNowMs]=useState(0);
@@ -60,8 +62,10 @@ export default function Home(){
    const response=await fetch(`${target}${target.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
    if(!response.ok)throw Error(`live state unavailable (${response.status})`);
    const cached=response.headers.get('X-Lost-Minutes-From-Cache')==='1';
+   const headerDate=response.headers.get('Date');
    const value=parseLive(await response.json());
-   setLive(value);setFromCache(cached);setLiveFetchedAt(Date.now());setNowMs(Date.now());
+   setLive(value);setFromCache(cached);setServerRef(serverReference(headerDate,value));
+   setLiveFetchedAt(Date.now());setNowMs(Date.now());
   }catch{
    setFromCache(true);
   }finally{setRefreshing(false)}
@@ -104,13 +108,14 @@ export default function Home(){
  const seen=visibleJourneys(filtered,time);
  const count=filtered.reduce((n,j)=>n+j.points.filter(p=>p.time<=time).length,0);
  const reference=nowMs||liveFetchedAt;
- const publishedAge=live?publicationAge(live,liveFetchedAt,reference):null;
+ const publishedAge=live?publicationAge(live,{serverReferenceMs:serverRef||live.publishedAtMs},liveFetchedAt,reference):null;
  const liveMode=feedMode(live,fromCache,online,publishedAge);
  // Archive mode is an explicit, badged choice. It never stands in for live data silently.
  const followMode=usingArchive?'archive':liveMode;
  const followBuses=useMemo(()=>usingArchive
   ?busesFromArchive(data?.journeys??[])
-  :busesFromLive(live,liveFetchedAt,reference),[usingArchive,data,live,liveFetchedAt,reference]);
+  :busesFromLive(live,serverRef||live?.publishedAtMs||0,liveFetchedAt,reference),
+  [usingArchive,data,live,serverRef,liveFetchedAt,reference]);
  const archiveDate=data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):undefined;
  const age=point?Math.max(0,Math.round((time-point.time)/1000)):null;
  const routeLabel=route==='all'?'All routes':route.split('|')[1];
@@ -135,6 +140,7 @@ export default function Home(){
      onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
      publicationAgeSeconds={publishedAge} archiveDate={archiveDate}
      usingArchive={usingArchive}
+     onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}/>
     {usingArchive&&<button className="text-action follow-leave-archive"
      onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}

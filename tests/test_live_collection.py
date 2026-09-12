@@ -322,7 +322,10 @@ class LiveCollectionTests(unittest.TestCase):
         self.run_collector([siri_document([bus(at(-30))]),
                             siri_document([bus(at(-5), lat=53.4715)])], cycles=2)
         measured = self.live()['freshness']['measured']
-        for key in ('publicationDelaySeconds', 'reportIntervalSeconds', 'sourceCadenceSeconds'):
+        self.assertEqual(measured['measuredFor'], 'live_positions')
+        self.assertTrue(measured['isLiveMeasurement'])
+        for key in ('observationToRetrievalSeconds', 'ourCycleSeconds',
+                    'reportIntervalSeconds', 'sourceCadenceSeconds'):
             self.assertIn('samples', measured[key])
             self.assertIn('p50', measured[key])
             self.assertIn('p95', measured[key])

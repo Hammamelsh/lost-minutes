@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {parseLive,parseConfig,DEFAULT_CONFIG,observationAge,publicationAge,freshnessOf,
         ageWords,feedMode,readFavourites,writeFavourites,toggleFavourite,isFavourite,
-        favouriteKey} from '../lib/live.ts';
+        favouriteKey,serverReference} from '../lib/live.ts';
 import {boundsOf,fitProjection,metres} from '../lib/geo.ts';
 
 const published=JSON.parse(readFileSync(new URL('../public/data/live.json',import.meta.url),'utf8'));
 const config=parseConfig(JSON.parse(readFileSync(new URL('../public/data/config.json',import.meta.url),'utf8')));
 
-const POLICY={observationFreshSeconds:60,observationAgeingSeconds:150,observationStaleSeconds:600,
+const POLICY={observationFreshSeconds:60,observationAgeingSeconds:150,
  observationExpirySeconds:900,publicationStaleSeconds:120,futureToleranceSeconds:120,
  pollIntervalSeconds:20,basis:'test'};
 
@@ -36,20 +36,42 @@ test('the contract refuses a state that would mislead',()=>{
 });
 
 test('a wrong clock on the phone cannot make a position look fresh',()=>{
- const live={publishedAtMs:1_000_000};
- const vehicle={observedAtMs:1_000_000-45_000};      // 45s old when published
+ const reference={serverReferenceMs:1_000_000};
+ const vehicle={observedAtMs:1_000_000-45_000};      // 45s old at the moment of fetching
  const fetchedAt=5_000_000;                          // device clock is hours out
- assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt),45);
+ assert.equal(observationAge(vehicle,reference,fetchedAt,fetchedAt),45);
  // Ten more local seconds elapse: age grows by exactly ten, whatever the clock says.
- assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt+10_000),55);
+ assert.equal(observationAge(vehicle,reference,fetchedAt,fetchedAt+10_000),55);
  // A device clock behind the fetch moment must never subtract from the age.
- assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt-60_000),45);
+ assert.equal(observationAge(vehicle,reference,fetchedAt,fetchedAt-60_000),45);
+});
+
+test('when the collector stops, observations keep ageing instead of freezing',()=>{
+ // A state published ten minutes ago, whose newest bus was 15s old when it was written.
+ const live={publishedAtMs:1_000_000};
+ const vehicle={observedAtMs:1_000_000-15_000};
+ const serverNow=1_000_000+600_000;                  // server clock at the moment we fetch
+ const reference={serverReferenceMs:serverReference(new Date(serverNow).toUTCString(),live)};
+ const age=observationAge(vehicle,reference,5_000_000,5_000_000);
+ assert.ok(age>=615-1&&age<=615+1,`expected about 615s, got ${age}`);
+ assert.notEqual(Math.round(age),15,'the age must not freeze at its value when published');
+ // Our own publication is separately reported as ten minutes stale.
+ assert.equal(Math.round(publicationAge(live,reference,5_000_000,5_000_000)),600);
+});
+
+test('the server clock reference is taken from Date, and never trusted backwards',()=>{
+ const live={publishedAtMs:1_000_000};
+ assert.equal(serverReference('Thu, 01 Jan 1970 00:20:00 GMT',live),1_200_000);
+ assert.equal(serverReference(null,live),1_000_000,'no header falls back to publishedAt');
+ assert.equal(serverReference('not a date',live),1_000_000);
+ // A server claiming a time before its own publication is ignored.
+ assert.equal(serverReference('Thu, 01 Jan 1970 00:00:01 GMT',live),1_000_000);
 });
 
 test('publication age measures our own staleness, separately from the observation',()=>{
  const live={publishedAtMs:1_000_000};
- assert.equal(publicationAge(live,1_030_000,1_030_000),30);
- assert.equal(publicationAge(live,1_030_000,1_090_000),90);
+ assert.equal(publicationAge(live,{serverReferenceMs:1_030_000},1_030_000,1_030_000),30);
+ assert.equal(publicationAge(live,{serverReferenceMs:1_030_000},1_030_000,1_090_000),90);
 });
 
 test('freshness thresholds come from the published policy, not the frontend',()=>{
@@ -57,7 +79,10 @@ test('freshness thresholds come from the published policy, not the frontend',()=
  assert.equal(freshnessOf(60,POLICY),'fresh');
  assert.equal(freshnessOf(61,POLICY),'ageing');
  assert.equal(freshnessOf(151,POLICY),'stale');
- assert.equal(freshnessOf(601,POLICY),'expired');
+ assert.equal(freshnessOf(899,POLICY),'stale','still shown right up to the cut-off');
+ assert.equal(freshnessOf(901,POLICY),'expired');
+ // No gap between the last shown band and the withheld one.
+ assert.equal(freshnessOf(POLICY.observationExpirySeconds,POLICY),'stale');
  assert.equal(freshnessOf(null,POLICY),'unknown');
  assert.equal(freshnessOf(-1,POLICY),'ahead_of_clock');
  assert.equal(freshnessOf(undefined,POLICY),'unknown');

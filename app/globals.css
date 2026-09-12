@@ -144,119 +144,153 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(max-width:540px){.ops-measures{grid-template-columns:1fr}.ops-card{padding:18px 16px}
  .ops-card dl>div{flex-direction:column;gap:3px}.ops-card dd{text-align:left}
  .ops .mono.wrap{max-width:100%}.ops-heading{padding:18px 0 0}}
-/* ---- Follow: the passenger view. Mobile first, 44px touch targets, no motion that
-   could be mistaken for a new observation. Lime is selection; freshness has its own ramp. */
-.follow{display:flex;flex-direction:column;gap:14px;padding-bottom:8px}
-.follow-status{border:1px solid #2d4250;border-radius:14px;padding:14px 16px;background:#132330}
-.follow-status.live{border-color:#4c6b39;background:#16281f}
-.follow-status.warn{border-color:#7e6541;background:#2b2519}
-.follow-status.archive{border-color:#7e6541;background:#2b2519}
-.follow-status.idle{border-color:#3a4d5a;background:#16242f}
-.follow-status-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.follow-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;letter-spacing:1.1px}
-.follow-status.live .follow-badge{color:#c6f36a}
-.follow-status.warn .follow-badge,.follow-status.archive .follow-badge{color:#f1c68a}
-.follow-status.idle .follow-badge{color:#a8bcc8}
-.follow-status-date{font-size:12px;color:#9db1bd;font-variant-numeric:tabular-nums}
-.follow-status>p{margin:8px 0 0;font-size:13px;line-height:1.6;color:#a9bcc7}
-.follow-refresh{margin-left:auto;min-width:44px;min-height:44px;display:grid;place-items:center;
+/* ---- Follow: the passenger view. Mobile first. The route picker, the map and the
+   selected bus must all be reachable without scrolling on a phone. Lime means selection;
+   freshness has its own ramp and is never green-for-good. */
+.follow{display:flex;flex-direction:column;gap:10px;padding-bottom:8px}
+.follow-bar{display:flex;align-items:center;gap:10px;border:1px solid #2d4250;border-radius:12px;
+ padding:9px 10px 9px 13px;background:#132330;min-height:50px}
+.follow-bar.live{border-color:#4c6b39;background:#16281f}
+.follow-bar.warn,.follow-bar.archive{border-color:#7e6541;background:#2b2519}
+.follow-bar.idle{border-color:#3a4d5a;background:#16242f}
+.follow-badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:800;
+ letter-spacing:1.1px;white-space:nowrap}
+.follow-bar.live .follow-badge{color:#c6f36a}
+.follow-bar.warn .follow-badge,.follow-bar.archive .follow-badge{color:#f1c68a}
+.follow-bar.idle .follow-badge{color:#a8bcc8}
+.follow-bar-when{flex:1;min-width:0;font-size:13px;color:#a9bcc7;font-variant-numeric:tabular-nums;
+ overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.follow-refresh{flex-shrink:0;min-width:44px;min-height:44px;display:grid;place-items:center;
  background:#1b2d3a;border:1px solid #375060;border-radius:11px;color:#d3e0e5}
 .follow-refresh:disabled{opacity:.55}
-.follow-empty{background:#142430;border:1px solid #324855;border-radius:14px;padding:30px 20px;text-align:center}
-.follow-empty svg{color:#8aa8b9}
-.follow-empty h3{font-size:18px;font-weight:550;margin:12px 0 8px}
-.follow-empty p{font-size:14px;line-height:1.65;color:#a5bac5;margin:0 auto;max-width:46ch}
-.follow-empty .action{margin-top:18px;min-height:44px}
-.follow-controls{display:flex;flex-direction:column;gap:12px}
-.follow-saved{display:flex;flex-direction:column;gap:2px}
-.follow-label{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
- letter-spacing:1px;color:#94aab8;text-transform:uppercase}
-.follow-hint{font-size:12px;color:#94aab8;margin:4px 0 0;line-height:1.5}
-.follow-hint.warn{color:#f1c68a}
-.follow-chips{display:flex;gap:8px;overflow-x:auto;padding:9px 0 3px;scrollbar-width:thin}
-.follow-chip{flex:0 0 auto;min-height:44px;padding:6px 14px;border-radius:11px;border:1px solid #375060;
- background:#172935;color:#dbe7ec;font-size:16px;font-weight:650;display:flex;flex-direction:column;
- align-items:center;justify-content:center;line-height:1.15}
-.follow-chip small{font-size:11px;font-weight:400;color:#9db1bd}
+.follow-pickers{display:flex;gap:8px}
+.picker{flex:1;min-width:0;position:relative;border:1px solid #375060;border-radius:12px;
+ background:#172935;padding:5px 12px 6px;display:flex;flex-direction:column}
+.picker>span{font-size:11px;font-weight:700;letter-spacing:.9px;color:#8fa6b3;text-transform:uppercase}
+.picker select{appearance:none;border:0;background:transparent;color:#eaf4f8;font-size:17px;
+ font-weight:650;padding:0;min-height:30px;width:100%;letter-spacing:-.2px}
+.picker.route select{font-size:21px}
+.picker::after{content:'';position:absolute;right:12px;bottom:18px;width:0;height:0;
+ border:5px solid transparent;border-top-color:#8fa6b3}
+.follow-save{flex-shrink:0;width:52px;min-height:56px;display:grid;place-items:center;
+ border-radius:12px;border:1px solid #375060;background:#172935;color:#9db1bd}
+.follow-save.on{border-color:#8fbf4f;background:#253524;color:#c6f36a}
+.follow-chips{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.follow-chips::-webkit-scrollbar{display:none}
+.follow-chip{flex:0 0 auto;min-height:38px;padding:0 13px;border-radius:10px;border:1px solid #375060;
+ background:#172935;color:#dbe7ec;font-size:15px;font-weight:650;display:inline-flex;align-items:center;gap:6px}
+.follow-chip em{font-style:normal;font-size:11px;font-weight:400;color:#8fa6b3}
 .follow-chip.on{border-color:#8fbf4f;background:#253524;color:#e6ffc4}
-.follow-chip.on small{color:#bfdd9b}
-.follow-chip:disabled{opacity:.4}
-.follow-pickers{display:flex;gap:8px;flex-wrap:wrap}
-.follow-pickers select{flex:1 1 150px;min-height:44px;border-radius:11px;border:1px solid #375060;
- background:#172935;color:#e6f0f4;font-size:15px;padding:0 12px;appearance:none;
- background-image:linear-gradient(45deg,transparent 50%,#8fa6b3 50%),linear-gradient(135deg,#8fa6b3 50%,transparent 50%);
- background-position:calc(100% - 17px) 19px,calc(100% - 12px) 19px;background-size:5px 5px,5px 5px;
- background-repeat:no-repeat}
-.follow-save{min-height:44px;min-width:44px;display:inline-flex;align-items:center;gap:7px;padding:0 15px;
- border-radius:11px;border:1px solid #375060;background:#172935;color:#d3e0e5;font-size:15px;font-weight:600}
-.follow-save.on{border-color:#8fbf4f;background:#253524;color:#dcf5ae}
+.follow-hint{font-size:12px;color:#94aab8;margin:0}
+.follow-hint.warn{color:#f1c68a}
 .follow-map{position:relative;border:1px solid #314452;border-radius:14px;overflow:hidden;background:#0f1e29}
-.follow-map.empty{padding:40px 20px;text-align:center;color:#9db1bd;font-size:14px}
-.follow-map svg{display:block;width:100%;height:auto;aspect-ratio:1;max-width:100%}
-.follow-map-foot{display:flex;align-items:center;gap:8px;padding:9px 13px;background:#13232f;
+.follow-map svg{display:block;width:100%;height:auto;aspect-ratio:1;touch-action:none;cursor:grab}
+.follow-map svg.dragging{cursor:grabbing}
+.follow-map-foot{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#13232f;
  border-top:1px solid #2b3e4c;font-size:12px;color:#9fb2be}
 .mode-dot{width:8px;height:8px;border-radius:50%;background:#7e98a6;flex-shrink:0}
 .mode-dot.live{background:#c6f36a}
-.mode-dot.warn,.mode-dot.archive{background:#f1c68a}
-.bus-halo{fill:none;stroke:#c6f36a;stroke-width:2;opacity:.55}
-.bus-marker-label{fill:#e8f6d5;font-size:19px;font-weight:700;paint-order:stroke;stroke:#0d1b26;stroke-width:5px}
-.follow-selected{background:#142430;border:1px solid #324855;border-radius:14px;padding:16px}
-.follow-selected-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.follow-selected-head strong{display:block;font-size:17px;font-weight:600;margin:9px 0 3px;letter-spacing:-.2px}
-.follow-selected-head small{font-size:12px;color:#9db1bd}
-.route-pill.big{font-size:15px;padding:7px 11px;min-width:44px;display:inline-block}
-.follow-toggle{flex-shrink:0;min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;
- border-radius:11px;border:1px solid #375060;background:#172935;color:#d3e0e5;font-size:14px;font-weight:600}
+.mode-dot.stale,.mode-dot.offline,.mode-dot.archive{background:#f1c68a}
+.follow-map .map-tools{position:absolute;right:11px;top:11px;bottom:auto;display:flex;
+ flex-direction:column;background:#1b303ecc;backdrop-filter:blur(3px);border:1px solid #40545f;
+ border-radius:11px;overflow:hidden}
+.follow-map .map-tools button{height:44px;width:44px;display:grid;place-items:center;color:#d3e0e5;
+ border:0;background:none}
+.follow-map .map-tools button+button{border-top:1px solid #3b4e5b}
+.follow-map .map-tools button.active{color:#c6f36a}
+.bus-marker{cursor:pointer;outline:none}
+.bus-marker:focus-visible>circle{stroke:#fff;stroke-width:4}
+.bus-halo{fill:none;stroke:#c6f36a;stroke-width:2;opacity:.5}
+.bus-marker-route{fill:#1c2b12;font-size:13px;font-weight:800;pointer-events:none}
+.follow-map .place-label{fill:#7d95a1;font-size:16px;letter-spacing:1.6px;font-weight:600;
+ paint-order:stroke;stroke:#0f1e29;stroke-width:5px;pointer-events:none}
+.follow-panel{position:sticky;bottom:8px;z-index:2;background:#152634;border:1px solid #3a5060;
+ border-radius:15px;padding:13px 14px;box-shadow:0 10px 30px #060f1799}
+.follow-panel-main{display:flex;align-items:center;gap:11px}
+.follow-panel-copy{flex:1;min-width:0}
+.follow-panel-copy strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+ overflow:hidden;font-size:17px;font-weight:650;letter-spacing:-.3px;line-height:1.25}
+.follow-panel-copy small{display:block;font-size:13px;color:#a3b7c3;margin-top:2px}
+.route-pill.big{font-size:17px;font-weight:750;padding:9px 11px;min-width:46px;text-align:center;
+ border-radius:9px;background:#2a4150;color:#cbdce3;flex-shrink:0}
+.follow-toggle{flex-shrink:0;min-height:44px;display:inline-flex;align-items:center;gap:7px;
+ padding:0 13px;border-radius:11px;border:1px solid #375060;background:#172935;color:#d3e0e5;
+ font-size:14px;font-weight:600}
 .follow-toggle.on{border-color:#8fbf4f;background:#c6f36a;color:#1b2b11}
-.follow-selected dl{margin:15px 0 0}
-.follow-selected dl>div{display:flex;justify-content:space-between;gap:12px;font-size:13px;
- border-top:1px solid #24394699;padding:9px 0}
-.follow-selected dt{color:#a2b7c3}
-.follow-selected dd{margin:0;text-align:right;color:#e0eaef;font-variant-numeric:tabular-nums}
-.follow-selected .mono{font-family:var(--font-mono);font-size:12px;overflow-wrap:anywhere}
-.follow-note{display:flex;gap:8px;align-items:flex-start;margin:13px 0 0;font-size:12px;
- line-height:1.6;color:#9fb2be}
-.follow-note svg{flex-shrink:0;margin-top:2px}
-.follow-list{background:#142430;border:1px solid #324855;border-radius:14px;padding:14px 12px}
-.follow-list-head{display:flex;align-items:center;gap:9px;padding:0 4px 6px;color:#9cc0d0}
-.follow-list-head h3{font-size:14px;font-weight:600;margin:0;color:#e0e9ee}
-.follow-row{display:flex;width:100%;align-items:center;gap:11px;min-height:56px;padding:9px;
+.follow-panel-warn,.follow-panel-note{margin:11px 0 0;font-size:12px;line-height:1.6;color:#a7bac5;
+ border-left:2px solid #3c5464;padding-left:10px}
+.follow-panel-warn{color:#e7c79a;border-left-color:#7e6541}
+.follow-details-toggle{display:inline-flex;align-items:center;gap:7px;margin-top:11px;min-height:38px;
+ background:none;border:0;padding:0;color:#a9c5d3;font-size:13px;font-weight:600}
+.follow-details-toggle svg{transition:transform .18s ease}
+.follow-details-toggle svg.open{transform:rotate(180deg)}
+.follow-details{margin:6px 0 0;border-top:1px solid #2a3f4c;padding-top:8px}
+.follow-details>div{display:flex;justify-content:space-between;gap:14px;padding:7px 0;font-size:13px;
+ border-bottom:1px solid #24394699}
+.follow-details>div:last-child{border-bottom:0}
+.follow-details dt{color:#a2b7c3;flex-shrink:0;max-width:38%}
+.follow-details dd{margin:0;text-align:right;color:#dfeaef;line-height:1.55}
+.follow-details dd small{display:block;font-family:var(--font-mono);font-size:11px;color:#93a9b6;margin-top:2px}
+.follow-details .mono{font-family:var(--font-mono);font-size:12px}
+.follow-empty{background:#142430;border:1px solid #324855;border-radius:14px;padding:28px 20px;text-align:center}
+.follow-empty.small{padding:20px 16px;text-align:left}
+.follow-empty svg{color:#8aa8b9}
+.follow-empty h3{font-size:17px;font-weight:600;margin:10px 0 7px}
+.follow-empty p{font-size:14px;line-height:1.65;color:#a5bac5;margin:0 auto;max-width:52ch}
+.follow-empty.small p{margin:0}
+.follow-empty .action{margin-top:16px;min-height:46px}
+.follow-empty-aside{font-size:13px;color:#94aab8;margin-top:10px!important;line-height:1.6}
+.follow-suggest{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:13px}
+.follow-suggest>span{font-size:12px;color:#94aab8}
+.follow-suggest button{min-height:40px;padding:0 12px;border-radius:10px;border:1px solid #375060;
+ background:#1a2c38;color:#dbe7ec;font-size:15px;font-weight:650;display:inline-flex;align-items:center;gap:6px}
+.follow-suggest em{font-style:normal;font-size:11px;color:#8fa6b3}
+.follow-list{background:#142430;border:1px solid #324855;border-radius:14px;padding:6px}
+.follow-row{display:flex;width:100%;align-items:center;gap:11px;min-height:58px;padding:8px 9px;
  border:1px solid transparent;background:transparent;color:#e0e9ee;border-radius:11px;text-align:left}
 .follow-row.on{border-color:#526b3b;background:#263629}
 .follow-row-copy{flex:1;min-width:0}
 .follow-row-copy strong{display:block;font-size:15px;font-weight:600;white-space:nowrap;
  overflow:hidden;text-overflow:ellipsis}
 .follow-row-copy small{font-size:12px;color:#9db1bd}
-.fresh-chip{flex-shrink:0;font-size:11px;font-weight:700;letter-spacing:.3px;padding:5px 8px;
- border-radius:6px;border:1px solid;white-space:nowrap}
+.fresh-chip{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 8px;border-radius:6px;
+ border:1px solid;white-space:nowrap}
 .fresh-chip.fresh{border-color:#4c6b39;background:#233021;color:#c2e39a}
 .fresh-chip.ageing{border-color:#7e6541;background:#2e2719;color:#f1c68a}
 .fresh-chip.stale{border-color:#7d5a43;background:#33241c;color:#f0c0a0}
 .fresh-chip.expired,.fresh-chip.ahead_of_clock{border-color:#7d4343;background:#331f1f;color:#f0a8a8}
 .fresh-chip.unknown{border-color:#3d5260;background:#1b2c38;color:#9db1bd}
 .fresh-chip.archive{border-color:#3d5260;background:#1b2c38;color:#cfe0ea;font-family:var(--font-mono)}
-.follow-notes{margin:2px 0 0;padding-left:19px;list-style:square}
+.how-it-works{background:#132330;border:1px solid #2d4250;border-radius:13px;padding:0 15px}
+.how-it-works summary{min-height:50px;display:flex;align-items:center;font-size:14px;font-weight:600;
+ color:#d6e4ea;cursor:pointer;list-style:none}
+.how-it-works summary::-webkit-details-marker{display:none}
+.how-it-works summary::after{content:'+';margin-left:auto;font-size:19px;color:#8fa6b3}
+.how-it-works[open] summary::after{content:'−'}
+.how-it-works ol{margin:0 0 12px;padding-left:19px}
+.how-it-works li{font-size:13px;line-height:1.75;color:#a9bcc7;margin-bottom:9px}
+.how-it-works strong{color:#dfeaef;font-weight:650}
+.how-it-works>p{font-size:13px;line-height:1.7;color:#9fb2be;margin:0 0 15px;padding-top:10px;
+ border-top:1px solid #2a3f4c}
+.follow-notes{margin:0;padding-left:19px;list-style:square}
 .follow-notes li{font-size:12px;line-height:1.85;color:#8ca1ae}
-.follow-leave-archive{margin-top:14px}
-@media(min-width:800px){
- /* Row 3 is the flexible one, so the map's spare height collects there instead of being
-    shared out and opening a gap between the selection card and the list. */
- .follow{display:grid;grid-template-columns:minmax(0,1fr) 360px;
-  grid-template-rows:auto auto 1fr auto;gap:16px;align-items:start}
- .follow-status{grid-column:1;grid-row:1}
- /* The map fills whatever height the right-hand column needs, and the SVG letterboxes
-    inside it, so neither column ever leaves a void. */
- .follow-map{grid-column:1;grid-row:2/4;align-self:stretch;display:flex;flex-direction:column;
-  min-height:540px}
- .follow-empty{grid-column:1/-1}
- .follow-controls{grid-column:2;grid-row:1;align-self:start}
- .follow-selected{grid-column:2;grid-row:2;align-self:start}
- .follow-list{grid-column:2;grid-row:3;align-self:start;max-height:52vh;overflow-y:auto}
- .follow-notes{grid-column:1/-1;grid-row:4}
- .follow-leave-archive{grid-column:1/-1}
+.follow-leave-archive{margin-top:4px}
+@media(min-width:820px){
+ .follow{display:grid;grid-template-columns:minmax(0,1fr) 380px;
+  grid-template-rows:auto auto auto 1fr auto;gap:14px;align-items:start}
+ .follow-bar{grid-column:1;grid-row:1}
+ .follow-map{grid-column:1;grid-row:2/6;align-self:stretch;display:flex;flex-direction:column;
+  min-height:560px}
  .follow-map svg{flex:1;min-height:0;height:auto;aspect-ratio:auto}
+ .follow-pickers{grid-column:2;grid-row:1}
+ .follow-chips,.follow-hint{grid-column:2;grid-row:2}
+ .follow-panel{grid-column:2;grid-row:3;position:static;box-shadow:none}
+ .follow-empty{grid-column:2;grid-row:3}
+ .follow-list{grid-column:2;grid-row:4;align-self:start;max-height:46vh;overflow-y:auto}
+ .how-it-works{grid-column:1/-1;grid-row:6}
+ .follow-notes{grid-column:1/-1;grid-row:7}
+ .follow-leave-archive{grid-column:1/-1;grid-row:8}
 }
-@media(min-width:1100px){.follow{grid-template-columns:minmax(0,1fr) 390px}}
 /* Four views do not fit across a phone. The tab strip scrolls inside itself rather than
    widening the page, and keeps 44px touch targets. */
 @media(max-width:700px){
@@ -274,11 +308,10 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .page-heading.compact{padding:20px 0 14px;display:block}
 .page-heading.compact h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.1px;margin:0 0 6px}
 .page-heading.compact .intro{font-size:14px;max-width:46ch}
+/* On a phone the passenger view earns its first screen: the masthead and the status strip
+   already say what this is, so the hero stands down and the picker and map come up. */
 @media(max-width:700px){
- .page-heading.compact{padding:14px 0 10px}
- .page-heading.compact h1{font-size:25px;letter-spacing:-.8px}
- .page-heading.compact .eyebrow{margin-bottom:6px}
- .page-heading.compact .intro{font-size:13px}
+ .page-heading.compact{display:none}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 /* Bus markers never animate between positions: an eased move would imply a fix we never

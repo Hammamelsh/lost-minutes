@@ -36,13 +36,16 @@ const liveSchema = z.object({
  freshness:z.object({
   policy:z.object({
    observationFreshSeconds:z.number(), observationAgeingSeconds:z.number(),
-   observationStaleSeconds:z.number(), observationExpirySeconds:z.number(),
+   observationExpirySeconds:z.number(),
    publicationStaleSeconds:z.number(), futureToleranceSeconds:z.number(),
    pollIntervalSeconds:z.number(), basis:z.string(),
   }),
   measured:z.object({
-   publicationDelaySeconds:summarySchema, reportIntervalSeconds:summarySchema,
-   sourceCadenceSeconds:summarySchema, caveat:z.string(),
+   measuredFor:z.string(), measurementLabel:z.string(), isLiveMeasurement:z.boolean(),
+   observationToSourcePublicationSeconds:summarySchema,
+   observationToRetrievalSeconds:summarySchema, ourCycleSeconds:summarySchema,
+   reportIntervalSeconds:summarySchema, sourceCadenceSeconds:summarySchema,
+   caveat:z.string(),
   }).nullable(),
  }),
  vehicles:z.array(vehicleSchema),
@@ -88,23 +91,38 @@ export function parseConfig(value:unknown):SiteConfig{
  *  are five different things and are never collapsed into one "last updated". */
 export type FeedMode = 'live'|'stale'|'offline'|'unavailable'|'archive';
 
+/** What the server's clock read when we fetched, from the HTTP Date header.
+ *
+ * This is the reference every age is measured against. Using the payload's publishedAt
+ * instead would freeze every age the moment the collector stopped: a state published ten
+ * minutes ago would still claim its buses reported fifteen seconds ago. Date is a
+ * CORS-safelisted response header, so it stays readable if the state moves to another host.
+ */
+export function serverReference(headerDate:string|null|undefined,live:{publishedAtMs:number}){
+ const parsed=headerDate?Date.parse(headerDate):NaN;
+ // Never accept a server clock that predates its own publication.
+ return Number.isFinite(parsed)&&parsed>=live.publishedAtMs?parsed:live.publishedAtMs;
+}
+
 /**
  * Age of the observation, in seconds, immune to a wrong clock on this device.
  *
- * The server-side part of the age is measured entirely by the publisher's clock
- * (publishedAtMs - observedAtMs). Only the time *elapsed locally since we fetched* is
- * added, which a clock offset cannot affect.
+ * The historical part is measured entirely on the server's clock
+ * (serverReferenceMs - observedAtMs). Only time *elapsed locally since the fetch* is added,
+ * which a device clock offset cannot affect.
  */
-export function observationAge(vehicle:{observedAtMs:number},live:{publishedAtMs:number},
+export function observationAge(vehicle:{observedAtMs:number},reference:{serverReferenceMs:number},
                                fetchedAtMs:number,nowMs:number=Date.now()){
- const atPublication=(live.publishedAtMs-vehicle.observedAtMs)/1000;
+ const atFetch=(reference.serverReferenceMs-vehicle.observedAtMs)/1000;
  const sinceFetch=Math.max(0,(nowMs-fetchedAtMs)/1000);
- return atPublication+sinceFetch;
+ return atFetch+sinceFetch;
 }
 
 /** Age of our own published state: how long since the collector last wrote it. */
-export function publicationAge(live:{publishedAtMs:number},fetchedAtMs:number,nowMs:number=Date.now()){
- return Math.max(0,(fetchedAtMs-live.publishedAtMs)/1000)+Math.max(0,(nowMs-fetchedAtMs)/1000);
+export function publicationAge(live:{publishedAtMs:number},reference:{serverReferenceMs:number},
+                               fetchedAtMs:number,nowMs:number=Date.now()){
+ const atFetch=Math.max(0,(reference.serverReferenceMs-live.publishedAtMs)/1000);
+ return atFetch+Math.max(0,(nowMs-fetchedAtMs)/1000);
 }
 
 export type Freshness = 'fresh'|'ageing'|'stale'|'expired'|'unknown'|'ahead_of_clock';
@@ -114,7 +132,9 @@ export function freshnessOf(ageSeconds:number|null|undefined,policy:FreshnessPol
  if(ageSeconds<0)return 'ahead_of_clock';
  if(ageSeconds<=policy.observationFreshSeconds)return 'fresh';
  if(ageSeconds<=policy.observationAgeingSeconds)return 'ageing';
- if(ageSeconds<=policy.observationStaleSeconds)return 'stale';
+ // The last shown band ends where the withheld band begins, so a bus is either drawn with
+ // an honest age or not drawn at all. No position falls in a gap between the two.
+ if(ageSeconds<=policy.observationExpirySeconds)return 'stale';
  return 'expired';
 }
 

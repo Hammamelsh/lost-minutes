@@ -505,7 +505,9 @@ def record_timetable(con, run_id, **fields):
          fields.get('stored_path'), fields.get('byte_size'), fields.get('retrieved_at'),
          fields.get('effective_from'), fields.get('effective_to'),
          fields.get('modification_datetime'), fields.get('dataset_label'), run_id,
-         'Stored for future validation. No journey match has been established.'])
+         ' '.join(filter(None, [
+             fields.get('coverage'),
+             'Stored for future validation. No journey match has been established.']))])
 
 
 # ------------------------------------------------------------------- reading back

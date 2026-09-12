@@ -49,7 +49,8 @@ the eleven named snapshots, caches them under data/raw/, and regenerates the rep
 This is unnecessary just to run the website. Keep raw downloads out of Git.
 
 Read docs/CLAUDE_HANDOFF.md for the next coding session, docs/REVIEW.md for the verified
-critique and visual direction, and docs/EXPORT_VERIFICATION.md for actual export checks.
+critique and visual direction, docs/EXPORT_VERIFICATION.md for actual export checks, and
+docs/LOCAL_VERIFICATION.md for the measured results of the first local WSL session.
 
 ## Live capture
 

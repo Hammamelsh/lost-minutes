@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 12 September 2026 (after the first real BODS capture).
+Last updated: 13 September 2026 (stop catalogue and timetable pattern matching).
 
 ## Product goal
 
@@ -25,13 +25,17 @@ cannot justify is shown as unknown, withheld or refused — never filled in.
 
 ```
 BODS SIRI-VM feed ─┐                        one shared collector, single writer
-public archive ────┴─> data/raw, data/live-capture   raw bytes, content-addressed, not in Git
+public archive ────┤
+NaPTAN (ATCO 180) ─┤
+TfGM TransXChange ─┴─> data/raw, data/live-capture   raw bytes, content-addressed, not in Git
                        │
                        ├─> DuckDB (data/warehouse)  sources, runs, cycles, observations,
-                       │                            conflicts, quarantine, publications
+                       │      conflicts, quarantine, publications, stops, service patterns
                        │
                        ├─> public/data/replay.json      archive snapshot (validated, atomic)
-                       ├─> public/data/live.json        live state  (validated, atomic)
+                       ├─> public/data/live.json        live state + per-bus pattern match
+                       ├─> public/data/stops.json       1,709 boarding points, 121 routes
+                       ├─> public/data/patterns.json    44 ordered stop sequences
                        ├─> public/data/operations.json  pipeline truth
                        └─> public/data/config.json      runtime pointers
                                      │
@@ -77,6 +81,14 @@ that reported again without moving is preserved. That is not evidence it stood s
 string is kept verbatim in `recorded_at_text`). `retrieved_at` is when we fetched the
 response. `published_at` is when we wrote the file. The age shown to a passenger is always
 the age of the observation.
+
+**Stop identity** — a stop is a physical boarding point with an ATCO code. Two stops can
+share a name and face opposite ways; NaPTAN's indicator ("Stop A", "opp") and bearing (the
+direction a bus travels there) are what tell them apart.
+
+**Service pattern** — one ordered list of stops a service calls at, from TransXChange. One
+route label has several: directions, branches and short workings. A bus is placed *on a
+pattern*, never merely near a passenger, and a refusal carries its reason.
 
 **Freshness policy** (`pipeline/freshness.py`), derived from measurement, not taste:
 fresh ≤ 60s, ageing ≤ 150s, stale ≤ 900s, expired > 900s. The last shown band ends exactly
@@ -181,15 +193,33 @@ proves that run, not long-term reliability):
 - The service worker caches published JSON for offline use. It has no background sync and
   does no background location tracking.
 
+## Stop and timetable coverage
+
+- **1,709 active bus stops** inside the collected area, from NaPTAN ATCO area 180 (21,526 rows
+  in; the rest are outside the area, inactive, or not bus stops). 1,672 carry a bearing.
+- **44 publishable service patterns** across **13 route labels** (111, 135, 142, 143, 18, 192,
+  219, 30, 42, 43, 50, 53, 86), from 3,278 journey patterns that collapse to 78 distinct stop
+  sequences. A pattern is published only when at least 60% of its stops lie inside the
+  collected area and it has at least 5 stops.
+- On the real capture, **113 of 376 vehicles** matched a pattern. The rest are refused with a
+  reason, overwhelmingly `no_pattern_for_route`: we hold patterns for 13 of the 85 route
+  labels observed, and the interface says so rather than guessing.
+
 ## Next priorities
 
-1. **Decide on hosting** so collection runs when this machine does not. A costed proposal is
+1. **MapLibre basemap.** The map now has roads, place labels, the stop marker, pan and zoom,
+   but no street names or landmarks. A vector basemap (OpenFreeMap was the suggested provider)
+   would answer "is this my stop" far better. Deferred deliberately in favour of the timetable
+   matching below, which was the harder and more defensible work; it needs a WebGL and
+   tile-failure fallback, which the current SVG map already provides.
+2. **Decide on hosting** so collection runs when this machine does not. A costed proposal is
    in `docs/HOSTING.md`: one Hetzner CX22 with systemd and Cloudflare, about £3–5 a month.
    Needs your approval before anything is provisioned.
-2. Run collection for a sustained period and measure what a bounded ten minutes cannot:
+3. Run collection for a sustained period and measure what a bounded ten minutes cannot:
    overnight reliability, recovery from a real outage, and storage growth against the
    estimate of 0.13 GB/day.
-3. Validate route and stop relationships, which unlocks the first honest measurement.
+4. Widen pattern coverage beyond 13 route labels, and use the per-link run times already in
+   TransXChange to attempt a scheduled-time comparison.
 
 See also: `docs/HOSTING.md` (costed hosting proposal), `docs/PIPELINE.md` (data model and recovery), `docs/BACKLOG.md` (what is not being
 built yet and why), `docs/LOCAL_VERIFICATION.md` (measured results), `docs/REVIEW.md`

@@ -14,6 +14,7 @@ import FollowView from '@/components/follow-view';
 import {busesFromArchive,busesFromLive} from '@/lib/follow';
 import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
+import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -53,6 +54,7 @@ export default function Home(){
  const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
  const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
  const [catalogue,setCatalogue]=useState<Catalogue|null>(null);
+ const [patterns,setPatterns]=useState<PatternCatalogue|null>(null);
  const [stop,setStop]=useState<Stop|null>(null);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  const [nowMs,setNowMs]=useState(0);
@@ -60,6 +62,8 @@ export default function Home(){
  const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
  useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/stops.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
  .then(value=>{if(value)setCatalogue(parseCatalogue(value))}).catch(()=>{});
+ fetch('/data/patterns.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
+ .then(value=>{if(value)setPatterns(parsePatterns(value))}).catch(()=>{});
  fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
  // Published state is polled; the page never contacts the data service itself.
  const loadLive=useCallback(async(target:string)=>{
@@ -149,6 +153,7 @@ export default function Home(){
   ?busesFromArchive(data?.journeys??[])
   :busesFromLive(live,serverRef||live?.publishedAtMs||0,liveFetchedAt,reference),
   [usingArchive,data,live,serverRef,liveFetchedAt,reference]);
+ const patternsById=useMemo(()=>patternIndex(patterns),[patterns]);
  const archiveDate=data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):undefined;
  const age=point?Math.max(0,Math.round((time-point.time)/1000)):null;
  const routeLabel=route==='all'?'All routes':route.split('|')[1];
@@ -174,6 +179,7 @@ export default function Home(){
      publicationAgeSeconds={publishedAge} ageBasis={ageBasis} archiveDate={archiveDate}
      usingArchive={usingArchive}
      stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
+     patterns={patterns} patternsById={patternsById}
      onLocate={locate} locating={locating} locationError={locationError}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}/>

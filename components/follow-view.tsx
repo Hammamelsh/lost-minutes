@@ -4,6 +4,8 @@ import {useMemo,useState,useSyncExternalStore} from 'react';
 import {ChevronDown,Clock3,Crosshair,MapPin,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import StopSearch from '@/components/stop-search';
+import {alongRouteWords,patternsCallingAt,relateToStop,relationWords,type PatternCatalogue,
+        type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {distanceWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,
         stopDetail,stopPlace,straightLineMetres,subscribeSavedStops,toggleSavedStop,
         type Stop} from '@/lib/stops';
@@ -23,12 +25,13 @@ const MODE:Record<FeedMode,{label:string;tone:string;line:string}>={
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
-                                    onLocate,locating,locationError}:{
+                                    onLocate,locating,locationError,patterns,patternsById}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
  onOpenEvidence:()=>void;stops:Stop[];stop:Stop|null;onSelectStop:(stop:Stop|null)=>void;
- onLocate?:()=>void;locating?:boolean;locationError?:string}){
+ onLocate?:()=>void;locating?:boolean;locationError?:string;
+ patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
  const [blocked,setBlocked]=useState(false);
@@ -41,11 +44,19 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const availableIds=useMemo(()=>available.map(r=>r.id),[available]);
 
  // The user's choice is kept even when its buses disappear. We never switch route silently.
+ // What to show before the user has chosen: a saved route that is running, else a route the
+ // timetable says calls at their stop, else whichever reported most recently. This is a
+ // default, never a switch: an explicit choice is kept even when its buses disappear.
  const fallback=useMemo(()=>{
   const saved=favourites.find(f=>availableIds.includes(`${f.operator}|${f.route}`));
   if(saved)return {route:`${saved.operator}|${saved.route}`,direction:saved.direction};
+  if(stop){
+   const serving=new Set(patternsCallingAt(patterns,stop.id).map(p=>p.line));
+   const match=available.find(r=>serving.has(routeNumber(r.id)));
+   if(match)return {route:match.id,direction:'all'};
+  }
   return {route:available[0]?.id??'',direction:'all'};
- },[favourites,available,availableIds]);
+ },[favourites,available,availableIds,stop,patterns]);
  const active=choice??fallback;
  const {route,direction}=active;
 
@@ -60,7 +71,30 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    : filtered.sort((a,b)=>b.observedAtMs-a.observedAtMs);
  },[onRoute,direction,stop]);
  const directions=useMemo(()=>Array.from(new Set(onRoute.map(b=>b.direction).filter(Boolean))),[onRoute]);
- const selected=shown.find(b=>b.key===selectedKey)??shown[0];
+ const relations=useMemo(()=>{
+  const map=new Map<string,StopRelation>();
+  if(stop)for(const bus of shown)map.set(bus.key,relateToStop(bus,stop.id,patternsById));
+  return map;
+ },[shown,stop,patternsById]);
+ // Buses confirmed to be coming to this stop lead, nearest along the route first.
+ const ordered=useMemo(()=>{
+  if(!stop)return shown;
+  const rank=(key:string)=>{
+   const relation=relations.get(key);
+   if(relation?.kind==='approaching')return [0,relation.stopsAway] as const;
+   if(relation?.kind==='at_stop')return [1,0] as const;
+   if(relation?.kind==='unresolved'||relation?.kind==='no_pattern_data')return [2,0] as const;
+   if(relation?.kind==='passed')return [3,relation.stopsPast] as const;
+   return [4,0] as const;
+  };
+  return [...shown].sort((a,b)=>{
+   const ra=rank(a.key),rb=rank(b.key);
+   return ra[0]-rb[0]||ra[1]-rb[1];
+  });
+ },[shown,stop,relations]);
+ const selected=ordered.find(b=>b.key===selectedKey)??ordered[0];
+ const selectedRelation=selected&&stop?relations.get(selected.key):undefined;
+ const servingPatterns=stop?patternsCallingAt(patterns,stop.id):[];
 
  const current:Favourite|null=route
   ?{operator:route.split('|')[0],route:routeNumber(route),direction}:null;
@@ -96,6 +130,9 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
        <small>{stopDetail(stop)||'No side-of-road detail supplied'}</small>
        {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
       </span>
+      <span className="your-stop-support">{servingPatterns.length>0
+       ? `Timetable-supported here: route ${[...new Set(servingPatterns.map(p=>p.line))].slice(0,8).join(', ')}`
+       : 'No timetabled pattern for this stop is supported yet, so buses can be shown near it but not confirmed as calling here.'}</span>
       <span className="your-stop-actions">
        <button className={savedStopIds.includes(stop.id)?'on':''}
         aria-pressed={savedStopIds.includes(stop.id)}
@@ -150,7 +187,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   </div>}
   {blocked&&<p className="follow-hint warn">This device would not let us save the route. It still works for this visit.</p>}
 
-  {buses.length>0&&<FollowMap buses={shown} selected={selected} follow={follow} roads={roads}
+  {buses.length>0&&<FollowMap buses={ordered} selected={selected} follow={follow} roads={roads}
    mode={mode} stop={stop} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>}
 
   {/* Four different situations, told apart in plain words rather than one vague message. */}
@@ -178,7 +215,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     Follow a bus in the recording</button>}
   </div>}
 
-  {buses.length>0&&shown.length===0&&<div className="follow-empty small">
+  {buses.length>0&&ordered.length===0&&<div className="follow-empty small">
    <Clock3 size={20}/>
    <h3>No buses on route {routeNumber(route)} right now</h3>
    <p>Nothing on this route has reported in the last {expiryMinutes} minutes, so there is
@@ -204,6 +241,19 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
      <Crosshair size={18}/><span>{follow?'Following':'Follow'}</span></button>
    </div>
+   {stop&&selectedRelation&&<p className={`follow-relation ${selectedRelation.kind}`}>
+    <strong>{relationWords(selectedRelation)}</strong>
+    {selectedRelation.kind==='approaching'&&
+     <span> · {alongRouteWords(selectedRelation.alongRouteMetres)} · counted along the
+      timetabled stop order, accurate to about one stop, and not a time</span>}
+    {selectedRelation.kind==='does_not_call'&&
+     <span> · it is running {selectedRelation.pattern.destination||'another branch'}, which
+      does not include your stop</span>}
+    {selectedRelation.kind==='unresolved'&&<span> · {selectedRelation.explanation}</span>}
+    {selectedRelation.kind==='no_pattern_data'&&
+     <span> · no timetable pattern is held for this route, so its relationship to your stop
+      is unknown</span>}
+   </p>}
    {mode!=='archive'&&selected.freshness==='stale'&&<p className="follow-panel-warn">
     This bus has not reported for a while. It may have finished its journey, lost signal, or
     be in a spot with no coverage — we cannot tell which, so we show the last report and its age.</p>}
@@ -231,15 +281,16 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     Source file, fingerprint and full observation table in Evidence</button>}
   </div>}
 
-  {shown.length>1&&<div className="follow-list">
+  {ordered.length>1&&<div className="follow-list">
    <p className="follow-list-head">Other buses on route {routeNumber(route)}</p>
-   {shown.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
+   {ordered.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
      className={`follow-row ${bus.key===selected?.key?'on':''}`} aria-pressed={bus.key===selected?.key}>
     <span className="route-pill">{bus.route}</span>
     <span className="follow-row-copy">
      <strong>{destinationLabel(bus.destination)}</strong>
      <small>{[directionLabel(bus.direction),
-              stop?`${straightLineMetres(stop,bus)} m away`:''].filter(Boolean).join(' · ')}</small></span>
+              stop?relationWords(relations.get(bus.key)??{kind:'no_pattern_data'}):''
+             ].filter(Boolean).join(' · ')}</small></span>
     {mode==='archive'
      ?<span className="fresh-chip archive">{clock(bus.observedAtMs,true)}</span>
      :<span className={`fresh-chip ${bus.freshness??'unknown'}`}>{bus.ageWords.replace('reported ','')}</span>}

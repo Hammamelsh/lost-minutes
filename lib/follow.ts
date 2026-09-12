@@ -1,7 +1,7 @@
 // Type-only names are imported as types so the file runs under Node's type stripping as
 // well as through the bundler.
 import {ageWords,freshnessOf,observationAge} from '@/lib/live';
-import type {Freshness,LiveState} from '@/lib/live';
+import type {Freshness,LiveState,LiveVehicle} from '@/lib/live';
 import {cleanLabel} from '@/lib/replay';
 import type {Journey} from '@/lib/replay';
 
@@ -11,6 +11,9 @@ export type FollowBus = {
  destination:string;lat:number;lon:number;observedAtMs:number;recordedAt:string;
  retrievedAt?:string;ageSeconds:number|null;freshness:Freshness|null;ageWords:string;
  sourceHash:string;
+ /** Where the timetable places this bus, or why it could not be placed. Carried through
+  *  from the published state so the map, the card and the list all say the same thing. */
+ match?:LiveVehicle['match'];
 };
 
 export const routeId = (bus:{operator:string;route:string}) => `${bus.operator}|${bus.route}`;
@@ -40,7 +43,7 @@ export function busesFromLive(live:LiveState|null,serverReferenceMs:number,
    direction:v.direction,journeyRef:v.journeyRef,destination:v.destination??'',
    lat:v.lat,lon:v.lon,observedAtMs:v.observedAtMs,recordedAt:v.recordedAt,
    ageSeconds:age,freshness:freshnessOf(age,live.freshness.policy),ageWords:ageWords(age),
-   sourceHash:v.sourceHash};
+   sourceHash:v.sourceHash,match:v.match};
  }).filter(b=>b.freshness!=='expired');
 }
 

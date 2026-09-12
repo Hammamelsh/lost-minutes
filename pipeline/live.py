@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .core import BBOX, atomic_json, utc_now
 from .freshness import EXPIRY, label, measure, policy
+from .match import match_all
 from .warehouse import DEFAULT_DB, connect
 
 LIVE_TARGET = Path('public/data/live.json')
@@ -91,6 +92,14 @@ def build_live(con, published_at=None):
         item['positionKind'] = 'observed'
         vehicles.append(item)
 
+    # Place each published bus on a service pattern where the timetable supports it. A bus
+    # that cannot be placed carries the reason instead, and is still shown as a position.
+    try:
+        matching = match_all(con, vehicles)
+    except Exception as error:                      # patterns not built yet
+        matching = {'matched': 0, 'unmatched': len(vehicles),
+                    'reasons': {'patterns_unavailable': type(error).__name__}}
+
     cycles = con.execute("""
         SELECT count(*), count(*) FILTER (WHERE outcome = 'succeeded'),
                count(*) FILTER (WHERE outcome = 'repeat_payload'),
@@ -146,6 +155,7 @@ def build_live(con, published_at=None):
             'sharedCollector': True,
         },
         'freshness': {'policy': policy(), 'measured': measure(con, LIVE_KIND)},
+        'matching': matching,
         'vehicles': vehicles,
         'withheld': {
             'expiredPositions': expired,

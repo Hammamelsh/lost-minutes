@@ -13,6 +13,14 @@ const vehicleSchema = z.object({
  // Stated by the publisher on every position. An estimate would have to say so.
  positionKind:z.literal('observed'),
  sourceHash:z.string().regex(/^[a-f0-9]{64}$/),
+ // Where the timetable places this bus, or why it could not be placed. Never a guess.
+ match:z.union([
+  z.object({patternId:z.string(),patternIndex:z.number().int().nonnegative(),
+            nearestStop:z.string(),metresAlongPattern:z.number(),
+            metresFromPatternStop:z.number(),
+            patternDirection:nullableString,patternDestination:nullableString}),
+  z.object({unresolved:z.string(),explanation:z.string()}),
+ ]).optional(),
 });
 
 const summarySchema = z.object({
@@ -33,6 +41,7 @@ const liveSchema = z.object({
   cycles:count, succeeded:count, repeatPayloads:count, failed:count,
   consecutiveFailures:count, sharedCollector:z.boolean(),
  }),
+ matching:z.object({matched:count,unmatched:count,reasons:z.record(z.number())}).optional(),
  freshness:z.object({
   policy:z.object({
    observationFreshSeconds:z.number(), observationAgeingSeconds:z.number(),

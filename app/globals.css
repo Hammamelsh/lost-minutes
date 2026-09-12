@@ -248,7 +248,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .your-stop-copy strong{display:block;font-size:16px;font-weight:650;letter-spacing:-.2px}
 .your-stop-copy small{display:block;font-size:12px;color:#a7bcc8;margin-top:2px}
 .your-stop-copy em{font-style:normal;display:block;font-size:11px;color:#8298a6;margin-top:2px}
-.your-stop-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.your-stop-actions{display:flex;gap:7px;flex-shrink:0;margin-left:auto}
 .your-stop-actions button{min-height:38px;min-width:44px;padding:0 10px;border-radius:9px;
  border:1px solid #375060;background:#172935;color:#d3e0e5;font-size:13px;font-weight:600;
  display:inline-flex;align-items:center;gap:6px;justify-content:center}
@@ -277,6 +277,18 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  padding:0 13px;border-radius:11px;border:1px solid #375060;background:#172935;color:#d3e0e5;
  font-size:14px;font-weight:600}
 .follow-toggle.on{border-color:#8fbf4f;background:#c6f36a;color:#1b2b11}
+.your-stop-support{display:block;font-size:12px;line-height:1.55;color:#a7bcc8;margin-top:8px;
+ flex-basis:100%;order:3}
+.your-stop-actions{order:4;margin-top:8px}
+.follow-relation{margin:11px 0 0;font-size:13px;line-height:1.6;padding:9px 11px;border-radius:9px;
+ border:1px solid #3c5464;background:#16262f;color:#c3d4dd}
+.follow-relation strong{color:#eaf4f8;font-weight:650}
+.follow-relation.approaching{border-color:#4c6b39;background:#1b2a1d}
+.follow-relation.approaching strong{color:#d7f5a4}
+.follow-relation.passed,.follow-relation.does_not_call{border-color:#7d5a43;background:#2a1f19}
+.follow-relation.passed strong,.follow-relation.does_not_call strong{color:#f0c0a0}
+.follow-relation.unresolved,.follow-relation.no_pattern_data{border-color:#44586a}
+.your-stop{flex-wrap:wrap}
 .follow-panel-warn,.follow-panel-note{margin:11px 0 0;font-size:12px;line-height:1.6;color:#a7bac5;
  border-left:2px solid #3c5464;padding-left:10px}
 .follow-panel-warn{color:#e7c79a;border-left-color:#7e6541}

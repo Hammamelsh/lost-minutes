@@ -16,8 +16,8 @@ than filled in. Counts are reconciled rather than asserted: the totals in the Ev
 Operations views add up to the inputs they came from, including the records that were
 rejected or suppressed and why.
 
-Current stage: a historical replay of an 11-snapshot public archive sample, with a local
-DuckDB history of every input, run and publication behind it. It is deliberately **not** a
+Current stage: a historical replay of an 11-snapshot public archive sample, with a local,
+restartable DuckDB history of every input, run and publication behind it. It is deliberately **not** a
 live service, a punctuality monitor or a delay predictor — timetable identity, stop-passage
 inference and scheduled-service coverage are not yet validated, so no such figure is shown.
 Roadmap work is tracked in `research/IMPLEMENTED.md`.
@@ -35,6 +35,14 @@ this file.
 - 3,426 accepted observations across 419 vehicle/journey tracks in the selected area.
 - Deduplication, invalid-observation rejection, conflict suppression, source fingerprints,
   explicit archive labels and source-age handling.
+- A restartable DuckDB pipeline: raw bytes preserved outside Git and identified by
+  SHA-256, one row per observation identity, per-run checkpoints, recorded rejection and
+  conflict reasons, and reruns that add no duplicate analytical rows.
+- Validate-then-swap publication: a candidate is checked as a whole and only then moved
+  into place atomically, so a failed run leaves the last good snapshot serving.
+- An Operations view driven by those records: collection, processing and publication times,
+  source age, inputs, retained, repeats, conflicts, rejections, per-run outcomes, and every
+  total reconciled against the history it came from.
 - A Python archive importer and a separate credentialed, bounded live collector.
 
 This is a first working release. It is **not a live service or validated delay monitor**.
@@ -53,11 +61,22 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Open http://localhost:3000. For checks and a standalone production export:
+Open http://localhost:3000. The site reads two published JSON files and needs no Python
+and no API key. To run the pipeline that produces them, create the local environment once:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pipeline.run import      # fetch what is missing, load, publish
+.venv/bin/python -m pipeline.run status      # refresh and print the Operations payload
+```
+
+`import` is safe to repeat and safe to interrupt. See docs/PIPELINE.md for the table grain,
+the recovery semantics and the validation checks. For checks and a standalone export:
 
 ```bash
 pnpm test
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v          # parser tests, no DuckDB needed
+.venv/bin/python -m unittest discover -s tests -v # adds the pipeline history tests
 pnpm build
 pnpm typecheck
 ```
@@ -72,9 +91,10 @@ To reproduce the sample, optionally run `python3 -m pipeline.import_archive`. It
 the eleven named snapshots, caches them under data/raw/, and regenerates the replay.
 This is unnecessary just to run the website. Keep raw downloads out of Git.
 
-Read docs/CLAUDE_HANDOFF.md for the next coding session, docs/REVIEW.md for the verified
-critique and visual direction, docs/EXPORT_VERIFICATION.md for actual export checks, and
-docs/LOCAL_VERIFICATION.md for the measured results of the first local WSL session.
+Read docs/PIPELINE.md for the data model and recovery behaviour, docs/REVIEW.md for the
+verified critique and visual direction, docs/LOCAL_VERIFICATION.md for measured local
+results, docs/EXPORT_VERIFICATION.md for the original export checks, and
+docs/CLAUDE_HANDOFF.md for the working approach.
 
 ## Live capture
 
@@ -108,11 +128,14 @@ used to assert that a bus followed a particular road between sampled positions.
 
 ## Where to look
 
-- `pipeline/core.py`: parsing, compound observation identity, conflicts and publication.
+- `pipeline/core.py`: parsing, compound observation identity, conflicts and rejection.
+- `pipeline/warehouse.py`: the DuckDB schema, SQL transformations and run bookkeeping.
+- `pipeline/run.py`: the orchestrator, checkpointing and restart recovery.
+- `pipeline/publish.py`: candidate build, validation checks and the atomic swap.
+- `pipeline/operations.py`: the Operations payload and the reconciliation identities.
 - `pipeline/capture.py`: source preservation, redaction and bounded live collection.
-- `pipeline/import_archive.py`: reproducible import of the retained public sample.
-- `lib/replay.ts`: the frontend data contract and replay selection functions.
-- `app/page.tsx`: interactive map, filters, timeline and evidence view.
+- `lib/replay.ts`, `lib/operations.ts`: the two frontend data contracts.
+- `app/page.tsx`, `components/operations-view.tsx`: map, evidence and operations views.
 - `research/source-verification.json`: measured sample results and source hashes.
 - `research/IMPLEMENTED.md`: implemented capabilities and remaining work.
 

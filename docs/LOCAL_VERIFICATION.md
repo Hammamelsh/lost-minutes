@@ -62,3 +62,67 @@ package install). The Windows Chrome binary was driven from WSL instead.
 - Live authenticated BODS collection was not exercised; no BODS key exists here.
 - Automated checks passing is not a visual-quality or accessibility judgement, and the two
   screenshots above cover two widths in one browser engine only.
+
+---
+
+# Pipeline milestone verification — 12 September 2026
+
+Added: raw-input preservation with a DuckDB history, restart-safe reruns, validate-then-swap
+publication and an Operations view. Everything below was executed, not estimated.
+
+## Environment additions
+- `duckdb==1.5.5` and `pytz==2026.3.post1` in `.venv` (`requirements.txt`). System Python is
+  externally managed, so a virtual environment is required; `python3 -m venv .venv`.
+- DuckDB raises `Required module 'pytz' failed to import` when returning a TIMESTAMPTZ to
+  Python, which is why pytz is pinned rather than left implicit.
+
+## Commands run and results
+- `.venv/bin/python -m pipeline.run import` — 11 sources, 312,123 vehicle reports parsed,
+  4,236 in area, 3,496 new observations, 740 repeats, 0 conflicts, 0 refused. Published
+  3,426 observations across 419 journeys with all 10 validation checks passing.
+- `.venv/bin/python -m pipeline.run import` **a second time** — 4,236 in-area records,
+  **0 new observations, 4,236 repeats**, stored total unchanged at 3,496. Reruns add no
+  analytical rows.
+- `.venv/bin/python -m unittest discover -s tests` — 15 passed (8 parser, 7 pipeline history).
+- `python3 -m unittest discover -s tests` — 15 run, 8 passed, **7 skipped**: the documented
+  system-Python command still works without DuckDB installed.
+- `pnpm test` — 11 passed (5 replay contract, 6 operations contract).
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` — all passed.
+
+## Behaviours demonstrated
+Controlled SIRI-VM fixtures in a throwaway warehouse, one test each:
+- repeated import adds no analytical observation;
+- a crash *mid-source* leaves the run `running` with a `pending` checkpoint and publishes
+  nothing; the next run marks it `interrupted`, names the unfinished source and completes
+  the work to the same result;
+- conflicting coordinates for one identity are recorded with both readings, the first
+  reading stays stored, and the identity is withheld from the published file;
+- a stationary bus reporting again with a new timestamp is kept as a second observation;
+- an older snapshot imported after a newer one extends the window backwards and adds
+  observations without moving the served window end earlier;
+- a candidate built from part of the warehouse fails `built_from_full_warehouse`, the served
+  file is byte-identical afterwards, and the rejected candidate is kept as `rejected-*.json`;
+- a run records `succeeded` processing while its publication records `failed_validation`.
+
+## Reconciliation measured on the real sample
+All five identities balanced, each side computed from different tables:
+`312,123 = 4,236 + 307,887 + 0`; `4,236 = 3,496 + 740 + 0`; `3,496 = 3,496 - 0`;
+`3,426 + 70 = 3,496`; and the served file's SHA-256 equals the recorded publication's.
+
+## Browser inspection
+Windows Chrome driven from WSL against the static export. The Operations tab renders the
+four freshness measures, the served-snapshot card, the reconciliation table, run history
+with per-run outcomes, the definitions and the notes. The map, filters, journey list and
+Evidence view are unchanged. `documentElement.scrollWidth` equals `clientWidth` at 390px
+and 768px with the Operations tab active; the wide tables scroll inside their own
+containers rather than the page.
+
+Two defects found by that inspection and fixed: the served-file path was published as an
+absolute path containing the local username, and the definitions list inherited the
+right-aligned value styling.
+
+## Still requires credentials or deployment
+- `BODS_API_KEY` is not set and no `.env` exists, so **no live capture was exercised** and
+  `data/live-capture/` has never been written. The archive replay needs no key.
+- There is no scheduler and no hosted worker. The pipeline runs in one local WSL process
+  and stops when that process, the terminal or the machine stops. Nothing is labelled live.

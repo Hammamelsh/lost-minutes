@@ -1,0 +1,3 @@
+# Pipeline history only. The frontend needs none of this: it reads published JSON.
+duckdb==1.5.5
+pytz==2026.3.post1   # DuckDB needs it to return timezone-aware timestamps to Python

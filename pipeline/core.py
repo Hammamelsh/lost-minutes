@@ -59,8 +59,16 @@ def xml_documents(body):
         yield 'response.xml', body
 
 
-def observations(body, source_hash, retrieved_at, bounds=BBOX):
+def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
+    """Parse one raw response.
+
+    Returns (records, rejected, stats). `stats` adds the two counts the original return
+    value threw away: every VehicleActivity seen, and those outside the selected area.
+    They are needed to reconcile totals, and they are not rejections - an out-of-area bus
+    is a real bus we deliberately do not publish.
+    """
     records, rejected = [], Counter()
+    activities_total = outside_area = 0
     for member, xml in xml_documents(body):
         if len(xml) > MAX_XML or b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():
             raise ValueError('Oversized XML or prohibited entity declaration')
@@ -68,6 +76,8 @@ def observations(body, source_hash, retrieved_at, bounds=BBOX):
         for node in root.iter():
             node.tag = node.tag.split('}')[-1]
         for activity in root.iter('VehicleActivity'):
+            activities_total += 1
+
             def field(name):
                 item = activity.find('.//' + name)
                 return (item.text or '').strip() if item is not None else ''
@@ -76,6 +86,7 @@ def observations(body, source_hash, retrieved_at, bounds=BBOX):
                 if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90 and -180 <= lon <= 180):
                     raise ValueError('invalid coordinate')
                 if not (bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]):
+                    outside_area += 1
                     continue
                 recorded_at = field('RecordedAtTime')
                 t = timestamp(recorded_at)
@@ -95,7 +106,14 @@ def observations(body, source_hash, retrieved_at, bounds=BBOX):
                 records.append(record)
             except (ValueError, OverflowError):
                 rejected['invalid_coordinate_or_timestamp'] += 1
-    return records, dict(rejected)
+    return records, dict(rejected), {'activitiesTotal': activities_total,
+                                     'outsideArea': outside_area}
+
+
+def observations(body, source_hash, retrieved_at, bounds=BBOX):
+    """Original two-value contract, kept so existing callers and tests are unaffected."""
+    records, rejected, _ = parse_source(body, source_hash, retrieved_at, bounds)
+    return records, rejected
 
 
 def observation_key(r):

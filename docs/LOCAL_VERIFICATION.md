@@ -126,3 +126,79 @@ right-aligned value styling.
   `data/live-capture/` has never been written. The archive replay needs no key.
 - There is no scheduler and no hosted worker. The pipeline runs in one local WSL process
   and stops when that process, the terminal or the machine stops. Nothing is labelled live.
+
+---
+
+# Live path and mobile milestone — 12 September 2026
+
+Added: a single-writer live collector, an evidence-led freshness policy, a validated live
+state object, quarantine of questionable records, and the mobile Follow view with PWA
+support. **No live capture has been run**: no BODS credential exists in this checkout.
+
+## BODS requirements, checked rather than assumed
+- Consumers of the location API must register for an account and use an API key
+  (DfT Bus Open Data implementation guide).
+- Operators must supply vehicle locations every **10–30 seconds**, so the poll floor was set
+  to 10s and the default left at 20s. A faster poll mostly returns bytes we already hold.
+- No consumer rate limit is published for the datafeed; the documented 1 request/second
+  limit applies to archive downloads. The archive importer already respects it.
+
+## Freshness measured on the retained sample
+| measure | p50 | p95 | samples | window |
+| --- | --- | --- | --- | --- |
+| publication delay (observation age when its response was built) | 30.0s | 40.0s | 3,496 | 11 responses, 07:00–07:10 UTC |
+| report interval per vehicle | 60.0s | 73.0s | 3,058 | same |
+| response cadence (our sampling, not the operator's) | 60.5s | — | 10 | min 45s, max 75s |
+
+**The finding that shaped the design:** 56 of 3,496 positions were already more than ten
+minutes old when their response was built; 34 were between one and 24 hours old; the worst
+was **23.1 hours**. One vehicle reference in the real feed is `QS_TRAINING_1`. An app that
+simply drew the latest position per vehicle would put yesterday's bus on today's map, so
+expiry (900s) is a correctness control and is enforced in the publisher and in the contract.
+
+## Commands run and results
+- `.venv/bin/python -m unittest discover -s tests` — **29 passed** (8 parser, 7 pipeline
+  history, 14 live collection).
+- `python3 -m unittest discover -s tests` — 29 run, 8 passed, **21 skipped** without DuckDB.
+- `pnpm test` — **21 passed** (5 replay, 6 operations, 10 live/geo contracts).
+- `pnpm typecheck`, `pnpm lint`, `pnpm build` — all passed.
+- `.venv/bin/python -m pipeline.live init` — wrote an honest `unavailable` live state.
+
+## Behaviours demonstrated
+Fixtures (clearly labelled synthetic SIRI-VM), one test each: a repeated payload adds no
+observation and does not advance the payload-change time; an older report arriving later
+does not move the bus back but is still stored; a timestamp 10 minutes ahead of retrieval is
+quarantined as `future_timestamp` with the raw text kept; an expired position is withheld and
+counted while staying in history; an upstream transport failure and a malformed body each
+leave the last good state serving with its original timestamps; rejected credentials stop
+collection and mark the run failed; a second collector refuses the lock; an interrupted
+collection records the failure and releases the lock; a live publication that would move
+publication time backwards is refused and the served file is untouched; no key appears in
+any published file and stored URLs read `api_key=[REDACTED]`.
+
+**Real payloads through the live code path:** three archived BODS responses replayed through
+the collector loaded 999 observations and published **zero** vehicles — all 392 withheld as
+expired, state `stale`. That is the expiry control working on real data.
+
+## Browser verification
+Windows Chrome driven from WSL against the static export.
+- Follow at 390px: the honest "not collecting" state; the archive-replay path with its own
+  badge and absolute observation times; selection, follow mode and the freshness ramp
+  (green 23s / green 46s / amber 2 min) using a clearly-labelled fixture live state.
+- Follow at 1280px: two-column layout, route-fitted map with orientation labels.
+- The status banner flipped to **NOT UPDATING** by itself once the fixture aged past the
+  120s publication threshold — the staleness policy observed working end to end.
+- Explore and Operations unchanged; `scrollWidth == clientWidth` at 390px and 1280px on
+  every tab.
+
+Defects found by that inspection and fixed: four tabs overflowed the page at 390px; the
+hero pushed passenger content 330px down the phone screen; the header's ARCHIVE REPLAY badge
+contradicted the live banner; the saved-routes label ran into its hint; the desktop grid left
+a void beside the map; the default route was whichever sorted first rather than the one with
+the freshest report; map labels clipped at the edges.
+
+## Still requires credentials or deployment
+- **No live BODS capture has been exercised.** Set `BODS_API_KEY` in `.env` (loaded by
+  `pipeline/env.py`) and run `.venv/bin/python -m pipeline.collect --minutes 10`.
+- No scheduler and no host. The collector runs in one local WSL process and stops when that
+  process, the terminal or the machine stops.

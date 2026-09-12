@@ -14,7 +14,13 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from xml.etree import ElementTree as ET
 
 MAX_XML = 80_000_000
+MAX_QUARANTINE_PER_SOURCE = 500
 BBOX = (-2.30, 53.42, -2.18, 53.51)
+
+# A vehicle may legitimately report a moment before the response is built, and clocks
+# disagree. Beyond this the timestamp is not credible and the record is quarantined rather
+# than published: measured on the retained sample, no observation preceded its own file.
+FUTURE_TOLERANCE_SECONDS = 120
 
 
 def utc_now():
@@ -28,11 +34,21 @@ def timestamp(value):
     return int(dt.timestamp() * 1000)
 
 
+def _moment(value):
+    """Epoch seconds for a timestamp we produced, or None if it is not a timestamp."""
+    try:
+        return timestamp(value) / 1000.0
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def redact_url(url):
     p = urlsplit(url)
     hidden = {'api_key', 'apikey', 'key', 'token', 'access_token'}
+    # safe='[]' keeps the marker readable as api_key=[REDACTED] rather than %5B…%5D,
+    # because these URLs are read by a person inspecting the run history.
     query = urlencode([(k, '[REDACTED]' if k.lower() in hidden else v)
-                       for k, v in parse_qsl(p.query, keep_blank_values=True)])
+                       for k, v in parse_qsl(p.query, keep_blank_values=True)], safe='[]')
     host = p.hostname or ''
     if p.port:
         host += ':' + str(p.port)
@@ -62,13 +78,31 @@ def xml_documents(body):
 def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
     """Parse one raw response.
 
-    Returns (records, rejected, stats). `stats` adds the two counts the original return
-    value threw away: every VehicleActivity seen, and those outside the selected area.
-    They are needed to reconcile totals, and they are not rejections - an out-of-area bus
-    is a real bus we deliberately do not publish.
+    Returns (records, rejected, stats). `stats` carries the counts the original return
+    value threw away - every VehicleActivity seen, and those outside the selected area -
+    plus `quarantined`, the questionable records kept verbatim with a reason.
+
+    An out-of-area bus is a real bus we deliberately do not publish, so it is neither a
+    rejection nor a quarantine. Nothing here repairs a value: a coordinate we cannot trust
+    is quarantined as text, never rounded or nudged into a plausible-looking position.
     """
     records, rejected = [], Counter()
+    quarantined = []
     activities_total = outside_area = 0
+    received = _moment(retrieved_at)
+
+    def quarantine(reason, member, field, detail=''):
+        rejected[reason] += 1
+        if len(quarantined) < MAX_QUARANTINE_PER_SOURCE:
+            quarantined.append({
+                'reason': reason, 'detail': str(detail)[:200], 'sourceMember': member,
+                'recordedAt': field('RecordedAtTime'), 'latitude': field('Latitude'),
+                'longitude': field('Longitude'), 'operator': field('OperatorRef'),
+                'vehicle': field('VehicleRef'), 'route': field('LineRef'),
+                'direction': field('DirectionRef'),
+                'journeyRef': field('DatedVehicleJourneyRef') or field('VehicleJourneyRef'),
+            })
+
     for member, xml in xml_documents(body):
         if len(xml) > MAX_XML or b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():
             raise ValueError('Oversized XML or prohibited entity declaration')
@@ -82,17 +116,35 @@ def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
                 item = activity.find('.//' + name)
                 return (item.text or '').strip() if item is not None else ''
             try:
-                lat, lon = float(field('Latitude')), float(field('Longitude'))
+                try:
+                    lat, lon = float(field('Latitude')), float(field('Longitude'))
+                except ValueError as error:
+                    quarantine('unreadable_coordinate', member, field, error)
+                    continue
                 if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                    raise ValueError('invalid coordinate')
+                    quarantine('coordinate_out_of_range', member, field, f'{lat},{lon}')
+                    continue
                 if not (bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]):
                     outside_area += 1
                     continue
                 recorded_at = field('RecordedAtTime')
-                t = timestamp(recorded_at)
+                try:
+                    t = timestamp(recorded_at)
+                except ValueError as error:
+                    reason = ('timestamp_without_offset' if 'timezone' in str(error)
+                              else 'unreadable_timestamp')
+                    quarantine(reason, member, field, error)
+                    continue
+                # Clock skew and future timestamps: a position cannot be reported from the
+                # future. Kept with its reason so the source problem stays visible.
+                if received is not None and t / 1000.0 > received + FUTURE_TOLERANCE_SECONDS:
+                    quarantine('future_timestamp', member, field,
+                               f'{round(t / 1000.0 - received)}s ahead of retrieval')
+                    continue
                 operator, vehicle = field('OperatorRef'), field('VehicleRef')
                 if not operator or not vehicle:
-                    rejected['missing_vehicle_identity'] += 1
+                    quarantine('missing_vehicle_identity', member, field,
+                               f'operator={operator!r} vehicle={vehicle!r}')
                     continue
                 record = {
                     'time': t, 'recordedAt': recorded_at, 'retrievedAt': retrieved_at,
@@ -104,10 +156,11 @@ def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
                     'sourceHash': source_hash, 'sourceMember': member,
                 }
                 records.append(record)
-            except (ValueError, OverflowError):
-                rejected['invalid_coordinate_or_timestamp'] += 1
+            except OverflowError as error:
+                quarantine('coordinate_out_of_range', member, field, error)
     return records, dict(rejected), {'activitiesTotal': activities_total,
-                                     'outsideArea': outside_area}
+                                     'outsideArea': outside_area,
+                                     'quarantined': quarantined}
 
 
 def observations(body, source_hash, retrieved_at, bounds=BBOX):

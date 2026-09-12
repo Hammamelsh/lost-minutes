@@ -73,7 +73,8 @@ def process_sources(con, run_id, names, selection, root=ROOT, fetch_fn=fetch,
         try:
             records, rejected, stats = parse_source(body, digest, retrieved.isoformat())
             counts = load_observations(con, run_id, digest, records, rejected,
-                                       stats['activitiesTotal'], stats['outsideArea'])
+                                       stats['activitiesTotal'], stats['outsideArea'],
+                                       stats.get('quarantined', ()))
         except Exception as error:
             fail_source(con, run_id, digest, error)
             raise

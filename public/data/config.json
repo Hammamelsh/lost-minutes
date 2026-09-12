@@ -1,0 +1,1 @@
+{"schemaVersion":1,"liveUrl":"/data/live.json","replayUrl":"/data/replay.json","operationsUrl":"/data/operations.json","pollSeconds":20,"note":"Edit liveUrl to serve live state from another origin. The frontend reads this at runtime; changing it needs no rebuild."}

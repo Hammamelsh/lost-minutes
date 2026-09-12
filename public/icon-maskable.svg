@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Lost Minutes">
+  <!-- Full-bleed ground: a maskable icon may be cropped to a circle by the launcher, so the
+       mark from favicon.svg is centred and scaled to sit inside the safe zone. -->
+  <rect width="32" height="32" fill="#0d1721"/>
+  <g transform="translate(16 16) scale(0.78) translate(-17 -16)">
+    <path d="M10 7v18h14M17 7v11h7" fill="none" stroke="#c6f36a" stroke-width="3"
+          stroke-linecap="round"/>
+    <circle cx="24" cy="7" r="2" fill="#74c5de"/>
+  </g>
+</svg>

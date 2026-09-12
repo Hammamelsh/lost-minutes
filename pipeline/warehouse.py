@@ -145,10 +145,62 @@ CREATE TABLE IF NOT EXISTS rejection (
     PRIMARY KEY (run_id, source_sha256, reason)
 );
 
+CREATE TABLE IF NOT EXISTS quarantined_record (
+    quarantine_id  TEXT PRIMARY KEY,   -- hash of source + reason + raw fields
+    run_id         TEXT,
+    source_sha256  TEXT NOT NULL,
+    reason         TEXT NOT NULL,      -- a source-quality problem, not a pipeline failure
+    detail         TEXT,
+    source_member  TEXT,
+    -- Raw field text exactly as supplied. Never repaired, rounded or reinterpreted.
+    recorded_at_raw TEXT,
+    latitude_raw   TEXT,
+    longitude_raw  TEXT,
+    operator_raw   TEXT,
+    vehicle_raw    TEXT,
+    route_raw      TEXT,
+    direction_raw  TEXT,
+    journey_ref_raw TEXT,
+    first_seen_at  TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS collection_cycle (
+    run_id              TEXT NOT NULL,
+    cycle_no            INTEGER NOT NULL,
+    requested_at        TIMESTAMPTZ NOT NULL,
+    completed_at        TIMESTAMPTZ,
+    outcome             TEXT NOT NULL,  -- succeeded | repeat_payload | http_error
+                                        -- | transport_error | malformed
+    http_status         INTEGER,
+    source_sha256       TEXT,
+    byte_size           BIGINT,
+    payload_changed     BOOLEAN,
+    observations_loaded INTEGER DEFAULT 0,
+    error_class         TEXT,
+    error_detail        TEXT,           -- redacted; never a credential-bearing URL
+    PRIMARY KEY (run_id, cycle_no)
+);
+
+CREATE TABLE IF NOT EXISTS timetable_version (
+    content_sha256        TEXT PRIMARY KEY,
+    source_url            TEXT,         -- redacted
+    stored_path           TEXT,
+    byte_size             BIGINT,
+    retrieved_at          TIMESTAMPTZ,
+    -- Declared by the file where present. Absent is recorded as NULL, never assumed.
+    effective_from        DATE,
+    effective_to          DATE,
+    modification_datetime TEXT,
+    dataset_label         TEXT,
+    first_seen_run_id     TEXT,
+    note                  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS publication (
     publication_id    TEXT PRIMARY KEY,
     run_id            TEXT,
     snapshot_id       TEXT,
+    kind              TEXT DEFAULT 'replay',   -- replay | live
     status            TEXT NOT NULL,   -- published | failed_validation | held_back
     built_at          TIMESTAMPTZ,
     published_at      TIMESTAMPTZ,
@@ -212,6 +264,11 @@ def connect(db_path=DEFAULT_DB):
     con.execute('BEGIN')
     con.execute(DDL)
     con.execute(VIEWS)
+    # Additive migration for warehouses created before the live milestone.
+    try:
+        con.execute("ALTER TABLE publication ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'replay'")
+    except Exception:  # pragma: no cover - already present on a fresh schema
+        pass
     if con.execute('SELECT count(*) FROM schema_meta').fetchone()[0] == 0:
         con.execute('INSERT INTO schema_meta VALUES (?, now())', [SCHEMA_VERSION])
     con.execute('COMMIT')
@@ -324,7 +381,8 @@ LEFT JOIN observation o USING ({IDENTITY_SQL});
 """
 
 
-def load_observations(con, run_id, source_sha256, records, rejected, activities_total, outside_area):
+def load_observations(con, run_id, source_sha256, records, rejected, activities_total,
+                      outside_area, quarantined=()):
     """Load one source's parsed records. Idempotent: re-loading changes no analytical row.
 
     Returns the reconciled counts for this source.
@@ -377,6 +435,7 @@ def load_observations(con, run_id, source_sha256, records, rejected, activities_
     """).fetchone()
     new, repeat, conflicts = int(new), int(repeat), int(conflicts)
     rejected_total = sum(rejected.values())
+    record_quarantine(con, run_id, source_sha256, quarantined)
 
     for reason, count in (rejected or {}).items():
         con.execute(
@@ -393,6 +452,60 @@ def load_observations(con, run_id, source_sha256, records, rejected, activities_
          rejected_total, run_id, source_sha256])
     return {'new': new, 'repeats': repeat, 'conflicts': conflicts,
             'rejected': rejected_total, 'inArea': len(records)}
+
+
+def record_quarantine(con, run_id, source_sha256, entries):
+    """Keep questionable records with their reason. Nothing is silently discarded."""
+    if not entries:
+        return 0
+    rows = []
+    for entry in entries:
+        identity = '|'.join([source_sha256, entry['reason'], entry.get('sourceMember') or '',
+                             entry.get('recordedAt') or '', entry.get('vehicle') or '',
+                             entry.get('latitude') or '', entry.get('longitude') or ''])
+        rows.append((hashlib.sha256(identity.encode()).hexdigest()[:32], run_id, source_sha256,
+                     entry['reason'], entry.get('detail'), entry.get('sourceMember'),
+                     entry.get('recordedAt'), entry.get('latitude'), entry.get('longitude'),
+                     entry.get('operator'), entry.get('vehicle'), entry.get('route'),
+                     entry.get('direction'), entry.get('journeyRef')))
+    con.executemany(
+        'INSERT INTO quarantined_record (quarantine_id, run_id, source_sha256, reason, detail,'
+        ' source_member, recorded_at_raw, latitude_raw, longitude_raw, operator_raw, vehicle_raw,'
+        ' route_raw, direction_raw, journey_ref_raw, first_seen_at)'
+        ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, now())'
+        ' ON CONFLICT (quarantine_id) DO NOTHING', rows)
+    return len(rows)
+
+
+def record_cycle(con, run_id, cycle_no, requested_at, outcome, **fields):
+    con.execute(
+        'INSERT INTO collection_cycle (run_id, cycle_no, requested_at, completed_at, outcome,'
+        ' http_status, source_sha256, byte_size, payload_changed, observations_loaded,'
+        ' error_class, error_detail) VALUES (?, ?, ?, now(), ?, ?, ?, ?, ?, ?, ?, ?)'
+        ' ON CONFLICT (run_id, cycle_no) DO UPDATE SET outcome = excluded.outcome,'
+        ' completed_at = excluded.completed_at, http_status = excluded.http_status,'
+        ' source_sha256 = excluded.source_sha256, byte_size = excluded.byte_size,'
+        ' payload_changed = excluded.payload_changed,'
+        ' observations_loaded = excluded.observations_loaded,'
+        ' error_class = excluded.error_class, error_detail = excluded.error_detail',
+        [run_id, cycle_no, requested_at, outcome, fields.get('http_status'),
+         fields.get('source_sha256'), fields.get('byte_size'), fields.get('payload_changed'),
+         fields.get('observations_loaded', 0), fields.get('error_class'),
+         (fields.get('error_detail') or None) and redact_url(str(fields['error_detail']))[:500]])
+
+
+def record_timetable(con, run_id, **fields):
+    """A timetable we hold. Holding one proves nothing about journey matching."""
+    con.execute(
+        'INSERT INTO timetable_version (content_sha256, source_url, stored_path, byte_size,'
+        ' retrieved_at, effective_from, effective_to, modification_datetime, dataset_label,'
+        ' first_seen_run_id, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ' ON CONFLICT (content_sha256) DO NOTHING',
+        [fields['content_sha256'], redact_url(fields['source_url']) if fields.get('source_url') else None,
+         fields.get('stored_path'), fields.get('byte_size'), fields.get('retrieved_at'),
+         fields.get('effective_from'), fields.get('effective_to'),
+         fields.get('modification_datetime'), fields.get('dataset_label'), run_id,
+         'Stored for future validation. No journey match has been established.'])
 
 
 # ------------------------------------------------------------------- reading back
@@ -452,7 +565,8 @@ def active_publication(con):
     row = con.execute(
         "SELECT publication_id, snapshot_id, observation_count, journey_count, window_start_ms,"
         ' window_end_ms, snapshot_sha256, snapshot_bytes, published_at, target_path'
-        " FROM publication WHERE status = 'published' ORDER BY published_at DESC LIMIT 1").fetchone()
+        " FROM publication WHERE status = 'published' AND COALESCE(kind, 'replay') = 'replay'"
+        ' ORDER BY published_at DESC LIMIT 1').fetchone()
     if not row:
         return None
     keys = ['publicationId', 'snapshotId', 'observationCount', 'journeyCount', 'windowStartMs',

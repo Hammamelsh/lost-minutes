@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "python3 -m http.server 3000 --directory out",
-    "test": "node --experimental-strip-types --test tests/replay.test.mjs tests/operations.test.mjs",
+    "test": "node --experimental-strip-types --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern out --ignore-pattern .next"
   },

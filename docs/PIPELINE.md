@@ -109,6 +109,73 @@ and `publication.status`. A run can read every input perfectly and still publish
 recorded publication, so the metadata describes the snapshot actually being served rather
 than the one we believe we wrote.
 
+## Live collection
+
+One shared collector reads the feed for everyone; no device contacts BODS. It is a single
+writer by construction: `SingleWriter` holds an advisory `flock` on
+`data/warehouse/collector.lock`, and a second collector refuses to start rather than
+interleave writes.
+
+Each poll is one row in `collection_cycle`, with an outcome that is never flattened:
+
+| outcome | meaning |
+| --- | --- |
+| `succeeded` | new bytes, parsed and loaded |
+| `repeat_payload` | the feed republished bytes we already hold; **no new information** |
+| `http_error` | upstream returned a status; 401/403 stops collection |
+| `transport_error` | the request never completed |
+| `malformed` | bytes arrived but could not be parsed |
+
+A repeated payload is the important one. It is a *successful request* that must not make
+anything look newer: `lastPayloadChangeAt` only advances when the bytes actually change, and
+the age on screen always comes from the observation, never from the request.
+
+### Freshness, measured
+
+`pipeline/freshness.py` holds the policy and the evidence for it. Measured on the retained
+sample (3,496 observations, 11 responses over ten minutes):
+
+- publication delay p50 **30s**, p95 **40s** — an observation is already this old when the
+  response carrying it is built, before we poll at all;
+- report interval p50 60s, p95 73s, but **bounded by our own 45–75s sampling**, so it
+  describes our cadence and not the operator's;
+- **56 of 3,496 positions were more than ten minutes old on arrival**, 34 between one and 24
+  hours, the worst **23.1 hours**.
+
+That last line is why `EXPIRY` exists. A position older than 15 minutes is withheld from the
+published state and counted, because otherwise a bus that last reported yesterday is drawn
+as traffic today. Verified on real payloads: replaying three archived responses through the
+live path loads 999 observations and withholds **all 392 vehicles** as expired.
+
+### Source quality versus our failures
+
+These are different things and are reported separately. `quarantined_record` holds records
+the *source* gave us that we could not publish, with the raw field text kept verbatim —
+never rounded, repaired or nudged into a plausible position:
+
+`unreadable_coordinate`, `coordinate_out_of_range`, `timestamp_without_offset`,
+`unreadable_timestamp`, `future_timestamp` (more than 120s ahead of retrieval, which is how
+clock skew is handled), `missing_vehicle_identity`.
+
+`collection_cycle.outcome` and `pipeline_run.status` hold *our* failures. A run can read
+every input perfectly and still publish nothing.
+
+### Out-of-order and conflicting reports
+
+Observation identity includes the observation time, so a late-arriving older report is
+stored, not dropped — it simply does not win. The published state takes the greatest
+observation time per vehicle, whenever it arrived. Conflicting coordinates for one identity
+are recorded in `observation_conflict` and the identity is withheld entirely.
+
+### The published live state
+
+`public/data/live.json` is small and is replaced atomically only after its own validation:
+state is known, every position carries an observation time and is inside the declared area,
+nothing older than expiry is published, every position is an observed fix, a `live` state
+carries at least one position, and publication time never moves backwards. A failure leaves
+the previous state serving. `public/data/config.json` names the live URL and poll interval,
+so the state can be served from another origin without rebuilding the site.
+
 ## Credentials
 
 Live capture needs a BODS key in `BODS_API_KEY`, in the environment only — never in Git,

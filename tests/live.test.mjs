@@ -1,0 +1,129 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {parseLive,parseConfig,DEFAULT_CONFIG,observationAge,publicationAge,freshnessOf,
+        ageWords,feedMode,readFavourites,writeFavourites,toggleFavourite,isFavourite,
+        favouriteKey} from '../lib/live.ts';
+import {boundsOf,fitProjection,metres} from '../lib/geo.ts';
+
+const published=JSON.parse(readFileSync(new URL('../public/data/live.json',import.meta.url),'utf8'));
+const config=parseConfig(JSON.parse(readFileSync(new URL('../public/data/config.json',import.meta.url),'utf8')));
+
+const POLICY={observationFreshSeconds:60,observationAgeingSeconds:150,observationStaleSeconds:600,
+ observationExpirySeconds:900,publicationStaleSeconds:120,futureToleranceSeconds:120,
+ pollIntervalSeconds:20,basis:'test'};
+
+test('the published live state parses and states its own mode honestly',()=>{
+ const state=parseLive(published);
+ assert.equal(state.mode,'live_bods');
+ assert.ok(['live','stale','unavailable'].includes(state.state));
+ if(state.state==='unavailable')assert.equal(state.vehicles.length,0);
+ for(const vehicle of state.vehicles)assert.equal(vehicle.positionKind,'observed');
+ assert.ok(state.freshness.policy.observationExpirySeconds>0);
+});
+
+test('the contract refuses a state that would mislead',()=>{
+ const base=parseLive(published);
+ // "live" with nothing observed would claim currency we do not have.
+ assert.throws(()=>parseLive({...base,state:'live',vehicles:[]}));
+ const vehicle={operator:'T',vehicle:'V',route:'1',direction:'inbound',journeyRef:'J',
+  destination:'X',observedAtMs:1,recordedAt:'2026-09-12T00:00:00+00:00',lat:53.47,lon:-2.24,
+  ageSeconds:99999,freshness:'expired',positionKind:'observed',sourceHash:'a'.repeat(64)};
+ assert.throws(()=>parseLive({...base,state:'live',vehicles:[vehicle]}),/expiry/);
+ // An estimated position would have to declare itself, and this release publishes none.
+ assert.throws(()=>parseLive({...base,state:'live',
+  vehicles:[{...vehicle,ageSeconds:10,positionKind:'estimated'}]}));
+});
+
+test('a wrong clock on the phone cannot make a position look fresh',()=>{
+ const live={publishedAtMs:1_000_000};
+ const vehicle={observedAtMs:1_000_000-45_000};      // 45s old when published
+ const fetchedAt=5_000_000;                          // device clock is hours out
+ assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt),45);
+ // Ten more local seconds elapse: age grows by exactly ten, whatever the clock says.
+ assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt+10_000),55);
+ // A device clock behind the fetch moment must never subtract from the age.
+ assert.equal(observationAge(vehicle,live,fetchedAt,fetchedAt-60_000),45);
+});
+
+test('publication age measures our own staleness, separately from the observation',()=>{
+ const live={publishedAtMs:1_000_000};
+ assert.equal(publicationAge(live,1_030_000,1_030_000),30);
+ assert.equal(publicationAge(live,1_030_000,1_090_000),90);
+});
+
+test('freshness thresholds come from the published policy, not the frontend',()=>{
+ assert.equal(freshnessOf(0,POLICY),'fresh');
+ assert.equal(freshnessOf(60,POLICY),'fresh');
+ assert.equal(freshnessOf(61,POLICY),'ageing');
+ assert.equal(freshnessOf(151,POLICY),'stale');
+ assert.equal(freshnessOf(601,POLICY),'expired');
+ assert.equal(freshnessOf(null,POLICY),'unknown');
+ assert.equal(freshnessOf(-1,POLICY),'ahead_of_clock');
+ assert.equal(freshnessOf(undefined,POLICY),'unknown');
+});
+
+test('age wording never claims a position is current',()=>{
+ assert.equal(ageWords(3),'reported seconds ago');
+ assert.equal(ageWords(45),'reported 45s ago');
+ assert.equal(ageWords(600),'reported 10 min ago');
+ assert.equal(ageWords(7200),'reported 2h 0m ago');
+ assert.equal(ageWords(null),'age unknown');
+ assert.equal(ageWords(-5),'timestamped ahead of our clock');
+ for(const seconds of [0,1,30,90,3600,90000])assert.ok(!/\bnow\b/.test(ageWords(seconds)));
+});
+
+test('archive, live, stale, offline and unavailable stay five different states',()=>{
+ const live={state:'live',publishedAtMs:0,freshness:{policy:POLICY},vehicles:[{}]};
+ assert.equal(feedMode(live,false,true,10),'live');
+ assert.equal(feedMode(live,false,true,300),'stale','our own state going stale is visible');
+ assert.equal(feedMode(live,true,true,10),'offline','a cached response is never called live');
+ assert.equal(feedMode(live,false,false,10),'offline');
+ assert.equal(feedMode({...live,state:'stale'},false,true,10),'stale');
+ assert.equal(feedMode({...live,state:'unavailable'},false,true,10),'unavailable');
+ assert.equal(feedMode(null,false,true,null),'unavailable');
+});
+
+test('saved routes stay on the device and survive a blocked store',()=>{
+ const store=new Map();
+ const fake={getItem:k=>store.has(k)?store.get(k):null,setItem:(k,v)=>store.set(k,v)};
+ assert.deepEqual(readFavourites(fake),[]);
+ const item={operator:'BNML',route:'142',direction:'inbound'};
+ assert.ok(writeFavourites(toggleFavourite([],item),fake));
+ assert.deepEqual(readFavourites(fake),[item]);
+ assert.ok(isFavourite(readFavourites(fake),item));
+ assert.deepEqual(toggleFavourite(readFavourites(fake),item),[]);
+ assert.equal(favouriteKey(item),'BNML|142|inbound');
+ // A device that refuses storage is reported, not crashed through.
+ const blocked={getItem:()=>{throw Error('denied')},setItem:()=>{throw Error('denied')}};
+ assert.deepEqual(readFavourites(blocked),[]);
+ assert.equal(writeFavourites([item],blocked),false);
+ // Corrupt stored data is discarded rather than trusted.
+ store.set('lost-minutes.favourites.v1','{"not":"an array"}');
+ assert.deepEqual(readFavourites(fake),[]);
+});
+
+test('the runtime config can repoint the live feed without a rebuild',()=>{
+ assert.equal(config.schemaVersion,1);
+ assert.ok(config.pollSeconds>=10,'never poll faster than the upstream cadence');
+ assert.equal(parseConfig({nonsense:true}).liveUrl,DEFAULT_CONFIG.liveUrl);
+ assert.equal(parseConfig(null).pollSeconds,DEFAULT_CONFIG.pollSeconds);
+});
+
+test('the map fits the points it is given without distorting them',()=>{
+ const points=[{lat:53.470,lon:-2.240},{lat:53.480,lon:-2.220}];
+ const bounds=boundsOf(points);
+ assert.ok(bounds.west<-2.240&&bounds.east>-2.220);
+ assert.ok(bounds.south<53.470&&bounds.north>53.480);
+ assert.equal(boundsOf([]),null);
+ const projector=fitProjection(bounds,600,600);
+ for(const point of points){
+  const [x,y]=projector.project(point.lon,point.lat);
+  assert.ok(x>=0&&x<=600&&y>=0&&y<=600,'every point lands inside the viewport');
+ }
+ // A single point still produces a usable window rather than an infinite zoom.
+ const single=fitProjection(boundsOf([points[0]]),600,600);
+ const [x,y]=single.project(points[0].lon,points[0].lat);
+ assert.ok(Math.abs(x-300)<1&&Math.abs(y-300)<1);
+ assert.ok(metres(points[0],points[1])>1000);
+});

@@ -43,6 +43,14 @@ this file.
 - An Operations view driven by those records: collection, processing and publication times,
   source age, inputs, retained, repeats, conflicts, rejections, per-run outcomes, and every
   total reconciled against the history it came from.
+- A mobile-first Follow view: save a route and direction on the device, see the last
+  reported positions on a route-fitted map, follow one bus, and read the age of each report
+  rather than a reassuring "last updated".
+- A single-writer live collector for one shared Manchester feed, with repeated-payload
+  detection, bounded backoff and an evidence-led freshness policy. Phones read our published
+  state; no device ever contacts the data service.
+- Installable as a web app, with an offline state that says it is offline and keeps every
+  cached observation's original timestamps.
 - A Python archive importer and a separate credentialed, bounded live collector.
 
 This is a first working release. It is **not a live service or validated delay monitor**.
@@ -71,7 +79,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
 `import` is safe to repeat and safe to interrupt. See docs/PIPELINE.md for the table grain,
-the recovery semantics and the validation checks. For checks and a standalone export:
+the recovery semantics and the validation checks, and PROJECT_CONTEXT.md for the whole
+picture. For checks and a standalone export:
 
 ```bash
 pnpm test
@@ -98,20 +107,50 @@ docs/CLAUDE_HANDOFF.md for the working approach.
 
 ## Live capture
 
-BODS account/API access is required and has **not** been exercised in this environment.
-Set `BODS_API_KEY` in your local environment. Obtain the relevant timetable download URL
-from BODS. The key must never be committed, pasted into frontend code or written to logs.
+Everything below is implemented and tested with fixtures. **No live capture has been run
+here**, because this checkout has no credentials: `public/data/live.json` therefore states
+`unavailable`, and the interface says so rather than pretending.
 
-```bash
-python -m pipeline.capture --help
-python -m pipeline.capture --minutes 10 --timetable-url 'https://OFFICIAL_TIMETABLE_DOWNLOAD_URL'
-```
+### Setting up a key, exactly
 
-Replace the explicitly marked URL with the real timetable link. The collector preserves
-responses, logs successful and failed requests, redacts credential query parameters,
-caches timetable versions by content hash and stops on an authentication rejection.
-A successful HTTP capture does not mean the source passed semantic validation. The live
-collector does not automatically replace the published archive or run indefinitely.
+1. Register free at <https://data.bus-data.dft.gov.uk/account/signup/> and copy the API key
+   from your account page. Consumers of the location API must be registered.
+2. Put it in a local `.env` at the repository root:
+
+   ```bash
+   cp .env.example .env
+   # then edit .env and set BODS_API_KEY=your-key
+   ```
+
+   `.env` is ignored by Git. `pipeline/env.py` loads it when the collector starts; a value
+   already exported in your shell always wins over the file. Only the *names* loaded are
+   ever printed — never the values.
+3. Run a bounded capture:
+
+   ```bash
+   .venv/bin/python -m pipeline.collect --minutes 10
+   .venv/bin/python -m pipeline.collect --minutes 10 --timetable-url 'https://OFFICIAL_URL'
+   ```
+
+Never paste the key into a command, a source file, a commit or a browser asset. The
+collector redacts credential query parameters from everything it records, so the stored URL
+reads `api_key=[REDACTED]`.
+
+### What the collector does
+
+One writer at a time, enforced by a lock: a second run refuses to start rather than
+interleave. Each cycle is recorded with its outcome — `succeeded`, `repeat_payload`,
+`http_error`, `transport_error` or `malformed`. Identical bytes are recorded as a repeat and
+do **not** make the data look newer. Failures back off, bounded; an authentication rejection
+stops collection. Timetable versions are stored by content hash with their declared
+effective dates where the file states them — holding a timetable is not evidence that any
+journey has been matched to it.
+
+Operators must publish vehicle locations every 10–30 seconds, so the poll interval has a
+10-second floor: anything faster mostly returns a payload we already hold.
+
+Local execution stops when this machine stops. There is no scheduler and no hosted worker,
+so nothing in the interface is labelled continuously live.
 
 ## Source and licensing
 
@@ -133,9 +172,13 @@ used to assert that a bus followed a particular road between sampled positions.
 - `pipeline/run.py`: the orchestrator, checkpointing and restart recovery.
 - `pipeline/publish.py`: candidate build, validation checks and the atomic swap.
 - `pipeline/operations.py`: the Operations payload and the reconciliation identities.
-- `pipeline/capture.py`: source preservation, redaction and bounded live collection.
-- `lib/replay.ts`, `lib/operations.ts`: the two frontend data contracts.
-- `app/page.tsx`, `components/operations-view.tsx`: map, evidence and operations views.
+- `pipeline/collect.py`: the single-writer live collector and its per-cycle record.
+- `pipeline/freshness.py`: the freshness policy and the measurements that justify it.
+- `pipeline/live.py`: the small published state every device refreshes.
+- `pipeline/capture.py`: source preservation, redaction and bounded fetching.
+- `lib/replay.ts`, `lib/operations.ts`, `lib/live.ts`: the frontend data contracts.
+- `components/follow-view.tsx`: the passenger view, favourites and the route-fitted map.
+- `app/page.tsx`, `components/operations-view.tsx`: replay, evidence and operations views.
 - `research/source-verification.json`: measured sample results and source hashes.
 - `research/IMPLEMENTED.md`: implemented capabilities and remaining work.
 

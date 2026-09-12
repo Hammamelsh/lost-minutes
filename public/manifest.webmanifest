@@ -1,0 +1,16 @@
+{
+  "name": "Lost Minutes — Manchester buses",
+  "short_name": "Lost Minutes",
+  "description": "Follow reported Manchester bus positions, with the evidence behind every point.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d1b26",
+  "theme_color": "#0d1b26",
+  "categories": ["travel", "navigation", "utilities"],
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

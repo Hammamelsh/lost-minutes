@@ -1,8 +1,8 @@
 "use client";
 
-import {useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useMemo,useState} from 'react';
 import Link from 'next/link';
-import {ArrowDown,ArrowUpRight,BusFront,Check,Clock3,Database,ExternalLink,Focus,Info,Layers3,LoaderCircle,MapPin,Minus,Pause,Play,Plus,RotateCcw,Route,ShieldCheck,Activity} from 'lucide-react';
+import {ArrowDown,ArrowUpRight,BusFront,Check,Clock3,Database,ExternalLink,Focus,Info,Layers3,LoaderCircle,MapPin,Minus,Pause,Play,Plus,RotateCcw,Route,ShieldCheck,Activity,Navigation} from 'lucide-react';
 import {Slider} from '@/components/ui/slider';
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {Tabs,TabsContent,TabsList,TabsTrigger} from '@/components/ui/tabs';
@@ -10,6 +10,8 @@ import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '@/compon
 import {cleanLabel,clock,gaps,Journey,lastObservation,latestVisible,percentile,parseReplay,parseRoadMap,Replay,RoadMap,routeKey,visibleJourneys} from '@/lib/replay';
 import {Operations,parseOperations} from '@/lib/operations';
 import OperationsView from '@/components/operations-view';
+import FollowView,{busesFromArchive,busesFromLive} from '@/components/follow-view';
+import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,SiteConfig} from '@/lib/live';
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -43,9 +45,57 @@ function MapView({journeys,time,selected,choose,roads}:{journeys:Journey[];time:
 export default function Home(){
  const [data,setData]=useState<Replay|null>(null),[roads,setRoads]=useState<RoadMap|null>(null),[error,setError]=useState('');
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
+ const [config,setConfig]=useState<SiteConfig>(DEFAULT_CONFIG);
+ const [live,setLive]=useState<LiveState|null>(null),[liveFetchedAt,setLiveFetchedAt]=useState(0);
+ const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
+ const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
+ const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
- const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('explore');
+ const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
  useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
+ // Published state is polled; the page never contacts the data service itself.
+ const loadLive=useCallback(async(target:string)=>{
+  setRefreshing(true);
+  try{
+   const response=await fetch(`${target}${target.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
+   if(!response.ok)throw Error(`live state unavailable (${response.status})`);
+   const cached=response.headers.get('X-Lost-Minutes-From-Cache')==='1';
+   const value=parseLive(await response.json());
+   setLive(value);setFromCache(cached);setLiveFetchedAt(Date.now());setNowMs(Date.now());
+  }catch{
+   setFromCache(true);
+  }finally{setRefreshing(false)}
+ },[]);
+
+ useEffect(()=>{
+  let cancelled=false;
+  fetch('/data/config.json',{cache:'no-store'}).then(r=>r.ok?r.json():null)
+   .then(value=>{if(cancelled)return;const next=value?parseConfig(value):DEFAULT_CONFIG;setConfig(next);return loadLive(next.liveUrl)})
+   .catch(()=>{if(!cancelled)loadLive(DEFAULT_CONFIG.liveUrl)});
+  return()=>{cancelled=true};
+ },[loadLive]);
+
+ useEffect(()=>{
+  const id=setInterval(()=>loadLive(config.liveUrl),Math.max(10,config.pollSeconds)*1000);
+  return()=>clearInterval(id);
+ },[config,loadLive]);
+
+ // Ages are recomputed from elapsed local time, so a wrong device clock cannot make a
+ // position look fresher than the publisher said it was.
+ useEffect(()=>{const id=setInterval(()=>setNowMs(Date.now()),5000);return()=>clearInterval(id)},[]);
+
+ useEffect(()=>{
+  const update=()=>setOnline(navigator.onLine);
+  update();
+  addEventListener('online',update);addEventListener('offline',update);
+  return()=>{removeEventListener('online',update);removeEventListener('offline',update)};
+ },[]);
+
+ useEffect(()=>{
+  if(!('serviceWorker' in navigator))return;
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+ },[]);
+
  const duration=data?Math.floor((data.end-data.start)/1000):0,time=data?data.start+offset*1000:0;
  const filtered=useMemo(()=>data?.journeys.filter(j=>(route==='all'||routeKey(j)===route)&&(direction==='all'||j.direction===direction))??[],[data,route,direction]);
  const routeChoices=useMemo(()=>Array.from(new Set(data?.journeys.map(routeKey)??[])).sort((a,b)=>a.split('|')[1].localeCompare(b.split('|')[1],undefined,{numeric:true})),[data]);
@@ -53,6 +103,15 @@ export default function Home(){
  const point=chosen?lastObservation(chosen,time):undefined;
  const seen=visibleJourneys(filtered,time);
  const count=filtered.reduce((n,j)=>n+j.points.filter(p=>p.time<=time).length,0);
+ const reference=nowMs||liveFetchedAt;
+ const publishedAge=live?publicationAge(live,liveFetchedAt,reference):null;
+ const liveMode=feedMode(live,fromCache,online,publishedAge);
+ // Archive mode is an explicit, badged choice. It never stands in for live data silently.
+ const followMode=usingArchive?'archive':liveMode;
+ const followBuses=useMemo(()=>usingArchive
+  ?busesFromArchive(data?.journeys??[])
+  :busesFromLive(live,liveFetchedAt,reference),[usingArchive,data,live,liveFetchedAt,reference]);
+ const archiveDate=data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):undefined;
  const age=point?Math.max(0,Math.round((time-point.time)/1000)):null;
  const routeLabel=route==='all'?'All routes':route.split('|')[1];
  const selectedGaps=chosen?gaps(chosen):[];
@@ -64,9 +123,22 @@ export default function Home(){
  return <main className="app-shell">
   <a className="skip-link" href="#workspace">Skip to recorded journeys</a>
   <header className="masthead"><Link className="brand" href="/" aria-label="Lost Minutes home"><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span><a href="#evidence" onClick={()=>{setTab('evidence');setPlaying(false)}} className="header-link">Behind the numbers <ArrowUpRight size={16}/></a></header>
-  <section className="page-heading"><div><p className="eyebrow">A CITY IN MOTION</p><h1>Every journey leaves a trace.</h1><p className="intro">Follow Manchester’s buses. Replay a moment. Look closer.</p></div><div className="recording-label"><span className="archive-badge"><Clock3 size={14}/> ARCHIVE REPLAY</span><span>{data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):'Recorded public data'}</span><small>Historical observations · not live</small></div></section>
+  {/* The passenger view leads with the bus, not with a hero. The archive badge belongs to
+      the archive views: on Follow it would contradict the live status banner below. */}
+  {tab==='follow'
+   ?<section className="page-heading compact"><div><p className="eyebrow">MANCHESTER BUSES</p><h1>Follow your bus.</h1><p className="intro">The last position each bus reported, and how long ago it reported it.</p></div></section>
+   :<section className="page-heading"><div><p className="eyebrow">A CITY IN MOTION</p><h1>Every journey leaves a trace.</h1><p className="intro">Follow Manchester’s buses. Replay a moment. Look closer.</p></div><div className="recording-label"><span className="archive-badge"><Clock3 size={14}/> ARCHIVE REPLAY</span><span>{data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):'Recorded public data'}</span><small>Historical observations · not live</small></div></section>}
   {!data?<section className="loading-card"><LoaderCircle className={error?'':'spin'} size={26}/><h2>{error||'Loading the Manchester recording…'}</h2><p>{error?'Reload the page to try again. No live data is being shown.':'Opening the original observations and their source record.'}</p>{error&&<button className="action" onClick={()=>location.reload()}>Try again</button>}</section>:<Tabs value={tab} onValueChange={v=>{setTab(v);if(v!=='explore')setPlaying(false)}} className="workspace-tabs">
-   <div className="workspace-toolbar"><TabsList className="view-tabs"><TabsTrigger value="explore"><MapPin size={16}/>Explore</TabsTrigger><TabsTrigger value="evidence"><ShieldCheck size={16}/>Evidence</TabsTrigger><TabsTrigger value="operations"><Activity size={16}/>Operations</TabsTrigger></TabsList><div className="filters"><label htmlFor="route-select">Route</label><Select value={route} onValueChange={changeRoute}><SelectTrigger id="route-select" className="route-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All recorded routes</SelectItem>{routeChoices.map(r=><SelectItem key={r} value={r}>{r.split('|')[1]} · {r.split('|')[0]}</SelectItem>)}</SelectContent></Select><label htmlFor="direction-select" className="sr-only">Direction</label><Select value={direction} onValueChange={v=>{setDirection(v);setSelected('')}}><SelectTrigger id="direction-select" className="direction-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">Both directions</SelectItem><SelectItem value="inbound">Inbound</SelectItem><SelectItem value="outbound">Outbound</SelectItem></SelectContent></Select></div></div>
+   <div className="workspace-toolbar"><TabsList className="view-tabs"><TabsTrigger value="follow"><Navigation size={16}/>Follow</TabsTrigger><TabsTrigger value="explore"><MapPin size={16}/>Explore</TabsTrigger><TabsTrigger value="evidence"><ShieldCheck size={16}/>Evidence</TabsTrigger><TabsTrigger value="operations"><Activity size={16}/>Operations</TabsTrigger></TabsList>{tab!=='follow'&&<div className="filters"><label htmlFor="route-select">Route</label><Select value={route} onValueChange={changeRoute}><SelectTrigger id="route-select" className="route-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All recorded routes</SelectItem>{routeChoices.map(r=><SelectItem key={r} value={r}>{r.split('|')[1]} · {r.split('|')[0]}</SelectItem>)}</SelectContent></Select><label htmlFor="direction-select" className="sr-only">Direction</label><Select value={direction} onValueChange={v=>{setDirection(v);setSelected('')}}><SelectTrigger id="direction-select" className="direction-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">Both directions</SelectItem><SelectItem value="inbound">Inbound</SelectItem><SelectItem value="outbound">Outbound</SelectItem></SelectContent></Select></div>}</div>
+   <TabsContent value="follow" id="follow">
+    <FollowView mode={followMode} live={live} buses={followBuses} roads={roads}
+     onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
+     publicationAgeSeconds={publishedAge} archiveDate={archiveDate}
+     usingArchive={usingArchive}
+     onUseArchive={data?()=>setUsingArchive(true):undefined}/>
+    {usingArchive&&<button className="text-action follow-leave-archive"
+     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
+   </TabsContent>
    <TabsContent value="explore" id="workspace">
     <div className="workspace-grid"><section className="map-card"><div className="map-card-head"><div><span className="eyebrow">{route==='all'?'THE RECORDED NETWORK':`ROUTE ${routeLabel}`}</span><h2>{chosen?cleanLabel(chosen.destination)||'Manchester journeys':'No journeys in this selection'}{chosen&&<ArrowDown size={18}/>}</h2></div><span className="time-chip">{clock(time,true)} <small>BST</small></span></div><MapView journeys={filtered} time={time} selected={chosen?.id??''} choose={setSelected} roads={roads}/><div className="map-foot"><Info size={15}/><p>Positions update only when an observation exists. Dashed trails connect samples; they are not exact road paths.</p></div></section>
     <aside className="journey-panel"><div className="panel-top"><span className="eyebrow">IN THIS VIEW</span><span className="tiny-label">at {clock(time)}</span></div><div className="headline-number">{seen.length}<span> buses observed</span></div><p className="muted">With a position no more than 2 minutes old at the replay time.</p><div className="mini-stats"><div><strong>{count.toLocaleString()}</strong><span>unique observations<br/>up to this moment</span></div><div><strong>{filtered.length}</strong><span>recorded journey tracks<br/>across the full sample</span></div></div><div className="section-rule"/><div className="section-title"><h3>Select a journey</h3><BusFront size={18}/></div><div className="journey-list">{filtered.length===0?<p className="empty-copy">No observations match this route and direction. Try another selection.</p>:filtered.map(j=>{const p=lastObservation(j,time);const isCurrent=!!latestVisible(j,time);return <button key={j.id} className={`journey-choice ${chosen?.id===j.id?'chosen':''}`} onClick={()=>setSelected(j.id)} aria-pressed={chosen?.id===j.id}><span className="route-pill">{j.route}</span><span className="journey-choice-copy"><strong>{j.vehicle}</strong><span>{cleanLabel(j.destination)||'Destination not supplied'}</span></span><span className={isCurrent?'fresh-label':'quiet-label'}>{isCurrent?'Observed':p?'Older':'Later'}</span></button>})}</div>

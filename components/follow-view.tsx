@@ -1,8 +1,12 @@
 "use client";
 
 import {useMemo,useState,useSyncExternalStore} from 'react';
-import {ChevronDown,Clock3,Crosshair,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
+import {ChevronDown,Clock3,Crosshair,MapPin,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
+import StopSearch from '@/components/stop-search';
+import {distanceWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,
+        stopDetail,stopPlace,straightLineMetres,subscribeSavedStops,toggleSavedStop,
+        type Stop} from '@/lib/stops';
 import {destinationLabel,directionLabel,FollowBus,routeId,routeNumber,routesByRecency} from '@/lib/follow';
 import {Favourite,FeedMode,favouriteKey,favouritesServerSnapshot,favouritesSnapshot,
         isFavourite,LiveState,saveFavourites,subscribeFavourites,toggleFavourite} from '@/lib/live';
@@ -18,12 +22,15 @@ const MODE:Record<FeedMode,{label:string;tone:string;line:string}>={
 
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
-                                    usingArchive,onOpenEvidence}:{
+                                    usingArchive,onOpenEvidence,stops,stop,onSelectStop,
+                                    onLocate,locating,locationError}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
- onOpenEvidence:()=>void}){
+ onOpenEvidence:()=>void;stops:Stop[];stop:Stop|null;onSelectStop:(stop:Stop|null)=>void;
+ onLocate?:()=>void;locating?:boolean;locationError?:string}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
+ const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
  const [blocked,setBlocked]=useState(false);
  const [choice,setChoice]=useState<{route:string;direction:string}|null>(null);
  const [selectedKey,setSelectedKey]=useState('');
@@ -43,9 +50,15 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const {route,direction}=active;
 
  const onRoute=useMemo(()=>buses.filter(b=>routeId(b)===route),[buses,route]);
- const shown=useMemo(()=>onRoute
-  .filter(b=>direction==='all'||b.direction===direction)
-  .sort((a,b)=>b.observedAtMs-a.observedAtMs),[onRoute,direction]);
+ const shown=useMemo(()=>{
+  const filtered=onRoute.filter(b=>direction==='all'||b.direction===direction);
+  // With a stop chosen, nearest first is the order a waiting passenger cares about.
+  // Without one, most recently reported first.
+  return stop
+   ? filtered.map(b=>({...b,metresFromStop:straightLineMetres(stop,b)}))
+             .sort((a,b)=>a.metresFromStop!-b.metresFromStop!)
+   : filtered.sort((a,b)=>b.observedAtMs-a.observedAtMs);
+ },[onRoute,direction,stop]);
  const directions=useMemo(()=>Array.from(new Set(onRoute.map(b=>b.direction).filter(Boolean))),[onRoute]);
  const selected=shown.find(b=>b.key===selectedKey)??shown[0];
 
@@ -74,6 +87,36 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    <button className="follow-refresh" onClick={onRefresh} disabled={refreshing}
     aria-label="Check for newer positions"><RefreshCw size={16} className={refreshing?'spin':''}/></button>
   </div>
+
+  {stops.length>0&&(stop
+   ? <div className="your-stop">
+      <span className="your-stop-mark"><MapPin size={19}/></span>
+      <span className="your-stop-copy">
+       <strong>{stop.name}</strong>
+       <small>{stopDetail(stop)||'No side-of-road detail supplied'}</small>
+       {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
+      </span>
+      <span className="your-stop-actions">
+       <button className={savedStopIds.includes(stop.id)?'on':''}
+        aria-pressed={savedStopIds.includes(stop.id)}
+        onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
+        <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/>
+        {savedStopIds.includes(stop.id)?'Saved':'Save'}</button>
+       <button onClick={()=>onSelectStop(null)}>Change</button>
+      </span>
+     </div>
+   : <div className="your-stop unset">
+      <StopSearch stops={stops} onSelect={onSelectStop} onLocate={onLocate}
+       locating={locating} locationError={locationError}/>
+      {savedStopIds.length>0&&<div className="stop-chips" style={{marginTop:10}}>
+       {savedStopIds.map(id=>{
+        const saved=stops.find(s=>s.id===id);
+        return saved?<button key={id} className="stop-chip" onClick={()=>onSelectStop(saved)}>
+         <MapPin size={14}/><span>{saved.name}{saved.indicator?` · ${saved.indicator}`:''}</span>
+        </button>:null;
+       })}
+      </div>}
+     </div>)}
 
   {buses.length>0&&<div className="follow-pickers">
    <label className="sr-only" htmlFor="follow-route">Route</label>
@@ -108,7 +151,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   {blocked&&<p className="follow-hint warn">This device would not let us save the route. It still works for this visit.</p>}
 
   {buses.length>0&&<FollowMap buses={shown} selected={selected} follow={follow} roads={roads}
-   mode={mode} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>}
+   mode={mode} stop={stop} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>}
 
   {/* Four different situations, told apart in plain words rather than one vague message. */}
   {mode==='unavailable'&&<div className="follow-empty">
@@ -155,6 +198,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      <small>{[directionLabel(selected.direction),
               mode==='archive'?`reported ${clock(selected.observedAtMs,true)}`:selected.ageWords]
              .filter(Boolean).join(' · ')}</small>
+     {stop&&<small className="stop-distance">{distanceWords(straightLineMetres(stop,selected))} from your stop</small>}
     </div>
     <button className={`follow-toggle ${follow?'on':''}`} onClick={()=>setFollow(v=>!v)}
      aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
@@ -194,7 +238,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     <span className="route-pill">{bus.route}</span>
     <span className="follow-row-copy">
      <strong>{destinationLabel(bus.destination)}</strong>
-     <small>{directionLabel(bus.direction)}</small></span>
+     <small>{[directionLabel(bus.direction),
+              stop?`${straightLineMetres(stop,bus)} m away`:''].filter(Boolean).join(' · ')}</small></span>
     {mode==='archive'
      ?<span className="fresh-chip archive">{clock(bus.observedAtMs,true)}</span>
      :<span className={`fresh-chip ${bus.freshness??'unknown'}`}>{bus.ageWords.replace('reported ','')}</span>}

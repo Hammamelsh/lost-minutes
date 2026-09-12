@@ -207,6 +207,60 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .bus-marker{cursor:pointer;outline:none}
 .bus-marker:focus-visible>circle{stroke:#fff;stroke-width:4}
 .bus-halo{fill:none;stroke:#c6f36a;stroke-width:2;opacity:.5}
+/* The boarding point. Deliberately a different shape and colour from any bus, so the two
+   are never confused at a glance. */
+.stop-marker-ring{fill:#0f1e2966;stroke:#ffb459;stroke-width:2}
+.stop-marker-flag{fill:#ffb459}
+.stop-marker-dot{fill:#ffd9a5;stroke:#1b2b33;stroke-width:1.5}
+
+/* ---- Stop search: an ARIA combobox, not a list of bare numbers. */
+.stop-search{position:relative}
+.stop-search-field{display:flex;align-items:center;gap:9px;min-height:52px;padding:0 10px 0 13px;
+ border:1px solid #375060;border-radius:12px;background:#172935}
+.stop-search-field:focus-within{border-color:#c6f36a;box-shadow:0 0 0 2px #c6f36a33}
+.stop-search-field>svg{color:#8fa6b3;flex-shrink:0}
+.stop-search-field input{flex:1;min-width:0;background:transparent;border:0;color:#eaf4f8;
+ font-size:16px;min-height:50px;outline:none}
+.stop-search-field input::placeholder{color:#8298a6}
+.stop-search-clear,.stop-search-locate{flex-shrink:0;min-width:44px;min-height:44px;display:grid;
+ place-items:center;background:none;border:0;color:#9db1bd;border-radius:10px}
+.stop-search-locate{border:1px solid #375060;background:#1b2d3a;color:#d3e0e5}
+.stop-search-locate:disabled{opacity:.6}
+.stop-search-status{margin:7px 2px 0;font-size:12px;color:#94aab8;line-height:1.5}
+.stop-search-list{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 38px);margin:0;
+ padding:5px;list-style:none;max-height:min(58vh,420px);overflow-y:auto;background:#162834;
+ border:1px solid #3d5566;border-radius:12px;box-shadow:0 16px 40px #05101899}
+.stop-search-option{padding:10px 11px;border-radius:9px;cursor:pointer;min-height:56px;
+ display:flex;flex-direction:column;justify-content:center;gap:2px}
+.stop-search-option.active{background:#27414f;outline:2px solid #c6f36a;outline-offset:-2px}
+.stop-search-option strong{font-size:15px;font-weight:650;color:#eaf4f8}
+.stop-search-option small{font-size:12px;color:#a7bcc8}
+.stop-search-option em{font-style:normal;font-size:11px;color:#8298a6}
+.stop-search-empty{padding:14px 11px;font-size:13px;color:#a7bcc8;line-height:1.6}
+
+/* ---- Your stop: the persistent reference point everything else is measured from. */
+.your-stop{display:flex;align-items:flex-start;gap:11px;background:#1a2b22;
+ border:1px solid #4c6b39;border-radius:13px;padding:12px 13px}
+.your-stop.unset{background:#132330;border-color:#2d4250;display:block}
+.your-stop-mark{flex-shrink:0;width:38px;height:38px;border-radius:10px;display:grid;
+ place-items:center;background:#3a2d1b;border:1px solid #7e6541;color:#ffb459}
+.your-stop-copy{flex:1;min-width:0}
+.your-stop-copy strong{display:block;font-size:16px;font-weight:650;letter-spacing:-.2px}
+.your-stop-copy small{display:block;font-size:12px;color:#a7bcc8;margin-top:2px}
+.your-stop-copy em{font-style:normal;display:block;font-size:11px;color:#8298a6;margin-top:2px}
+.your-stop-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.your-stop-actions button{min-height:38px;min-width:44px;padding:0 10px;border-radius:9px;
+ border:1px solid #375060;background:#172935;color:#d3e0e5;font-size:13px;font-weight:600;
+ display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.your-stop-actions button.on{border-color:#8fbf4f;background:#253524;color:#c6f36a}
+.stop-chips{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.stop-chips::-webkit-scrollbar{display:none}
+.stop-chip{flex:0 0 auto;min-height:40px;padding:0 12px;border-radius:10px;border:1px solid #375060;
+ background:#172935;color:#dbe7ec;font-size:14px;font-weight:600;display:inline-flex;
+ align-items:center;gap:7px;max-width:230px}
+.stop-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stop-chip.on{border-color:#8fbf4f;background:#253524;color:#e6ffc4}
+.stop-distance{font-size:12px;color:#8fa6b3;white-space:nowrap}
 .bus-marker-route{fill:#1c2b12;font-size:13px;font-weight:800;pointer-events:none}
 .follow-map .place-label{fill:#7d95a1;font-size:16px;letter-spacing:1.6px;font-weight:600;
  paint-order:stroke;stroke:#0f1e29;stroke-width:5px;pointer-events:none}

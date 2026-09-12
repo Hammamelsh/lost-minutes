@@ -13,6 +13,7 @@ import OperationsView from '@/components/operations-view';
 import FollowView from '@/components/follow-view';
 import {busesFromArchive,busesFromLive} from '@/lib/follow';
 import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
+import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -51,10 +52,15 @@ export default function Home(){
  const [serverRef,setServerRef]=useState(0),[ageBasis,setAgeBasis]=useState<'server'|'device'>('server');
  const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
  const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
+ const [catalogue,setCatalogue]=useState<Catalogue|null>(null);
+ const [stop,setStop]=useState<Stop|null>(null);
+ const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
  const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
- useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
+ useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/stops.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
+ .then(value=>{if(value)setCatalogue(parseCatalogue(value))}).catch(()=>{});
+ fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
  // Published state is polled; the page never contacts the data service itself.
  const loadLive=useCallback(async(target:string)=>{
   setRefreshing(true);
@@ -109,6 +115,31 @@ export default function Home(){
  const point=chosen?lastObservation(chosen,time):undefined;
  const seen=visibleJourneys(filtered,time);
  const count=filtered.reduce((n,j)=>n+j.points.filter(p=>p.time<=time).length,0);
+ // Location is optional and never required: the search box completes the task alone.
+ const locate=useCallback(()=>{
+  if(!catalogue)return;
+  if(!('geolocation' in navigator)){
+   setLocationError('This browser cannot share a location. Search for your stop instead.');
+   return;
+  }
+  setLocating(true);setLocationError('');
+  navigator.geolocation.getCurrentPosition(position=>{
+   const here={lat:position.coords.latitude,lon:position.coords.longitude};
+   const nearby=nearestStops(catalogue.stops,here,1);
+   setLocating(false);
+   if(!nearby.length||nearby[0].metres>3000){
+    setLocationError('No collected stop is near you. Search for a stop instead.');
+    return;
+   }
+   setStop(nearby[0].stop);
+  },error=>{
+   setLocating(false);
+   setLocationError(error.code===error.PERMISSION_DENIED
+    ?'Location is off, which is fine. Search for your stop instead.'
+    :'Your location could not be read. Search for your stop instead.');
+  },{enableHighAccuracy:false,timeout:10000,maximumAge:60000});
+ },[catalogue]);
+
  const reference=nowMs||liveFetchedAt;
  const publishedAge=live?publicationAge(live,{serverReferenceMs:serverRef||live.publishedAtMs},liveFetchedAt,reference):null;
  const liveMode=feedMode(live,fromCache,online,publishedAge);
@@ -142,6 +173,8 @@ export default function Home(){
      onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
      publicationAgeSeconds={publishedAge} ageBasis={ageBasis} archiveDate={archiveDate}
      usingArchive={usingArchive}
+     stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
+     onLocate={locate} locating={locating} locationError={locationError}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}/>
     {usingArchive&&<button className="text-action follow-leave-archive"

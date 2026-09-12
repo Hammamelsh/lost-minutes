@@ -3,6 +3,7 @@
 import {useCallback,useMemo,useRef,useState} from 'react';
 import {Crosshair,Minus,Plus} from 'lucide-react';
 import {Bounds,boundsOf,fitProjection} from '@/lib/geo';
+import type {Stop} from '@/lib/stops';
 import {FeedMode} from '@/lib/live';
 import type {FollowBus} from '@/lib/follow';
 import {RoadMap} from '@/lib/replay';
@@ -23,9 +24,9 @@ type View={cx:number;cy:number;span:number};
 const spanOf=(b:Bounds)=>Math.max(b.north-b.south,(b.east-b.west)*0.6);
 const centreOf=(b:Bounds)=>({cx:(b.west+b.east)/2,cy:(b.south+b.north)/2});
 
-export default function FollowMap({buses,selected,follow,roads,onSelect,onManualMove,mode}:{
+export default function FollowMap({buses,selected,follow,roads,onSelect,onManualMove,mode,stop}:{
  buses:FollowBus[];selected?:FollowBus;follow:boolean;roads:RoadMap|null;
- onSelect:(key:string)=>void;onManualMove:()=>void;mode:FeedMode}){
+ onSelect:(key:string)=>void;onManualMove:()=>void;mode:FeedMode;stop?:Stop|null}){
  // null means "fit automatically". Any manual pan or zoom takes over, and says so.
  const [view,setView]=useState<View|null>(null);
  const drag=useRef<{x:number;y:number;cx:number;cy:number}|null>(null);
@@ -34,10 +35,12 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
 
  const auto=useMemo<View>(()=>{
   if(follow&&selected)return {cx:selected.lon,cy:selected.lat,span:0.012};
-  const bounds=boundsOf(buses.length?buses:[{lat:53.4808,lon:-2.2426}],0.2);
+  // Fit what the passenger is actually looking at: their stop and the buses on screen.
+  const points=[...buses,...(stop?[{lat:stop.lat,lon:stop.lon}]:[])];
+  const bounds=boundsOf(points.length?points:[{lat:53.4808,lon:-2.2426}],0.2);
   return bounds?{...centreOf(bounds),span:Math.min(MAX_SPAN,Math.max(MIN_SPAN,spanOf(bounds)))}
                :{cx:-2.2426,cy:53.4808,span:0.06};
- },[buses,selected,follow]);
+ },[buses,selected,follow,stop]);
 
  const active=view??auto;
  const projector=useMemo(()=>{
@@ -105,6 +108,14 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
     const [x,y]=projector.project(lon,lat);
     return <text key={label} x={x} y={y} textAnchor="middle" className="place-label">{label}</text>;
    })}
+   {stop&&(()=>{
+    const [x,y]=projector.project(stop.lon,stop.lat);
+    return <g className="stop-marker" aria-label={`Your stop: ${stop.name}`}>
+     <circle cx={x} cy={y} r={15} className="stop-marker-ring"/>
+     <path d={`M${x} ${y-16} l7 11 h-14 z`} className="stop-marker-flag"/>
+     <circle cx={x} cy={y} r={5} className="stop-marker-dot"/>
+    </g>;
+   })()}
    {buses.map(bus=>{
     const [x,y]=projector.project(bus.lon,bus.lat);
     if(x<-40||x>W+40||y<-40||y>H+40)return null;

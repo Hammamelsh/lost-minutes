@@ -3,6 +3,30 @@
 Explore a real, recorded slice of Manchester bus movement. Choose a route and direction,
 select a bus, scrub through the recording, and inspect the exact source behind a point.
 
+## Project context
+
+Lost Minutes is a personal data-engineering project by **Hammam Elshtewi**, a data engineer
+in Manchester. It exists to show how public transport data is actually collected, validated
+and published — end to end, with the evidence kept attached to every number on screen.
+
+The design rule is that nothing on screen may claim more than the data supports. Every
+published observation keeps its original timestamp, its raw source file and that file's
+SHA-256 fingerprint, and any value the pipeline cannot justify is shown as unknown rather
+than filled in. Counts are reconciled rather than asserted: the totals in the Evidence and
+Operations views add up to the inputs they came from, including the records that were
+rejected or suppressed and why.
+
+Current stage: a historical replay of an 11-snapshot public archive sample, with a local
+DuckDB history of every input, run and publication behind it. It is deliberately **not** a
+live service, a punctuality monitor or a delay predictor — timetable identity, stop-passage
+inference and scheduled-service coverage are not yet validated, so no such figure is shown.
+Roadmap work is tracked in `research/IMPLEMENTED.md`.
+
+Data comes from the Department for Transport's Bus Open Data Service via the Open
+Innovations / National Data Library archive (Open Government Licence v3.0), with road
+geometry from OpenStreetMap (ODbL). Attribution and licensing are in full at the end of
+this file.
+
 ## Working now
 
 - A responsive React/TypeScript map and replay interface, with real OpenStreetMap roads.

@@ -58,3 +58,12 @@ __pycache__/
 
 # Windows download metadata (alternate data streams copied in from Explorer).
 *:Zone.Identifier
+
+# Local AI-assistant instructions: useful on this machine, not part of the published project.
+/CLAUDE.md
+/AGENTS.md
+
+# Local Python environment and DuckDB warehouse; rebuildable from raw sources.
+/.venv/
+/data/warehouse/
+/data/published/

@@ -295,3 +295,65 @@ are derived from 60 scanned TransXChange files per dataset and recorded as such.
 ## Test counts
 29 Python tests, 34 Node tests (replay, operations, live, service worker, follow helpers),
 typecheck, lint and the static build all pass.
+
+---
+
+# Redesign stages 9A–9C — 13 September 2026
+
+Implemented against `docs/LOST_MINUTES_REDESIGN_RESEARCH.md`. Three commits: `f56cfa0`,
+`b0e3a1b`, `98c3e47`.
+
+## 9A — the two reported defects, diagnosed rather than restyled
+- **Dropdown.** No `color-scheme` was declared anywhere, so the browser drew the native
+  select popup in the light scheme while it inherited our light text. `color-scheme: dark`
+  on `:root` fixes the popup; explicit option colours cover engines that ignore it. Measured
+  **14.50:1** for option text and 9.41:1 for the highlighted option.
+- **"updated 111s ago / reported 24s ago".** Reproduced exactly: with an observation 24s old
+  at publication and a fetch 111s later, the old formula returns 111 and 24 because the
+  observation age was measured against the payload's own `publishedAt` and never grew. True
+  age was 135s. Fixed in `f00a1ec`; hardened here to RFC 9111 `Date` + `Age`, with a
+  device-clock fallback that can over-report an age but never under-report one. Corrected an
+  earlier wrong comment: neither header is CORS-safelisted, so a cross-origin host must send
+  `Access-Control-Expose-Headers: Date, Age`.
+- **The two ports were different builds:** 3000 is the dev server reading `public/`, 3001 a
+  static export of `out/`. All reproductions here used one port.
+
+## 9B — discovery by stop, not by bare number
+- NaPTAN ATCO area 180: 21,526 rows in, **1,709 active bus stops** inside the collected area,
+  1,672 with a bearing. Published at 338 KB, **41 KB gzipped**, with 121 observed route labels.
+- ARIA combobox verified in the built app: `aria-expanded` toggles, `aria-autocomplete=list`,
+  `aria-controls`, `aria-activedescendant` tracks the active option, the listbox is labelled,
+  and the count is announced ("12 stops found"). Arrow keys, Home, End, Enter and Escape work.
+- Searching "piccadilly gard" returns Stop Q north-eastbound (Portland Street), Stop R
+  north-westbound and Stop S south-eastbound (Piccadilly) — the opposite-side problem solved
+  from real data.
+- Location is optional. Denial, an unavailable API and a position outside the area each fall
+  back to the same search box with an explanation.
+
+## 9C — a bus placed on a service pattern
+- 859 timetable files valid today across two preserved TfGM datasets; selection by the
+  validity dates in the filenames rather than parsing all of them. 3,278 journey patterns →
+  **78 distinct stop sequences** → **44 publishable** across **13 route labels**.
+- On the real capture, **113 of 376 vehicles matched**, 22–61 m from their nearest pattern
+  stop. Refusals carry reasons: 250 `no_pattern_for_route`, 6 `no_pattern_for_direction`,
+  5 `too_far_from_pattern`, 2 `ambiguous_branch`.
+- **One real result traced end to end:** vehicle SL63FZZ, route 111 inbound, recorded
+  `2026-09-12T21:52:10+00:00` in response `4de2134e…22bd` (456,134 bytes); stored under its
+  identity; matched 38 m from stop `1800SB30631`, index 26 of a 33-stop pattern from
+  `BNML_111_…_20260830_20310830_2411731.xml` (dataset `9ed671b2…`, valid 2026-08-30 to
+  2031-08-30); passenger stop Dickinson Street (`1800SB18301`, nr, NE-bound, Portland Street)
+  at index 30 — **about 4 stops away, 1,267 m along the route**.
+- All four passenger cases exercised in the built app against real positions on a current
+  clock: approaching ("about 10 stops away along the route · 3.0 km along the route"), at the
+  stop, already passed ("about 10 stops ago"), and a branch that does not call there.
+
+## Checks
+40 Python tests, 45 Node tests, typecheck, lint and the static build pass. `python3 -m
+unittest` still works without DuckDB (23 skip). Desktop 1280px: no page overflow, relation
+text contrast **12.53:1**. The repository ships the honest `unavailable` live state; the UI
+verification used real captured positions replayed on a current clock, labelled as such.
+
+## Not done in this milestone
+MapLibre and the optional 3D city view. The map has roads, place labels, the stop marker,
+pan and zoom, but no street names or landmarks. Deferred deliberately in favour of the
+timetable matching, which was the harder and more defensible work.

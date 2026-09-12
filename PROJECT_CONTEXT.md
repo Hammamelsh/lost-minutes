@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 13 September 2026 (stop catalogue and timetable pattern matching).
+Last updated: 13 September 2026 (vector map, nearby stops, and one command for local live operation).
 
 ## Product goal
 
@@ -55,7 +55,9 @@ timetable matching; stop passage inference; travel-time measurement.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev                    # http://localhost:3000
+pnpm dev                    # frontend only, http://localhost:3000
+pnpm dev:live               # frontend + collector together, Ctrl-C stops both
+pnpm dev:live -- --minutes 20
 pnpm build                  # static export to out/
 pnpm start                  # serve out/ with Python
 pnpm test                   # Node contract tests
@@ -65,7 +67,9 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.run import        # archive: fetch, load, publish
 .venv/bin/python -m pipeline.run status        # refresh and print Operations
 .venv/bin/python -m pipeline.live init         # write an honest "unavailable" live state
-.venv/bin/python -m pipeline.collect --minutes 10   # live collection (needs a key)
+.venv/bin/python -m pipeline.collect --minutes 10   # live collection alone
+.venv/bin/python -m pipeline.stops import           # NaPTAN -> stops.json
+.venv/bin/python -m pipeline.patterns               # TransXChange -> patterns.json
 .venv/bin/python -m unittest discover -s tests      # full Python suite
 python3 -m unittest discover -s tests               # parser tests only, skips DuckDB
 ```
@@ -182,7 +186,14 @@ proves that run, not long-term reliability):
   publication requirement, not a published limit.
 - **Local only.** One WSL process, no scheduler, no hosted worker. When the machine stops,
   collection stops. Nothing is labelled continuously live.
-- **No timetable matching.** Three TfGM timetable versions are preserved alongside the
+- **Along-route distance is a stop-to-stop chain, not road geometry.** Measured on 1,791
+  consecutive stop pairs, the operator's declared link distance is the same as the straight
+  line for most of them (median 1.01x, mean 1.08x; only 27% exceed it by more than 5%). The
+  interface says "along the stop sequence" for that reason.
+- **"Out by about a stop" is a stated property, not a measured error bound.** A position
+  places a bus near a pattern stop without saying whether it has already called there. No
+  measurement of the true error has been made.
+- **Timetable matching is partial.** Three TfGM timetable versions are preserved alongside the
   position captures (datasets 17472 and 14928 are configured; both declare windows covering
   the capture date). Measured coverage is partial: dataset 17472 (operator BNML) shares 18 of
   the 114 route labels we observe, 14928 (BNSM) shares 7. Holding a timetable is not evidence
@@ -192,6 +203,26 @@ proves that run, not long-term reliability):
   own sampling), and whether route labels correspond to registered services.
 - The service worker caches published JSON for offline use. It has no background sync and
   does no background location tracking.
+
+## Two areas, deliberately different
+
+`core.BBOX` is the box the retained **archive** sample was collected under and is fixed,
+because the published archive figures were measured inside it. `core.SERVICE_AREA` is wider
+and is what **live collection and stop discovery** use: Longford Park sits 0.6 km outside the
+archive box, so the nearest six stops to it were all unreachable. Widening west to Stretford
+and Trafford took the catalogue from 1,709 to 3,498 stops and the publishable patterns from
+44 to 67.
+
+## Visual priority
+
+The passenger view is the deliverable, not the pipeline behind it. MapLibre renders an
+OpenFreeMap dark vector basemap with streets, water and added green space; "You", "Your stop"
+and the selected bus are three different symbols with labels; reported location accuracy is
+drawn as the circle it actually describes rather than a false point. A fit control puts those
+three on screen together. An optional pitched City view adds building extrusions and resets to
+flat in one tap. The drawn SVG map is the automatic fallback when WebGL is missing or the
+first paint does not complete within seven seconds, so nobody is left looking at a black
+rectangle.
 
 ## Stop and timetable coverage
 
@@ -207,11 +238,9 @@ proves that run, not long-term reliability):
 
 ## Next priorities
 
-1. **MapLibre basemap.** The map now has roads, place labels, the stop marker, pan and zoom,
-   but no street names or landmarks. A vector basemap (OpenFreeMap was the suggested provider)
-   would answer "is this my stop" far better. Deferred deliberately in favour of the timetable
-   matching below, which was the harder and more defensible work; it needs a WebGL and
-   tile-failure fallback, which the current SVG map already provides.
+1. **Confirm the vector map by eye.** MapLibre is integrated and its style, TileJSON and
+   sprites all return 200, but this headless environment cannot complete a WebGL first paint,
+   so the rendered basemap could not be verified here. It needs one look in a real browser.
 2. **Decide on hosting** so collection runs when this machine does not. A costed proposal is
    in `docs/HOSTING.md`: one Hetzner CX22 with systemd and Cloudflare, about £3–5 a month.
    Needs your approval before anything is provisioned.

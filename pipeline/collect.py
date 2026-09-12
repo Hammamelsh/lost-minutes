@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from .capture import fetch
-from .core import parse_source, redact_url
+from .core import SERVICE_AREA, parse_source, redact_url
 from .env import load_env
 from .freshness import POLL_DEFAULT, POLL_MINIMUM
 from .live import publish_live
@@ -39,7 +39,7 @@ from .warehouse import (DEFAULT_DB, claim_source, connect, finish_run, load_obse
 
 ROOT = Path(__file__).resolve().parents[1]
 FEED_URL = 'https://data.bus-data.dft.gov.uk/api/v1/datafeed/'
-MANCHESTER_BBOX = '-2.30,53.42,-2.18,53.51'
+MANCHESTER_BBOX = ','.join(str(v) for v in SERVICE_AREA)
 LOCK_PATH = Path('data/warehouse/collector.lock')
 LIVE_KIND = 'live_positions'
 MAX_BACKOFF = 300
@@ -272,7 +272,7 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                 else:
                     try:
                         records, rejected, stats = parse_source(
-                            body, digest, requested_at.isoformat())
+                            body, digest, requested_at.isoformat(), SERVICE_AREA)
                     except Exception as error:
                         record_cycle(con, run_id, cycle, requested_at, 'malformed',
                                      http_status=status, source_sha256=digest,

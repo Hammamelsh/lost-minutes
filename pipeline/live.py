@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .core import BBOX, atomic_json, utc_now
+from .core import SERVICE_AREA, atomic_json, utc_now
 from .freshness import EXPIRY, label, measure, policy
 from .match import match_all
 from .warehouse import DEFAULT_DB, connect
@@ -142,7 +142,7 @@ def build_live(con, published_at=None):
         'schemaVersion': SCHEMA_VERSION,
         'state': state,
         'mode': 'live_bods',
-        'area': {'bbox': list(BBOX), 'label': 'Manchester'},
+        'area': {'bbox': list(SERVICE_AREA), 'label': 'Manchester and Trafford'},
         'publishedAt': now.astimezone(timezone.utc).isoformat(),
         'publishedAtMs': now_ms,
         'collection': {
@@ -174,7 +174,10 @@ def build_live(con, published_at=None):
         'notes': NOTES,
     }
     if state == 'unavailable':
-        payload['unavailableReason'] = 'no_live_collection_yet'
+        diagnosis = diagnose_unavailable(con)
+        payload['unavailableReason'] = diagnosis['reason']
+        payload['unavailableDetail'] = diagnosis['passenger']
+        payload['unavailableTechnical'] = diagnosis['technical']
     return payload
 
 
@@ -184,7 +187,7 @@ def validate_live(payload, previous=None):
     add = lambda name, ok, detail: checks.append(
         {'name': name, 'passed': bool(ok), 'detail': detail})
     vehicles = payload.get('vehicles') or []
-    west, south, east, north = payload.get('area', {}).get('bbox') or BBOX
+    west, south, east, north = payload.get('area', {}).get('bbox') or SERVICE_AREA
 
     add('state_is_known', payload.get('state') in ('live', 'stale', 'unavailable'),
         str(payload.get('state')))
@@ -262,13 +265,57 @@ def _record(con, run_id, payload, digest, size, target, failed, checks, root):
         [(publication_id, c['name'], c['passed'], c['detail']) for c in checks])
 
 
-def write_unavailable(root=Path('.'), reason='no_credentials_configured', poll_seconds=None):
-    """An honest placeholder so the interface can state the truth before any collection."""
+def diagnose_unavailable(con=None, environ=None):
+    """Why there is no live data *now*, from actual state rather than an assumption.
+
+    Blaming a missing credential when one is configured sends someone to fix the wrong
+    thing. The collector having run before and not running now are different situations and
+    are named differently.
+    """
+    import os
+    environ = os.environ if environ is None else environ
+    has_key = bool(environ.get('BODS_API_KEY'))
+    ran_before = False
+    last_published = None
+    if con is not None:
+        try:
+            ran_before = con.execute(
+                "SELECT count(*) FROM raw_source WHERE source_kind = ?", [LIVE_KIND]).fetchone()[0] > 0
+            last_published = con.execute(
+                "SELECT max(published_at) FROM publication WHERE kind = 'live'"
+                " AND status = 'published'").fetchone()[0]
+        except Exception:                                   # schema not built yet
+            pass
+    if not has_key:
+        return {'reason': 'no_credentials_configured',
+                'technical': 'BODS_API_KEY is not set in the environment or in a local .env, '
+                             'so the collector cannot authenticate.',
+                'passenger': 'Live updates are not set up on this copy yet.'}
+    if not ran_before:
+        return {'reason': 'collector_never_run',
+                'technical': 'Credentials are configured but no live response has ever been '
+                             'stored. Start the collector with: pnpm dev:live',
+                'passenger': 'Live updates have not been switched on yet.'}
+    return {'reason': 'collector_not_running',
+            'technical': 'Credentials are configured and the collector has run before, but it '
+                         'is not running now, so no fresh state is being published'
+                         + (f' (last published {last_published:%Y-%m-%d %H:%M} UTC)'
+                            if last_published else '')
+                         + '. Start it with: pnpm dev:live',
+            'passenger': 'Live updates are not running at the moment.'}
+
+
+def write_unavailable(root=Path('.'), reason=None, poll_seconds=None, con=None):
+    """An honest placeholder that says which of several different things is actually wrong."""
+    diagnosis = diagnose_unavailable(con)
+    reason = reason or diagnosis['reason']
     from .freshness import POLL_DEFAULT
     payload = {
         'schemaVersion': SCHEMA_VERSION, 'state': 'unavailable', 'mode': 'live_bods',
         'unavailableReason': reason,
-        'area': {'bbox': list(BBOX), 'label': 'Manchester'},
+        'unavailableDetail': diagnosis['passenger'],
+        'unavailableTechnical': diagnosis['technical'],
+        'area': {'bbox': list(SERVICE_AREA), 'label': 'Manchester and Trafford'},
         'publishedAt': utc_now(), 'publishedAtMs': int(datetime.now(timezone.utc).timestamp() * 1000),
         'collection': {'lastRequestAt': None, 'lastSuccessAt': None, 'lastPayloadChangeAt': None,
                        'cycles': 0, 'succeeded': 0, 'repeatPayloads': 0, 'failed': 0,
@@ -293,7 +340,11 @@ def main(argv=None):
     command = (argv or sys.argv[1:] or ['publish'])[0]
     root = Path(__file__).resolve().parents[1]
     if command == 'init':
-        payload = write_unavailable(root)
+        con = connect(root / DEFAULT_DB)
+        try:
+            payload = write_unavailable(root, con=con)
+        finally:
+            con.close()
         print(json.dumps({'state': payload['state'], 'reason': payload['unavailableReason']}))
         return 0
     con = connect(root / DEFAULT_DB)

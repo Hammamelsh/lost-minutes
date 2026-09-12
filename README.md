@@ -66,8 +66,13 @@ No BODS key is required for the included archive replay.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev
+pnpm dev          # the frontend alone
+pnpm dev:live     # the frontend and the collector together; Ctrl-C stops both cleanly
 ```
+
+`pnpm dev:live` reads the key from `.env` on the Python side only. It never reaches the
+browser: verified by searching the served HTML, every JavaScript chunk and the static build
+for the key and finding it in none of them.
 
 Open http://localhost:3000. The site reads two published JSON files and needs no Python
 and no API key. To run the pipeline that produces them, create the local environment once:

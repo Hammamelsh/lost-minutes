@@ -39,9 +39,10 @@ export type StopRelation =
  * How a matched bus relates to the passenger's stop, along the ordered pattern.
  *
  * `stopsAway` counts stops along the pattern from the stop the bus was last reported nearest
- * to. Because a position only tells us the bus is *near* that stop, not whether it has yet
- * called there, the count is accurate to about one stop; the interface says so. No arrival
- * time is derived from it, because nothing here measures time.
+ * to. A position only tells us the bus is *near* that stop, not whether it has already called
+ * there, so the count can be out by one in either direction. That is a stated property of the
+ * method, not a validated error bound: no measurement of the true error has been made. No
+ * arrival time is derived from it, because nothing here measures time.
  */
 export function relateToStop(bus:{match?:unknown},stopId:string,
                              patterns:Map<string,ServicePattern>):StopRelation{
@@ -78,9 +79,17 @@ export function relationWords(relation:StopRelation):string{
  }
 }
 
-/** Along-route metres read as distance, never as a time. */
+/**
+ * Distance along the timetabled stop sequence, read as distance and never as a time.
+ *
+ * The figure is the operator's own declared link distance summed between stops. Measured
+ * against straight lines on 1,791 consecutive stop pairs it is the same as the straight line
+ * for most of them (median 1.01x, mean 1.08x, only 27% more than 5% longer), so it is a
+ * stop-to-stop chain, not a road-following route distance. The wording says so.
+ */
 export const alongRouteWords = (metres:number) =>
- metres<1000?`${Math.round(metres/50)*50} m along the route`:`${(metres/1000).toFixed(1)} km along the route`;
+ metres<1000?`${Math.round(metres/50)*50} m along the stop sequence`
+            :`${(metres/1000).toFixed(1)} km along the stop sequence`;
 
 /** Patterns that call at a stop, so a passenger can be told which services are supported. */
 export function patternsCallingAt(catalogue:PatternCatalogue|null,stopId:string):ServicePattern[]{

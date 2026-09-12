@@ -15,7 +15,17 @@ from xml.etree import ElementTree as ET
 
 MAX_XML = 80_000_000
 MAX_QUARANTINE_PER_SOURCE = 500
+
+# The area the retained archive sample was collected under. Fixed, because the published
+# archive figures were measured inside it and reprocessing to a different box would silently
+# change numbers that are already documented.
 BBOX = (-2.30, 53.42, -2.18, 53.51)
+
+# The area live collection and stop discovery use. Wider on purpose: Longford Park sits
+# 0.6 km outside the archive box, so the nearest six stops to it - Stretford Mall, Stretford
+# Public Hall, Moss Road - were all unreachable. West to Stretford and Trafford, east past
+# Levenshulme.
+SERVICE_AREA = (-2.36, 53.40, -2.16, 53.53)
 
 # A vehicle may legitimately report a moment before the response is built, and clocks
 # disagree. Beyond this the timestamp is not credible and the record is quarantined rather

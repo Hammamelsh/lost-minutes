@@ -58,8 +58,10 @@ test('one stop away reads in the singular',()=>{
 });
 
 test('along-route distance is stated as distance and never as a time',()=>{
- assert.equal(alongRouteWords(900),'900 m along the route');
- assert.equal(alongRouteWords(1267),'1.3 km along the route');
+ assert.equal(alongRouteWords(900),'900 m along the stop sequence');
+ assert.equal(alongRouteWords(1267),'1.3 km along the stop sequence');
+ // It must not imply road-following geometry, which the measurement does not support.
+ for(const m of [500,2500])assert.ok(!/along the route/.test(alongRouteWords(m)));
  for(const metres of [0,250,900,5000])assert.ok(!/min|minute|arriv|eta/i.test(alongRouteWords(metres)));
 });
 

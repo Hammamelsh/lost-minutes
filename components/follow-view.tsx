@@ -3,7 +3,8 @@
 import {useMemo,useState,useSyncExternalStore} from 'react';
 import {ChevronDown,Clock3,Crosshair,MapPin,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
-import StopSearch from '@/components/stop-search';
+import CityMap,{type Here} from '@/components/city-map';
+import Nearby from '@/components/nearby';
 import {alongRouteWords,patternsCallingAt,relateToStop,relationWords,type PatternCatalogue,
         type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {distanceWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,
@@ -25,13 +26,15 @@ const MODE:Record<FeedMode,{label:string;tone:string;line:string}>={
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
-                                    onLocate,locating,locationError,patterns,patternsById}:{
+                                    onLocate,locating,locationError,patterns,patternsById,
+                                    here,outsideArea,onClearHere}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
  onOpenEvidence:()=>void;stops:Stop[];stop:Stop|null;onSelectStop:(stop:Stop|null)=>void;
  onLocate?:()=>void;locating?:boolean;locationError?:string;
- patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>}){
+ patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>;
+ here:Here|null;outsideArea:boolean;onClearHere:()=>void}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
  const [blocked,setBlocked]=useState(false);
@@ -39,6 +42,10 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const [selectedKey,setSelectedKey]=useState('');
  const [follow,setFollow]=useState(false);
  const [details,setDetails]=useState(false);
+ // MapLibre when the device can render it; the vector map is the better answer to "is this
+ // my stop", but a device without WebGL or a failed tile host still gets a usable map.
+ const [mapFallback,setMapFallback]=useState(false);
+ const [pitched,setPitched]=useState(false);
 
  const available=useMemo(()=>routesByRecency(buses),[buses]);
  const availableIds=useMemo(()=>available.map(r=>r.id),[available]);
@@ -143,9 +150,10 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       </span>
      </div>
    : <div className="your-stop unset">
-      <StopSearch stops={stops} onSelect={onSelectStop} onLocate={onLocate}
-       locating={locating} locationError={locationError}/>
-      {savedStopIds.length>0&&<div className="stop-chips" style={{marginTop:10}}>
+      <Nearby stops={stops} patterns={patterns} here={here} outsideArea={outsideArea}
+       onSelect={onSelectStop} onLocate={onLocate??(()=>{})} locating={!!locating}
+       locationError={locationError} onClearHere={onClearHere} areaLabel="Manchester"/>
+      {savedStopIds.length>0&&<div className="stop-chips" style={{marginTop:12}}>
        {savedStopIds.map(id=>{
         const saved=stops.find(s=>s.id===id);
         return saved?<button key={id} className="stop-chip" onClick={()=>onSelectStop(saved)}>
@@ -187,8 +195,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   </div>}
   {blocked&&<p className="follow-hint warn">This device would not let us save the route. It still works for this visit.</p>}
 
-  {buses.length>0&&<FollowMap buses={ordered} selected={selected} follow={follow} roads={roads}
-   mode={mode} stop={stop} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>}
+  {(buses.length>0||stop||here)&&(mapFallback
+   ? <FollowMap buses={ordered} selected={selected} follow={follow} roads={roads}
+      mode={mode} stop={stop} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>
+   : <CityMap buses={ordered} selected={selected} stop={stop} here={here} follow={follow}
+      onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}
+      onUnavailable={()=>setMapFallback(true)} pitched={pitched} onPitchedChange={setPitched}/>)}
 
   {/* Four different situations, told apart in plain words rather than one vague message. */}
   {mode==='unavailable'&&<div className="follow-empty">
@@ -244,8 +256,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    {stop&&selectedRelation&&<p className={`follow-relation ${selectedRelation.kind}`}>
     <strong>{relationWords(selectedRelation)}</strong>
     {selectedRelation.kind==='approaching'&&
-     <span> · {alongRouteWords(selectedRelation.alongRouteMetres)} · counted along the
-      timetabled stop order, accurate to about one stop, and not a time</span>}
+     <span> · {alongRouteWords(selectedRelation.alongRouteMetres)} · counted from the
+      timetabled stop order, so it can be out by a stop either way, and it is not a time</span>}
     {selectedRelation.kind==='does_not_call'&&
      <span> · it is running {selectedRelation.pattern.destination||'another branch'}, which
       does not include your stop</span>}
@@ -281,8 +293,33 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     Source file, fingerprint and full observation table in Evidence</button>}
   </div>}
 
+  {stop&&servingPatterns.length>0&&<div className="services">
+   <p className="follow-list-head">Confirmed to call at this stop</p>
+   {[...new Map(servingPatterns.map(p=>[`${p.line}|${p.direction??''}|${p.destination??''}`,p])).values()]
+    .slice(0,8).map(pattern=>{
+     const running=buses.filter(b=>b.route===pattern.line);
+     const key=`${pattern.line}|${pattern.direction}|${pattern.destination}`;
+     return <button key={key} className={`service-row ${routeNumber(route)===pattern.line?'on':''}`}
+       onClick={()=>{const found=available.find(r=>routeNumber(r.id)===pattern.line);
+                     if(found)pick({route:found.id,direction:'all'})}}
+       disabled={!available.some(r=>routeNumber(r.id)===pattern.line)}>
+      <span className="route-pill">{pattern.line}</span>
+      <span className="service-copy">
+       <strong>{pattern.destination||'Destination not named in the timetable'}</strong>
+       <small>{directionLabel(pattern.direction??'')||'Direction not stated'}</small></span>
+      <span className={`service-state ${running.length?'reporting':'quiet'}`}>
+       {running.length?`${running.length} reporting`:'none reporting now'}</span>
+     </button>;
+    })}
+   <p className="services-note">These services are confirmed by the timetable to call here.
+   A service with nothing reporting has not gone away; we simply hold no current position
+   for it.</p>
+  </div>}
+
   {ordered.length>1&&<div className="follow-list">
-   <p className="follow-list-head">Other buses on route {routeNumber(route)}</p>
+   <p className="follow-list-head">{stop
+    ? `Route ${routeNumber(route)} — other buses`
+    : `Other buses on route ${routeNumber(route)}`}</p>
    {ordered.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
      className={`follow-row ${bus.key===selected?.key?'on':''}`} aria-pressed={bus.key===selected?.key}>
     <span className="route-pill">{bus.route}</span>
@@ -296,6 +333,25 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      :<span className={`fresh-chip ${bus.freshness??'unknown'}`}>{bus.ageWords.replace('reported ','')}</span>}
    </button>)}
   </div>}
+
+  {stop&&(()=>{
+   const unconfirmed=ordered.filter(bus=>{
+    const relation=relations.get(bus.key);
+    return relation&&(relation.kind==='does_not_call'||relation.kind==='unresolved'
+                      ||relation.kind==='no_pattern_data');
+   });
+   if(!unconfirmed.length)return null;
+   return <details className="exploring">
+    <summary>Nearby but not confirmed for your stop ({unconfirmed.length})</summary>
+    <p>These are real reported buses near you. The timetable does not place them as calling
+    at your stop, so they are kept out of the boarding options above rather than guessed at.</p>
+    {unconfirmed.slice(0,8).map(bus=><div key={bus.key} className="exploring-row">
+     <span className="route-pill">{bus.route}</span>
+     <span><strong>{destinationLabel(bus.destination)}</strong>
+      <small>{relationWords(relations.get(bus.key)??{kind:'no_pattern_data'})}</small></span>
+    </div>)}
+   </details>;
+  })()}
 
   <details className="how-it-works">
    <summary>How this works</summary>

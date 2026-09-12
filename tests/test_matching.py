@@ -142,3 +142,40 @@ class PatternExtractionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ReconciliationTests(unittest.TestCase):
+    """Every vehicle offered for matching must land in exactly one bucket."""
+
+    def test_matched_plus_every_reason_accounts_for_the_whole_population(self):
+        from pipeline.match import match_all
+
+        class FakeCon:
+            def execute(self, *_):
+                raise AssertionError('load_patterns is stubbed out')
+
+        import pipeline.match as module
+        patterns = [{'id': 'p', 'line': '1', 'direction': 'inbound', 'destination': 'Town',
+                     'loop': False, 'stopCount': 6,
+                     'placed': [(i, f'S{i}', i * 300, (53.47 + i * 0.0027, -2.24)) for i in range(6)]}]
+        original = module.load_patterns
+        module.load_patterns = lambda con: patterns
+        try:
+            vehicles = [
+                {'route': '1', 'direction': 'inbound', 'lat': 53.4700, 'lon': -2.2400},   # matched
+                {'route': '1', 'direction': 'outbound', 'lat': 53.4700, 'lon': -2.2400},  # direction
+                {'route': '9', 'direction': 'inbound', 'lat': 53.4700, 'lon': -2.2400},   # no pattern
+                {'route': '1', 'direction': 'inbound', 'lat': 53.9000, 'lon': -2.9000},   # too far
+            ]
+            summary = match_all(None, vehicles)
+        finally:
+            module.load_patterns = original
+        self.assertEqual(summary['matched'] + sum(summary['reasons'].values()), len(vehicles))
+        self.assertEqual(summary['matched'] + summary['unmatched'], len(vehicles))
+        self.assertEqual(summary['reasons'],
+                         {'no_pattern_for_direction': 1, 'no_pattern_for_route': 1,
+                          'too_far_from_pattern': 1})
+        # Every vehicle carries exactly one verdict.
+        for vehicle in vehicles:
+            self.assertIn('match', vehicle)
+            self.assertEqual(1, ('patternId' in vehicle['match']) + ('unresolved' in vehicle['match']))

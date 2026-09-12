@@ -20,7 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .core import BBOX, atomic_json, utc_now
+from .core import SERVICE_AREA, atomic_json, utc_now
 from .warehouse import DEFAULT_DB, connect, finish_run, record_raw_source, start_run
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,7 +84,7 @@ def readable_bearing(bearing):
     return COMPASS.get((bearing or '').strip().upper(), '')
 
 
-def select_stops(body, bounds=BBOX):
+def select_stops(body, bounds=SERVICE_AREA):
     """Active bus stops inside the collected area. Rejections are counted by reason."""
     reader = csv.DictReader(io.StringIO(body.decode('utf-8-sig', 'replace')))
     kept, rejected = [], {}
@@ -169,7 +169,8 @@ def build_catalogue(con):
         WHERE route <> 'Unspecified' GROUP BY 1, 2 ORDER BY n DESC""").fetchall()]
     return {
         'schemaVersion': 1, 'generatedAt': utc_now(),
-        'area': {'bbox': list(BBOX), 'label': 'Manchester', 'atcoArea': ATCO_AREA},
+        'area': {'bbox': list(SERVICE_AREA), 'label': 'Manchester and Trafford',
+                 'atcoArea': ATCO_AREA},
         'stops': stops, 'routes': routes,
         'attribution': 'Stop data: Department for Transport NaPTAN, Open Government Licence '
                        'v3.0. Bus location data: DfT / contributing operators via the Bus Open '

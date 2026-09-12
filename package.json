@@ -9,9 +9,10 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "python3 -m http.server 3000 --directory out",
-    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs",
+    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs tests/nearby.test.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ignore-pattern out --ignore-pattern .next"
+    "lint": "eslint . --ignore-pattern out --ignore-pattern .next",
+    "dev:live": "node scripts/dev-live.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -25,6 +26,7 @@
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^1.31.0",
+    "maplibre-gl": "^6.7.0",
     "next": "16.3.4",
     "next-themes": "^0.4.6",
     "radix-ui": "^1.6.7",

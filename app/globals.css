@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css";
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
@@ -364,6 +365,91 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .how-it-works{grid-column:1/-1;grid-row:6}
  .follow-notes{grid-column:1/-1;grid-row:7}
  .follow-leave-archive{grid-column:1/-1;grid-row:8}
+}
+/* ---- The vector map. Every symbol is an observation or a fixed reference point. */
+.city-map{position:relative;border:1px solid #314452;border-radius:14px;overflow:hidden;
+ background:#0f1e29;min-height:340px}
+.city-map-canvas{width:100%;height:100%;position:absolute;inset:0}
+.city-map .map-tools{position:absolute;right:11px;top:11px;display:flex;flex-direction:column;
+ background:#152833e6;backdrop-filter:blur(4px);border:1px solid #40545f;border-radius:11px;
+ overflow:hidden;z-index:2}
+.city-map .map-tools button{height:44px;width:44px;display:grid;place-items:center;color:#d3e0e5;
+ border:0;background:none}
+.city-map .map-tools button+button{border-top:1px solid #3b4e5b}
+.city-map .map-tools button.active{color:#c6f36a;background:#233021}
+.city-map .maplibregl-ctrl-attrib{background:#0b1720cc;color:#9db1bd;font-size:10px;
+ max-width:min(100%,340px)}
+.city-map .maplibregl-ctrl-attrib-inner{line-height:1.35}
+.city-map .maplibregl-ctrl-bottom-right{z-index:1}
+.city-map .maplibregl-ctrl-attrib a{color:#b6c9d4}
+
+/* ---- Buses near me: location first, search beside it with the same reach. */
+.nearby{display:flex;flex-direction:column;gap:12px}
+.nearby-lead{display:flex;flex-direction:column;gap:9px}
+.nearby-action{min-height:56px;display:inline-flex;align-items:center;justify-content:center;
+ gap:10px;border-radius:13px;border:1px solid #8fbf4f;background:#c6f36a;color:#16250d;
+ font-size:17px;font-weight:700;letter-spacing:-.2px}
+.nearby-action:disabled{opacity:.65}
+.nearby-or{margin:0;text-align:center;font-size:12px;color:#8fa6b3}
+.nearby-note{margin:9px 2px 0;font-size:12px;line-height:1.6;color:#8fa6b3}
+.nearby-note.warn{color:#f1c68a}
+.nearby-outside{display:flex;gap:11px;align-items:flex-start;background:#2b2519;
+ border:1px solid #7e6541;border-radius:13px;padding:13px 14px}
+.nearby-outside svg{flex-shrink:0;color:#f1c68a;margin-top:2px}
+.nearby-outside strong{display:block;font-size:15px;color:#f6dcb4}
+.nearby-outside p{margin:5px 0 8px;font-size:13px;line-height:1.6;color:#d8c4a4}
+.nearby-list{background:#142430;border:1px solid #324855;border-radius:14px;padding:7px}
+.nearby-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+ padding:6px 8px 8px;font-size:12px;font-weight:700;letter-spacing:.9px;text-transform:uppercase;
+ color:#8fa6b3}
+.nearby-head span{display:inline-flex;align-items:center;gap:6px}
+.nearby-head small{font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;color:#8298a6}
+.nearby-stop{display:flex;width:100%;align-items:flex-start;gap:11px;min-height:66px;padding:10px;
+ border:1px solid transparent;background:transparent;color:#e0e9ee;border-radius:11px;text-align:left}
+.nearby-stop:hover,.nearby-stop:focus-visible{border-color:#3d5566;background:#1a2c38}
+.nearby-stop-pin{flex-shrink:0;width:34px;height:34px;border-radius:9px;display:grid;place-items:center;
+ background:#3a2d1b;border:1px solid #7e6541;color:#ffb459}
+.nearby-stop-copy{flex:1;min-width:0}
+.nearby-stop-copy strong{display:block;font-size:15px;font-weight:650}
+.nearby-stop-copy small{display:block;font-size:12px;color:#a7bcc8;margin-top:1px}
+.nearby-stop-copy em{font-style:normal;display:block;font-size:11px;color:#8298a6;margin-top:1px}
+.nearby-stop-lines{display:block;font-size:11px;color:#bfdd9b;margin-top:4px}
+.nearby-stop-distance{flex-shrink:0;text-align:right;font-size:13px;color:#dbe7ec;
+ font-variant-numeric:tabular-nums}
+.nearby-stop-distance small{display:block;font-size:10px;color:#8298a6}
+
+/* ---- Services confirmed by the timetable, kept visible when nothing is reporting. */
+.services{background:#142430;border:1px solid #324855;border-radius:14px;padding:7px}
+.service-row{display:flex;width:100%;align-items:center;gap:11px;min-height:58px;padding:9px;
+ border:1px solid transparent;background:transparent;color:#e0e9ee;border-radius:11px;text-align:left}
+.service-row.on{border-color:#526b3b;background:#263629}
+.service-row:disabled{opacity:.72}
+.service-copy{flex:1;min-width:0}
+.service-copy strong{display:block;font-size:15px;font-weight:600;white-space:nowrap;
+ overflow:hidden;text-overflow:ellipsis}
+.service-copy small{font-size:12px;color:#9db1bd}
+.service-state{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 8px;border-radius:6px;
+ border:1px solid;white-space:nowrap}
+.service-state.reporting{border-color:#4c6b39;background:#233021;color:#c2e39a}
+.service-state.quiet{border-color:#44586a;background:#1b2c38;color:#9db1bd}
+.services-note{margin:8px 8px 4px;font-size:12px;line-height:1.6;color:#8fa6b3}
+
+/* ---- Exploration: real buses that the timetable does not place at this stop. */
+.exploring{background:#132330;border:1px solid #2d4250;border-radius:13px;padding:0 14px}
+.exploring summary{min-height:48px;display:flex;align-items:center;font-size:13px;font-weight:600;
+ color:#c9d9e2;cursor:pointer;list-style:none}
+.exploring summary::-webkit-details-marker{display:none}
+.exploring summary::after{content:'+';margin-left:auto;font-size:18px;color:#8fa6b3}
+.exploring[open] summary::after{content:'−'}
+.exploring>p{font-size:12px;line-height:1.65;color:#9fb2be;margin:0 0 10px}
+.exploring-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #24394699}
+.exploring-row strong{display:block;font-size:14px;font-weight:600}
+.exploring-row small{font-size:11px;color:#9db1bd}
+@media(min-width:820px){
+ .nearby{grid-column:1/-1;grid-row:2}
+ .services{grid-column:2;grid-row:4}
+ .exploring{grid-column:1/-1;grid-row:6}
+ .city-map{grid-column:1;grid-row:2/6;align-self:stretch;min-height:560px}
 }
 /* Four views do not fit across a phone. The tab strip scrolls inside itself rather than
    widening the page, and keeps 44px touch targets. */

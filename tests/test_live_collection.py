@@ -305,9 +305,12 @@ class LiveCollectionTests(unittest.TestCase):
         con = self.connect()
         stored = con.execute('SELECT count(*) FROM observation').fetchone()[0]
         con.close()
-        # 387 + 310 + 302 = 999 distinct identities across the first three real snapshots,
-        # the same figures the archive import reports, now reached via the live path.
-        self.assertEqual(stored, 999)
+        # The archive import retains 387 + 310 + 302 = 999 from these three snapshots, because
+        # it filters to the box the archive was collected under. The live path filters to the
+        # wider service area that reaches Stretford, so it keeps more from the same bytes.
+        from pipeline.core import BBOX, SERVICE_AREA
+        self.assertGreater(stored, 999)
+        self.assertLess(SERVICE_AREA[0], BBOX[0], 'the service area extends further west')
         self.assertEqual(stored, result['loaded'], 'cycle counts must match the stored rows')
         self.assertEqual(live['vehicles'], [], 'a day-old position is not a bus on the map')
         self.assertEqual(live['state'], 'stale')
@@ -335,3 +338,49 @@ class LiveCollectionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipUnless(HAS_DUCKDB, 'DuckDB not installed; see requirements.txt')
+class UnavailableDiagnosisTests(unittest.TestCase):
+    """Why there is no live data must come from state, not from an assumption."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix='lost-minutes-diag-'))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        from pipeline.warehouse import connect
+        self.con = connect(self.root / 'w.duckdb')
+        self.addCleanup(self.con.close)
+
+    def diagnose(self, environ):
+        from pipeline.live import diagnose_unavailable
+        return diagnose_unavailable(self.con, environ)
+
+    def test_no_key_blames_the_key(self):
+        result = self.diagnose({})
+        self.assertEqual(result['reason'], 'no_credentials_configured')
+        self.assertIn('BODS_API_KEY', result['technical'])
+
+    def test_a_configured_key_that_has_never_collected_says_so(self):
+        result = self.diagnose({'BODS_API_KEY': 'x' * 40})
+        self.assertEqual(result['reason'], 'collector_never_run')
+        self.assertIn('pnpm dev:live', result['technical'])
+        # The passenger is never shown the credential wording.
+        self.assertNotIn('BODS_API_KEY', result['passenger'])
+
+    def test_a_collector_that_has_run_but_is_not_running_is_not_blamed_on_the_key(self):
+        from pipeline.warehouse import record_raw_source, start_run
+        run_id = start_run(self.con, 'live_capture', is_historical=False)
+        record_raw_source(self.con, run_id, sha256='a' * 64, kind='live_positions',
+                          url='https://example.test/feed?api_key=secret', stored_path='x',
+                          byte_size=1, captured_at=NOW, retrieved_at=NOW)
+        result = self.diagnose({'BODS_API_KEY': 'x' * 40})
+        self.assertEqual(result['reason'], 'collector_not_running')
+        self.assertIn('pnpm dev:live', result['technical'])
+        # This is the case the published placeholder got wrong before.
+        self.assertNotEqual(result['reason'], 'no_credentials_configured')
+
+    def test_the_passenger_wording_never_leaks_the_technical_reason(self):
+        for environ in ({}, {'BODS_API_KEY': 'x' * 40}):
+            result = self.diagnose(environ)
+            self.assertNotIn('BODS_API_KEY', result['passenger'])
+            self.assertNotIn('collector', result['passenger'].lower())

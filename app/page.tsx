@@ -57,6 +57,8 @@ export default function Home(){
  const [patterns,setPatterns]=useState<PatternCatalogue|null>(null);
  const [stop,setStop]=useState<Stop|null>(null);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
+ const [here,setHere]=useState<{lat:number;lon:number;accuracyMetres?:number}|null>(null);
+ const [outsideArea,setOutsideArea]=useState(false);
  const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
  const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
@@ -128,16 +130,16 @@ export default function Home(){
   }
   setLocating(true);setLocationError('');
   navigator.geolocation.getCurrentPosition(position=>{
-   const here={lat:position.coords.latitude,lon:position.coords.longitude};
-   const nearby=nearestStops(catalogue.stops,here,1);
-   setLocating(false);
-   if(!nearby.length||nearby[0].metres>3000){
-    setLocationError('No collected stop is near you. Search for a stop instead.');
-    return;
-   }
-   setStop(nearby[0].stop);
+   const point={lat:position.coords.latitude,lon:position.coords.longitude,
+                accuracyMetres:Number.isFinite(position.coords.accuracy)?position.coords.accuracy:undefined};
+   setLocating(false);setHere(point);
+   // Outside the area we collect is a different answer from "nothing found", and is said so.
+   const [west,south,east,north]=catalogue.area.bbox;
+   const inside=point.lon>=west&&point.lon<=east&&point.lat>=south&&point.lat<=north;
+   const nearby=nearestStops(catalogue.stops,point,1);
+   setOutsideArea(!inside||!nearby.length||nearby[0].metres>3000);
   },error=>{
-   setLocating(false);
+   setLocating(false);setHere(null);
    setLocationError(error.code===error.PERMISSION_DENIED
     ?'Location is off, which is fine. Search for your stop instead.'
     :'Your location could not be read. Search for your stop instead.');
@@ -181,6 +183,7 @@ export default function Home(){
      stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
      patterns={patterns} patternsById={patternsById}
      onLocate={locate} locating={locating} locationError={locationError}
+     here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}/>
     {usingArchive&&<button className="text-action follow-leave-archive"

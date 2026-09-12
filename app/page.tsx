@@ -48,7 +48,7 @@ export default function Home(){
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
  const [config,setConfig]=useState<SiteConfig>(DEFAULT_CONFIG);
  const [live,setLive]=useState<LiveState|null>(null),[liveFetchedAt,setLiveFetchedAt]=useState(0);
- const [serverRef,setServerRef]=useState(0);
+ const [serverRef,setServerRef]=useState(0),[ageBasis,setAgeBasis]=useState<'server'|'device'>('server');
  const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
  const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
  const [nowMs,setNowMs]=useState(0);
@@ -62,9 +62,11 @@ export default function Home(){
    const response=await fetch(`${target}${target.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
    if(!response.ok)throw Error(`live state unavailable (${response.status})`);
    const cached=response.headers.get('X-Lost-Minutes-From-Cache')==='1';
-   const headerDate=response.headers.get('Date');
+   const headerDate=response.headers.get('Date'),headerAge=response.headers.get('Age');
    const value=parseLive(await response.json());
-   setLive(value);setFromCache(cached);setServerRef(serverReference(headerDate,value));
+   const reference=serverReference(headerDate,headerAge,value,Date.now());
+   setLive(value);setFromCache(cached);setServerRef(reference.serverReferenceMs);
+   setAgeBasis(reference.basis);
    setLiveFetchedAt(Date.now());setNowMs(Date.now());
   }catch{
    setFromCache(true);
@@ -138,7 +140,7 @@ export default function Home(){
    <TabsContent value="follow" id="follow">
     <FollowView mode={followMode} live={live} buses={followBuses} roads={roads}
      onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
-     publicationAgeSeconds={publishedAge} archiveDate={archiveDate}
+     publicationAgeSeconds={publishedAge} ageBasis={ageBasis} archiveDate={archiveDate}
      usingArchive={usingArchive}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}/>

@@ -17,11 +17,12 @@ const MODE:Record<FeedMode,{label:string;tone:string;line:string}>={
 };
 
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
-                                    publicationAgeSeconds,archiveDate,onUseArchive,usingArchive,
-                                    onOpenEvidence}:{
+                                    publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
+                                    usingArchive,onOpenEvidence}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
- archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;onOpenEvidence:()=>void}){
+ ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
+ onOpenEvidence:()=>void}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const [blocked,setBlocked]=useState(false);
  const [choice,setChoice]=useState<{route:string;direction:string}|null>(null);
@@ -69,7 +70,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    <span className="follow-bar-when">
     {mode==='archive'?archiveDate
      :publicationAgeSeconds===null?'not published yet'
-     :`updated ${Math.round(publicationAgeSeconds)}s ago`}</span>
+     :`feed updated ${ageBasis==='device'?'about ':''}${Math.round(publicationAgeSeconds)}s ago`}</span>
    <button className="follow-refresh" onClick={onRefresh} disabled={refreshing}
     aria-label="Check for newer positions"><RefreshCw size={16} className={refreshing?'spin':''}/></button>
   </div>
@@ -175,6 +176,9 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     <div><dt>Checks it passed</dt><dd>Timestamp carried a time zone; coordinates inside
      Manchester; identity complete; not a repeat of a position we already held; no other
      source disagreed about where it was.</dd></div>
+    <div><dt>Age measured against</dt><dd>{ageBasis==='server'
+     ? 'our clock, taken from the response that carried this position'
+     : 'this device’s clock, because the server time was not readable — the age may read older than it is, never newer'}</dd></div>
     <div><dt>Shown because</dt><dd>{mode==='archive'
      ?'It is the last position for this bus in the recording.'
      :`It is the newest report for this bus and is under the ${expiryMinutes}-minute cut-off.`}</dd></div>
@@ -184,7 +188,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   </div>}
 
   {shown.length>1&&<div className="follow-list">
-   {shown.map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
+   <p className="follow-list-head">Other buses on route {routeNumber(route)}</p>
+   {shown.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
      className={`follow-row ${bus.key===selected?.key?'on':''}`} aria-pressed={bus.key===selected?.key}>
     <span className="route-pill">{bus.route}</span>
     <span className="follow-row-copy">

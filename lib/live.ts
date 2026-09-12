@@ -91,17 +91,35 @@ export function parseConfig(value:unknown):SiteConfig{
  *  are five different things and are never collapsed into one "last updated". */
 export type FeedMode = 'live'|'stale'|'offline'|'unavailable'|'archive';
 
-/** What the server's clock read when we fetched, from the HTTP Date header.
+export type AgeBasis = 'server'|'device';
+export type Reference = {serverReferenceMs:number;basis:AgeBasis};
+
+/**
+ * The clock every age is measured against: what the origin's clock read when this response
+ * was produced, advanced by however long it then sat in caches.
  *
- * This is the reference every age is measured against. Using the payload's publishedAt
- * instead would freeze every age the moment the collector stopped: a state published ten
- * minutes ago would still claim its buses reported fifteen seconds ago. Date is a
- * CORS-safelisted response header, so it stays readable if the state moves to another host.
+ * Using the payload's own publishedAt instead froze every age at the moment of publication:
+ * a state published 111 seconds earlier still claimed its buses reported 24 seconds ago.
+ * That pair is reproducible and is what the screenshot showed.
+ *
+ * `Date` is when the response was generated and `Age` is how long a cache has held it
+ * (RFC 9111 section 4.2.3), so the origin's clock at delivery is Date + Age. Neither header
+ * is CORS-safelisted, so a cross-origin host must send
+ * `Access-Control-Expose-Headers: Date, Age` or neither is readable.
+ *
+ * When no server clock is readable we fall back to this device's clock, and never below the
+ * publication time. That can over-report an age; it must never under-report one, because
+ * under-reporting is what makes a stale position look current.
  */
-export function serverReference(headerDate:string|null|undefined,live:{publishedAtMs:number}){
- const parsed=headerDate?Date.parse(headerDate):NaN;
- // Never accept a server clock that predates its own publication.
- return Number.isFinite(parsed)&&parsed>=live.publishedAtMs?parsed:live.publishedAtMs;
+export function serverReference(headerDate:string|null|undefined,headerAge:string|null|undefined,
+                                live:{publishedAtMs:number},deviceNowMs:number=Date.now()):Reference{
+ const generated=headerDate?Date.parse(headerDate):NaN;
+ const held=Number.parseInt(headerAge??'',10);
+ if(Number.isFinite(generated)){
+  const atDelivery=generated+(Number.isFinite(held)&&held>0?held*1000:0);
+  if(atDelivery>=live.publishedAtMs)return {serverReferenceMs:atDelivery,basis:'server'};
+ }
+ return {serverReferenceMs:Math.max(live.publishedAtMs,deviceNowMs),basis:'device'};
 }
 
 /**

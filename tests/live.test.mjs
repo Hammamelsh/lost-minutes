@@ -51,7 +51,7 @@ test('when the collector stops, observations keep ageing instead of freezing',()
  const live={publishedAtMs:1_000_000};
  const vehicle={observedAtMs:1_000_000-15_000};
  const serverNow=1_000_000+600_000;                  // server clock at the moment we fetch
- const reference={serverReferenceMs:serverReference(new Date(serverNow).toUTCString(),live)};
+ const reference=serverReference(new Date(serverNow).toUTCString(),null,live,0);
  const age=observationAge(vehicle,reference,5_000_000,5_000_000);
  assert.ok(age>=615-1&&age<=615+1,`expected about 615s, got ${age}`);
  assert.notEqual(Math.round(age),15,'the age must not freeze at its value when published');
@@ -59,13 +59,37 @@ test('when the collector stops, observations keep ageing instead of freezing',()
  assert.equal(Math.round(publicationAge(live,reference,5_000_000,5_000_000)),600);
 });
 
-test('the server clock reference is taken from Date, and never trusted backwards',()=>{
+test('the age reference follows RFC 9111: Date plus Age, and never reads younger',()=>{
  const live={publishedAtMs:1_000_000};
- assert.equal(serverReference('Thu, 01 Jan 1970 00:20:00 GMT',live),1_200_000);
- assert.equal(serverReference(null,live),1_000_000,'no header falls back to publishedAt');
- assert.equal(serverReference('not a date',live),1_000_000);
- // A server claiming a time before its own publication is ignored.
- assert.equal(serverReference('Thu, 01 Jan 1970 00:00:01 GMT',live),1_000_000);
+ const at=ms=>new Date(ms).toUTCString();
+ // A fresh response from the origin.
+ assert.deepEqual(serverReference(at(1_200_000),null,live,0),
+  {serverReferenceMs:1_200_000,basis:'server'});
+ // The same response after a cache held it for 90 seconds: the origin clock has moved on.
+ assert.deepEqual(serverReference(at(1_200_000),'90',live,0),
+  {serverReferenceMs:1_290_000,basis:'server'});
+ assert.equal(serverReference(at(1_200_000),'not a number',live,0).serverReferenceMs,1_200_000);
+ // No readable server clock: fall back to this device, never below the publication time.
+ assert.deepEqual(serverReference(null,null,live,1_500_000),
+  {serverReferenceMs:1_500_000,basis:'device'});
+ assert.deepEqual(serverReference('not a date',null,live,10),
+  {serverReferenceMs:1_000_000,basis:'device'},'a device clock behind publication is ignored');
+ // A server claiming a time before its own publication is not believed.
+ assert.deepEqual(serverReference(at(1),null,live,1_400_000),
+  {serverReferenceMs:1_400_000,basis:'device'});
+});
+
+test('a cached response never makes a position look newer than it is',()=>{
+ // The exact pair from the screenshot: published, then delivered 111s later.
+ const live={publishedAtMs:1_000_000};
+ const vehicle={observedAtMs:1_000_000-24_000};
+ const reference=serverReference(new Date(1_111_000).toUTCString(),null,live,0);
+ assert.equal(Math.round(observationAge(vehicle,reference,1_111_000,1_111_000)),135);
+ assert.equal(Math.round(publicationAge(live,reference,1_111_000,1_111_000)),111);
+ // Served from a cache that held it 60s: both ages grow by 60, neither shrinks.
+ const viaCache=serverReference(new Date(1_111_000).toUTCString(),'60',live,0);
+ assert.equal(Math.round(observationAge(vehicle,viaCache,1_171_000,1_171_000)),195);
+ assert.equal(Math.round(publicationAge(live,viaCache,1_171_000,1_171_000)),171);
 });
 
 test('publication age measures our own staleness, separately from the observation',()=>{

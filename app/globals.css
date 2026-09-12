@@ -19,6 +19,9 @@
 }
 
 :root {
+  /* Native controls follow this. Without it the browser renders the select popup with the
+     light scheme while inheriting our light text, which is pale text on white. */
+  color-scheme: dark;
   --background:#0d1721; --foreground:#edf3f5; --card:#13222e; --card-foreground:#edf3f5;
   --popover:#192c3a; --popover-foreground:#edf3f5; --primary:#c6f36a; --primary-foreground:#13200c;
   --secondary:#20323f; --secondary-foreground:#edf3f5; --muted:#22323e; --muted-foreground:#a8bac6;
@@ -170,6 +173,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .picker select{appearance:none;border:0;background:transparent;color:#eaf4f8;font-size:17px;
  font-weight:650;padding:0;min-height:30px;width:100%;letter-spacing:-.2px}
 .picker.route select{font-size:21px}
+/* Belt and braces for engines that do not fully honour color-scheme in the popup. */
+.picker select option{background:#13222e;color:#eaf4f8}
+.picker select option:checked{background:#2b4250}
 .picker::after{content:'';position:absolute;right:12px;bottom:18px;width:0;height:0;
  border:5px solid transparent;border-top-color:#8fa6b3}
 .follow-save{flex-shrink:0;width:52px;min-height:56px;display:grid;place-items:center;
@@ -246,6 +252,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  background:#1a2c38;color:#dbe7ec;font-size:15px;font-weight:650;display:inline-flex;align-items:center;gap:6px}
 .follow-suggest em{font-style:normal;font-size:11px;color:#8fa6b3}
 .follow-list{background:#142430;border:1px solid #324855;border-radius:14px;padding:6px}
+.follow-list-head{margin:5px 7px 7px;font-size:12px;font-weight:700;letter-spacing:.9px;
+ text-transform:uppercase;color:#8fa6b3}
 .follow-row{display:flex;width:100%;align-items:center;gap:11px;min-height:58px;padding:8px 9px;
  border:1px solid transparent;background:transparent;color:#e0e9ee;border-radius:11px;text-align:left}
 .follow-row.on{border-color:#526b3b;background:#263629}

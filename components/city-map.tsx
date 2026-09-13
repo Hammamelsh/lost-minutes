@@ -256,7 +256,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   // the credit line, so "fit" means every symbol is on screen and readable, not merely inside.
   // A lone bus gets a street-scale view with room to move; three symbols get a tighter fit.
   move(m=>m.fitBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],
-   {padding:{top:64,bottom:84,left:60,right:78},maxZoom:points.length===1?15:16,
+   {padding:{top:64,bottom:84,left:76,right:84},maxZoom:points.length===1?15:16,
     duration:prefersReducedMotion()?0:500}));
  },[here,stop,selected,buses,move]);
 

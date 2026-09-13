@@ -202,8 +202,12 @@ def match_vehicle(vehicle, patterns, day=None):
                 # What every candidate agrees on next, in order. Beyond that they differ, and
                 # the bus's destination is exactly what the position cannot tell us.
                 result['nearestStop'] = nearest_codes.pop()
-                result['sharedNext'] = _common_prefix(
-                    [_sequence(item[1])[item[2][0] + 1:] for item in plausible])
+                onward = [_sequence(item[1])[item[2][0] + 1:] for item in plausible]
+                result['sharedNext'] = _common_prefix(onward)
+                # Candidates that differ only in stops already behind the bus agree on every
+                # stop ahead: its progress from here can be stated, though which pattern it is
+                # running still cannot, and it is not counted as matched.
+                result['sharedOnward'] = len({tuple(stops) for stops in onward}) == 1
             return result
     else:
         evidence['resolvedBy'] = 'position'
@@ -236,8 +240,8 @@ def match_all(con, vehicles):
         else:
             entry = {'unresolved': result['reason'],
                      'explanation': REASONS.get(result['reason'], result['reason'])}
-            for key in ('candidates', 'nearestStop', 'sharedNext', 'metresFromPatternStop',
-                        'nearestPatternMetres', 'evidence'):
+            for key in ('candidates', 'nearestStop', 'sharedNext', 'sharedOnward',
+                        'metresFromPatternStop', 'nearestPatternMetres', 'evidence'):
                 if key in result:
                     entry[key] = result[key]
             vehicle['match'] = entry

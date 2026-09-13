@@ -237,12 +237,91 @@ class LiveCollectionTests(unittest.TestCase):
                         fetch_fn=exploding_fetch, clock=self.clock, sleep=self.sleep,
                         log=lambda *_: None, api_key='test-key')
         con = self.connect()
-        run = con.execute('SELECT status, error_class FROM pipeline_run').fetchone()
+        run = con.execute('SELECT status, error_class, exit_reason FROM pipeline_run').fetchone()
         con.close()
-        self.assertEqual(run[0], 'failed')
-        self.assertEqual(run[1], 'KeyboardInterrupt')
+        # Ctrl-C is an interruption, not a failure, and the run says which signal ended it.
+        self.assertEqual(run, ('interrupted', 'KeyboardInterrupt', 'signal:SIGINT'))
         with SingleWriter(lock):
             pass  # the lock did not leak
+
+    def test_a_run_left_running_is_closed_as_abandoned_by_the_next_collector(self):
+        from pipeline.warehouse import connect, record_cycle, start_run
+        con = connect(self.db)
+        left = start_run(con, 'live_capture', is_historical=False, note='left behind')
+        record_cycle(con, left, 1, NOW - timedelta(minutes=40), 'succeeded')
+        last = con.execute('SELECT completed_at FROM collection_cycle WHERE run_id = ?',
+                           [left]).fetchone()[0]
+        con.close()
+        self.run_collector([siri_document([bus(at(-30))])], cycles=1)
+        con = self.connect()
+        row = con.execute('SELECT status, exit_reason, error_class, finished_at, error_detail'
+                          ' FROM pipeline_run WHERE run_id = ?', [left]).fetchone()
+        newest = con.execute('SELECT status, exit_reason FROM pipeline_run WHERE run_id <> ?',
+                             [left]).fetchone()
+        con.close()
+        self.assertEqual(row[:3], ('interrupted', 'abandoned', 'AbandonedRun'))
+        self.assertEqual(row[3], last, 'closed at its last recorded cycle, not when it was found')
+        self.assertIn('No cause is inferred', row[4])
+        self.assertEqual(newest, ('succeeded', 'time_limit_reached'))
+
+    def test_a_bounded_run_says_it_is_bounded_and_why_it_ended(self):
+        self.run_collector([siri_document([bus(at(-30))])], cycles=2, interval=20)
+        con = self.connect()
+        status, reason, kind, planned = con.execute(
+            'SELECT status, exit_reason, collector_kind, planned_minutes FROM pipeline_run').fetchone()
+        con.close()
+        self.assertEqual((status, reason, kind), ('succeeded', 'time_limit_reached', 'bounded_development'))
+        self.assertAlmostEqual(planned, 40 / 60)
+        collector = self.live()['collection']['collector']
+        self.assertEqual((collector['kind'], collector['exitReason']),
+                         ('bounded_development', 'time_limit_reached'))
+        self.assertAlmostEqual(collector['plannedMinutes'], 40 / 60)
+        self.assertIsNotNone(collector['endsBy'])
+
+    def test_each_bus_carries_its_recent_reports_of_the_same_journey(self):
+        older_journey = siri_document([bus(at(-110), lat=53.4690, journey='J0')])
+        first = siri_document([bus(at(-80), lat=53.4700)])
+        second = siri_document([bus(at(-50), lat=53.4725, bearing=90),
+                                bus(at(-45), vehicle='V2', lat=53.46)])
+        latest = siri_document([bus(at(-20), lat=53.4750)])
+        self.run_collector([older_journey, first, second, latest], cycles=4)
+        live = self.live()
+        vehicle = next(v for v in live['vehicles'] if v['vehicle'] == 'V1')
+        other = next(v for v in live['vehicles'] if v['vehicle'] == 'V2')
+        # Oldest first, as milliseconds before the published report. The report from another
+        # journey of the same bus is not part of this journey's trail.
+        self.assertEqual([p[0] for p in vehicle['trail']], [60000, 30000])
+        self.assertEqual([p[1] for p in vehicle['trail']], [53.47, 53.4725])
+        self.assertEqual([p[3] for p in vehicle['trail']], [None, 90.0],
+                         'a trail point keeps its own reported bearing')
+        for point in vehicle['trail']:
+            self.assertRegex(live['trailSources'][point[4]], '^[a-f0-9]{64}$')
+        self.assertNotIn('trail', other, 'a single report has no trail')
+        self.assertIsInstance(vehicle['retrievedAtMs'], int)
+        self.assertGreaterEqual(vehicle['retrievedAtMs'], vehicle['observedAtMs'])
+
+    def test_a_polite_stop_signal_is_recorded_as_an_interruption(self):
+        import os
+        import signal
+        import time as real_time
+        from pipeline.collect import CollectorStopped, collect
+        before = signal.getsignal(signal.SIGTERM)
+
+        def stopping_fetch(url):
+            os.kill(os.getpid(), signal.SIGTERM)   # as a process manager or a closed terminal would
+            for _ in range(200):
+                real_time.sleep(0.01)
+            raise AssertionError('the signal should have ended the run first')
+
+        with self.assertRaises(CollectorStopped):
+            collect(minutes=1, interval=20, root=self.root, db_path=self.db,
+                    fetch_fn=stopping_fetch, clock=self.clock, sleep=self.sleep,
+                    log=lambda *_: None, api_key='test-key-never-real')
+        con = self.connect()
+        run = con.execute('SELECT status, exit_reason, error_class FROM pipeline_run').fetchone()
+        con.close()
+        self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
+        self.assertIs(signal.getsignal(signal.SIGTERM), before, 'the previous handler is restored')
 
     # -- publication consistency ------------------------------------------------
     def test_the_published_state_is_validated_and_a_failure_keeps_the_previous_file(self):

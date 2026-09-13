@@ -1,8 +1,9 @@
 # Lost Minutes
 
-Find your bus stop in Manchester, see which reported buses are timetabled to call there and
-how old each report is, and follow one; or explore a recorded slice of bus movement and
-inspect the exact source behind a point.
+Find your bus stop in Manchester and the walk to it, see which reported buses are timetabled
+to call there and how old each report is, and follow one — at its reports, or at a clearly
+labelled estimate between them; or explore a recorded slice of bus movement and inspect the
+exact source behind a point.
 
 ## Project context
 
@@ -23,6 +24,8 @@ replay of an 11-snapshot public archive sample, with a restartable DuckDB histor
 input, run and publication behind both. It is deliberately **not** a hosted live service, a
 punctuality monitor or a delay predictor: no arrival time is predicted, progress is counted
 from the nearest pattern stop without a measured error bound, and no scheduled time is shown.
+Between reports, a bus on the three evaluated routes (15, 250 and 256) may be drawn at a
+labelled estimate, computed on the device and never stored or published.
 Roadmap work is tracked in `research/IMPLEMENTED.md`.
 
 Data comes from the Department for Transport's Bus Open Data Service via the Open
@@ -51,6 +54,17 @@ this file.
   in the timetable's stop order, follow one, and read the age of each report rather than a
   reassuring "last updated". An original map style in daylight and night themes, a City view
   and a ride-along with a generic 3D bus, each labelled for what it is.
+- Walking guidance to the chosen boarding point: a pedestrian route from
+  routing.openstreetmap.de (FOSSGIS e.V.'s OSRM foot profile), asked for only when the
+  passenger chooses to, with their location rounded to about 10 m, and drawn on the map with
+  its distance and time. A refused or inaccurate location, a stop too far to walk, and a
+  router failure each say what happened; a straight line is never passed off as a route.
+- Estimated movement between reports on evaluated routes. The estimate follows road
+  geometry checked against the buses' own reports, at the speed of the bus's recent reports,
+  eased off as the report ages, for a bounded time. Each new report corrects it smoothly. It
+  is labelled "Estimated position" with the real report age and scored on held-out captures
+  against the last report itself (Evidence tab). Showing reported positions only is one tap
+  away.
 - Timetable matching against TfGM TransXChange stop patterns: operator, timetable version,
   operating day and direction are checked before position, and branches the position cannot
   separate are kept unresolved rather than guessed.
@@ -63,7 +77,9 @@ this file.
 
 It is **not a hosted live service or a validated delay monitor**. Buses are matched to
 timetabled stop patterns, not to individual journeys; stop passage is not inferred beyond the
-nearest pattern stop, and there is no scheduled-time comparison or arrival prediction.
+nearest pattern stop, and there is no scheduled-time comparison or arrival prediction. An
+estimated position is a drawing between reports, never evidence that a bus reached, left or
+served a stop.
 Tracks are reconstructed by observation time from sampled archive responses. They do not
 represent a complete stream of what was known at every moment.
 
@@ -123,9 +139,10 @@ docs/CLAUDE_HANDOFF.md for the working approach.
 
 ## Live capture
 
-Everything below is implemented and tested with fixtures. **No live capture has been run
-here**, because this checkout has no credentials: `public/data/live.json` therefore states
-`unavailable`, and the interface says so rather than pretending.
+Bounded live captures have run on the owner's machine with a registered key (12 and 13
+September 2026); the measured results are in docs/LOCAL_VERIFICATION.md. A checkout without a
+key publishes an honest `unavailable` state instead, and the interface says so rather than
+pretending.
 
 ### Setting up a key, exactly
 
@@ -162,6 +179,12 @@ stops collection. Timetable versions are stored by content hash with their decla
 effective dates where the file states them — holding a timetable is not evidence that any
 journey has been matched to it.
 
+Every run records why it ended: its time limit, a stop signal (SIGINT, SIGTERM or SIGHUP),
+rejected credentials, or an exception. A run left `running` by an abrupt stop is closed by the
+next collector as `interrupted`, exit reason `abandoned`, at its last cycle, and no cause is
+guessed. The page labels a time-limited run as a local run with its end time, never as an
+always-on service.
+
 Operators must publish vehicle locations every 10–30 seconds, so the poll interval has a
 10-second floor: anything faster mostly returns a payload we already hold.
 
@@ -178,8 +201,19 @@ https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 Road geometry: © OpenStreetMap contributors, Open Database Licence 1.0. The selected road
 extract is in `public/data/roads.json`, including its source timestamp and attribution:
 https://www.openstreetmap.org/copyright
-The extract was obtained from the Overpass API. Road geometry is visual context and is not
-used to assert that a bus followed a particular road between sampled positions.
+The extract was obtained from the Overpass API. It is visual context and is not used to assert
+that a bus followed a particular road between sampled positions.
+
+Bus route shapes for the evaluated routes (`public/data/shapes/`) were generated from
+OpenStreetMap data (ODbL) by the FOSSGIS Valhalla service, and kept only where observed reports
+lie close to them. They carry labelled estimates between reports and are not evidence that a
+bus followed that road.
+
+Walking routes come from routing.openstreetmap.de (FOSSGIS e.V., OSRM foot profile, over
+OpenStreetMap data under the ODbL). They are asked for only when the passenger chooses to, with
+the passenger's location rounded to about 10 m, and the service logs requests under its own
+policy. The router is runtime configuration: `LM_WALKING_ROUTER` names another, or `none`
+switches walking routes off.
 
 ## Where to look
 
@@ -194,6 +228,10 @@ used to assert that a bus followed a particular road between sampled positions.
 - `pipeline/capture.py`: source preservation, redaction and bounded fetching.
 - `lib/replay.ts`, `lib/operations.ts`, `lib/live.ts`: the frontend data contracts.
 - `components/follow-view.tsx`: the passenger view, favourites and the route-fitted map.
+- `lib/motion.ts`: reports, the estimate and the drawn position, kept apart;
+  `scripts/evaluate-motion.mjs` scores the estimate on held-out captures.
+- `lib/walking.ts`, `components/walk-guide.tsx`: walking routes, consent and every failure state.
+- `pipeline/shapes.py`: road shapes for service patterns, validated against observed reports.
 - `app/page.tsx`, `components/operations-view.tsx`: replay, evidence and operations views.
 - `research/source-verification.json`: measured sample results and source hashes.
 - `research/IMPLEMENTED.md`: implemented capabilities and remaining work.

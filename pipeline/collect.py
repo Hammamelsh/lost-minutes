@@ -20,7 +20,9 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -34,8 +36,9 @@ from .core import SERVICE_AREA, parse_source, redact_url
 from .env import load_env
 from .freshness import POLL_DEFAULT, POLL_MINIMUM
 from .live import publish_live
-from .warehouse import (DEFAULT_DB, claim_source, connect, finish_run, load_observations,
-                        record_cycle, record_raw_source, record_timetable, start_run)
+from .warehouse import (DEFAULT_DB, claim_source, close_abandoned_live_runs, connect, finish_run,
+                        load_observations, record_cycle, record_raw_source, record_timetable,
+                        start_run)
 
 ROOT = Path(__file__).resolve().parents[1]
 FEED_URL = 'https://data.bus-data.dft.gov.uk/api/v1/datafeed/'
@@ -57,6 +60,39 @@ def emit(record):
 
 class CollectorBusy(RuntimeError):
     """Another collector already holds the writer lock."""
+
+
+class CollectorStopped(BaseException):
+    """A polite stop (SIGTERM, or SIGHUP from a closed terminal), turned into an exception so
+    the run records how it ended. SIGKILL cannot be caught: the next collector closes such a
+    run as abandoned instead."""
+
+    def __init__(self, signal_name):
+        super().__init__(signal_name)
+        self.signal_name = signal_name
+
+
+STOP_SIGNALS = ('SIGTERM', 'SIGHUP')
+
+
+def _raise_stop(signum, _frame):
+    raise CollectorStopped(signal.Signals(signum).name)
+
+
+def _install_stop_handlers():
+    previous = {}
+    if threading.current_thread() is not threading.main_thread():
+        return previous
+    for name in STOP_SIGNALS:
+        number = getattr(signal, name, None)
+        if number is not None:
+            previous[number] = signal.signal(number, _raise_stop)
+    return previous
+
+
+def _restore_handlers(previous):
+    for number, handler in previous.items():
+        signal.signal(number, handler)
 
 
 class SingleWriter:
@@ -220,8 +256,14 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
     live_dir = root / 'data/live-capture'
 
     con = connect(db_path or root / DEFAULT_DB)
+    # We hold the exclusive lock, so any live run still marked running has already ended.
+    for item in close_abandoned_live_runs(con):
+        log({'abandonedRunClosed': item['runId'], 'lastCycleAt': item['lastCycleAt'],
+             'cycles': item['cycles'], 'cause': 'not recorded'})
     run_id = start_run(con, 'live_capture', is_historical=False,
-                       note=f'bounded live collection, bbox {bbox}, interval {interval}s')
+                       note=f'bounded development collection, bbox {bbox}, interval {interval}s',
+                       planned_minutes=minutes, collector_kind='bounded_development')
+    previous_handlers = _install_stop_handlers()
     deadline = clock() + minutes * 60
     cycle = failures = 0
     previous_digest = None
@@ -247,7 +289,8 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                      'failureStreak': failures})
                 if error.code in (401, 403):
                     finish_run(con, run_id, 'failed', 'AuthorizationRejected',
-                               f'HTTP {error.code} from the feed')
+                               f'HTTP {error.code} from the feed',
+                               exit_reason='credentials_rejected')
                     raise SystemExit('BODS rejected the credentials; collection stopped.')
             except Exception as error:
                 failures += 1
@@ -310,16 +353,27 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
             if remaining <= 0:
                 break
             sleep(max(0, min(remaining, wait - (clock() - started))))
-        finish_run(con, run_id, 'succeeded')
+        finish_run(con, run_id, 'succeeded', exit_reason='time_limit_reached')
         if publish:
             publish_live(con, run_id, root=root)
         return {'runId': run_id, **summary}
     except SystemExit:
         raise
+    except KeyboardInterrupt:
+        finish_run(con, run_id, 'interrupted', 'KeyboardInterrupt',
+                   'Stopped by SIGINT: Ctrl-C, or pnpm dev:live stopping both sides.',
+                   exit_reason='signal:SIGINT')
+        raise
+    except CollectorStopped as stop:
+        finish_run(con, run_id, 'interrupted', 'CollectorStopped', f'Stopped by {stop.signal_name}.',
+                   exit_reason=f'signal:{stop.signal_name}')
+        raise
     except BaseException as error:
-        finish_run(con, run_id, 'failed', type(error).__name__, str(error))
+        finish_run(con, run_id, 'failed', type(error).__name__, str(error),
+                   exit_reason=f'exception:{type(error).__name__}')
         raise
     finally:
+        _restore_handlers(previous_handlers)
         con.close()
 
 
@@ -358,6 +412,11 @@ def main(argv=None):
     except CollectorBusy as error:
         print(json.dumps({'error': 'collector_busy', 'detail': str(error)}))
         return 2
+    except (KeyboardInterrupt, CollectorStopped) as stop:
+        # Already recorded on the run; say so once, without a traceback.
+        print(json.dumps({'stopped': getattr(stop, 'signal_name', 'SIGINT'),
+                          'recorded': 'interrupted'}), flush=True)
+        return 130
     print(json.dumps(result, indent=2))
     return 0
 

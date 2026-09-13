@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .core import SERVICE_AREA, atomic_json, utc_now
@@ -30,17 +31,25 @@ LIVE_KIND = 'live_positions'
 SCHEMA_VERSION = 1
 
 NOTES = [
-    'Positions are reports, not continuous tracking. A bus moves between reports and we '
-    'do not draw where we think it went.',
-    'Every position on screen is an observed fix. Nothing here is interpolated, smoothed '
-    'or predicted.',
+    'Positions are reports, not continuous tracking. Every position in this file is an '
+    'observed fix kept exactly as received: nothing here is interpolated, smoothed or predicted.',
+    'The page may draw a clearly labelled estimate of where a selected bus has got to since its '
+    'last report. Estimates are computed on the device, bounded by measured behaviour, and are '
+    'never published here, stored, or counted as observations.',
     'A position older than the expiry threshold is withheld and counted, because the feed '
     'demonstrably carries positions that are hours old.',
     'No arrival time is offered. Progress toward a stop is shown only where a timetabled '
     'service pattern is matched, and is counted in stops along that pattern, not minutes.',
-    'Direction of travel is drawn only where the vehicle reported a bearing. A missing or '
-    'unreadable bearing is stated, never estimated from movement.',
+    'A reported position shows a direction only where the vehicle reported a bearing; a missing '
+    'or unreadable bearing is stated, never estimated from movement.',
+    'Each bus carries up to six earlier reports from the last four minutes of the same journey '
+    '(its trail), each pointing at the source file it came from.',
 ]
+
+# The trail: earlier observed reports of the same journey, so a page can show where a bus has
+# been and read its recent speed without waiting for further updates.
+TRAIL_SECONDS = 240
+TRAIL_POINTS = 6
 
 BEARING_STATUSES = ('reported', 'absent', 'invalid', 'not_captured')
 
@@ -54,9 +63,96 @@ WITH ranked AS (
     WHERE o.source_sha256 IN (SELECT source_sha256 FROM raw_source WHERE source_kind = ?)
 )
 SELECT operator, vehicle, route, direction, journey_ref, observed_at_ms, recorded_at_text,
-       lat, lon, destination, origin, source_sha256, bearing, bearing_status, aimed_departure
+       lat, lon, destination, origin, source_sha256, bearing, bearing_status, aimed_departure,
+       epoch_ms(retrieved_at) AS retrieved_at_ms
 FROM ranked WHERE rn = 1 ORDER BY observed_at_ms DESC
 """
+
+# Earlier reports of the same journey (operator, vehicle, route, direction, journey_ref) as the
+# latest one, newest first, within the trail window. Only recent rows are scanned.
+TRAIL_SQL = """
+WITH recent AS (
+    SELECT o.* FROM v_publishable_observation o
+    WHERE o.observed_at_ms >= ?
+      AND o.source_sha256 IN (SELECT source_sha256 FROM raw_source WHERE source_kind = ?)
+), latest AS (
+    SELECT operator, vehicle, route, direction, journey_ref, observed_at_ms FROM (
+        SELECT r.*, row_number() OVER (PARTITION BY operator, vehicle
+                                       ORDER BY observed_at_ms DESC) AS rn FROM recent r)
+    WHERE rn = 1
+), earlier AS (
+    SELECT r.operator, r.vehicle, r.observed_at_ms, r.lat, r.lon, r.bearing, r.bearing_status,
+           r.source_sha256, l.observed_at_ms AS latest_ms,
+           row_number() OVER (PARTITION BY r.operator, r.vehicle
+                              ORDER BY r.observed_at_ms DESC) AS rn
+    FROM recent r JOIN latest l
+      ON r.operator = l.operator AND r.vehicle = l.vehicle AND r.route = l.route
+     AND r.direction = l.direction AND r.journey_ref = l.journey_ref
+     AND r.observed_at_ms < l.observed_at_ms
+     AND r.observed_at_ms >= l.observed_at_ms - ? * 1000
+)
+SELECT operator, vehicle, observed_at_ms, lat, lon, bearing, bearing_status, source_sha256,
+       latest_ms
+FROM earlier WHERE rn <= ? ORDER BY operator, vehicle, observed_at_ms
+"""
+
+
+def _trails(con, now_ms, vehicles):
+    """Attach each published bus's trail, compact: [ms before the latest report, lat, lon,
+    reported bearing or null, index into trailSources]. Positions are kept as received."""
+    published = {(v['operator'], v['vehicle']): v for v in vehicles}
+    sources, index = [], {}
+    window_start = now_ms - (EXPIRY + TRAIL_SECONDS) * 1000
+    for (operator, vehicle, observed_ms, lat, lon, bearing, status, sha,
+         latest_ms) in con.execute(TRAIL_SQL, [window_start, LIVE_KIND, TRAIL_SECONDS,
+                                               TRAIL_POINTS]).fetchall():
+        item = published.get((operator, vehicle))
+        if item is None or int(latest_ms) != item['observedAtMs']:
+            continue
+        if sha not in index:
+            index[sha] = len(sources)
+            sources.append(sha)
+        item.setdefault('trail', []).append(
+            [int(latest_ms) - int(observed_ms), lat, lon,
+             bearing if status == 'reported' else None, index[sha]])
+    return sources
+
+
+# Walking directions come from a pedestrian router the page calls directly. The default is the
+# FOSSGIS OSRM foot service (fair use: attribution, a "fix the map" link, at most one request a
+# second, no heavy use; it logs requests). LM_WALKING_ROUTER in .env points at another OSRM
+# foot server, for example a self-hosted one, or switches directions off with "none".
+WALKING = {
+    'provider': 'osrm',
+    'baseUrl': 'https://routing.openstreetmap.de/routed-foot',
+    'profile': 'foot',
+    'name': 'routing.openstreetmap.de',
+    'operator': 'FOSSGIS e.V.',
+    'policyUrl': 'https://www.fossgis.de/arbeitsgruppen/osm-server/nutzungsbedingungen/',
+    'privacyUrl': 'https://www.fossgis.de/datenschutzerklärung',
+    'fixTheMapUrl': 'https://www.openstreetmap.org/fixthemap',
+    'attribution': 'Walking route: OSRM foot profile on routing.openstreetmap.de (FOSSGIS e.V.), '
+                   'OpenStreetMap data',
+    'maxStraightLineMetres': 3000,
+    'minSecondsBetweenRequests': 10,
+    'timeoutSeconds': 8,
+    'inaccurateMetres': 200,
+}
+
+
+def walking_config(environ=None):
+    """The walking router the page will call, with any local override applied."""
+    override = (environ if environ is not None else os.environ).get('LM_WALKING_ROUTER', '').strip()
+    if not override:
+        return dict(WALKING)
+    if override.lower() == 'none':
+        return {**WALKING, 'provider': 'none', 'baseUrl': None}
+    if not override.startswith(('https://', 'http://localhost', 'http://127.0.0.1')):
+        raise ValueError('LM_WALKING_ROUTER must be an https URL, a localhost URL, or "none"')
+    host = override.split('/')[2]
+    return {**WALKING, 'baseUrl': override.rstrip('/'), 'name': host, 'operator': '',
+            'policyUrl': None, 'privacyUrl': None,
+            'attribution': f'Walking route: OSRM foot profile on {host}, OpenStreetMap data'}
 
 
 def _config(poll_seconds):
@@ -66,8 +162,10 @@ def _config(poll_seconds):
             'replayUrl': '/data/replay.json',
             'operationsUrl': '/data/operations.json',
             'pollSeconds': poll_seconds,
-            'note': 'Edit liveUrl to serve live state from another origin. The frontend '
-                    'reads this at runtime; changing it needs no rebuild.'}
+            'walking': walking_config(),
+            'note': 'Written by the collector at each publication. Set LM_WALKING_ROUTER in .env '
+                    'to use another OSRM foot server, or "none" to switch walking directions '
+                    'off. The frontend reads this at runtime; changing it needs no rebuild.'}
 
 
 def build_live(con, published_at=None):
@@ -77,7 +175,7 @@ def build_live(con, published_at=None):
     rows = con.execute(LATEST_SQL, [LIVE_KIND]).fetchall()
     columns = ['operator', 'vehicle', 'route', 'direction', 'journeyRef', 'observedAtMs',
                'recordedAt', 'lat', 'lon', 'destination', 'origin', 'sourceHash', 'bearing',
-               'bearingStatus', 'aimedDeparture']
+               'bearingStatus', 'aimedDeparture', 'retrievedAtMs']
 
     vehicles, expired, ahead_of_clock = [], 0, 0
     for row in rows:
@@ -100,6 +198,8 @@ def build_live(con, published_at=None):
             item['bearing'] = None
         # The operator's scheduled departure from the origin: a timetable claim, not a fix.
         item['aimedDeparture'] = item['aimedDeparture'] or None
+        # When we fetched it: the earliest moment anything downstream could have known it.
+        item['retrievedAtMs'] = int(item['retrievedAtMs']) if item['retrievedAtMs'] is not None else None
         # Stated on every position so no consumer has to infer it.
         item['positionKind'] = 'observed'
         vehicles.append(item)
@@ -111,6 +211,7 @@ def build_live(con, published_at=None):
     except Exception as error:                      # patterns not built yet
         matching = {'matched': 0, 'unmatched': len(vehicles),
                     'reasons': {'patterns_unavailable': type(error).__name__}}
+    trail_sources = _trails(con, now_ms, vehicles) if vehicles else []
 
     cycles = con.execute("""
         SELECT count(*), count(*) FILTER (WHERE outcome = 'succeeded'),
@@ -148,6 +249,20 @@ def build_live(con, published_at=None):
 
     iso = lambda v: None if v is None else v.astimezone(timezone.utc).isoformat()
     has_positions = bool(vehicles) or quality[0]
+
+    # Which run is collecting, and what kind: a bounded development run on one machine is
+    # not an always-on service, and the page must be able to say which it is showing.
+    run = con.execute("""
+        SELECT run_id, status, started_at, finished_at, planned_minutes, collector_kind,
+               exit_reason
+        FROM pipeline_run WHERE mode = 'live_capture' ORDER BY started_at DESC LIMIT 1""").fetchone()
+    collector = None
+    if run:
+        collector = {'runId': run[0], 'status': run[1], 'kind': run[5] or 'bounded_development',
+                     'startedAt': iso(run[2]), 'finishedAt': iso(run[3]),
+                     'plannedMinutes': run[4],
+                     'endsBy': iso(run[2] + timedelta(minutes=run[4])) if run[2] and run[4] else None,
+                     'exitReason': run[6]}
     state = 'live' if vehicles else ('stale' if has_positions else 'unavailable')
 
     payload = {
@@ -165,10 +280,12 @@ def build_live(con, published_at=None):
             'repeatPayloads': int(repeats or 0), 'failed': int(failed or 0),
             'consecutiveFailures': int(streak or 0),
             'sharedCollector': True,
+            'collector': collector,
         },
         'freshness': {'policy': policy(), 'measured': measure(con, LIVE_KIND)},
         'matching': matching,
         'vehicles': vehicles,
+        'trailSources': trail_sources,
         'withheld': {
             'expiredPositions': expired,
             'positionsAheadOfClock': ahead_of_clock,
@@ -216,6 +333,12 @@ def validate_live(payload, previous=None):
         f'expiry {EXPIRY}s, withheld {payload.get("withheld", {}).get("expiredPositions")}')
     add('every_position_is_an_observed_fix',
         all(v.get('positionKind') == 'observed' for v in vehicles), 'no estimated positions')
+    sources = payload.get('trailSources') or []
+    add('trail_is_earlier_observed_history',
+        all(0 < point[0] <= TRAIL_SECONDS * 1000 and 0 <= point[4] < len(sources)
+            for v in vehicles for point in v.get('trail') or [])
+        and all(len(v.get('trail') or []) <= TRAIL_POINTS for v in vehicles),
+        f'up to {TRAIL_POINTS} earlier reports of the same journey within {TRAIL_SECONDS}s')
     add('bearings_reported_or_explicitly_absent',
         all(v.get('bearingStatus', 'not_captured') in BEARING_STATUSES
             and ((v.get('bearing') is not None) == (v.get('bearingStatus') == 'reported'))

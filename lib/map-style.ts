@@ -45,13 +45,15 @@ export const PALETTES:Record<MapTheme,Palette>={
   sky:'#e8dac0',horizon:'#f4ead6',fog:'#efe5cf',light:'#fff3d6',lightIntensity:0.38,
  },
  night:{
-  ground:'#0d1820',residential:'#101c25',commercial:'#121f29',industrial:'#121c24',institution:'#131f2a',
-  park:'#10261c',parkEdge:'#1d3d2c',wood:'#0f291d',grass:'#11271e',pitch:'#133022',cemetery:'#122419',
-  water:'#0b2c37',waterEdge:'#1b5566',waterText:'#86bdca',
-  building:'#17242e',buildingEdge:'#223643',extrusion:'#1e303d',
-  casingMajor:'#05090d',casingMinor:'#08111a',motorway:'#c7924a',trunk:'#a88a57',primary:'#6a7780',
-  secondary:'#46555f',minor:'#2d3c47',service:'#24323c',path:'#3d4e59',rail:'#56656f',
-  placeText:'#cfdbe2',districtText:'#93a7b3',halo:'#0a131a',roadText:'#a3b4be',
+  // Night, reworked for legibility: a slightly lifted ground so blocks and parks separate from
+  // it, arterials in a warm lamp-lit amber, side streets a readable slate, brighter labels.
+  ground:'#101d27',residential:'#13212b',commercial:'#15232e',industrial:'#142029',institution:'#162430',
+  park:'#132e22',parkEdge:'#24503a',wood:'#11301f',grass:'#142f23',pitch:'#163a28',cemetery:'#152b1f',
+  water:'#0f3645',waterEdge:'#2a7188',waterText:'#9fd0dc',
+  building:'#1f303c',buildingEdge:'#324a5a',extrusion:'#2c4252',
+  casingMajor:'#04080b',casingMinor:'#0a141c',motorway:'#d9a458',trunk:'#c39a5c',primary:'#a88b5c',
+  secondary:'#6d7e89',minor:'#46586a',service:'#35464f',path:'#56707d',rail:'#6c7b85',
+  placeText:'#e6eef2',districtText:'#aec1cc',halo:'#081016',roadText:'#c9d6dd',
   landmarkText:'#e6c08f',landmark:'#d9a15c',
   sky:'#0a1219',horizon:'#1c2c37',fog:'#0d1820',light:'#c7d7ff',lightIntensity:0.32,
  },

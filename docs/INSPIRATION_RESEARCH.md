@@ -44,7 +44,7 @@ source files read: `renderGovernor.js`, `retryableLoad.js`, `trailRenderer.js`,
 | Retryable loader | A failed data pack is retried with doubling backoff, never cached as failed for the session | Yes |
 | First-run missions | Four one-tap starting points instead of a blank globe | Yes |
 | Split-flap status chips | Departure-board flip when a status label changes | Only under `prefers-reduced-motion: no-preference` |
-| Interpolation and dead reckoning | Positions eased between 15–30 s fixes | **No.** An eased move implies a fix we never saw |
+| Interpolation and dead reckoning | Positions eased between 15–30 s fixes | **Superseded 13 Sep 2026.** The owner approved clearly labelled, bounded estimates. They follow validated road shapes, are scored against held-out reports, and are never drawn or stored as a fix (`lib/motion.ts`) |
 | GLSL sensor styles (CRT, NVG, FLIR) | Post-processing over the globe | Not for a passenger; MapLibre has no post-effect pass |
 | Voice agent | OpenAI Realtime, metered with a hard cap | No: a key, a cost, and an AI feature for its own sake |
 | Photoreal 3D | Google tiles through Cesium | No: browser-exposed key, billing, non-commercial terms |
@@ -119,6 +119,7 @@ already on the map. They come from OpenStreetMap through OpenFreeMap's vector ti
 without a key, and the browser checks now assert that the glyphs and tiles load. Google Maps
 would require a key in the browser and billing, which the project rules forbid.
 
-**Not recommended:** interpolation, sensor-style shaders, voice control and photoreal 3D, for
-the reasons in the table above. The 3D city view already in the app (OpenMapTiles building
+**Not recommended:** sensor-style shaders, voice control and photoreal 3D, for the reasons in
+the table above. Interpolation was on this list until the owner approved labelled, bounded
+estimates on 13 September 2026 (`PROJECT_CONTEXT.md`, "Estimated position"). The 3D city view already in the app (OpenMapTiles building
 heights) is the keyless equivalent and stays.

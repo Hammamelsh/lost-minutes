@@ -2,8 +2,13 @@
 //
 // Every route, pattern and match here is a fixture (tests/browser/fixtures.mjs); the stop
 // names are real NaPTAN records. Screenshots from these runs are captioned as fixtures.
+import {readFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
 import {FX, journeyLive, markerPixels, pixelVariety, serveLive, servePatterns} from './fixtures.mjs';
+
+// A real FOSSGIS OSRM foot route, recorded once (tests/browser/recorded), for the map's legend.
+const RECORDED_WALK = JSON.parse(readFileSync(
+  new URL('./recorded/osrm-foot-longford-park-to-stretford-mall-stop-a.json', import.meta.url), 'utf8'));
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 const shot = async (page, name) =>
@@ -65,22 +70,30 @@ test.describe('with location', () => {
     await expect(card).toContainText('Timetabled to call at your stop');
     await expect(card).toContainText('Last report nearest Sevenways · 3 stops before yours');
     await expect(card).toContainText('You to your stop');
+    await expect(card).toContainText('straight line, not a walking route');
     await expect(card).toContainText('Bus to your stop');
-    await expect(card).toContainText('Arrival time');
-    await expect(card).toContainText('not predicted');
+    await expect(card).not.toContainText('Arrival time');
     await expect(card.locator('.stop-progress')).toContainText('your stop');
     await expect(card).not.toContainText(/\bETA\b|arrives in|\bdue\b/i);
-    // The bus standing at the stop is listed, and can be picked.
-    const atStop = page.locator('.at-stop');
-    await expect(atStop).toContainText('53');
-    await expect(atStop).toContainText('not confirmed for this stop');
+    await expect(card.locator('.bus-card-eyebrow')).toHaveText('Your bus');
+    // The bus reported beside the stop is listed for what it is, not as "at your stop".
+    await expect(page.getByText('At your stop now')).toHaveCount(0);
+    const nearby = page.locator('.nearby-reports');
+    await expect(nearby).toContainText('Last reported nearby');
+    await expect(nearby).toContainText('53');
+    await expect(nearby).toContainText('not confirmed for your stop');
     await shot(page, 'stop-a');
-    await atStop.locator('.follow-row').first().click();
+    // Picked on purpose, it is a selected bus that does not come here, with a way back.
+    await nearby.locator('.follow-row').first().click();
     await expect(card.locator('.route-badge')).toHaveText('53');
+    await expect(card.locator('.bus-card-eyebrow')).toHaveText('Selected bus');
     await expect(card).toContainText('Not confirmed for your stop');
     await expect(card).toContainText('No timetable pattern is held for BNSM route 53');
+    await card.getByRole('button', {name: /Back to buses for your stop/}).click();
+    await expect(card.locator('.route-badge')).toHaveText('256');
     // Everything else nearby is kept apart, not offered as a boarding option.
-    await expect(page.locator('.exploring summary')).toContainText('not confirmed for your stop');
+    await expect(page.locator('.exploring summary')).toContainText('More buses near your stop');
+    await expect(page.locator('.exploring')).toContainText('Already past your stop');
   });
 
   test('a shared current stop is not a shared route: branching stays unresolved', async ({page}) => {
@@ -99,8 +112,9 @@ test.describe('with location', () => {
     const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
     await search.fill('stretford public hall');
     await page.getByRole('option', {name: /Stop E/}).click();
-    await page.locator('.waiting .follow-row', {hasText: 'possible branches'}).click();
+    await page.locator('.maybe-coming .follow-row', {hasText: 'possible branches'}).click();
     await expect(card).toContainText('May call at your stop (1 of 2 possible branches)');
+    await expect(card.locator('.bus-card-eyebrow')).toHaveText('Selected bus');
   });
 
   test('an explicitly chosen bus that leaves the feed stays chosen, and says so', async ({page}) => {
@@ -221,16 +235,23 @@ test.describe('over the map', () => {
   test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
 
   test('controls, notes and the ride-along card never cover one another', async ({page}) => {
+    await page.route('**/routed-foot/**', route => route.fulfill({json: RECORDED_WALK}));
     await openAtStopA(page);
     await page.locator('.vector-map').evaluate(el => el.scrollIntoView({block: 'start'}));
     await expect(page.locator('.ride-launch')).toBeVisible();
     expect(await collisions(page, OVER_MAP), 'controls over the flat map').toEqual([]);
+    // A walking route adds a legend chip; the longer legend still leaves the ride button clear.
+    await page.getByRole('button', {name: 'Show walking route'}).click();
+    await expect(page.locator('.vector-map')).toHaveAttribute('data-walk', 'route');
+    await page.locator('.vector-map').evaluate(el => el.scrollIntoView({block: 'start'}));
+    await expect(page.locator('.legend-walk')).toBeVisible();
+    expect(await collisions(page, OVER_MAP), 'controls over the flat map with a walking route').toEqual([]);
     await page.getByRole('button', {name: 'Ride along with route 256'}).click();
     await expect(page.locator('.ride-card')).toBeVisible();
     expect(await collisions(page, OVER_RIDE), 'ride-along, bus with a bearing').toEqual([]);
     await page.getByRole('button', {name: 'Exit ride-along'}).click();
     // A bus that reported no direction adds a second note under the disclaimer.
-    await page.locator('.at-stop .follow-row').first().click();
+    await page.locator('.nearby-reports .follow-row').first().click();
     await page.getByRole('button', {name: 'Ride along with route 53'}).click();
     await expect(page.locator('.ride-note')).toBeVisible();
     expect(await collisions(page, OVER_RIDE), 'ride-along, bus without a bearing').toEqual([]);
@@ -259,8 +280,12 @@ test.describe('a publication that has stopped', () => {
     await expect(page.locator('.follow-badge')).toContainText('NOT UPDATING');
     await expect(page.locator('.follow-bar-when')).toContainText(/updated \d+s ago/);
     // A report inside a file published ten minutes ago is at least ten minutes old, whatever
-    // age the publisher wrote beside it at the time.
-    await expect(page.locator('.bus-card .age-chip')).toContainText(/1[01] min ago/);
+    // age the publisher wrote beside it at the time. Old reports are not offered as your bus:
+    // they are listed apart, aged from when they were made.
+    await expect(page.locator('.bus-card.empty')).toContainText('only old reports');
+    await page.locator('.exploring summary').click();
+    await expect(page.locator('.exploring .board-group', {hasText: 'Old reports'})).toBeVisible();
+    await expect(page.locator('.exploring .fresh-chip').first()).toContainText(/1[01] min ago/);
     await shot(page, 'stale');
   });
 });

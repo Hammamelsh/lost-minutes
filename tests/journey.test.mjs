@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {patternIndex} from '../lib/patterns.ts';
 import {relateToStop} from '../lib/patterns.ts';
 import {association,busesAtStop,distanceLines,journeyFocus,progress,schematic,
-        servicesAtStop,busOnService,AT_STOP_METRES} from '../lib/journey.ts';
+        servicesAtStop,busOnService,AT_STOP_METRES,standing,standingWords,stopBoard} from '../lib/journey.ts';
 import {londonDate,ruleApplies,runsOn,weekdayIndex} from '../lib/service-days.ts';
 import {usableBearing} from '../lib/follow.ts';
 
@@ -69,15 +69,44 @@ test('progress words are qualified, and never a time',()=>{
   assert.ok(!/minute|arriv(es|ing in)|\bdue\b|\beta\b/i.test(claim.text),claim.text);
 });
 
-test('my distance, the bus distance and arrival are three labelled lines',()=>{
+test('my distance and the bus distance carry their basis, and nothing predicts an arrival',()=>{
  const here={lat:53.4705,lon:-2.2410},stop={id:'S2',name:'S2',...stopAt(2)};
  const b=bus('f',0,{patternId:'north',patternIndex:0,nearestStop:'S0',metresAlongPattern:0,metresFromPatternStop:5});
- const lines=distanceLines({here,stop,bus:b,relation:relateToStop(b,'S2',byId)});
- assert.deepEqual(lines.map(l=>l.label),['You to your stop','Bus to your stop','Along the stop sequence','Arrival time']);
+ const relation=relateToStop(b,'S2',byId);
+ const lines=distanceLines({here,stop,bus:b,relation});
+ assert.deepEqual(lines.map(l=>l.label),['You to your stop','Bus to your stop','Along the stop sequence']);
  assert.match(lines[0].basis,/straight line, not a walking route/);
- assert.equal(lines[1].basis,'straight line');
+ assert.match(lines[1].basis,/straight line/);
  assert.match(lines[2].basis,/not the road/);
- assert.equal(lines[3].value,'not predicted');
+ assert.ok(!lines.some(l=>/arriv|minute/i.test(`${l.label} ${l.value}`)));
+ // With a route from a pedestrian router, and only then, it is a walking distance and time.
+ const walked=distanceLines({here,stop,bus:b,relation,walk:{metres:341,seconds:273,provider:'routing.openstreetmap.de'}});
+ assert.equal(walked[0].value,'5 min walk · 340 m');
+ assert.match(walked[0].basis,/walking route from routing.openstreetmap.de/);
+});
+
+test('the stop board keeps relevant buses apart from passed, wrong, unresolved and old ones',()=>{
+ const away={...base,id:'away',destination:'Elsewhere',stops:['Z0','Z1','Z2','Z3','Z4'],metres:[0,300,600,900,1200]};
+ const index=patternIndex({...catalogue,patterns:[...catalogue.patterns,away]});
+ const stop={id:'S2',name:'S2',...stopAt(2)};
+ const buses=[
+  bus('coming',1,{patternId:'north',patternIndex:1,nearestStop:'S1',metresAlongPattern:300,metresFromPatternStop:12}),
+  bus('passed',4,{patternId:'north',patternIndex:4,nearestStop:'N4',metresAlongPattern:1200,metresFromPatternStop:12}),
+  bus('wrong',2,{patternId:'away',patternIndex:2,nearestStop:'Z2',metresAlongPattern:600,metresFromPatternStop:12}),
+  bus('maybe',1.5,{unresolved:'ambiguous_branch',explanation:'Two branches fit.',
+   candidates:[{patternId:'north',patternIndex:1},{patternId:'away',patternIndex:1}]}),
+  bus('unknown',2.2,undefined),
+  bus('old',1,{patternId:'north',patternIndex:1,nearestStop:'S1',metresAlongPattern:300,metresFromPatternStop:12},{freshness:'stale'}),
+ ];
+ const relations=new Map(buses.map(b=>[b.key,relateToStop(b,'S2',index)]));
+ const board=stopBoard(buses,stop,relations);
+ assert.deepEqual(board.coming.map(r=>r.bus.key),['coming'],'only a bus timetabled to call and not past');
+ assert.deepEqual(board.maybe.map(r=>r.bus.key),['maybe']);
+ assert.deepEqual(board.nearby.map(r=>r.bus.key).sort(),['unknown','wrong'],'near the stop is not coming to it');
+ assert.deepEqual(board.passed.map(r=>r.bus.key),['passed']);
+ assert.deepEqual(board.old.map(r=>r.bus.key),['old'],'an old report is listed apart, even on a calling service');
+ assert.equal(standingWords(board.nearby.find(r=>r.bus.key==='wrong')),'does not call at your stop');
+ assert.equal(standing(relations.get('coming')),'coming');
 });
 
 test('buses at the stop are those reported within the radius, nearest first',()=>{

@@ -578,3 +578,256 @@ install in this repository (13:41) and hot-reloaded component edits happened sho
 the cause is not established. Its run record still reads `running` after three later bounded
 runs started and finished normally (45, 36 and 18 cycles, none failed): nothing marks an abandoned
 live run as interrupted, so that record will read as running until something does.
+
+# Walking guidance and estimated movement — 13 September 2026
+
+This milestone adds four things:
+- walking directions to the boarding point;
+- estimated movement between reports on the evaluated routes;
+- run records that say how each collection ended;
+- a ride-along, stop board and card reworked around them.
+
+The owner approved clearly labelled interpolation and bounded prediction for this milestone,
+and `PROJECT_CONTEXT.md` now says so where it used to say nothing is interpolated. Fixture
+screens are labelled FIXTURE. The real figures come from bounded runs on this machine and
+prove those runs only. The requirement-by-requirement evidence is in
+`docs/MILESTONE_CHECKLIST.md`.
+
+## Walking guidance
+
+The router is the OSRM foot profile at routing.openstreetmap.de, run by FOSSGIS e.V. It is
+free, needs no key, and is used within the limits its own pages state: attribution, a "fix the
+map" link, at most one request a second, no heavy use, and requests are logged. Its German
+usage-policy page sat behind a bot check and could not be read in full here.
+
+The page:
+- asks only after the passenger taps "Show walking route", having said what is sent and to
+  whom;
+- sends the location rounded to four decimal places (about 10 m) and the stop's position, with
+  no credentials and an origin-only referrer, and puts neither in its own address or console;
+- refuses before asking when there is no location, when the fix is worse than 200 m, or when
+  the stop is more than 3 km away in a straight line;
+- re-routes only after a move larger than max(40 m, twice the fix's accuracy), and never more
+  often than every 10 s;
+- on NoRoute, NoSegment, a 429, a timeout or a network failure, says what happened and offers
+  Try again;
+- never shows a driving route or passes a straight line off as a route.
+
+The router is runtime configuration: `LM_WALKING_ROUTER` takes an https URL, localhost or
+`none`, and is written into `config.json` at each publication.
+
+Real answers:
+- the recorded route the browser checks replay: Longford Park to Stretford Mall (Stop A),
+  340.8 m and 272.7 s, 21 points, captured once;
+- `walking-real.spec`, one request from the built app at 17:21 BST: passed, with 340 m and a
+  5-minute walk from Longford Park to Stretford Mall (Stop A), shown on the map and in the
+  page;
+- three live requests during the recorded passes, at 16:37:32, 16:38:40 and 16:39:23 BST, all
+  answered 200: 220 m and 3 minutes to St Modwen Road (nr), north-westbound on Barton Dock
+  Road.
+
+## Road shapes
+
+TfGM's timetables hold no road geometry. Of 802 files in the BNML dataset and 588 in BNSM,
+none has a `Track` or `Mapping` element, only stop-to-stop `RouteLink`s. So
+`pipeline/shapes.py` asks the FOSSGIS Valhalla service for a bus route through each pattern's
+stops, with NaPTAN bearings as headings, and keeps the raw answers. It accepts a shape only
+when at least 30 matched reports lie within 35 m of it at the 95th percentile. Shape build run
+`20260913T151402`, 16:14–16:15 BST:
+
+| Pattern | Matched reports | 95th-percentile offset | Result |
+|---|---|---|---|
+| BNML 15 inbound `9c10700c6c` | 756 | 11.7 m | accepted |
+| BNML 15 outbound `c9291c1aea` | 752 | 13.8 m | accepted |
+| BNML 250 inbound `0d524464ad` | 3,408 | 23.2 m | accepted |
+| BNML 250 outbound `7930c3c3b8` | 3,393 | 20.9 m | accepted |
+| BNML 256 inbound `c19df3beac` | 1,300 | 28.4 m | accepted |
+| BNML 256 outbound `7d555419a1` | 1,578 | 11.3 m | accepted |
+| BNML 15 inbound `1d743b5dae`, 256 inbound `331b1971c9`, 256 outbound `cde495c44d` | 0 | — | rejected: no matched reports |
+
+## Estimated movement
+
+**Reports.** 109 journeys on routes 15, 250 and 256, 11,367 reports (11,216 placed on a
+pattern), exported from the warehouse. They are split in time at 12:50 UTC: 71 journeys to fit
+the settings (36,076 predictions) and 38 held out (20,708). Each prediction uses only the
+reports fetched by its moment, and is scored against where the bus next reported. The baseline
+is the last report itself, which is what the page draws without estimates.
+
+**Settings**, fitted on the training journeys:
+- top speed 15.7 m/s (the 99th percentile);
+- speed read over 75 s;
+- horizon 120 s;
+- decay time 45 s.
+
+Version `motion-2 · 2026-09-13 · window 75s · decay 45s · horizon 120s`.
+
+**Held out**, distance from the next report:
+
+| Report age up to | Cases | Estimate, median | Last report, median | Band held it |
+|---|---|---|---|---|
+| 10 s | 70 | 34.6 m | 56.3 m | 74% |
+| 20 s | 1,625 | 40.6 m | 52.1 m | 81% |
+| 30 s | 2,212 | 50.8 m | 71.4 m | 82% |
+| 45 s | 3,041 | 77.1 m | 137.5 m | 82% |
+| 60 s | 2,937 | 96.3 m | 181.7 m | 82% |
+| 90 s | 5,247 | 152.0 m | 272.0 m | 82% |
+| 120 s | 5,576 | 237.4 m | 375.9 m | 83% |
+
+Within 30 s of a report: **45.7 m against 61.1 m** (3,907 cases). Estimates were withheld (the
+bus was shown at its report) when:
+- the report was off the road geometry: 664;
+- the bus was not placed on a pattern: 547;
+- only one report of the journey had arrived: 184;
+- the reports were too far apart: 99;
+- the reports went backwards: 64;
+- a report jumped further than a bus travels: 5.
+
+**What a passenger sees.** This was measured separately: at each moment a new report reached
+the page, how far the estimate moved. The first version extrapolated at constant speed. On
+held-out captures, 32.6% of report arrivals pulled it back by more than 35 m, because buses
+stop at stops and lights. Easing speed off with report age was fitted by a rule set before
+looking at held-out data: among decay times no less accurate on training than constant speed,
+the one whose corrections least often go backwards.
+
+| Decay (training) | Median error ≤ 60 s | Mean error | Back > 35 m | Over 150 m |
+|---|---|---|---|---|
+| none | 69.1 m | 95.4 m | 32.5% | 11.3% |
+| 120 s | 67.3 m | 92.2 m | 28.0% | 10.3% |
+| 90 s | 67.0 m | 92.3 m | 26.4% | 10.3% |
+| 60 s | 67.1 m | 93.2 m | 23.4% | 10.7% |
+| **45 s** | 67.7 m | 94.9 m | **21.1%** | 10.9% |
+| 30 s | 68.6 m | 99.4 m | 16.6% | 12.3% |
+
+30 s was excluded as less accurate than constant speed.
+
+Held out (3,826 report arrivals):
+
+| | Median move | 8 in 10 under | Back > 35 m | Forward > 35 m | Over 150 m |
+|---|---|---|---|---|---|
+| Decay 45 s | 50.8 m | 111.5 m | 20.9% | 40.8% | 10.0% |
+| Constant speed | 56.3 m | 113.5 m | 32.6% | 32.1% | 10.3% |
+
+The cost is that past 90 s the eased estimate under-runs: 152 m and 237 m, against 134 m and
+177 m at constant speed. It still beats the last report.
+
+**On screen:**
+- a move is caught up no faster than 15 m/s on top of the bus's speed;
+- a step back of up to 35 m while moving is held rather than drawn;
+- a move over 150 m snaps, and the card says by how much.
+
+## Defects found by this milestone's own checks, and fixed
+
+- The presentation clock could step at each publication, because the server offset came from
+  the one-second `Date` header. It is now slewed at no more than 0.1 s per s.
+- Correction glides had no speed limit: a 90 m correction slid at about 100 m/s. They are now
+  limited to 15 m/s on top of the bus's speed.
+- After a jump, speed was read across it: a FIXTURE bus at 29 km/h was estimated at 61 km/h.
+  Speed is now read only from reports after the latest jump.
+- The first estimate after loading glided from the report as if correcting it. It is now simply
+  drawn.
+- Choosing another bus was drawn as a correction between two buses. It is now a new drawing.
+- The card gave two ages for one report (33 s and 35 s). It now gives one, the page's own.
+- Looking at the real frames:
+  - the ride-along bus was about 9 px wide at zoom 18.3; the framing is now zoom 20;
+  - on a phone the ride card covered the bus; the ride map is now taller and the card compact;
+  - the legend's new Walk chip ran into the ride button; they now share one foot bar, and the
+    overlay check runs with a walking route too.
+- Leaving the ride-along kept its tilt, because stopping the ride's camera also cancelled the
+  flat 2D ease. The exit's fit now carries the view's own tilt and heading.
+- On a phone, starting a second ride crashed the page: MapLibre threw `Invalid LngLat object:
+  (NaN, NaN)` framing an overview for a map whose size had just changed. The camera now takes
+  the new size first. A frame that cannot fit is skipped, and no camera move can take the page
+  down.
+
+## Matching on one frozen capture
+
+For each moment, both columns take the vehicles as a publication would have carried them. The
+old rule held 221 patterns (60% of stops inside the area); the new rule holds all 404.
+
+| Moment (BST) | Vehicles | Matched | No journeys that day | No timetable for the route | Unresolved, same stops ahead |
+|---|---|---|---|---|---|
+| 13:58:55 | 338 | 153 → 199 | 32 → 2 | 117 → 77 | 43 |
+| 14:16:22 | 342 | 148 → 201 | 35 → 2 | 124 → 78 | 41 |
+| 15:30:00 | 350 | 152 → 208 | 35 → 1 | 125 → 78 | 43 |
+| 16:05:00 | 353 | 148 → 206 | 39 → 2 | 126 → 80 | 40 |
+
+A bus whose candidate branches differ only in stops behind it is marked `sharedOnward`. It
+may follow the road ahead for an estimate, but stays unresolved and is never counted as
+matched.
+
+## Collector run records
+
+On the new code, a starting collector closed three live runs left `running` by abrupt stops
+(started 00:57, 10:42 and 12:25 BST) as `interrupted`, exit reason `abandoned`, each finishing
+at its last cycle, with no cause inferred. The owner's earlier 13:44 stop is one of them. The
+shape build ended `completed`. The bounded run `20260913T151718`, 16:17:18–16:42:18 BST, 25
+planned minutes, ended `time_limit_reached` with kind `bounded_development`: 75 cycles, all
+succeeded. A real SIGTERM is tested: status `interrupted`, exit reason `signal:SIGTERM`.
+
+## Real feed
+
+The last publication of that run (16:42:18 BST) held 349 buses:
+- bearing: 258 reported, 91 absent;
+- 208 placed on a pattern;
+- 59 unresolved between branches, 41 of them with the same stops ahead;
+- 74 on routes with no timetable held;
+- 6 too far from any pattern stop;
+- 1 with no journeys that day, and 1 whose operator has no timetable held;
+- 14 on the evaluated routes;
+- 322 carrying a full six-report trail.
+
+The real-feed browser check passed on desktop and phone against that run.
+
+Recorded passes on the built app, with the collector's `live.json` read fresh on every poll:
+- walking route: 220 m, 3 minutes to St Modwen Road (nr);
+- the chosen bus, BNML 250 to The Trafford Centre, drawn as ESTIMATE;
+- City view, then the ride-along, with reconciled reports logged: one snap of 317 m in City
+  view, then eased corrections of 4 m and 68 m while riding.
+
+That first recording framed the ride at zoom 18.3, where the bus was barely visible; the
+framing fix came from it.
+
+The final build was recorded again from 17:23 BST: a real BNML 256 to Towns Gate (vehicle
+SK63AVB), with the boarding point five stops ahead, Cavendish Road (opp).
+- Walking: 180 m and 2 minutes, answered 200.
+- The ride framing was zoom 20 in every pass.
+- Reconciled while riding: eased 91, 65 and 72 m (desktop, day); a 223 m snap (phone, day);
+  eased 108 m (desktop, night).
+- The phone night pass was the fourth browser context in one session, and it fell back to the
+  drawn SVG map. The fallback behaved as designed: no City view, no estimates, and "Last
+  reported positions · not continuous tracking". Why that context lost the vector map was not
+  established.
+- Run again alone in a fresh browser at 17:31 BST, the phone night pass completed every step:
+  a real 256 to Piccadilly Gardens, and a 160 m, 2-minute walk to Mallow Street (nr).
+
+## Browser checks
+
+`pnpm test:browser` on the final build (`out/`), desktop 1280×900 and a 390×844 phone: **77
+passed, 13 skipped by design, 0 failed** (9.4 minutes). The skipped checks:
+- the real-feed and real-walking checks, which ran separately against the live run and passed
+  (real feed 2/2; real walking 1/1, run twice);
+- nine map lifecycle and fallback checks that run on desktop only.
+
+New or reworked this milestone:
+- `motion.spec` (10 per viewport): the moving estimate, measured against real time and across
+  publications; the ride camera; the tour; standing; capped; stale; a large correction; an
+  unsettled branch; no evaluation; and the reported-only choice;
+- `walking.spec` (6 per viewport): consent, and a recorded real route on the map and the card,
+  with no location in the page address or console; router failure; no path; an inaccurate
+  fix; too far; no location;
+- `evidence-motion.spec`: the published evaluation, its visible corrections, and the replay;
+- `journey.spec`: the stop-board groups, Selected bus, and overlay collisions, now also with a
+  walking route shown.
+
+The first full run on this code caught two defects that the targeted runs had missed:
+leaving the ride-along kept its tilt, and starting a second ride on a phone crashed the page.
+Both were fixed before the final run.
+
+## Not verified here
+
+- a physical phone: touch, real GPS, sunlight and night legibility, frame rate on a real GPU,
+  battery and heat;
+- weekday traffic for the estimator;
+- the FOSSGIS usage-policy page in full;
+- walking routes beyond the areas tried;
+- any arrival time: none is predicted.

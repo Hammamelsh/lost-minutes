@@ -6,8 +6,13 @@
  */
 import type {MapTheme} from '@/lib/map-style';
 
-export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',MODEL_SOURCE='lm-model';
-export const OVERLAY_SOURCES=[BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE] as const;
+export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',MODEL_SOURCE='lm-model',
+ WALK_SOURCE='lm-walk',SELECTED_SOURCE='lm-selected',TRAIL_SOURCE='lm-trail';
+export const OVERLAY_SOURCES=[BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
+ TRAIL_SOURCE] as const;
+/** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
+ *  foot rather than a road or a bus route. */
+export const WALK_COLOUR='#2f86d6';
 /** Below this zoom a true-to-scale 12 m bus is a speck, so the readable symbol is kept. */
 export const MODEL_MIN_ZOOM=17;
 
@@ -21,8 +26,8 @@ export const OVERLAY:Record<MapTheme,{stopRing:string;stopLabel:string;hereLabel
         other:'#e3eef2',otherStroke:'#0b1720',stale:'#7f97a5',staleStroke:'#0b1720',ink:'#0b1720'},
 };
 
-/** Once the 3D bus is drawn, the flat symbol for that one bus steps aside; the rest stay. */
-export const HIDE_SELECTED_WHEN_MODEL=['step',['zoom'],1,MODEL_MIN_ZOOM,['case',['==',['get','selected'],1],0,1]];
+/** Once the 3D bus is drawn, the chosen bus's flat symbol steps aside; every other bus stays. */
+export const HIDE_SELECTED_WHEN_MODEL=['step',['zoom'],1,MODEL_MIN_ZOOM,0];
 
 export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
  const o=OVERLAY[theme];
@@ -33,6 +38,17 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
    paint:{'fill-color':'#5aa9e6','fill-opacity':0.14}},
   {id:'lm-here-accuracy-edge',type:'line',source:HERE_SOURCE,filter:['==',['get','kind'],'accuracy'],
    paint:{'line-color':'#5aa9e6','line-opacity':0.6,'line-width':1.3}},
+  // The walking route, under every marker. Where the router joined the nearest mapped path a
+  // thin dashed link is drawn instead, so an unmapped stretch is not presented as a path.
+  {id:'lm-walk-casing',type:'line',source:WALK_SOURCE,filter:['==',['get','kind'],'route'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':o.halo,'line-width':['interpolate',['linear'],['zoom'],13,5,18,12],'line-opacity':0.92}},
+  {id:'lm-walk-line',type:'line',source:WALK_SOURCE,filter:['==',['get','kind'],'route'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':WALK_COLOUR,'line-width':['interpolate',['linear'],['zoom'],13,2.6,18,6.5],
+          'line-dasharray':[0.1,1.7]}},
+  {id:'lm-walk-connector',type:'line',source:WALK_SOURCE,filter:['==',['get','kind'],'connector'],
+   paint:{'line-color':WALK_COLOUR,'line-width':1.6,'line-dasharray':[2,2],'line-opacity':0.85}},
   {id:'lm-stop-ring',type:'circle',source:STOP_SOURCE,
    paint:{'circle-radius':15,'circle-color':'#ffb459','circle-opacity':0.18,'circle-pitch-alignment':'map',
           'circle-stroke-color':o.stopRing,'circle-stroke-width':2.5}},
@@ -52,14 +68,42 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
            'text-font':['Noto Sans Bold'],'text-size':12.5,'text-allow-overlap':true,
            'text-ignore-placement':true,'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
    paint:{'text-color':'#16240c'}},
+  // The chosen bus's recent reports and, apart from them, where it is estimated to be: dots are
+  // reports; a dashed line along the road from the last report is the estimate; a pale band
+  // around it spans where 8 in 10 held-out estimates at this report age were actually found.
+  {id:'lm-trail-band',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'band'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':'#c6f36a','line-opacity':0.28,'line-width':['interpolate',['linear'],['zoom'],13,7,18,22]}},
+  {id:'lm-trail-estimate',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'estimate'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':o.ink,'line-width':['interpolate',['linear'],['zoom'],13,1.6,18,3.4],'line-dasharray':[1.2,1.2]}},
+  {id:'lm-trail-report',type:'circle',source:TRAIL_SOURCE,filter:['==',['get','kind'],'report'],
+   paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,2.6,18,5],'circle-color':'#c6f36a',
+          'circle-opacity':['case',['==',['get','latest'],1],1,0.62],
+          'circle-stroke-color':o.ink,'circle-stroke-width':1.4,'circle-pitch-alignment':'map'}},
   {id:'lm-bus-label',type:'symbol',source:BUS_SOURCE,minzoom:13.5,filter:['==',['get','selected'],0],
    layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11,
            'text-anchor':'left','text-offset':[0.95,0],'text-padding':2},
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.5}},
-  {id:'lm-bus-badge',type:'symbol',source:BUS_SOURCE,minzoom:MODEL_MIN_ZOOM,filter:['==',['get','selected'],1],
+  {id:'lm-bus-badge',type:'symbol',source:SELECTED_SOURCE,minzoom:MODEL_MIN_ZOOM,
    layout:{visibility:'none','text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':15,
            'text-offset':[0,-2.8],'text-allow-overlap':true,'text-ignore-placement':true},
    paint:{'text-color':'#16240c','text-halo-color':'#c6f36a','text-halo-width':4}},
+  // The chosen bus, drawn from its own source so it can move every frame without redrawing the
+  // rest: at its report in observed mode, at the displayed estimate otherwise, captioned so.
+  {id:'lm-sel-marker',type:'symbol',source:SELECTED_SOURCE,
+   layout:{'icon-image':['get','icon'],'icon-rotate':['get','rotate'],
+           'icon-rotation-alignment':'map','icon-pitch-alignment':'map',
+           'icon-allow-overlap':true,'icon-ignore-placement':true,
+           'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':12.5,
+           'text-allow-overlap':true,'text-ignore-placement':true,
+           'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
+   paint:{'text-color':'#16240c'}},
+  {id:'lm-sel-caption',type:'symbol',source:SELECTED_SOURCE,minzoom:13,
+   layout:{'text-field':['get','caption'],'text-font':['Noto Sans Bold'],'text-size':10.5,
+           'text-offset':[0,1.9],'text-allow-overlap':true,'text-ignore-placement':true,
+           'text-letter-spacing':0.08},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
   // Labels choose the side with room; the two reference dots draw on top of everything.
   {id:'lm-here-label',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
    layout:{'text-field':'You','text-size':12.5,'text-radial-offset':1.35,

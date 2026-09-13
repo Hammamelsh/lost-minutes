@@ -30,7 +30,8 @@ it reads the two published JSON files, so the site runs with no Python and no AP
 **This is not continuous operation.** There is no scheduler, no service and no hosted
 worker. The pipeline runs while this WSL process runs; when the machine sleeps, the
 terminal closes or the environment stops, collection stops with it. Nothing in the
-interface is labelled live, and the Operations view states the mode explicitly.
+interface is labelled continuously live: a time-limited run is shown as a local run with its
+end time, and the Operations view states the mode explicitly.
 
 ## Table grain and identifiers
 
@@ -44,6 +45,7 @@ interface is labelled live, and the Operations view states the mode explicitly.
 | `rejection` | (run, source, reason) | `(run_id, source_sha256, reason)` |
 | `publication` | publication attempt, successful or not | `publication_id` |
 | `validation_check` | named check on one publication | `(publication_id, check_name)` |
+| `pattern_shape` | service pattern with a built road shape, accepted or not | `pattern_id` |
 
 The observation identity is the whole design. Two reports sharing it are the same
 observation; a **new timestamp is a different identity**, so a bus that reported again
@@ -130,6 +132,18 @@ A repeated payload is the important one. It is a *successful request* that must 
 anything look newer: `lastPayloadChangeAt` only advances when the bytes actually change, and
 the age on screen always comes from the observation, never from the request.
 
+### How a run ended
+
+Every run records why it ended in `pipeline_run.exit_reason`: `time_limit_reached`;
+`signal:SIGINT`, `signal:SIGTERM` or `signal:SIGHUP` (status `interrupted`);
+`credentials_rejected`; or `exception:<type>` (status `failed`). A live run also records
+`planned_minutes` and `collector_kind` (`bounded_development` for `pipeline.collect
+--minutes`). A process killed outright can write nothing. Once the next collector holds the
+lock, it closes any live run still marked `running` as `interrupted`, with `error_class`
+`AbandonedRun` and `exit_reason` `abandoned`, finishing at that run's last completed cycle. No
+cause is inferred. The published live state carries the current run as
+`collection.collector`.
+
 ### Freshness, measured
 
 `pipeline/freshness.py` holds the policy and the evidence for it. Measured on the retained
@@ -173,8 +187,33 @@ are recorded in `observation_conflict` and the identity is withheld entirely.
 state is known, every position carries an observation time and is inside the declared area,
 nothing older than expiry is published, every position is an observed fix, a `live` state
 carries at least one position, and publication time never moves backwards. A failure leaves
-the previous state serving. `public/data/config.json` names the live URL and poll interval,
+the previous state serving. Each vehicle may carry a short trail of its own earlier reports: up
+to six from the previous four minutes, each pointing to its source, and checked to be earlier
+observed history (`trail_is_earlier_observed_history`). The page draws them as reports, never
+as a new position. Nothing estimated is ever published. `public/data/config.json` names the live URL and poll interval,
 so the state can be served from another origin without rebuilding the site.
+
+## Road shapes and the motion evaluation
+
+```bash
+.venv/bin/python -m pipeline.shapes build --lines 15,250,256        # a bus route through each pattern's stops
+.venv/bin/python -m pipeline.shapes publish                         # accepted shapes -> public/data/shapes/
+.venv/bin/python -m pipeline.motion_data export --lines 15,250,256  # -> data/evaluation/motion-reports.json
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-motion.mjs
+.venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching rules on one frozen moment
+```
+
+A shape is the FOSSGIS Valhalla bus route through a pattern's stops: at most 10 stops per
+request, windows overlapping by one, NaPTAN bearings as headings. It is stored with its raw
+responses (`data/raw/shapes`, gzipped and named by SHA-256) and its stop offsets. It is
+accepted only when at least 30 matched reports lie within 35 m of it at the 95th percentile.
+Otherwise it is kept with the reason and not published.
+
+The evaluation replays the exported reports as the page would have received them: each
+prediction uses only the reports fetched by that moment. It fits its settings on captures
+before 12:50 UTC on 13 September and scores the later ones. A traceable row per prediction goes
+to `data/evaluation/` (not in Git) and a summary to `public/data/motion-evaluation.json`.
+Without that file the page draws no estimates.
 
 ## Credentials
 

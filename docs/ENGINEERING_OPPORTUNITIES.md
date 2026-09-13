@@ -296,3 +296,108 @@ with overlays can call per view and viewport.
 fails on the phone with `.ride-launch × .map-legend-chips` and passes on desktop.
 
 **Status:** mitigated (the check is in the suite and catches the original defect).
+
+## 9. The warehouse cannot be read while the collector runs
+
+**Problem and evidence.** DuckDB lets one process hold the database for writing, and while it
+does no other process can open it, read-only included. The collector opens the warehouse when
+a run starts and keeps it until the run ends (`pipeline/collect.py`). On 13 September every
+warehouse step of the milestone (building road shapes, exporting reports for the motion
+evaluation, the frozen-capture matching assessment, reading run records) waited for the
+owner's bounded collection of 14:43–16:13 BST to finish, behind a script that polled for the
+collector process to exit. `PROJECT_CONTEXT.md` already notes that a pattern build waits for a
+running collector.
+
+**Who hits it and the current workaround.** The owner and anyone working alongside a running
+`pnpm dev:live`, which the owner often has open. The workaround is to do lock-free work first
+and queue warehouse work behind the collector.
+
+**Recurrence and effort.** Once per milestone so far that needed the warehouse during
+collection; this time one wait of about 90 minutes. How often it blocks the owner is unknown.
+
+**Right answer.** A small fix first: if a cycle needs the connection only briefly, open it per
+cycle and release it between polls, retrying on a held lock; otherwise let analysis read a
+per-run export. Not a product.
+
+**Existing tools.** This is DuckDB's documented concurrency model (one read-write process, or
+several read-only ones: <https://duckdb.org/docs/connect/concurrency>). Not researched further.
+
+**Smallest reusable capability.** One `warehouse()` context manager used by every entry point,
+which waits for the lock with a visible message and a timeout, and a collector that holds the
+connection only while it writes a cycle.
+
+**Next cheap validation.** From the cycle records, measure how long each cycle's write phase
+takes against its 20 s interval.
+
+**Status:** observed.
+
+## 10. No operator road geometry, so estimated movement needs shapes built and checked
+
+**Problem and evidence.** Moving a bus between reports needs the road it follows, and stop
+coordinates alone do not establish it. The TfGM TransXChange files held here carry
+`RouteLink` and `RouteSection` elements but no geometry: none of the 802 files in the BNML
+dataset (`9ed671b2…`) or the 588 in BNSM (`d9c3f6a4…`) has a `Track` or `Mapping` element
+(scanned on 13 September 2026). `pipeline/shapes.py` therefore asks the FOSSGIS Valhalla
+service (bus costing) for a route through each pattern's stops, with NaPTAN bearings as
+headings, and accepts a shape only when at least 30 matched reports lie within 35 m of it at
+the 95th percentile. Of 9 shapes built for routes 15, 250 and 256, 6 were accepted (p95 11.3 to
+28.4 m) and 3 rejected, each for having no matched reports.
+
+**Who hits it and the current workaround.** Anyone extending estimated movement beyond those
+three routes. The workaround is a per-line build and validation, run by hand.
+
+**Recurrence and effort.** Once so far. Nine shapes took about a minute at the service's
+request spacing; the 387 published patterns would take roughly 40 times that, plus enough
+reports to validate each. How many would pass is unknown.
+
+**Right answer.** An existing tool or integration, not a product. Candidates, none tried here:
+pfaedle, which map-matches schedule data to OpenStreetMap to produce shapes
+(<https://github.com/ad-freiburg/pfaedle>); matching the observed reports themselves with
+Valhalla's `trace_route`; or operator geometry in other BODS datasets (not checked).
+
+**Smallest reusable capability.** A shape for a stop sequence with its validation against
+observed positions kept beside it. The `pattern_shape` table already has that form; batch
+coverage and a self-hosted router for volume are what is missing.
+
+**Next cheap validation.** Run pfaedle on a GTFS export of the same three lines (BODS offers
+GTFS timetables; not checked for these) and compare its p95 offsets with the accepted shapes.
+
+**Status:** mitigated for three lines.
+
+## 11. An animation check that reads only the drawn clock cannot see that clock step
+
+**Problem and evidence.** The first continuity check in `tests/browser/motion.spec.mjs` measured
+the drawn bus against the page's presentation time. It failed on a software-rendering stall (a
+13.9 m step when a frame arrived late). Once normalised by that time, it passed while two real
+defects remained:
+- the presentation clock could step at each publication, because its offset was re-measured
+  from the one-second HTTP `Date` header;
+- a large correction could glide at over 100 m/s.
+
+The first was found by reading the code. The second showed up when the check failed with
+11.3 m and 9.6 m excess steps. The fixes are a slewed clock (`tickClock` in `lib/motion.ts`), a
+catch-up limit, and a diagnostic that records every frame's presentation time and the page's
+own time. The check now measures against real time and asserts that the drawn clock stays
+within 10% of it.
+
+**Who hits it and the current workaround.** Anyone checking animation in a headless browser.
+SwiftShader frames arrive irregularly, and a check on one clock cannot see the other clock
+step. The workaround is the two-clock diagnostic above.
+
+**Recurrence and effort.** Three rounds of the same check in one milestone, roughly an hour
+each.
+
+**Right answer.** A small helper, not a product.
+
+**Existing tools.** Playwright's clock API (<https://playwright.dev/docs/clock>) controls `Date`
+and timers in the page. Not tried here, and it would not reveal a clock that the application
+itself steps.
+
+**Smallest reusable capability.** `recordFrames(page, attribute, seconds)` returning each
+frame's page time, presentation time and value, with `noJump(speed)` and
+`clockContinuous(slew)` assertions.
+
+**Next cheap validation.** Reuse it for the ride camera's heading, which is still sampled
+every 150 ms without frame times.
+
+**Status:** mitigated.

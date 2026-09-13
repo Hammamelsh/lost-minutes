@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {walkingConfigSchema} from '@/lib/walking';
 
 const nullableString = z.string().nullable().optional();
 const count = z.number().int().nonnegative();
@@ -34,6 +35,8 @@ const vehicleSchema = z.object({
             // An unresolved branch keeps every candidate: a shared stop is not a shared route.
             candidates:z.array(z.object({patternId:z.string(),patternIndex:z.number().int().nonnegative()})).optional(),
             nearestStop:z.string().optional(), sharedNext:z.array(z.string()).optional(),
+            // Candidates differing only behind the bus: the road ahead is shared, the pattern is not settled.
+            sharedOnward:z.boolean().optional(),
             metresFromPatternStop:z.number().optional(), nearestPatternMetres:z.number().optional(),
             evidence:matchEvidence}),
  ]).optional(),
@@ -43,6 +46,12 @@ const vehicleSchema = z.object({
  bearingStatus:z.enum(['reported','absent','invalid','not_captured']).optional(),
  // The operator's scheduled departure from the origin: a timetable claim, not an observation.
  aimedDeparture:z.string().nullable().optional(),
+ // When the collector fetched this report: the earliest moment anything downstream knew it.
+ retrievedAtMs:z.number().int().nullable().optional(),
+ // Earlier observed reports of the same journey, oldest first:
+ // [ms before this report, lat, lon, reported bearing or null, index into trailSources].
+ trail:z.array(z.tuple([z.number().positive(),z.number(),z.number(),z.number().nullable(),
+  z.number().int().nonnegative()])).optional(),
 });
 
 const summarySchema = z.object({
@@ -62,6 +71,11 @@ const liveSchema = z.object({
   lastPayloadChangeAt:nullableString,
   cycles:count, succeeded:count, repeatPayloads:count, failed:count,
   consecutiveFailures:count, sharedCollector:z.boolean(),
+  // Which run is collecting. 'bounded_development' is a time-limited run on one machine,
+  // never an always-on service.
+  collector:z.object({runId:z.string(),status:z.string(),kind:z.string(),
+   startedAt:nullableString,finishedAt:nullableString,plannedMinutes:z.number().nullable().optional(),
+   endsBy:nullableString,exitReason:nullableString}).nullable().optional(),
  }),
  matching:z.object({matched:count,unmatched:count,reasons:z.record(z.number())}).optional(),
  freshness:z.object({
@@ -80,6 +94,7 @@ const liveSchema = z.object({
   }).nullable(),
  }),
  vehicles:z.array(vehicleSchema),
+ trailSources:z.array(z.string().regex(/^[a-f0-9]{64}$/)).optional(),
  withheld:z.object({
   expiredPositions:count, positionsAheadOfClock:count, conflictingIdentities:count,
   quarantinedRecords:count,
@@ -96,6 +111,9 @@ export const configSchema = z.object({
  schemaVersion:z.literal(1),
  liveUrl:z.string(), replayUrl:z.string(), operationsUrl:z.string(),
  pollSeconds:z.number().positive(),
+ // Which pedestrian router walking directions come from; absent means the built-in default.
+ // A malformed block falls back to the default router rather than discarding the whole config.
+ walking:walkingConfigSchema.optional().catch(undefined),
  note:z.string().optional(),
 });
 

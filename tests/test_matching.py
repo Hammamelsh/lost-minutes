@@ -110,6 +110,26 @@ class MatchTests(unittest.TestCase):
         self.assertEqual(result['nearestStop'], 'A03')
         self.assertEqual(result['sharedNext'], ['A04'])
 
+    def test_branches_differing_only_behind_the_bus_share_everything_ahead_but_stay_unresolved(self):
+        trunk = chain('S', 6)
+        start = trunk[0][3]
+        west = [(0, 'W00', 0, (start[0], start[1] - 0.006)), (1, 'W01', 300, (start[0], start[1] - 0.003))]
+        east = [(0, 'E00', 0, (start[0], start[1] + 0.006)), (1, 'E01', 300, (start[0], start[1] + 0.003))]
+        shifted = [(i + 2, atco, metres + 600, where) for i, atco, metres, where in trunk]
+        from_west = pattern('p-west', '142', 'inbound', west + shifted)
+        from_east = pattern('p-east', '142', 'inbound', east + shifted)
+        here = trunk[3][3]
+        result = match_vehicle(self.bus(here[0], here[1]), [from_west, from_east])
+        self.assertEqual(result['reason'], 'ambiguous_branch', 'which pattern it runs is still unknown')
+        self.assertTrue(result['sharedOnward'])
+        self.assertEqual(result['sharedNext'], ['S04', 'S05'])
+        # Branches that part ahead do not share onward progress.
+        north = pattern('p-north', '142', 'inbound', extend(trunk, 'N', 3, 0.0027, 0))
+        east_turn = pattern('p-turn', '142', 'inbound', extend(trunk, 'T', 3, 0, 0.0045))
+        parting = match_vehicle(self.bus(trunk[3][3][0], trunk[3][3][1]), [north, east_turn])
+        self.assertEqual(parting['reason'], 'ambiguous_branch')
+        self.assertFalse(parting['sharedOnward'])
+
     def test_a_short_working_does_not_quietly_become_the_full_route(self):
         full = pattern('p-full', '50', 'inbound', chain('A', 10))
         short = pattern('p-short', '50', 'inbound', chain('A', 6))

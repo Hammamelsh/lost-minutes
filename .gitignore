@@ -67,6 +67,9 @@ __pycache__/
 /.venv/
 /data/warehouse/
 /data/published/
+# Motion evaluation working files (exported reports, one traceable row per prediction); rebuilt
+# from the warehouse. The published summary is public/data/motion-evaluation.json.
+/data/evaluation/
 
 # Browser test output: screenshots, traces and reports are regenerated on every run.
 /test-results/

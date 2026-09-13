@@ -20,7 +20,14 @@ export type FollowBus = {
  bearingStatus:'reported'|'absent'|'invalid'|'not_captured';
  /** Scheduled departure from the origin, as the operator reported it. */
  aimedDeparture?:string|null;
+ /** When the collector fetched the latest report: nothing downstream could know it earlier. */
+ retrievedAtMs?:number|null;
+ /** Earlier observed reports of the same journey, oldest first, as published. */
+ trail?:TrailFix[];
 };
+
+/** One earlier report of the same journey: an observation, never an estimate. */
+export type TrailFix={at:number;lat:number;lon:number;bearing:number|null;source:string|null};
 
 /** A bearing is used only when reported and inside the compass. Anything else is null. */
 export const usableBearing=(value:unknown,status:unknown)=>
@@ -45,7 +52,8 @@ export function destinationLabel(destination:string):string{
 
 /** One published vehicle as the passenger view needs it, aged against the server's clock. */
 export function busFromVehicle(v:LiveVehicle,policy:LiveState['freshness']['policy'],
-                               serverReferenceMs:number,fetchedAtMs:number,nowMs:number):FollowBus{
+                               serverReferenceMs:number,fetchedAtMs:number,nowMs:number,
+                               trailSources:string[]=[]):FollowBus{
  const age=observationAge(v,{serverReferenceMs},fetchedAtMs,nowMs);
  return {key:`${v.operator}|${v.vehicle}`,operator:v.operator,vehicle:v.vehicle,route:v.route,
   direction:v.direction,journeyRef:v.journeyRef,destination:v.destination??'',
@@ -53,14 +61,18 @@ export function busFromVehicle(v:LiveVehicle,policy:LiveState['freshness']['poli
   ageSeconds:age,freshness:freshnessOf(age,policy),ageWords:ageWords(age),
   sourceHash:v.sourceHash,match:v.match,
   bearing:usableBearing(v.bearing,v.bearingStatus),bearingStatus:v.bearingStatus??'not_captured',
-  aimedDeparture:v.aimedDeparture??null};
+  aimedDeparture:v.aimedDeparture??null,retrievedAtMs:v.retrievedAtMs??null,
+  trail:(v.trail??[]).map(([before,lat,lon,bearing,index])=>
+   ({at:v.observedAtMs-before,lat,lon,bearing:usableBearing(bearing,bearing===null?'absent':'reported'),
+     source:trailSources[index]??null}))};
 }
 
 /** Latest reported position per vehicle from the live state. */
 export function busesFromLive(live:LiveState|null,serverReferenceMs:number,
                               fetchedAtMs:number,nowMs:number):FollowBus[]{
  if(!live)return [];
- return live.vehicles.map(v=>busFromVehicle(v,live.freshness.policy,serverReferenceMs,fetchedAtMs,nowMs))
+ return live.vehicles.map(v=>busFromVehicle(v,live.freshness.policy,serverReferenceMs,fetchedAtMs,nowMs,
+                                            live.trailSources??[]))
   .filter(b=>b.freshness!=='expired');
 }
 

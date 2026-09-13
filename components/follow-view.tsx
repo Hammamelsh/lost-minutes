@@ -1,23 +1,28 @@
 "use client";
 
 import {useCallback,useMemo,useState,useSyncExternalStore} from 'react';
-import {Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
+import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Star,WifiOff,X} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import CityMap,{type Here,type MapView} from '@/components/city-map';
 import Nearby from '@/components/nearby';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
-import {bringsItToYourStop,relateToStop,relationWords,type PatternCatalogue,type ServicePattern,
-        type StopRelation} from '@/lib/patterns';
-import {association,busesAtStop,busOnService,distanceLines,progress,schematic,servicesAtStop} from '@/lib/journey';
+import WalkGuide from '@/components/walk-guide';
+import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
+import {association,busOnService,distanceLines,progress,schematic,servicesAtStop,standing,standingWords,
+        stopBoard,type BoardRow} from '@/lib/journey';
 import {londonDate} from '@/lib/service-days';
 import {bearingWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,stopPlace,
-        straightLineMetres,subscribeSavedStops,toggleSavedStop,type Stop} from '@/lib/stops';
+        subscribeSavedStops,toggleSavedStop,type Stop} from '@/lib/stops';
 import {destinationLabel,directionLabel,routeId,routeNumber,routesByRecency,type FollowBus} from '@/lib/follow';
 import {favouriteKey,favouritesServerSnapshot,favouritesSnapshot,isFavourite,saveFavourites,
         subscribeFavourites,toggleFavourite,type Favourite,type FeedMode,type LiveState} from '@/lib/live';
 import {clock} from '@/lib/replay';
 import {saveTheme,subscribeTheme,themeServerSnapshot,themeSnapshot} from '@/lib/theme';
+import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
+import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
+import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
+        subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
 
 const MODE:Record<FeedMode,{label:string;tone:string}>={
  live:{label:'LIVE',tone:'live'},
@@ -28,26 +33,22 @@ const MODE:Record<FeedMode,{label:string;tone:string}>={
 };
 
 const FRESHNESS:Record<string,string>={
- fresh:'a recent report',
  ageing:'it may have moved on since',
- stale:'an old report: it may have finished, lost signal or be out of coverage',
- expired:'older than the cut-off, so it is not drawn',
+ stale:'an old report: it may have finished or lost signal',
 };
 
-// Nearest first for a waiting passenger: at or near the stop, then fewest stops away.
-function waitRank(relation:StopRelation):[number,number]{
- if(relation.kind==='near_your_stop')return [0,0];
- if(relation.kind==='approaching')return [1,relation.stopsAway];
- if(relation.kind==='branch_all_call')return [2,relation.stopsAway??relation.range?.[0]??99];
- if(relation.kind==='branch_some_call')return [3,0];
- return [9,0];
-}
+// What a chosen bus that is not coming to your stop is, in the card's headline.
+const NOT_COMING:Record<string,string>={
+ not_for_stop:'Does not serve your stop',passed:'Already past your stop',
+ maybe:'May call at your stop',unknown:'Not confirmed for your stop',
+};
 
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
                                     onLocate,locating,locationError,patterns,patternsById,
-                                    here,outsideArea,onClearHere,nowMs,liveFingerprint,recall}:{
+                                    here,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
+                                    clockOffsetMs=0}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
@@ -55,10 +56,15 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  onLocate?:()=>void;locating?:boolean;locationError?:string;
  patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>;
  here:Here|null;outsideArea:boolean;onClearHere:()=>void;
- nowMs:number;liveFingerprint?:string|null;recall?:(key:string)=>FollowBus|null}){
+ nowMs:number;liveFingerprint?:string|null;recall?:(key:string)=>FollowBus|null;
+ walkingConfig?:WalkingConfig|null;clockOffsetMs?:number}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
  const theme=useSyncExternalStore(subscribeTheme,themeSnapshot,themeServerSnapshot);
+ const [consent,setConsent]=useWalkingConsent();
+ const estimatedMovement=useSyncExternalStore(subscribeMotionPreference,motionPreferenceSnapshot,motionPreferenceServerSnapshot);
+ const [motionInfo,setMotionInfo]=useState<MotionInfo|null>(null);
+ const reportMotion=useCallback((info:MotionInfo|null)=>setMotionInfo(info),[]);
  const [blocked,setBlocked]=useState(false);
  const [choice,setChoice]=useState<{route:string;direction:string}|null>(null);
  const [serviceKey,setServiceKey]=useState<string|null>(null);
@@ -66,6 +72,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const [follow,setFollow]=useState(false);
  const [view,setView]=useState<MapView>('2d');
  const [fitRequest,setFitRequest]=useState(0);
+ const [walkAttempt,setWalkAttempt]=useState(0);
  // MapLibre when the device can render it; the drawn map when it cannot.
  const [mapFallback,setMapFallback]=useState(false);
  // Dependencies of CityMap's creation effect: they must never change identity, or the page's
@@ -78,6 +85,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const day=londonDate(mode==='archive'?(buses[0]?.observedAtMs??nowMs):nowMs);
  const stopById=useMemo(()=>new Map(stops.map(s=>[s.id,s])),[stops]);
  const name=useCallback((atco:string)=>stopById.get(atco)?.name??'a stop outside our area',[stopById]);
+ const stopLabel=stop?`${stop.name}${stop.indicator?` (${stop.indicator})`:''}`:'';
+
+ // ------------------------------------------------------------ walking to your stop
+ const walking=walkingConfig??DEFAULT_WALKING;
+ const walk=useWalkingRoute({here,stop,config:walking,consent,nowMs,attempt:walkAttempt});
+ const walkRoute=walk.status!=='problem'&&'route' in walk&&walk.route&&stop&&walk.route.stopId===stop.id?walk.route:undefined;
 
  // ------------------------------------------------------------ at your stop
  const relations=useMemo(()=>{
@@ -88,24 +101,9 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const services=useMemo(()=>stop?servicesAtStop(patterns,stop.id,day,buses,patternsById):[],
   [patterns,stop,day,buses,patternsById]);
  const activeService=services.find(s=>s.key===serviceKey)??null;
- const waiting=useMemo(()=>{
-  if(!stop)return [];
-  return buses.filter(bus=>{
-   const relation=relations.get(bus.key)!;
-   return (bringsItToYourStop(relation)||relation.kind==='branch_some_call')
-    &&(!activeService||busOnService(bus,activeService,relation));
-  }).sort((a,b)=>{
-   const ra=waitRank(relations.get(a.key)!),rb=waitRank(relations.get(b.key)!);
-   return ra[0]-rb[0]||ra[1]-rb[1]||(a.ageSeconds??0)-(b.ageSeconds??0);
-  });
- },[buses,stop,relations,activeService]);
- const atStop=useMemo(()=>stop?busesAtStop(buses,stop,patternsById):[],[buses,stop,patternsById]);
- const nearbyOther=useMemo(()=>{
-  if(!stop)return [];
-  const shown=new Set([...waiting.map(b=>b.key),...atStop.map(item=>item.bus.key)]);
-  return buses.filter(bus=>!shown.has(bus.key)).map(bus=>({bus,metres:straightLineMetres(stop,bus)}))
-   .filter(item=>item.metres<=1500).sort((a,b)=>a.metres-b.metres).slice(0,12);
- },[buses,stop,waiting,atStop]);
+ const board=useMemo(()=>stop?stopBoard(buses,stop,relations,
+  activeService?(bus,relation)=>busOnService(bus,activeService,relation):undefined):null,
+  [buses,stop,relations,activeService]);
 
  // ------------------------------------------------------------ browse by route (no stop)
  const available=useMemo(()=>routesByRecency(buses),[buses]);
@@ -129,22 +127,29 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
 
  // ------------------------------------------------------------ the selected bus
  const mapBuses=useMemo(()=>{
-  if(!stop)return onRoute;
-  const keys=new Set([...waiting.map(b=>b.key),...atStop.map(i=>i.bus.key),...nearbyOther.map(i=>i.bus.key)]);
+  if(!stop||!board)return onRoute;
+  const keys=new Set([...board.coming,...board.maybe,...board.nearby,...board.passed,...board.old,
+                      ...board.elsewhere].map(row=>row.bus.key));
   return buses.filter(b=>keys.has(b.key));
- },[stop,onRoute,waiting,atStop,nearbyOther,buses]);
+ },[stop,board,onRoute,buses]);
  const liveSelected=selectedKey?buses.find(b=>b.key===selectedKey):undefined;
  // An explicit choice is kept when its bus leaves the feed; the card says so rather than
  // quietly switching to another bus.
  const gone=selectedKey&&!liveSelected?recall?.(selectedKey)??null:null;
- const selected=liveSelected??(selectedKey?undefined:(stop?waiting[0]??atStop[0]?.bus:onRoute[0]));
+ // Only a bus timetabled to call at your stop and not yet past it is chosen for you. Anything
+ // else is shown only when you pick it, and is labelled as not coming to your stop.
+ const selected=liveSelected??(selectedKey?undefined:(stop?board?.coming[0]?.bus:onRoute[0]));
  const cardBus=selected??gone??undefined;
  const cardRelation=cardBus&&stop?(relations.get(cardBus.key)??relateToStop(cardBus,stop.id,patternsById)):undefined;
+ const cardStanding=cardRelation?standing(cardRelation):null;
+ const relevant=!stop||cardStanding==='coming';
  const effectiveView:MapView=view==='ride'&&!selected?'2d':view;
+ const riding=effectiveView==='ride';
 
  const copy=MODE[mode];
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
+ const collector=live?.collection.collector;
 
  function chooseBus(key:string){setSelectedKey(key);setFollow(false);setFitRequest(n=>n+1)}
  function chooseService(key:string){
@@ -156,20 +161,50 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  function selectStop(next:Stop|null){
   onSelectStop(next);setServiceKey(null);setSelectedKey('');setView('2d');setFitRequest(n=>n+1);
  }
+ function backToStop(){setSelectedKey('');setFollow(false);setView('2d');setFitRequest(n=>n+1)}
 
  const ageText=(bus:FollowBus)=>mode==='archive'?`reported ${clock(bus.observedAtMs,true)}`:bus.ageWords;
+ const ageChip=(bus:FollowBus)=>mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','');
  const assoc=cardBus&&cardRelation?association(cardRelation,cardBus):null;
  const prog=cardRelation?progress(cardRelation,name):null;
- const items=cardRelation&&stop?schematic(cardRelation,name,stop.id):[];
+ const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];
+ const walked=walkRoute?walkWords(walkRoute):null;
+ const notServing=stop&&cardBus&&assoc&&!relevant
+  ?cardStanding==='not_for_stop'?`It does not serve ${stopLabel}. ${assoc.detail}`
+   :cardStanding==='passed'?`In the timetable’s stop order its last report is already past ${stopLabel}.`
+   :`${assoc.text}. ${assoc.detail}`
+  :null;
+
+ // Estimates are for live data you are watching now: never a recording, never offline.
+ const motion={enabled:estimatedMovement&&mode!=='archive'&&mode!=='offline'&&mode!=='unavailable',
+  reason:!estimatedMovement?'you chose reported positions only'
+   :mode==='archive'?'a recording is shown at its reported positions':'the feed is not live'};
+ // The age is the page's, the one the card's age chip shows, so the card never gives two.
+ // A recording is only ever shown at its reports, and says so in its own header.
+ const motionWords=mode!=='archive'&&motionInfo&&selected&&cardBus?.key===selected.key?describeMotion({...motionInfo,
+  reportAge:selected.ageSeconds!==null&&Number.isFinite(selected.ageSeconds)?Math.round(selected.ageSeconds):motionInfo.reportAge})
+  :null;
 
  const rideOverlay=selected?<div className="ride-card">
   <div className="ride-card-head">
    <span className="route-badge">{selected.route}</span>
-   <div><strong>to {destinationLabel(selected.destination)}</strong><small>{ageText(selected)}</small></div>
+   <div>{!relevant&&<small className="ride-card-eyebrow">Selected bus · not coming to your stop</small>}
+    <strong>to {destinationLabel(selected.destination)}</strong>{!motionWords&&<small>{ageText(selected)}</small>}</div>
   </div>
-  {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${prog.tone}`}>{prog.text}</p>}
-  {stop&&cardRelation&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
+  {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
+  {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${relevant?prog.tone:'bad'}`}>
+   {relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</p>}
+  {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
  </div>:null;
+
+ const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus.key)}
+   className={`follow-row standing-${item.standing}${item.bus.key===cardBus?.key?' on':''}`}
+   aria-pressed={item.bus.key===cardBus?.key}>
+  <span className="route-pill">{item.bus.route}</span>
+  <span className="follow-row-copy"><strong>to {destinationLabel(item.bus.destination)}</strong><small>{detail}</small></span>
+  <span className={`fresh-chip ${mode==='archive'?'archive':item.bus.freshness??'unknown'}`}>{ageChip(item.bus)}</span>
+ </button>;
+ const more=board?board.passed.length+board.old.length+board.elsewhere.length:0;
 
  return <section className={`follow${stop?' has-stop':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
@@ -178,29 +213,37 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     {mode==='archive'?archiveDate
      :publicationAgeSeconds===null?'not published yet'
      :`updated ${ageBasis==='device'?'about ':''}${Math.round(publicationAgeSeconds)}s ago`}</span>
+   {mode!=='archive'&&collector?.kind==='bounded_development'&&<span className="follow-bar-run"
+     title="Collected by a time-limited run on one machine, not an always-on service">
+    local run{collector.endsBy&&collector.status==='running'?` · until ${clock(Date.parse(collector.endsBy))}`:''}</span>}
    <button className="follow-refresh" onClick={onRefresh} disabled={refreshing}
     aria-label="Check for newer positions"><RefreshCw size={15} className={refreshing?'spin':''}/></button>
   </div>
 
-  {/* Where am I, and where is my stop? */}
+  {/* Where am I, where is my stop, and how do I walk there? */}
   {stops.length>0&&(stop
    ? <div className="your-stop">
-      <span className="your-stop-mark"><MapPin size={18}/></span>
-      <span className="your-stop-copy">
-       <small className="your-stop-eyebrow">Your stop</small>
-       <strong>{stop.name}{stop.indicator?` (${stop.indicator})`:''}</strong>
-       <small>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')||'No side-of-road detail supplied'}</small>
-       {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
-      </span>
-      <span className="your-stop-actions">
-       {onLocate&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
-        <LocateFixed size={15} className={locating?'spin':''}/></button>}
-       <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
-        aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
-        onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
-        <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/></button>
-       <button onClick={()=>selectStop(null)}>Change</button>
-      </span>
+      <div className="your-stop-row">
+       <span className="your-stop-mark"><MapPin size={18}/></span>
+       <span className="your-stop-copy">
+        <small className="your-stop-eyebrow">Your stop</small>
+        <strong>{stopLabel}</strong>
+        <small>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')||'No side-of-road detail supplied'}</small>
+        {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
+       </span>
+       <span className="your-stop-actions">
+        {onLocate&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
+         <LocateFixed size={15} className={locating?'spin':''}/></button>}
+        <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
+         aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
+         onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
+         <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/></button>
+        <button onClick={()=>selectStop(null)}>Change</button>
+       </span>
+      </div>
+      {mode!=='archive'&&<WalkGuide state={walk} config={walking} here={here} stop={stop} consent={consent}
+       onConsent={setConsent} onRetry={()=>setWalkAttempt(n=>n+1)} onLocate={onLocate} locating={locating}
+       locationError={locationError}/>}
      </div>
    : <div className="your-stop unset">
       <Nearby stops={stops} patterns={patterns} here={here} outsideArea={outsideArea} day={day}
@@ -223,43 +266,64 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    : <CityMap buses={mapBuses} selected={selected} stop={stop} here={here} follow={follow}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       view={effectiveView} onViewChange={setView} theme={theme} onThemeChange={saveTheme}
-      fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}/>}
+      fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}
+      busLabel={relevant?'Your bus':'Selected bus'}
+      walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
+      clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion}/>}
 
   {/* Which bus, is it coming here, how far has it got, how old is that? */}
-  {cardBus&&<article className={`bus-card${gone?' gone':''}`} aria-label="Your bus">
+  {cardBus&&<article className={`bus-card${gone?' gone':''}${relevant?'':' explored'}`}
+    aria-label={relevant&&stop?'Your bus':'Selected bus'}>
+   <p className="bus-card-eyebrow">{relevant&&stop?'Your bus':'Selected bus'}</p>
    <header className="bus-card-head">
     <span className="route-badge">{cardBus.route}</span>
     <div className="bus-card-title">
      <strong>to {destinationLabel(cardBus.destination)}</strong>
      <small>{[directionLabel(cardBus.direction),cardBus.operator].filter(Boolean).join(' · ')}</small>
     </div>
-    <span className={`age-chip ${mode==='archive'?'archive':cardBus.freshness??'unknown'}`}>
-     {mode==='archive'?clock(cardBus.observedAtMs,true):cardBus.ageWords.replace('reported ','')}</span>
+    <span className={`age-chip ${mode==='archive'?'archive':cardBus.freshness??'unknown'}`}>{ageChip(cardBus)}</span>
    </header>
+   {stop&&prog&&<div className={`bus-card-answer tone-${relevant?prog.tone:'bad'}`}>
+    <strong>{relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</strong>
+    {relevant&&prog.detail&&<span>{prog.detail}</span>}</div>}
+   {notServing&&<div className="bus-card-explored" role="note">
+    <p>{notServing}</p>
+    <button className="back-to-stop" onClick={backToStop}><ArrowLeft size={15}/>Back to buses for your stop
+     {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
+   </div>}
+   {motionWords&&!gone&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
+    <p><strong>{motionWords.label}</strong><span>{motionWords.detail}</span></p>
+    <button className="text-action" aria-pressed={!estimatedMovement}
+     onClick={()=>saveMotionPreference(!estimatedMovement)}>
+     {estimatedMovement?'Show reported positions only':'Show estimated movement'}</button>
+   </div>}
    {gone&&<p className="bus-card-gone">Not in the latest publication. Its last report was at
     {' '}{clock(gone.observedAtMs,true)}. It stays selected until you choose another bus.</p>}
-   {stop&&assoc&&prog
+   {stop&&walked&&<p className="bus-card-walk"><strong>You: {walked.time} walk</strong>
+    <span>{walked.distance} to {stopLabel}</span></p>}
+   {stop&&assoc
     ? <dl className="claims">
-       <div className="claim"><dt>Boarding point</dt><dd><strong>{stop.name}{stop.indicator?` (${stop.indicator})`:''}</strong>
+       <div className="claim"><dt>Boarding point</dt><dd><strong>{stopLabel}</strong>
         <span>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')}</span></dd></div>
        <div className={`claim tone-${assoc.tone}`}><dt>Calls at your stop?</dt><dd><strong>{assoc.text}</strong>
-        {assoc.detail&&<span>{assoc.detail}</span>}</dd></div>
-       <div className={`claim tone-${prog.tone}`}><dt>Progress</dt><dd><strong>{prog.text}</strong>
-        {prog.detail&&<span>{prog.detail}</span>}</dd></div>
+        {relevant&&assoc.detail&&<span>{assoc.detail}</span>}</dd></div>
        <div className="claim"><dt>Report age</dt><dd><strong>{ageText(cardBus)}</strong>
-        <span>{mode==='archive'?'from the recording, not live':FRESHNESS[cardBus.freshness??'']??'age unknown'}</span></dd></div>
+        {mode==='archive'?<span>from the recording, not live</span>
+         :FRESHNESS[cardBus.freshness??'']&&<span>{FRESHNESS[cardBus.freshness??'']}</span>}</dd></div>
       </dl>
-    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageText(cardBus).replace(/^reported /,'')}`}</strong>
+    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageChip(cardBus)}`}</strong>
       Choose your stop to see whether this bus calls there and how far it has got.</p>}
    <StopProgress items={items}/>
-   <ul className="distance-lines">{distanceLines({here,stop,bus:cardBus,relation:cardRelation}).map(line=>
+   <ul className="distance-lines">{distanceLines({here,stop,bus:cardBus,relation:cardRelation,
+     walk:walkRoute?{metres:walkRoute.metres,seconds:walkRoute.seconds,provider:walkRoute.provider}:null}).map(line=>
     <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>
    {!gone&&<div className="bus-card-actions">
-    {!mapFallback&&<button className="ride-button" onClick={()=>setView('ride')}
-     aria-label={`Ride along with route ${cardBus.route}`}>Ride along</button>}
-    <button className={`follow-toggle ${follow?'on':''}`} onClick={()=>setFollow(v=>!v)}
-     aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
-     <Crosshair size={16}/><span>{follow?'Following':'Follow'}</span></button>
+    {riding
+     ? <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
+        aria-pressed="true"><X size={16}/><span>Riding along · exit</span></button>
+     : <button className={`follow-toggle ${follow?'on':''}`} onClick={()=>setFollow(v=>!v)}
+        aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
+        <Crosshair size={16}/><span>{follow?'Following on the map':'Follow on the map'}</span></button>}
    </div>}
    <details className="bus-evidence-toggle">
     <summary>How we know this</summary>
@@ -267,6 +331,15 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      publishedAt={live?.publishedAt} liveFingerprint={liveFingerprint} ageBasis={ageBasis}
      expiryMinutes={expiryMinutes} name={name} onOpenEvidence={onOpenEvidence}/>
    </details>
+  </article>}
+  {stop&&board&&!cardBus&&buses.length>0&&<article className="bus-card empty" aria-label="Your bus">
+   <p className="bus-card-eyebrow">Your bus</p>
+   <div className="bus-card-answer tone-neutral"><strong>No bus is confirmed coming to your stop yet</strong>
+    <span>{board.maybe.length?`${board.maybe.length===1?'One bus':`${board.maybe.length} buses`} may call here; the branch is not settled.`
+     :board.old.some(row=>row.standing==='coming')?'The buses on services calling here have only old reports; they are listed below as old reports.'
+     :board.nearby.length?'The buses reported nearby are not coming to this stop.'
+     :services.length?'No bus on a service calling here has a current report.'
+     :'This stop has no timetable coverage, so no bus can be confirmed as coming here.'}</span></div>
   </article>}
 
   {/* Four situations, told apart in plain words rather than one vague message. */}
@@ -303,48 +376,32 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
        </button>)}</div>}
   </section>}
 
-  {stop&&atStop.length>0&&<section className="at-stop" aria-label="Buses at your stop now">
-   <h3 className="section-head">At your stop now<small>last report within 150 m</small></h3>
-   {atStop.map(({bus,metres,relation})=><button key={bus.key} onClick={()=>chooseBus(bus.key)}
-     className={`follow-row${bus.key===cardBus?.key?' on':''}`} aria-pressed={bus.key===cardBus?.key}>
-    <span className="route-pill">{bus.route}</span>
-    <span className="follow-row-copy"><strong>to {destinationLabel(bus.destination)}</strong>
-     <small>{Math.round(metres/10)*10} m away · {bringsItToYourStop(relation)?'timetabled to call here'
-      :relation.kind==='does_not_call'||relation.kind==='branch_none_call'?'does not call here':'not confirmed for this stop'}</small></span>
-    <span className={`fresh-chip ${mode==='archive'?'archive':bus.freshness??'unknown'}`}>
-     {mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','')}</span>
-   </button>)}
-  </section>}
-
-  {stop&&<section className="waiting" aria-label="Buses for your stop">
+  {/* Relevant buses first and alone; everything else is listed apart with what it is. */}
+  {stop&&board&&<section className="waiting" aria-label="Buses coming to your stop">
    <h3 className="section-head">{activeService?`${activeService.line} to ${activeService.destination}`:'Coming to your stop'}
     <small>by the timetable’s stop order</small></h3>
-   {waiting.length===0
+   {board.coming.length===0
     ? <p className="services-empty">{services.length
-       ?'No bus we can place on a service calling here has a current report. Nothing is guessed to fill the gap.'
+       ?'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.'
        :'Without timetable coverage for this stop, no bus can be confirmed as coming here.'}</p>
-    : waiting.map(bus=>{
-       const relation=relations.get(bus.key)!;
-       return <button key={bus.key} onClick={()=>chooseBus(bus.key)}
-        className={`follow-row${bus.key===cardBus?.key?' on':''}`} aria-pressed={bus.key===cardBus?.key}>
-        <span className="route-pill">{bus.route}</span>
-        <span className="follow-row-copy"><strong>to {destinationLabel(bus.destination)}</strong>
-         <small>{relationWords(relation)}</small></span>
-        <span className={`fresh-chip ${mode==='archive'?'archive':bus.freshness??'unknown'}`}>
-         {mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','')}</span>
-       </button>;
-      })}
+    : board.coming.map(item=>row(item,standingWords(item)))}
   </section>}
-
-  {stop&&nearbyOther.length>0&&<details className="exploring">
-   <summary>Other buses nearby, not confirmed for your stop ({nearbyOther.length})</summary>
-   <p>Real reported buses within 1.5 km. The timetable does not place them as calling at your
-   stop, so they are kept apart from the boarding options rather than guessed at.</p>
-   {nearbyOther.map(({bus,metres})=><button key={bus.key} className="exploring-row" onClick={()=>chooseBus(bus.key)}>
-    <span className="route-pill">{bus.route}</span>
-    <span><strong>to {destinationLabel(bus.destination)}</strong>
-     <small>{(metres/1000).toFixed(1)} km away · {relationWords(relations.get(bus.key)??{kind:'no_pattern_data'})}</small></span>
-   </button>)}
+  {stop&&board&&board.maybe.length>0&&<section className="maybe-coming" aria-label="Buses that may call at your stop">
+   <h3 className="section-head">May call at your stop<small>branch not settled</small></h3>
+   {board.maybe.map(item=>row(item,standingWords(item)))}
+  </section>}
+  {stop&&board&&board.nearby.length>0&&<section className="nearby-reports" aria-label="Last reported nearby">
+   <h3 className="section-head">Last reported nearby<small>within 150 m, not coming to your stop</small></h3>
+   {board.nearby.map(item=>row(item,`${Math.round(item.metres/10)*10} m away · ${standingWords(item)}`))}
+  </section>}
+  {stop&&board&&more>0&&<details className="exploring">
+   <summary>More buses near your stop ({more})</summary>
+   {board.passed.length>0&&<div className="board-group"><h4>Already past your stop</h4>
+    {board.passed.map(item=>row(item,standingWords(item)))}</div>}
+   {board.elsewhere.length>0&&<div className="board-group"><h4>Not for your stop</h4>
+    {board.elsewhere.map(item=>row(item,`${(item.metres/1000).toFixed(1)} km away · ${standingWords(item)}`))}</div>}
+   {board.old.length>0&&<div className="board-group"><h4>Old reports</h4>
+    {board.old.map(item=>row(item,`${standingWords(item)} · an old report`))}</div>}
   </details>}
 
   {!stop&&buses.length>0&&<section className="route-browse" aria-label="Follow a route">
@@ -380,8 +437,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      <span className="route-pill">{bus.route}</span>
      <span className="follow-row-copy"><strong>to {destinationLabel(bus.destination)}</strong>
       <small>{directionLabel(bus.direction)}</small></span>
-     <span className={`fresh-chip ${mode==='archive'?'archive':bus.freshness??'unknown'}`}>
-      {mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','')}</span>
+     <span className={`fresh-chip ${mode==='archive'?'archive':bus.freshness??'unknown'}`}>{ageChip(bus)}</span>
     </button>)}
    </div>}
   </section>}
@@ -389,8 +445,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   <p className="follow-notes">{mode==='archive'
    ?'A recording: times are when each bus reported on the day, not how long ago. '
    :`Positions older than ${expiryMinutes} minutes are withheld${live?` (${live.withheld.expiredPositions} now)`:''}. `}
-   Nearby-stop distances are straight-line distances. Bus progress is counted in stops where a
-   timetabled service pattern is matched; it is not an arrival-time or waiting-time prediction.
+   Progress is counted in timetabled stops from each bus’s last report; no arrival time is predicted.
    {' '}<button className="text-action" onClick={onOpenEvidence}>How this works</button></p>
  </section>;
 }

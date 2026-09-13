@@ -274,6 +274,10 @@ def connect(db_path=DEFAULT_DB):
         pass
     for column in ('bearing DOUBLE', 'bearing_status TEXT', 'bearing_raw TEXT'):
         con.execute(f'ALTER TABLE observation ADD COLUMN IF NOT EXISTS {column}')
+    # How a run ended, how long it meant to run, and what kind of collector it was: a bounded
+    # development run is not an always-on service, and must never be presented as one.
+    for column in ('exit_reason TEXT', 'planned_minutes DOUBLE', 'collector_kind TEXT'):
+        con.execute(f'ALTER TABLE pipeline_run ADD COLUMN IF NOT EXISTS {column}')
     con.execute(VIEWS)
     if con.execute('SELECT count(*) FROM schema_meta').fetchone()[0] == 0:
         con.execute('INSERT INTO schema_meta VALUES (?, now())', [SCHEMA_VERSION])
@@ -283,22 +287,26 @@ def connect(db_path=DEFAULT_DB):
 
 # --------------------------------------------------------------------------- runs
 
-def start_run(con, mode, is_historical=True, note=None, resumed_from=None):
+def start_run(con, mode, is_historical=True, note=None, resumed_from=None, planned_minutes=None,
+              collector_kind=None):
     run_id = new_run_id(mode)
     con.execute(
-        'INSERT INTO pipeline_run (run_id, mode, status, is_historical, started_at, note, resumed_from)'
-        " VALUES (?, ?, 'running', ?, now(), ?, ?)",
-        [run_id, mode, is_historical, note, resumed_from])
+        'INSERT INTO pipeline_run (run_id, mode, status, is_historical, started_at, note, resumed_from,'
+        ' planned_minutes, collector_kind)'
+        " VALUES (?, ?, 'running', ?, now(), ?, ?, ?, ?)",
+        [run_id, mode, is_historical, note, resumed_from, planned_minutes, collector_kind])
     return run_id
 
 
-def finish_run(con, run_id, status, error_class=None, error_detail=None):
+def finish_run(con, run_id, status, error_class=None, error_detail=None, exit_reason=None):
     con.execute(
         'UPDATE pipeline_run SET status = ?, finished_at = now(), error_class = ?, error_detail = ?,'
+        ' exit_reason = ?,'
         ' sources_processed = (SELECT count(*) FROM source_processing'
         "  WHERE run_id = ? AND outcome = 'succeeded')"
         ' WHERE run_id = ?',
-        [status, error_class, (error_detail or None) and redact_url(str(error_detail))[:500], run_id, run_id])
+        [status, error_class, (error_detail or None) and redact_url(str(error_detail))[:500],
+         exit_reason, run_id, run_id])
 
 
 def abandoned_runs(con):
@@ -309,6 +317,36 @@ def abandoned_runs(con):
 
 def mark_interrupted(con, run_id):
     con.execute("UPDATE pipeline_run SET status = 'interrupted', finished_at = now() WHERE run_id = ?", [run_id])
+
+
+def close_abandoned_live_runs(con):
+    """Live runs still marked running when a new collector has taken the exclusive lock.
+
+    Only one collector can hold the lock, so none of them is still running. Each is closed as
+    interrupted at its last recorded cycle. No cause is guessed: the process ended without
+    recording one, and a kill, a closed terminal and a crash all look the same from here.
+    """
+    closed = []
+    for run_id, started_at in con.execute(
+            "SELECT run_id, started_at FROM pipeline_run"
+            " WHERE status = 'running' AND mode = 'live_capture' ORDER BY started_at").fetchall():
+        last_cycle, cycles = con.execute(
+            'SELECT max(completed_at), count(*) FROM collection_cycle WHERE run_id = ?',
+            [run_id]).fetchone()
+        seen = last_cycle.isoformat() if last_cycle else None
+        con.execute(
+            "UPDATE pipeline_run SET status = 'interrupted', finished_at = ?,"
+            " error_class = 'AbandonedRun', exit_reason = 'abandoned', error_detail = ?,"
+            ' sources_processed = (SELECT count(*) FROM source_processing'
+            "  WHERE run_id = ? AND outcome = 'succeeded')"
+            ' WHERE run_id = ?',
+            [last_cycle or started_at,
+             f'Still marked running when a later collector took the exclusive lock. Its last of '
+             f'{cycles} recorded cycles completed at {seen or "no time: none was recorded"}; it '
+             'ended some time after that without recording why. No cause is inferred.',
+             run_id, run_id])
+        closed.append({'runId': run_id, 'lastCycleAt': seen, 'cycles': int(cycles)})
+    return closed
 
 
 def unfinished_sources(con, run_id):

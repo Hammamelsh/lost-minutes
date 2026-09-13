@@ -162,22 +162,102 @@ export type DistanceLine={label:string;value:string;basis:string};
 
 const metresWords=(m:number)=>m<1000?`${Math.round(m/10)*10} m`:`${(m/1000).toFixed(1)} km`;
 
-/** You to your stop, the bus to your stop, and arrival: three different things, labelled. */
-export function distanceLines({here,stop,bus,relation}:{here?:{lat:number;lon:number}|null;
- stop?:Stop|null;bus?:FollowBus|null;relation?:StopRelation|null}):DistanceLine[]{
+/**
+ * You to your stop and the bus to your stop, each with the basis it actually has. Your
+ * distance is a walking route only when a pedestrian router supplied one; otherwise it is
+ * labelled as a straight line. No arrival time is listed: nothing here predicts one.
+ */
+export function distanceLines({here,stop,bus,relation,walk}:{here?:{lat:number;lon:number}|null;
+ stop?:Stop|null;bus?:FollowBus|null;relation?:StopRelation|null;
+ walk?:{metres:number;seconds:number;provider:string}|null}):DistanceLine[]{
  const lines:DistanceLine[]=[];
- if(here&&stop)lines.push({label:'You to your stop',value:metresWords(straightLineMetres(here,stop)),
+ if(walk&&stop)lines.push({label:'You to your stop',
+  value:`${Math.max(1,Math.round(walk.seconds/60))} min walk · ${metresWords(walk.metres)}`,
+  basis:`walking route from ${walk.provider}, at its walking pace`});
+ else if(here&&stop)lines.push({label:'You to your stop',value:metresWords(straightLineMetres(here,stop)),
   basis:'straight line, not a walking route'});
  if(bus&&stop){
-  lines.push({label:'Bus to your stop',value:metresWords(straightLineMetres(bus,stop)),basis:'straight line'});
+  lines.push({label:'Bus to your stop',value:metresWords(straightLineMetres(bus,stop)),
+   basis:'straight line from its last report'});
   if(relation?.kind==='approaching')lines.push({label:'Along the stop sequence',
    value:relation.alongMetres===null?'not declared':alongRouteWords(relation.alongMetres).replace(' along the stop sequence',''),
    basis:relation.alongMetres===null?'the timetable omits a link distance'
     :'the timetable’s declared link distances, stop to stop, not the road'});
  }
- if(bus)lines.push({label:'Arrival time',value:'not predicted',
-  basis:'Lost Minutes shows reports and stop order, not forecasts'});
  return lines;
+}
+
+// --------------------------------------------------------------------- the stop board
+
+/** Where a bus stands relative to your stop, as far as its last report and the timetable go. */
+export type Standing='coming'|'maybe'|'passed'|'not_for_stop'|'unknown';
+
+export function standing(relation:StopRelation):Standing{
+ switch(relation.kind){
+  case 'approaching': case 'near_your_stop': case 'branch_all_call': return 'coming';
+  case 'branch_some_call': return 'maybe';
+  case 'beyond': return 'passed';
+  case 'does_not_call': case 'branch_none_call': return 'not_for_stop';
+  default: return 'unknown';
+ }
+}
+
+/** A report old enough to be listed apart: it may no longer describe where the bus is. */
+export const isOldReport=(bus:FollowBus)=>bus.freshness==='stale';
+
+export type BoardRow={bus:FollowBus;relation:StopRelation;standing:Standing;metres:number};
+export type StopBoard={coming:BoardRow[];maybe:BoardRow[];nearby:BoardRow[];passed:BoardRow[];
+ old:BoardRow[];elsewhere:BoardRow[]};
+
+// Nearest first for someone waiting: at or near the stop, then fewest stops away.
+function waitRank(relation:StopRelation):[number,number]{
+ if(relation.kind==='near_your_stop')return [0,0];
+ if(relation.kind==='approaching')return [1,relation.stopsAway];
+ if(relation.kind==='branch_all_call')return [2,relation.stopsAway??relation.range?.[0]??99];
+ return [9,0];
+}
+
+/**
+ * The buses around a stop, ranked for someone waiting there. Buses timetabled to call and not
+ * yet past come first and alone. A bus whose branch may not call, one reported near the stop
+ * that is not coming here, one already past it, one with an old report and one merely nearby
+ * are each listed apart, so nothing is promoted into the boarding options by proximity alone.
+ */
+export function stopBoard(buses:FollowBus[],stop:Stop,relations:Map<string,StopRelation>,
+                          onService?:(bus:FollowBus,relation:StopRelation)=>boolean):StopBoard{
+ const board:StopBoard={coming:[],maybe:[],nearby:[],passed:[],old:[],elsewhere:[]};
+ for(const bus of buses){
+  const relation=relations.get(bus.key);
+  if(!relation)continue;
+  const row:BoardRow={bus,relation,standing:standing(relation),metres:straightLineMetres(stop,bus)};
+  if(isOldReport(bus)){if(row.metres<=3000)board.old.push(row);continue}
+  if(row.standing==='coming'||row.standing==='maybe'){
+   // A chosen service narrows the boarding options; it never reclassifies a bus.
+   if(!onService||onService(bus,relation))board[row.standing].push(row);
+   continue;
+  }
+  if(row.metres<=AT_STOP_METRES)board.nearby.push(row);
+  else if(row.standing==='passed'&&row.metres<=3000)board.passed.push(row);
+  else if(row.metres<=1500)board.elsewhere.push(row);
+ }
+ const byMetres=(a:BoardRow,b:BoardRow)=>a.metres-b.metres;
+ board.coming.sort((a,b)=>{const x=waitRank(a.relation),y=waitRank(b.relation);
+  return x[0]-y[0]||x[1]-y[1]||(a.bus.ageSeconds??0)-(b.bus.ageSeconds??0)});
+ board.maybe.sort(byMetres);board.nearby.sort(byMetres);board.elsewhere.sort(byMetres);
+ board.passed.sort((a,b)=>('stopsPast' in a.relation?a.relation.stopsPast:0)-('stopsPast' in b.relation?b.relation.stopsPast:0));
+ board.old.sort((a,b)=>(a.bus.ageSeconds??0)-(b.bus.ageSeconds??0));
+ board.elsewhere=board.elsewhere.slice(0,12);
+ return board;
+}
+
+/** One short phrase for a bus's standing, for a list row. */
+export function standingWords(row:BoardRow):string{
+ switch(row.standing){
+  case 'coming': case 'maybe': return relationWords(row.relation);
+  case 'passed': return 'already past your stop';
+  case 'not_for_stop': return 'does not call at your stop';
+  default: return 'not confirmed for your stop';
+ }
 }
 
 // --------------------------------------------------------------------- the schematic

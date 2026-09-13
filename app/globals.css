@@ -502,7 +502,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(min-width:1024px){.follow>.follow-bar{justify-self:start}}
 
 /* ---- Your stop. */
-.follow .your-stop{padding:11px 12px;gap:10px;flex-wrap:nowrap;align-items:center}
+.follow .your-stop{padding:11px 12px;display:block}
+.your-stop-row{display:flex;align-items:center;gap:10px}
 .follow .your-stop.unset{padding:12px}
 .your-stop-eyebrow{display:block;font-size:10.5px!important;font-weight:800;letter-spacing:1.2px;
  text-transform:uppercase;color:#ffb459!important;margin:0 0 2px!important}
@@ -532,13 +533,16 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .vector-map .map-tools button{height:44px;width:44px}
 .vector-map .map-tools button:hover{background:#243845;color:#c6f36a}
 .vector-map .map-tools button:disabled{opacity:.55}
-.ride-launch{position:absolute;left:50%;bottom:42px;transform:translateX(-50%);z-index:3;min-height:46px;
+/* The map's foot: the legend on the left and the ride button on the right, stacking (legend
+   below) instead of overlapping when the legend is long or the screen narrow. */
+.vector-map-foot{position:absolute;left:11px;right:11px;bottom:34px;z-index:3;display:flex;flex-wrap:wrap-reverse;
+ align-items:center;justify-content:space-between;gap:8px;pointer-events:none}
+.ride-launch{position:relative;margin-left:auto;pointer-events:auto;min-height:46px;
  display:inline-flex;align-items:center;gap:10px;padding:0 16px 0 6px;border-radius:999px;border:1px solid #1b2b12;
  background:#c6f36a;color:#16240c;font-size:14.5px;font-weight:800;box-shadow:0 8px 22px #0007}
 .ride-launch-route{min-width:34px;height:34px;border-radius:999px;display:grid;place-items:center;
  background:#16240c;color:#c6f36a;font-size:13px;padding:0 8px}
-.map-legend-chips{position:absolute;left:11px;bottom:34px;z-index:3;display:flex;gap:6px;flex-wrap:wrap;
- pointer-events:none;max-width:calc(100% - 22px)}
+.map-legend-chips{display:flex;gap:6px;flex-wrap:wrap;pointer-events:none;min-width:0;max-width:100%}
 .map-legend-chips span{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:750;
  padding:4px 9px 4px 7px;border-radius:999px;background:#0f1b24e0;color:#e4eef2;border:1px solid #3f5462}
 .map-legend-chips span::before{content:'';width:10px;height:10px;border-radius:50%;flex-shrink:0}
@@ -574,9 +578,11 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
    button and the credit stack instead of overlapping, and the ride-along notes and progress
    card stay compact. */
 @media(max-width:640px){
- .map-legend-chips{bottom:28px}
+ .vector-map-foot{bottom:28px}
  .map-legend-chips span{font-size:11px;padding:3px 8px 3px 6px}
- .ride-launch{bottom:62px}
+ /* Riding along on a phone: more map, and a card that gives the answer without the strip. */
+ .vector-map.view-ride{height:clamp(420px,74vh,720px)}
+ .ride-card .stop-progress{display:none}
  .ride-disclaimer,.ride-note{font-size:11px;padding:5px 9px}
  .ride-card{bottom:26px;padding:9px 10px}
  .ride-card-head strong{font-size:14px}
@@ -667,7 +673,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .section-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:2px 4px 8px;
  font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#9fb3bf}
 .section-head small{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:#7f97a4}
-.follow .services,.at-stop,.waiting,.route-browse{background:#132330;border:1px solid #2d4250;border-radius:14px;padding:10px}
+.follow .services,.at-stop,.waiting,.maybe-coming,.nearby-reports,.route-browse{background:#132330;border:1px solid #2d4250;border-radius:14px;padding:10px}
 .service-chips{display:grid;grid-template-columns:1fr;gap:6px}
 .service-chip{display:flex;align-items:center;gap:9px;min-height:54px;padding:7px 9px;border-radius:11px;
  border:1px solid #33495a;background:#172935;color:#e0e9ee;text-align:left}
@@ -677,7 +683,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .service-chip-copy strong{display:block;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .service-chip-copy small{display:block;font-size:11.5px;color:#9fb3bf}
 .services-empty{margin:2px 4px 4px;font-size:13px;line-height:1.55;color:#a9bcc7}
-.at-stop .follow-row,.waiting .follow-row{min-height:54px}
+.at-stop .follow-row,.waiting .follow-row,.maybe-coming .follow-row,.nearby-reports .follow-row{min-height:54px}
 .follow-notes{margin:0;font-size:12px;line-height:1.7;color:#8ca1ae;list-style:none;padding:0}
 .follow-notes .text-action{font-size:12px}
 .exploring-row{width:100%;border:0;background:none;color:inherit;text-align:left;border-radius:9px}
@@ -701,3 +707,95 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .theme-day .map-loading{background:#fbf6eadd;color:#5a4a35;border:1px solid #c9b48f}
 .theme-night .map-loading{background:#0f1b24dd;color:#c9d7de;border:1px solid #3f5462}
 .bus-card-hint strong{display:block;font-size:13.5px;color:#e8f1f5;margin-bottom:2px}
+
+/* ---- Walking to your stop: asked for, not assumed; its basis and its limits said plainly. */
+.walk-guide{margin-top:10px;padding-top:10px;border-top:1px solid #2f4a36}
+.walk-head{display:flex;align-items:flex-start;gap:9px;color:#9fd0f5}
+.walk-head svg{flex-shrink:0;margin-top:2px}
+.walk-answer{margin:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.walk-answer strong{font-size:15px;font-weight:750;color:#e8f4fb}
+.walk-answer span{font-size:12.5px;color:#a9c2d2}
+.walk-route .walk-answer strong,.walk-loading .walk-answer strong{font-size:18px;color:#bfe3ff}
+.walk-consent p,.walk-status,.walk-basis,.walk-problem p,.walk-note{margin:7px 0 0 25px;font-size:12px;
+ line-height:1.55;color:#a7bcc8}
+.walk-consent a,.walk-basis a{color:#9fd0f5}
+.walk-problem p{color:#f1c68a}
+.walk-problem-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0 25px}
+.walk-action{min-height:40px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:10px;
+ border:1px solid #3d6f96;background:#16324a;color:#dff0fc;font-size:13px;font-weight:700;margin:8px 0 0 25px}
+.walk-problem-actions .walk-action{margin:0}
+.walk-action:disabled{opacity:.55}
+.walk-basis .text-action{font-size:12px}
+
+/* ---- The answer first: which bus, whether it is yours, and how far its last report puts it. */
+.bus-card-eyebrow{margin:0 0 7px;font-size:10.5px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#c6f36a}
+.bus-card.explored{border-color:#7e6541}
+.bus-card.explored .bus-card-eyebrow{color:#f1c68a}
+.bus-card-answer{margin:11px 0 0;padding:10px 12px;border-radius:11px;background:#18303d;border:1px solid #2f4a5a}
+.bus-card-answer strong{display:block;font-size:17px;font-weight:750;line-height:1.35;letter-spacing:-.2px;color:#eef6f9}
+.bus-card-answer span{display:block;margin-top:3px;font-size:12px;line-height:1.5;color:#a3b8c4}
+.bus-card-answer.tone-good{background:#1b3222;border-color:#4c6b39}
+.bus-card-answer.tone-good strong{color:#d6f5a8}
+.bus-card-answer.tone-bad{background:#33241c;border-color:#7d5a43}
+.bus-card-answer.tone-bad strong{color:#f5c9a9}
+.bus-card-answer.tone-caution{background:#2e2719;border-color:#7e6541}
+.bus-card-answer.tone-caution strong{color:#f5d69c}
+.bus-card-explored{margin:9px 0 0;padding:9px 11px;border-radius:10px;border:1px dashed #7e6541;background:#221d15}
+.bus-card-explored p{margin:0;font-size:12.5px;line-height:1.55;color:#e9d4b2}
+.back-to-stop{margin-top:9px;min-height:40px;display:inline-flex;align-items:center;gap:7px;padding:0 12px;
+ border-radius:10px;border:1px solid #8fbf4f;background:#253524;color:#dff5bd;font-size:13px;font-weight:700}
+.bus-card-walk{margin:9px 0 0;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:8px 11px;
+ border-radius:10px;background:#15283a;border:1px solid #2c4f6b}
+.bus-card-walk strong{font-size:14px;color:#bfe3ff}
+.bus-card-walk span{font-size:12px;color:#a9c2d2}
+.bus-card.empty .bus-card-answer{margin-top:0}
+.ride-state{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:11px;
+ border:1px solid #c6f36a;background:#c6f36a;color:#16240c;font-size:14px;font-weight:800}
+/* On a wide screen the map's own exit is beside the card; on a phone the card's is closer. */
+@media(min-width:1024px){.bus-card-actions .ride-state{background:#16240c;color:#e8ffc8}}
+.board-group h4{margin:10px 0 4px;font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#8ea4b1}
+.board-group .follow-row{min-height:50px}
+.follow-bar-run{flex-shrink:0;font-size:11px;font-weight:700;letter-spacing:.3px;padding:4px 8px;border-radius:999px;
+ border:1px solid #3d5260;color:#a9bcc7;white-space:nowrap}
+.legend-walk::before{background:transparent;border:2px dotted #2f86d6;box-sizing:border-box}
+.ride-card-eyebrow{display:block;font-size:10px!important;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+ color:#c6f36a!important}
+/* ---- Evidence: estimated movement against the reports that followed. */
+.motion-evidence{background:#132330;border:1px solid #2d4250;border-radius:14px;padding:16px 18px;margin-top:16px}
+.motion-evidence h3{margin:0 0 6px;font-size:18px}
+.motion-evidence h4{margin:16px 0 6px;font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:#8ea4b1}
+.motion-evidence p{font-size:13.5px;line-height:1.6;color:#c9d7de;margin:0}
+.motion-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 16px;margin:12px 0 0}
+.motion-facts dt{font-size:11px;font-weight:750;letter-spacing:.5px;text-transform:uppercase;color:#8ea4b1}
+.motion-facts dd{margin:2px 0 0;font-size:13px;color:#e4eef2}
+.motion-table-wrap{overflow-x:auto;margin-top:12px}
+.motion-table{border-collapse:collapse;width:100%;min-width:560px;font-size:12.5px;font-variant-numeric:tabular-nums}
+.motion-table th,.motion-table td{text-align:right;padding:6px 8px;border-bottom:1px solid #24394699}
+.motion-table th:first-child,.motion-table td:first-child{text-align:left}
+.motion-table th{font-size:11px;font-weight:750;color:#8ea4b1}
+.motion-abstained,.motion-notes{margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#a9bcc7}
+.motion-picks{display:flex;flex-wrap:wrap;gap:6px}
+.motion-picks button{min-height:36px;padding:0 10px;border-radius:9px;border:1px solid #3d5260;background:#15222b;color:#cfe0ea;font-size:12.5px}
+.motion-picks button[aria-pressed=true]{border-color:#c6f36a;color:#e8ffc8}
+.motion-scrub{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:12.5px;color:#a9bcc7}
+.motion-scrub input{flex:1;min-width:0}
+.motion-replay{display:block;width:100%;max-width:520px;height:auto;background:#0d1820;border:1px solid #2d4250;border-radius:12px}
+.motion-replay-caption{margin-top:8px!important;font-size:12.5px!important}
+
+/* ---- Estimated movement, said as such, with the way back to reported positions. */
+.bus-card-motion{margin:9px 0 0;padding:8px 11px;border-radius:10px;border:1px dashed #5d7a3a;background:#18261a}
+.bus-card-motion.observed{border-color:#3d5260;background:#15222b}
+.bus-card-motion p{margin:0}
+.bus-card-motion strong{display:block;font-size:13px;color:#dff5bd}
+.bus-card-motion.observed strong{color:#cfe0ea}
+.bus-card-motion span{display:block;margin-top:2px;font-size:12px;line-height:1.5;color:#a9bcc7}
+.bus-card-motion .text-action{margin-top:4px;font-size:12px}
+.ride-motion{margin:6px 0 0;font-size:12px;font-weight:750;color:#dff5bd}
+.ride-motion.observed{color:#cfe0ea}
+.ride-skip{align-self:flex-start;min-height:40px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
+ border-radius:10px;border:1px solid #c6f36a;background:#0f1b24ee;color:#e8ffc8;font-size:13px;font-weight:750}
+@media(max-width:640px){
+ .follow-bar-run{display:none}
+ .walk-consent p,.walk-status,.walk-basis,.walk-problem p,.walk-note,.walk-problem-actions{margin-left:0}
+ .walk-action{margin-left:0}
+}

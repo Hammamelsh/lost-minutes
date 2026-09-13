@@ -4,8 +4,10 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 13 September 2026 (stop-first passenger view, original cartography, 3D
-ride-along, Bearing, and identity-first timetable matching).
+Last updated: 13 September 2026 (walking guidance, estimated movement on evaluated routes,
+collector run records; earlier the same day: stop-first passenger view, original cartography,
+3D ride-along, Bearing, and identity-first timetable matching). The requirement-by-requirement
+evidence for the latest milestone is in `docs/MILESTONE_CHECKLIST.md`.
 
 ## Product goal
 
@@ -38,17 +40,24 @@ TfGM TransXChange ─┴─> data/raw, data/live-capture   raw bytes, content-ad
                        ├─> public/data/stops.json       3,498 boarding points
                        ├─> public/data/patterns.json    service patterns: operator, version,
                        │                                operating days, stops, declared distances
+                       ├─> public/data/shapes/          road shapes for evaluated patterns
+                       │                                (Valhalla, accepted against reports)
+                       ├─> public/data/motion-evaluation.json  estimator settings, held-out errors
                        ├─> public/data/operations.json  pipeline truth
-                       └─> public/data/config.json      runtime pointers
+                       └─> public/data/config.json      runtime pointers, walking router
                                      │
                     Next.js static export ──> phones poll the published objects only
 ```
 
-Phones never contact BODS. One collector reads the feed for everyone.
+Phones never contact BODS. One collector reads the feed for everyone. A phone contacts one
+other service, and only when the passenger asks for walking directions: the pedestrian router
+at routing.openstreetmap.de, sent the passenger's location rounded to about 10 m.
 
 **Implemented and verified.** Archive import, live collector, DuckDB history, validate-then-
 swap publication for both snapshot kinds, Operations view, Evidence view, the stop-first
-Follow view, PWA shell, service-pattern matching with identity checks, Bearing capture.
+Follow view, PWA shell, service-pattern matching with identity checks, Bearing capture,
+walking guidance to the boarding point, estimated movement between reports on evaluated
+routes (15, 250 and 256), and run records that say how each collection ended.
 
 **Planned.** Hosting the published objects somewhere that keeps running; a scheduler;
 identifying a bus's timetabled journey (not just its pattern); stop passage inference;
@@ -69,6 +78,8 @@ scripts/setup-browser.sh    # once: the browser's missing libraries, without roo
 pnpm test:browser           # the built out/ in a real Chromium with WebGL, desktop and phone
 LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs
                             # the same suite against a running pnpm dev:live, no fixtures
+LM_REAL_ROUTING=1 pnpm test:browser tests/browser/walking-real.spec.mjs
+                            # one request to the real walking router
 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.run import        # archive: fetch, load, publish
@@ -83,6 +94,10 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.patterns build --max-lines 10      # quick development build
 .venv/bin/python -m unittest discover -s tests      # full Python suite
 python3 -m unittest discover -s tests               # parser and matching tests, skips DuckDB
+.venv/bin/python -m pipeline.shapes build --lines 15,250,256        # road shapes, then `publish`
+.venv/bin/python -m pipeline.motion_data export --lines 15,250,256  # reports for the evaluation
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-motion.mjs
+.venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching on a frozen moment
 ```
 
 The warehouse is single-writer: a pattern build waits for a running collector to finish.
@@ -127,6 +142,25 @@ nearest Sevenways, 3 stops before yours". That stop may or may not have been cal
 so nearest-your-stop is never "at your stop" and a nearest stop after yours is "past your
 stop in the stop order", not a measured departure. No error bound is claimed.
 
+**Estimated position** — where a selected bus has probably got to since its last report,
+computed on the device (`lib/motion.ts`) and never stored, published or treated as a report.
+Three things are kept apart: the reports (immutable, each with its own time), the estimate (the
+bus's state at the presentation time, re-derived from the reports available by then) and the
+drawn position (which follows the estimate smoothly). An estimate moves only along an accepted
+road shape, at the speed of the bus's own recent reports eased off as the report ages, for at
+most the measured horizon. Anything else falls back to the last reported position, with the
+reason. It is labelled "Estimated position" with the real report age, and the passenger can
+choose reported positions only.
+
+**Road shape** — the road a service pattern follows, built by routing a bus through its stops
+(FOSSGIS Valhalla, NaPTAN bearings as headings) and **accepted only when at least 30 matched
+reports lie within 35 m of it at the 95th percentile**. Stop coordinates alone never stand in
+for the road.
+
+**Walking route** — a pedestrian route from the passenger to the chosen boarding point, from an
+OSRM foot profile, asked for only when the passenger chooses to. With no route the page says
+why; a straight-line distance is always labelled as one.
+
 **Freshness policy** (`pipeline/freshness.py`), derived from measurement, not taste:
 fresh ≤ 60s, ageing ≤ 150s, stale ≤ 900s, expired > 900s. The last shown band ends exactly
 where the withheld band begins, so a position is either drawn with an honest age or not drawn
@@ -150,14 +184,24 @@ servedFileSha256 = recordedPublicationSha256
 - **A repeated payload is not new information.** Identical bytes are recorded as
   `repeat_payload` and do not advance the payload-change time.
 - **Conflicts are withheld, not resolved.** We do not pick a winner.
-- **Nothing is interpolated.** Every published position carries `positionKind: "observed"`.
-  The camera may glide between reports (City view, ride-along); a bus marker or model never
-  moves except to a new reported fix.
+- **Observed and estimated positions are kept apart.** Every published report is an
+  observation (`positionKind: "observed"`) with its own timestamp, kept exactly as received.
+  Since 13 September 2026 the owner has approved clearly labelled estimated movement: bounded
+  prediction from a bus's recent reports, reconciled as each new report arrives, drawn and
+  worded as an estimate with the actual report age beside it, and limited by measured
+  behaviour. An estimate is never stored, published or counted as an observation, never
+  proves that a bus reached, left or served a stop, and an observed-position mode remains.
 - **A route number is not a service.** Operator, timetable version, operating day and
   direction are checked before position; a shared current stop is not a shared route.
-- **Three distances, three labels.** You to your stop (straight line), the bus to your stop
-  (straight line, plus the declared stop-sequence distance where it exists), and arrival,
-  which is not predicted.
+- **Three distances, three labels.** You to your stop (a walking route with its source when
+  asked for, otherwise a straight line labelled as one), the bus to your stop (straight line,
+  plus the declared stop-sequence distance where it exists), and arrival, which is not
+  predicted.
+- **An estimate is judged by what a passenger sees.** Its settings are fitted on earlier
+  captures and scored on later ones against the last report itself, and the evaluation also
+  measures how far the drawn bus would move when each report arrives. The speed's easing with
+  report age was chosen to cut how often a new report pulls the bus backwards, without losing
+  accuracy.
 - **Five feed states** — live, not updating, offline, not collecting, archive replay — never
   collapsed into one "last updated".
 - **Colours carry meaning.** Blue is You, orange is your stop, lime is your chosen bus; none
@@ -173,7 +217,20 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **This milestone (13 September 2026):** 73 Python tests (identity-first matching, the
+- **Walking guidance and estimated movement (13 September 2026, latest):** 87 Python tests, 95
+  Node tests (the motion model's rules, the presentation clock, walking requests, failures and
+  jitter), typecheck, lint, the static build, and 77 browser checks on the final build at
+  desktop and phone size, none failing. Thirteen are skipped by design: the real-feed and
+  real-walking checks, which need a live run or a real request and passed separately, and
+  nine map checks that run on desktop only. Real captures: 109 journeys on
+  routes 15, 250 and 256 (11,367 reports), split in time. On the 38 held-out journeys, within
+  30 s of a report the estimate's median distance from the next report was **45.7 m against
+  61.1 m** for the last report itself (3,907 cases). When a new report arrived, the drawn
+  estimate moved a median of 51 m; 21% of those moves went backwards by more than 35 m (33% at
+  constant speed) and 10% were over 150 m and snap. Real walking routes from
+  routing.openstreetmap.de, for example 220 m and 3 minutes to St Modwen Road (nr). Details are
+  in `docs/LOCAL_VERIFICATION.md` and `docs/MILESTONE_CHECKLIST.md`.
+- **Earlier the same day:** 73 Python tests (identity-first matching, the
   shared-stop branch regression, operating days and school calendars, unknown link distances,
   coverage selection without a cap, publication by any stop inside the area, and matching
   against every held pattern, Bearing from 0 to 360 through storage, migration and
@@ -215,8 +272,18 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   and 8, and their buses are refused with that reason. Ambiguity grew with coverage: more
   patterns mean more paths that fit a position equally well, and those stay unresolved.
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
-  nothing about the real vehicle. The camera frames the reported bearing; a bus without one
-  is shown from above as a round token.
+  nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
+  shown from above as a round token.
+- **Estimated movement covers 6 patterns on 3 routes** (15, 250 and 256), and was fitted and
+  scored on one Sunday's captures, held out by later journeys rather than later days. Weekday
+  traffic is untested. Real corrections remain visible: about 1 report in 5 pulls the drawn
+  bus back by more than 35 m, and 1 in 10 moves it over 150 m and snaps, with the card saying
+  so. Past 90 s the eased estimate under-runs constant speed, though it still beats the last
+  report.
+- **Walking routes depend on a free community service** (FOSSGIS e.V.) with no service
+  guarantee. Its usage-policy page, in German, was behind a bot check and could not be read in
+  full here; the limits followed are the ones its own pages state (attribution, a "fix the map"
+  link, at most one request a second, no heavy use, requests logged).
 - **The browser checks render with SwiftShader**, a software WebGL. They prove the map paints,
   survives updates, switches views and falls back correctly; they say nothing about real-GPU
   performance or battery. A check on a real phone is still outstanding.
@@ -231,14 +298,18 @@ Longford Park and Stretford are inside it.
 
 Stop-first. **Buses near me** and **search** find a boarding point; each nearby stop shows
 its side of the road (NaPTAN bearing), its street, and the timetabled services leaving it
-today. Choosing a stop shows the services from it as destination-labelled choices, the buses
-**at the stop now** (last report within 150 m, whatever their service), the buses **coming to
-your stop** by the timetable's stop order, and, kept apart, other buses nearby that are not
-confirmed for it. An explicitly chosen bus stays chosen if it leaves the feed, and says so.
+today. Choosing a stop shows the walk there (on request), the buses **coming to your stop** by
+the timetable's stop order, those that **may be coming** (a branch not yet settled), buses
+**last reported nearby** (within 150 m, not coming to your stop), and, folded away, **more
+buses near your stop**: already past it, not for it, and old reports. Only a bus coming to
+the stop is chosen automatically. A bus explored from the other groups is labelled
+**Selected bus**, says it does not serve the stop, and offers the way back. An explicitly
+chosen bus stays chosen if it leaves the feed, and says so.
 
-The answer card: which bus and destination; which boarding point; whether it is timetabled
-to call there (or on how many of its possible branches); its progress in stops from its last
-report; how old that report is; the three distances; and "How we know this", the source
+The answer card: which bus and destination; the answer first (its progress in stops from its
+last report); whether it is drawn at an estimate or at its last report, with the report's
+age and the reason; your walk; which boarding point; whether it is timetabled to call there
+(or on how many of its possible branches); the three distances; and "How we know this", the source
 report, bearing, match inputs, timetable version, verdict and the SHA-256 of the file the
 page received. A schematic of named stops shows the order, labelled as not the road.
 
@@ -248,10 +319,15 @@ day theme and an ink night theme, cased roads, district names in spaced capitals
 detail admitted by zoom. **2D** is north up and flat; **City** tilts it and raises the
 buildings; **Fit journey** frames you, your stop and your bus without letting distant buses
 widen it. Buses with a reported bearing carry a nose pointing where they are heading.
-**Ride along** follows the chosen bus from above and behind its reported bearing with a
-stylised 3D bus (`public/models/lm-bus.json`, loaded only when needed), labelled as a map
-visualisation, with the route, report age, stop progress and an Exit. If the model cannot
-load the flat symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over.
+**Ride along** first tours you, your stop and the bus (skippable, and skipped under reduced
+motion), then follows the drawn bus from above and behind at a framing set once, turning the
+short way, with a stylised 3D bus (`public/models/lm-bus.json`, loaded only when needed). It is
+labelled as a map visualisation, with the route, one status line carrying the report age,
+stop progress and an Exit. A drag pauses following until Recentre; the passenger's zoom is
+kept. The chosen bus's recent reports are drawn as small dots, and an estimate as a dashed
+line from its report to the drawn bus, captioned ESTIMATE. The walking route is dotted blue. If
+the model cannot load the flat symbol stays; if WebGL or the basemap fails, the drawn SVG map
+takes over.
 
 MapLibre's own modules are served unbundled from `public/vendor/maplibre-gl/<version>/`
 (`scripts/vendor-maplibre.mjs`), because bundling them rewrote the worker URL to a
@@ -282,8 +358,11 @@ build-machine path and no tile ever loaded.
 3. **Show the coverage ledger** in Operations: every observed service and why it is or is not
    covered (opportunity log, entry 6).
 4. Run collection for a sustained period and measure overnight reliability, recovery from a
-   real outage, and storage growth.
-5. One look on a real phone, in sunshine and at night.
+   real outage, and storage growth. Weekday captures would also let the motion evaluation be
+   held out by day rather than by later journeys, before estimates extend beyond three routes.
+5. One look on a real phone, in sunshine and at night: legibility, the ride-along's frame
+   rate and battery, and walking directions with a real GPS.
+6. Road shapes for more routes (opportunity log, entry 10).
 
 See also: `docs/HOSTING.md`, `docs/PIPELINE.md`, `docs/BACKLOG.md`,
 `docs/LOCAL_VERIFICATION.md` (measured results), `docs/REVIEW.md`,

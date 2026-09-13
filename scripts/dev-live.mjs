@@ -49,9 +49,11 @@ function start(name, command, commandArgs, onLine) {
       console.log(`  [${name}] ${line}`);
     });
   }
-  child.on('exit', code => {
+  child.on('exit', (code, signal) => {
     if (shuttingDown) return;
-    console.log(`\n  ${name} exited (${code}). Shutting the other side down too.`);
+    // Say which side ended and how, so a stopped collection has a recorded reason.
+    console.log(`\n  ${name} exited (${signal ? `signal ${signal}` : `code ${code}`}). `
+                + 'Shutting the other side down too.');
     shutdown(code ?? 0);
   });
   return child;
@@ -63,8 +65,11 @@ function shutdown(code = 0) {
   console.log('\n  Stopping the collector and the frontend…');
   for (const {name, child} of children) {
     if (child.exitCode === null) {
-      child.kill('SIGINT');               // lets the collector release its lock and close the warehouse
-      setTimeout(() => child.killed || child.kill('SIGKILL'), 4000).unref();
+      child.kill('SIGINT');               // lets the collector record the stop and release its lock
+      // `child.killed` only says a signal was sent; escalate if the process is still there.
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }, 4000).unref();
       console.log(`  stopped ${name}`);
     }
   }
@@ -73,6 +78,8 @@ function shutdown(code = 0) {
 
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
+// A closed terminal sends SIGHUP; stop both sides politely rather than vanish mid-run.
+process.on('SIGHUP', () => shutdown(0));
 
 console.log(`\n  Lost Minutes — frontend and collector together`);
 console.log(`  key source: ${source} (never printed, never sent to the browser)`);

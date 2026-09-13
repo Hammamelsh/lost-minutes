@@ -226,3 +226,101 @@ export function journeyLive({nowMs = Date.now(), omit = [], publishedAgoSeconds 
 export async function servePatterns(page, catalogue = fixtureCatalogue()) {
   await page.route('**/data/patterns.json*', route => route.fulfill({json: catalogue}));
 }
+
+// ------------------------------------------------------------------ estimated movement
+// A FIXTURE bus moving along a real road: the path is Valhalla's bus route through the eleven
+// real NaPTAN stops of the fixture's route-256 pattern, recorded once (tests/browser/recorded).
+const SHAPE = JSON.parse(readFileSync(new URL('./recorded/shape-fixture-256-main.json', import.meta.url), 'utf8'));
+
+function decodePolyline6(text) {
+  const points = [];
+  let index = 0, lat = 0, lon = 0;
+  const next = () => {
+    let result = 0, shift = 0, byte;
+    do { byte = text.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+    return result & 1 ? ~(result >> 1) : result >> 1;
+  };
+  while (index < text.length) { lat += next(); lon += next(); points.push([lon / 1e6, lat / 1e6]); }
+  return points;
+}
+
+const TRACK = (() => {
+  const points = decodePolyline6(SHAPE.polyline6), cum = [0];
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1], [bx, by] = points[i];
+    cum.push(cum[i - 1] + Math.hypot((bx - ax) * Math.cos(ay * Math.PI / 180), by - ay) * 111195);
+  }
+  return {points, cum, length: cum.at(-1)};
+})();
+export const FIXTURE_TRACK_LENGTH = TRACK.length;
+
+/** A point, and the road's heading there, s metres along the fixture road. */
+export function alongFixture(s) {
+  const at = Math.max(0, Math.min(TRACK.length, s));
+  let i = TRACK.cum.findIndex((c, k) => k > 0 && c >= at);
+  if (i < 1) i = TRACK.points.length - 1;
+  const [ax, ay] = TRACK.points[i - 1], [bx, by] = TRACK.points[i];
+  const span = TRACK.cum[i] - TRACK.cum[i - 1], t = span > 0 ? (at - TRACK.cum[i - 1]) / span : 0;
+  const heading = (Math.atan2((bx - ax) * Math.cos(ay * Math.PI / 180), by - ay) * 180 / Math.PI + 360) % 360;
+  return {lon: ax + (bx - ax) * t, lat: ay + (by - ay) * t, bearing: Math.round(heading)};
+}
+
+export const FIXTURE_MOTION = {schemaVersion: 1, version: 'FIXTURE motion evaluation', method: 'FIXTURE',
+  supported: true, params: {horizon: 30, maxSpeed: 17, speedWindow: 45, stale: 150},
+  errorProfile: {version: 'FIXTURE', basis: 'FIXTURE numbers for browser tests only',
+    bins: [{upTo: 10, n: 100, p50: 9, p80: 18}, {upTo: 20, n: 100, p50: 15, p80: 30},
+           {upTo: 30, n: 100, p50: 22, p80: 44}, {upTo: 45, n: 100, p50: 34, p80: 66},
+           {upTo: 60, n: 60, p50: 45, p80: 90}]},
+  corridor: {lines: ['256'], patterns: ['FX:256:main']}};
+
+/** Serve the fixture road geometry and, unless given null, a FIXTURE motion evaluation. */
+export async function serveMotion(page, {evaluation = FIXTURE_MOTION} = {}) {
+  await page.route('**/data/shapes/index.json*', route => route.fulfill({json: {schemaVersion: 1,
+    patterns: {'FX:256:main': {status: 'accepted', reason: null, file: 'FX_256_main.json',
+      lengthMetres: Math.round(TRACK.length), validation: {reports: 120, offsetP50Metres: 6, offsetP95Metres: 18}},
+      'FX:256:branch': {status: 'rejected', reason: 'FIXTURE: no geometry built for the branch'}}}}));
+  await page.route('**/data/shapes/FX_256_main.json*', route => route.fulfill({json: {id: 'FX:256:main',
+    polyline6: SHAPE.polyline6, stopOffsets: SHAPE.stopOffsets}}));
+  await page.route('**/data/motion-evaluation.json*', route => evaluation
+    ? route.fulfill({json: evaluation}) : route.fulfill({status: 404, body: 'no evaluation'}));
+}
+
+const nearestFixtureStop = s => SHAPE.stopOffsets.reduce((best, offset, i) =>
+  Math.abs(offset - s) < Math.abs(SHAPE.stopOffsets[best] - s) ? i : best, 0);
+
+/**
+ * A FIXTURE publication in which bus FX-MOVING runs along the recorded road at `speed` m/s
+ * from `startS` metres at `startMs`. Reports come every `cadence` s and the newest is `delay` s
+ * old when published, as in the real feed. `wobble` adds a deterministic along-road error of up
+ * to that many metres, so corrections happen both ways; `jump` moves it suddenly; `standing`
+ * keeps it still; `extraAge` makes every report that much older.
+ */
+export function movingLive({nowMs = Date.now(), startMs = nowMs, startS = 300, speed = 8, cadence = 10,
+                            delay = 6, wobble = 0, jump = null, standing = false, extraAge = 0} = {}) {
+  const base = journeyLive({nowMs, omit: ['FX-COMING']});
+  const now = Math.floor(nowMs / 1000) * 1000;
+  const sAt = t => Math.min(TRACK.length - 30, startS
+    + (standing ? 0 : speed * Math.max(0, (t - startMs) / 1000))
+    + (wobble ? wobble * Math.sin(t / 6100) : 0)
+    + (jump && t >= jump.atMs ? jump.metres : 0));
+  const newest = now - (delay + extraAge) * 1000, times = [];
+  for (let t = newest; times.length < 7 && newest - t <= 240_000; t -= cadence * 1000) times.unshift(t);
+  const fixes = times.map(t => ({t, ...alongFixture(sAt(t))}));
+  const latest = fixes.at(-1), index = nearestFixtureStop(sAt(latest.t)), age = (now - latest.t) / 1000;
+  base.trailSources = ['f'.repeat(64)];
+  base.collection = {...base.collection, collector: {runId: 'FIXTURE', status: 'running', kind: 'bounded_development',
+    startedAt: new Date(now - 300_000).toISOString(), finishedAt: null, plannedMinutes: 15,
+    endsBy: new Date(now + 600_000).toISOString(), exitReason: null}};
+  base.vehicles.unshift({operator: 'BNML', vehicle: 'FX-MOVING', route: '256', direction: 'inbound',
+    journeyRef: 'FX-MOVING-J', destination: 'Piccadilly_Gardens', origin: 'Fixture',
+    observedAtMs: latest.t, recordedAt: new Date(latest.t).toISOString().replace('.000Z', '+00:00'),
+    lat: latest.lat, lon: latest.lon, ageSeconds: age,
+    freshness: age <= 60 ? 'fresh' : age <= 150 ? 'ageing' : 'stale',
+    positionKind: 'observed', sourceHash: 'f'.repeat(64), bearing: latest.bearing, bearingStatus: 'reported',
+    aimedDeparture: null, retrievedAtMs: latest.t + 3000,
+    trail: fixes.slice(0, -1).map(f => [latest.t - f.t, f.lat, f.lon, f.bearing, 0]),
+    match: {patternId: 'FX:256:main', patternIndex: index, nearestStop: FX.main[index][0],
+      metresAlongPattern: FX.metres[index], metresFromPatternStop: 12, patternDirection: 'inbound',
+      patternDestination: 'Piccadilly Gardens', evidence: EVIDENCE}});
+  return base;
+}

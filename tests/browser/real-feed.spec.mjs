@@ -47,3 +47,32 @@ test('real positions: live badge, painted basemap, buses drawn, and a genuine re
   expect(publications.at(-1).vehicles, 'the latest publication carried vehicles').toBeGreaterThan(0);
   expect(drawn.selectedBus, 'the selected bus is drawn').toBeGreaterThan(15);
 });
+
+test('real positions: the ride-along goes to the chosen bus, draws it and follows it', async ({page}) => {
+  await page.goto('/');
+  await expect(page.locator('.follow-badge')).toContainText('LIVE', {timeout: 30_000});
+  const map = page.locator('.vector-map');
+  await expect(map).toHaveAttribute('data-map-state', 'painted', {timeout: 45_000});
+  // The bus chosen for you must be drawn by the frame loop: under `next dev`, React's Strict Mode
+  // remount once left the loop stopped, and the ride-along glided to an empty map.
+  await expect(map).toHaveAttribute('data-motion', /estimated|observed/, {timeout: 20_000});
+  const launch = page.getByRole('button', {name: /^Ride along with route/});
+  await expect(launch).toBeVisible({timeout: 20_000});
+  const label = await launch.getAttribute('aria-label');
+  await map.evaluate(el => el.scrollIntoView({block: 'start'}));
+  await launch.click();
+  await expect(map).toHaveAttribute('data-ride', 'following', {timeout: 8000});
+  await page.waitForTimeout(800);
+  const where = await map.evaluate(el => {
+    const c = el.querySelector('.vector-map-canvas').getBoundingClientRect();
+    const [x, y] = (el.getAttribute('data-bus-screen') || '').split(',').map(Number);
+    return {x, y, width: c.width, height: c.height, camera: el.getAttribute('data-camera'), motion: el.getAttribute('data-motion')};
+  });
+  await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-real-ride.png`)});
+  test.info().annotations.push({type: 'real ride', description: JSON.stringify({label, ...where})});
+  expect(where.x >= 0 && where.y >= 0 && where.x <= where.width && where.y <= where.height,
+    `the chosen bus is on the map (${JSON.stringify(where)})`).toBe(true);
+  expect(Number((where.camera || '0').split(',')[0]), 'at the ride framing').toBeGreaterThan(19);
+  const drawn = await markerPixels(page, map);
+  expect(drawn.selectedBus, 'the chosen bus is drawn in the ride-along').toBeGreaterThan(15);
+});

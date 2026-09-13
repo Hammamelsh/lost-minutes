@@ -10,10 +10,11 @@
  * The estimate moves only along evaluated road geometry, at a speed read from the bus's own
  * recent reports, for no longer than a measured horizon. When any of that is missing it says
  * so and falls back to the last reported position. A new report is reconciled at its own
- * observation time and brought forward to the presentation time; the difference from what was
- * being drawn becomes an offset that decays, so the drawn bus never jumps, never overshoots and
- * does not shuffle backwards and forwards. An estimate is never an observation: it is not
- * published, stored, or used to say that a bus reached, left or served a stop.
+ * observation time and brought forward to the presentation time. The drawn bus follows the
+ * estimate's own path, smoothed over the few seconds of it that are already known, with a speed
+ * that only changes gradually: it eases into a pause at a stop, never jumps, and a small
+ * correction backwards slows it rather than reversing it. An estimate is never an observation:
+ * it is not published, stored, or used to say that a bus reached, left or served a stop.
  */
 
 export type LonLat = [number, number];
@@ -120,6 +121,22 @@ export function headingAt(track: Track, s: number): number {
  return (Math.atan2(x, y) / RAD + 360) % 360;
 }
 
+/** How far ahead the drawn bus looks for its heading: about a bus's length. */
+const HEADING_AHEAD = 12;
+
+/**
+ * The drawn heading: towards the road a bus's length ahead, so a bend is turned into gradually,
+ * as a bus turns, instead of the drawn bus (and the ride-along camera) rotating at each vertex of
+ * the road shape.
+ */
+export function headingAhead(track: Track, s: number): number {
+ const to = Math.min(track.length, s + HEADING_AHEAD);
+ if (to - s < 2) return headingAt(track, s);
+ const a = pointAt(track, s), b = pointAt(track, to);
+ const x = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD), y = b.lat - a.lat;
+ return (Math.atan2(x, y) / RAD + 360) % 360;
+}
+
 /** The part of the track between two distances, for drawing an estimate or its uncertainty. */
 export function slice(track: Track, s0: number, s1: number): LonLat[] {
  const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(track.length, Math.max(s0, s1));
@@ -171,9 +188,11 @@ export function addFix(history: History, fix: Fix, keep = 12): {history: History
 /**
  * The estimator's settings. maxSpeed, speedWindow and horizon are fitted on training captures
  * when a motion evaluation is published (public/data/motion-evaluation.json says which, and how);
- * the rest are fixed choices. settle, holdBack, turnSettle, largeCorrection and catchUp only
- * shape how a correction is drawn, never where the estimate is. The defaults keep the page
- * usable before an evaluation exists.
+ * the rest are fixed choices. settle, holdBack, turnSettle, largeCorrection and catchUp are
+ * recorded with an evaluation as the drawing choices it was made with (holdBack and
+ * largeCorrection are also what it counts corrections by); the page draws with DRAWING, below,
+ * which never changes where the estimate is. The defaults keep the page usable before an
+ * evaluation exists.
  */
 export type MotionParams = {
  version: string;
@@ -224,6 +243,18 @@ export type Estimate = {
  provisional?: boolean;       // shown at its report only while the settings or road geometry load
  held?: boolean;              // standing at its last reports, and held there for now
  resumeAt?: number | null;    // ms: when a held estimate would move on, if no report comes first
+ path?: EstimatePath;         // how it moves on from its report until the next one arrives
+};
+
+/**
+ * The estimate's path from its report: everything that makes where it is a function of time
+ * alone, so the page can read where the same estimate puts the bus a moment earlier or later.
+ */
+export type EstimatePath = {
+ from: number;                // m along the track: where the report is
+ speed: number;               // m/s it moves on at; 0 standing
+ wait: number;                // s it stays at the report first (a standing hold); otherwise 0
+ decay: number; horizon: number; dwell: number; stopTolerance: number;
 };
 
 type Speed = {speed: number | null; basis: string; standingNow?: boolean; cruise?: number | null};
@@ -286,7 +317,8 @@ function speedAlong(history: History, track: Track, params: MotionParams, sLates
  * stop it reaches on the way. A report within stopTolerance before a stop is taken to be at it
  * already, so that stop is not paused for again.
  */
-export function advance(track: Track, s0: number, speed: number, seconds: number, params = DEFAULT_PARAMS): number {
+export function advance(track: Track, s0: number, speed: number, seconds: number,
+                        params: Pick<MotionParams, 'dwell' | 'stopTolerance'> = DEFAULT_PARAMS): number {
  if (speed <= 0 || seconds <= 0) return s0;
  if (!(params.dwell > 0) || !track.stops.length) return s0 + speed * seconds;
  let s = s0, t = seconds;
@@ -315,11 +347,12 @@ export function estimate(history: History, track: Track | null, when: number, pa
  const speed = speedAlong(history, track, params, place.s);
  if (speed.speed === null) return observed(speed.basis);
  const horizon = Math.min(reportAge, params.horizon);
- let s = place.s, held = false, resumeAt: number | null = null, applied = speed.speed;
+ let s = place.s, held = false, resumeAt: number | null = null, applied = speed.speed, wait = 0;
  if (speed.standingNow && params.standingHold > 0 && speed.speed > 0) {
   // Its last reports show it standing (a stop, or lights). It is held there for a measured
   // while after the latest one, then moved on at the speed its reports show while moving.
   resumeAt = latest.at + params.standingHold * 1000;
+  wait = params.standingHold;
   const go = horizon - params.standingHold;
   if (go <= 0) held = true;
   else s = advance(track, place.s, speed.speed, go, params);
@@ -333,7 +366,29 @@ export function estimate(history: History, track: Track | null, when: number, pa
  const point = pointAt(track, s);
  return {mode: 'estimated', reason: applied === 0 || held ? 'standing at its last reports' : 'moving along its route',
   lat: point.lat, lon: point.lon, bearing: headingAt(track, s), s, basis: latest, reportAge, horizon,
-  capped: reportAge > params.horizon, speed: applied, speedBasis: speed.basis, held, resumeAt};
+  capped: reportAge > params.horizon, speed: applied, speedBasis: speed.basis, held, resumeAt,
+  path: {from: place.s, speed: applied, wait, decay: wait > 0 ? 0 : params.decay, horizon: params.horizon,
+   dwell: params.dwell, stopTolerance: params.stopTolerance}};
+}
+
+/**
+ * Where the same estimate puts the bus at another moment, from the same reports: the path it
+ * follows until the next report arrives. For every moment the estimate covers this is exactly
+ * `estimate(history, track, when).s` (a test checks it); before its report it is carried back
+ * at the speed it starts with, so the path has no corner there. Nothing here is new movement:
+ * it is only the estimate read at another time.
+ */
+export function alongAt(track: Track, e: Estimate, when: number): number | null {
+ const p = e.path;
+ if (e.mode !== 'estimated' || !p || e.s === null) return e.s;
+ const age = (when - e.basis.at) / 1000;
+ let s = p.from;
+ if (age < 0) s = p.wait > 0 ? p.from : p.from + p.speed * age;
+ else if (p.speed > 0) {
+  const t = Math.min(age, p.horizon) - p.wait;
+  if (t > 0) s = advance(track, p.from, p.speed, p.decay > 0 ? p.decay * (1 - Math.exp(-t / p.decay)) : t, p);
+ }
+ return Math.min(track.length, Math.max(0, s));
 }
 
 /** The last report itself, with the reason no estimate is drawn. `provisional` while loading. */
@@ -355,10 +410,46 @@ export function historyFrom(fixes: Fix[]): History {
 
 export type Correction = 'none' | 'smooth' | 'hold' | 'snap';
 
+/**
+ * How the drawn bus follows the estimate. None of this changes where the estimate is, or any
+ * evaluated number: it shapes only what is drawn from one frame to the next.
+ */
+export type Drawing = {
+ smoothing: number;       // s: the estimate's own path is averaged over this much of its known past and future,
+                          //    so a pause at a stop, a hold or the end of the horizon is eased into beforehand
+ approachAccel: number;   // m/s²: the drawn bus speeds up or slows down no faster than this
+ catchUp: number;         // m/s: a correction is absorbed no faster than this, on top of the path's own speed
+ settle: number;          // s: the time constant a correction ends in, so it lands softly
+ holdBack: number;        // m: moving, a smaller correction backwards slows the drawn bus but never reverses it
+ largeCorrection: number; // m: a correction bigger than this snaps rather than glides, and says so
+ turnSettle: number;      // s: time constant of turning the drawn bus
+};
+
+/** Gentle enough that a typical 50 m correction reads as the bus speeding up for a few seconds,
+ *  not as a lurch (measured in docs/LOCAL_VERIFICATION.md). */
+export const DRAWING: Drawing = {smoothing: 3, approachAccel: 3, catchUp: 12, settle: 2, holdBack: 35,
+ largeCorrection: 150, turnSettle: 0.35};
+
+/**
+ * The drawing for one frame: the hold widened to the estimate's own measured error at this
+ * report age (8 in 10 held-out cases lie within it). A report that finds the drawn bus ahead of
+ * a moving estimate by no more than the estimate could itself be out stands the drawn bus and
+ * lets the estimate catch up, rather than reversing it; beyond that it glides back, and past
+ * largeCorrection it snaps.
+ */
+export function drawingFor(e: Estimate, profile: ErrorProfile | null | undefined, draw: Drawing = DRAWING): Drawing {
+ const band = uncertaintyAt(profile, e.reportAge);
+ return band && band.metres > draw.holdBack ? {...draw, holdBack: Math.min(band.metres, draw.largeCorrection)} : draw;
+}
+
 export type Visual = {
  mode: 'estimated' | 'observed';
  s: number | null; lat: number; lon: number; bearing: number | null;
- offset: number;               // drawn minus estimated, metres along the track; decays to 0
+ heading: number | null;       // the heading the drawn bus is turning towards
+ offset: number;               // drawn minus estimated, metres along the track
+ velocity: number;             // the drawn bus's speed along the road, m/s: it changes gradually, never jumps
+ goal: number | null;          // where the drawn bus is heading for: the estimate's path, smoothed (goalAt)
+ goalSpeed: number;            // how fast that goal moves, m/s
  trackId: string | null;
  basisAt: number;              // the report the current estimate starts from
  frame: number;                // presentation time of this frame, ms
@@ -367,34 +458,66 @@ export type Visual = {
  provisional: boolean;         // drawn at its report only while loading
 };
 
+const WINDOW_STEPS = 24;
+const MAX_FRAME = 0.25;          // s: a longer gap between frames means the page was not drawing
+
+/**
+ * Where the drawn bus is heading for at `when`, and how fast that moves: the estimate's own path
+ * averaged over ± `smoothing` seconds of its known past and future, weighted towards `when` (a
+ * triangle). Until the next report the estimate is fixed, so the moment it will reach a stop,
+ * stand, or end its horizon is known in advance: the average starts slowing a few seconds before
+ * and finishes a few seconds after, and the drawn bus eases into a pause and away again instead
+ * of stopping dead or leaping off. On a steady stretch the average is the estimate itself.
+ */
+function goalAt(track: Track, e: Estimate, when: number, draw: Drawing): {s: number; speed: number} {
+ const half = draw.smoothing * 1000;
+ const at = (t: number) => {
+  if (!(half > 0)) return alongAt(track, e, t) ?? 0;
+  let sum = 0, total = 0;
+  for (let k = 1; k < WINDOW_STEPS; k++) {
+   const tau = -half + (2 * half * k) / WINDOW_STEPS, w = half - Math.abs(tau);
+   sum += w * (alongAt(track, e, t + tau) ?? 0); total += w;
+  }
+  return sum / total;
+ };
+ return {s: at(when), speed: (at(when + 50) - at(when - 50)) / 0.1};
+}
+
 function place(e: Estimate, now: number, trackId: string | null, correction: Correction,
-               last: Visual['lastCorrection']): Visual {
- return {mode: e.mode, s: e.s, lat: e.lat, lon: e.lon, bearing: e.bearing, offset: 0, trackId,
+               last: Visual['lastCorrection'], track: Track | null = null, draw: Drawing = DRAWING): Visual {
+ const goal = track && e.mode === 'estimated' && e.s !== null ? goalAt(track, e, now, draw) : null;
+ return {mode: e.mode, s: e.s, lat: e.lat, lon: e.lon, bearing: e.bearing, heading: e.bearing, offset: 0,
+  velocity: goal?.speed ?? 0, goal: goal?.s ?? null, goalSpeed: goal?.speed ?? 0, trackId,
   basisAt: e.basis.at, frame: now, correction, lastCorrection: last, provisional: e.provisional ?? false};
 }
 
 /**
- * Advance the drawn position to a new frame. A new report re-anchors the estimate; the gap
- * between what was drawn and the corrected estimate becomes an offset that decays
- * exponentially, no faster than `catchUp` m/s, which cannot overshoot. While the bus is
- * moving, a small correction that would draw it backwards is held instead, and the estimate
- * catches up; a large one snaps, and is reported as such so the page can say so.
+ * Advance the drawn position to a new frame. The drawn bus has a place along the road and a
+ * speed, and the speed never jumps: it changes by at most `approachAccel` m/s each second. It
+ * heads for the estimate's own path, smoothed over its next and last few seconds (goalAt), so a
+ * pause at a stop is eased into and out of. A new report re-anchors the estimate; the gap
+ * between what was drawn and the corrected path is closed the way a driver closes a gap: no
+ * faster than `catchUp` on top of the path's own speed, slowing in time to meet it, and ending
+ * in a settle of about `settle` seconds. While the bus moves, a small correction backwards slows
+ * the drawn bus, and holds it if need be, but never reverses it; a large one snaps, and is
+ * reported so the page can say so. The estimate itself is untouched: only how the drawn bus
+ * follows it.
  */
 export function stepVisual(previous: Visual | null, e: Estimate, now: number, track: Track | null,
-                           params = DEFAULT_PARAMS): Visual {
+                           draw: Drawing = DRAWING): Visual {
  const trackId = track?.id ?? null;
  // Shown at its report only while the settings or geometry loaded: the first estimate is simply
  // drawn, not presented as a correction.
  if (previous?.provisional && previous.mode === 'observed' && e.mode === 'estimated')
-  return place(e, now, trackId, 'none', previous.lastCorrection);
+  return place(e, now, trackId, 'none', previous.lastCorrection, track, draw);
  // Estimating resumes (a second report arrived after a jump, say): the bus eases on from where
- // it was drawn, on the same road, rather than jumping to the estimate.
+ // it was drawn, standing, on the same road, rather than jumping to the estimate.
  if (previous && previous.mode === 'observed' && e.mode === 'estimated' && track && e.s !== null) {
   const from = project(track, previous, e.s);
-  if (from.offset <= params.offTrack && Math.abs(from.s - e.s) <= params.largeCorrection) {
+  if (from.offset <= DEFAULT_PARAMS.offTrack && Math.abs(from.s - e.s) <= draw.largeCorrection) {
    const point = pointAt(track, from.s);
    previous = {...previous, mode: 'estimated', s: from.s, lat: point.lat, lon: point.lon, offset: from.s - e.s,
-    trackId, basisAt: e.basis.at, bearing: previous.bearing ?? headingAt(track, from.s)};
+    velocity: 0, goal: null, trackId, basisAt: e.basis.at, bearing: previous.bearing ?? headingAt(track, from.s)};
   }
  }
  if (!previous || e.mode !== 'estimated' || previous.mode !== 'estimated' || previous.trackId !== trackId
@@ -403,34 +526,55 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // moving to its next report is simply that report.
   const moved = previous?.mode === 'estimated' ? metres(previous, e) : 0;
   const kind: Correction = moved > 1 ? 'snap' : 'none';
-  return place(e, now, trackId, kind, kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null);
+  return place(e, now, trackId, kind, kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null,
+   track, draw);
  }
- const dt = Math.max(0, (now - previous.frame) / 1000);
- // On a new report the estimate jumps; the drawn bus does not.
- let offset = previous.basisAt !== e.basis.at ? previous.s + 0 - e.s : previous.offset;
+ // A frame after the page stopped drawing (nothing was moving) is not one long frame: the drawn
+ // bus stood where it was all that time, so the step starts just before now. Integrating the
+ // whole pause would draw the bus covering it in a single frame.
+ const elapsed = Math.max(0, (now - previous.frame) / 1000), dt = Math.min(elapsed, MAX_FRAME);
+ const since = now - dt * 1000;
+ const fresh = previous.basisAt !== e.basis.at;
+ // Where the goal was at the last frame. After a new report it is read again from the corrected
+ // estimate, so the gap between what was drawn and the correction is measured at one moment.
+ const from = fresh || previous.goal === null || elapsed > dt ? goalAt(track, e, since, draw)
+  : {s: previous.goal, speed: previous.goalSpeed};
+ const to = goalAt(track, e, now, draw);
  let last = previous.lastCorrection;
- if (previous.basisAt !== e.basis.at && Math.abs(offset) > params.largeCorrection) {
-  last = {kind: 'snap', metres: Math.abs(offset), at: now};
-  const snapped = place(e, now, trackId, 'snap', last);
-  return {...snapped, bearing: e.bearing};
+ if (fresh) {
+  const gap = previous.s - (alongAt(track, e, since) ?? e.s);
+  if (Math.abs(gap) > draw.largeCorrection) {
+   last = {kind: 'snap', metres: Math.abs(gap), at: now};
+   return {...place(e, now, trackId, 'snap', last, track, draw), bearing: e.bearing};
+  }
+  if (Math.abs(gap) > 1) last = {kind: 'smooth', metres: Math.abs(gap), at: now};
  }
- if (previous.basisAt !== e.basis.at && Math.abs(offset) > 1) last = {kind: 'smooth', metres: Math.abs(offset), at: now};
- // The drawn bus catches up, never faster than catchUp m/s on top of its own movement, so a
- // correction reads as catching up rather than as a lurch.
- const decayed = offset * Math.exp(-dt / params.settle), most = params.catchUp * dt;
- offset = Math.abs(offset - decayed) > most ? offset - Math.sign(offset) * most : decayed;
- let s = e.s + offset, correction: Correction = Math.abs(offset) > 0.5 ? 'smooth' : 'none';
- if (s < previous.s && (e.speed ?? 0) > 0 && Math.abs(offset) <= params.holdBack) {
-  s = previous.s;                // hold: the estimate catches up rather than the bus reversing
-  offset = s - e.s;
-  correction = 'hold';
+ // In small steps, with the goal moving evenly between the two frames. The speed wanted is the
+ // goal's own plus a closing speed: the smaller of catchUp and a braking curve that meets the
+ // goal at approachAccel and lands softly, √(c² + 2A|x|) − c with c = A × settle. Along that
+ // curve the speed wanted changes more slowly than A, so it can be followed, and a correction
+ // taken up from a steady speed lands without overshooting. (One that arrives while the bus is
+ // already closing fast can carry it a little past, and is then taken back as gently.)
+ const A = draw.approachAccel, c = A * draw.settle, moving = (e.speed ?? 0) > 0;
+ const steps = Math.min(2400, Math.max(1, Math.ceil(dt * 120)));
+ let s = previous.s, velocity = previous.velocity, held = false;
+ for (let k = 0; k < steps && dt > 0; k++) {
+  const f = k / steps, h = dt / steps;
+  const x = s - (from.s + (to.s - from.s) * f), goalSpeed = from.speed + (to.speed - from.speed) * f;
+  let want = goalSpeed - Math.sign(x) * Math.min(draw.catchUp, Math.sqrt(c * c + 2 * A * Math.abs(x)) - c);
+  // Moving, and drawn a little ahead: slow down, and stand if need be, but never reverse.
+  if (want < 0 && moving && x <= draw.holdBack) { want = 0; held = true; }
+  velocity += Math.max(-A * h, Math.min(A * h, want - velocity));
+  s += velocity * h;
  }
- s = Math.min(track.length, Math.max(0, s));
- const point = pointAt(track, s), heading = headingAt(track, s);
+ if (s < 0 || s > track.length) { s = Math.min(track.length, Math.max(0, s)); velocity = 0; }
+ const correction: Correction = held ? 'hold' : Math.abs(s - to.s) > 0.5 ? 'smooth' : 'none';
+ const point = pointAt(track, s), heading = headingAhead(track, s);
  const bearing = previous.bearing === null ? heading
-  : turnToward(previous.bearing, heading, 1 - Math.exp(-dt / params.turnSettle));
- return {mode: 'estimated', s, lat: point.lat, lon: point.lon, bearing, offset, trackId,
-  basisAt: e.basis.at, frame: now, correction, lastCorrection: last, provisional: false};
+  : turnToward(previous.bearing, heading, 1 - Math.exp(-dt / draw.turnSettle));
+ return {mode: 'estimated', s, lat: point.lat, lon: point.lon, bearing, heading, offset: s - e.s, velocity,
+  goal: to.s, goalSpeed: to.speed, trackId, basisAt: e.basis.at, frame: now, correction, lastCorrection: last,
+  provisional: false};
 }
 
 // ------------------------------------------------------------------ the presentation clock
@@ -452,11 +596,17 @@ export function tickClock(clock: PresentationClock | null, wall: number, target:
  return {offset, wall, now: Math.max(clock.now, wall + offset)};
 }
 
-/** Whether another frame is needed: an estimate is moving, or a correction is still settling. */
-export function needsFrames(e: Estimate | null, v: Visual | null) {
+/**
+ * Whether another frame is needed: the estimate, its smoothed goal or the drawn bus is moving, a
+ * correction is still settling, the bus is still turning, or a held bus is about to be eased
+ * away. A standing, paused or reported-only bus costs nothing.
+ */
+export function needsFrames(e: Estimate | null, v: Visual | null, draw: Drawing = DRAWING) {
  if (!e || !v || e.mode !== 'estimated') return false;
- return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.offset) > 0.5
-  || (v.bearing !== null && e.bearing !== null && Math.abs(shortestTurn(v.bearing, e.bearing)) > 0.5);
+ return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.velocity) > 0.05 || Math.abs(v.goalSpeed) > 0.05
+  || (v.goal !== null && v.s !== null && Math.abs(v.s - v.goal) > 0.5)
+  || (e.held === true && e.resumeAt != null && e.resumeAt - v.frame <= draw.smoothing * 1000)
+  || (v.bearing !== null && v.heading !== null && Math.abs(shortestTurn(v.bearing, v.heading)) > 0.5);
 }
 
 // ------------------------------------------------------------------ uncertainty

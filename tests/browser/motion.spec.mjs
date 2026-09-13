@@ -99,16 +99,16 @@ test.describe('riding along', () => {
   });
 });
 
-test('entering the ride-along opens on the journey around the bus, and can be skipped', async ({page}) => {
+test('entering the ride-along goes straight to the bus', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page);
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();
-  await expect(map(page)).toHaveAttribute('data-ride', 'entering');
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
   // While riding, nothing invites you to start riding; the card says you are, with a way out.
   await expect(page.getByRole('button', {name: 'Ride along with route 256'})).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Leave the ride-along'})).toHaveCount(1);
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(page.getByRole('button', {name: 'Skip to the bus'})).toHaveCount(0);
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(1200);
   const [c, d] = [await camera(page), await display(page)];

@@ -1,0 +1,9 @@
+[Unit]
+Description=Check every five minutes that Lost Minutes is still publishing
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

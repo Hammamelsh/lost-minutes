@@ -1,0 +1,17 @@
+[Unit]
+Description=Lost Minutes: delete raw position captures older than the retention period
+Documentation=file:///srv/lost-minutes/app/docs/HOSTING.md
+
+# Not enabled by deploy/install.sh. Deleting captures cannot be undone: enable the timer only
+# after the retention policy in docs/HOSTING.md (14 days) has been approved.
+[Service]
+Type=oneshot
+User=lostminutes
+Group=lostminutes
+WorkingDirectory=/srv/lost-minutes/app
+Environment=LM_RETENTION_DAYS=14
+ExecStart=/usr/bin/find /srv/lost-minutes/app/data/live-capture -type f -mtime +${LM_RETENTION_DAYS} -print -delete
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/lost-minutes/app/data/live-capture

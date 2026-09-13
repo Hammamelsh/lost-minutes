@@ -18,7 +18,8 @@ published `live.json` at **66 KB** for 155 vehicles.
 
 ## Recommendation: one small VPS, with Cloudflare in front
 
-**Hetzner Cloud CX22** (2 vCPU, 4 GB RAM, 40 GB SSD, Falkenstein or Helsinki) running:
+**Hetzner Cloud CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe, Falkenstein, Nuremberg or Helsinki; the size
+this proposal first called CX22) running:
 
 - the collector under **systemd** with `Restart=always` and `RestartSec=30`, so a crash, an
   OOM or a reboot brings it back without anyone watching;
@@ -65,23 +66,38 @@ protecting the origin, not about correctness.
 
 ## Itemised estimate
 
+Checked again on 13 September 2026: Hetzner's cost-optimised range now names this size **CX23**
+(2 vCPU, 4 GB RAM, 40 GB NVMe, 20 TB traffic, "price incl. IPv4"; the Arm CAX11 is the same size),
+but its pricing page renders the figures in the browser and they could not be read here. The
+figures below are the ones recorded earlier; **confirm the price in the Hetzner console before
+ordering**. UK consumers are charged 20% VAT on top of Hetzner's net prices.
+
 | Item | Monthly |
 | --- | --- |
-| Hetzner CX22 (2 vCPU, 4 GB, 40 GB SSD) | €3.79 (~£3.30) |
-| Hetzner automated backups (20%, optional) | €0.76 (~£0.66) |
-| Cloudflare free plan | £0.00 |
-| Object storage | £0.00 — not needed; 40 GB SSD covers 14-day retention with room to spare |
-| Domain (optional, amortised) | ~£0.85 (~£10/year) |
-| **Total** | **~£4–5 per month** |
+| Hetzner CX23 (2 vCPU, 4 GB, 40 GB NVMe), IPv4 included | about €3.79 net as last recorded (~£3.30); ~£4 with VAT |
+| Hetzner automated backups (20%, optional) | about €0.76 (~£0.66) |
+| Cloudflare free plan (optional) | £0.00 |
+| Object storage | £0.00 — not needed; 40 GB covers 14-day retention with room to spare |
+| Domain (amortised) | ~£0.85 (~£10/year); needed for HTTPS unless an existing domain is used |
+| **Total** | **~£5–6 per month with VAT, backups and a domain** |
 
-First year, with backups and a domain: roughly **£58**.
+First year, with backups and a domain: roughly **£65–75**.
+
+## Deployment configuration (ready, not provisioned)
+
+`deploy/` holds everything the server needs: a Caddyfile (HTTPS, the cache headers above,
+security headers), systemd units for the collector, the nightly timetable rebuild, a publication
+watchdog and an optional retention job, an install script for a fresh Debian or Ubuntu server, an
+upload script, and `deploy/validate.sh`, which checks all of it on this machine, including running
+the Caddyfile locally. The steps are in `deploy/README.md`.
 
 ## What I would do
 
-Take the CX22 without backups to start (**£3.30/month**), because the warehouse is
+Take the CX23 without backups to start (about **£4/month with VAT**), because the warehouse is
 reproducible from the raw captures and the raw captures are reproducible from nothing —
 losing a fortnight of collection is an annoyance, not a disaster. Add backups later if the
 accumulated history starts to matter. Point a subdomain at it through Cloudflare.
 
-**The decision I need from you:** approval of roughly £3–5 per month, and whether the site
-should be publicly reachable at that point. I will not provision anything until you say so.
+**The decision I need from you:** approval of about £4 a month with VAT (£5–6 with backups and
+a domain), the domain or subdomain to use, and whether the site should be publicly reachable at
+that point. I will not provision anything until you say so.

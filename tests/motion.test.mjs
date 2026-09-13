@@ -1,8 +1,8 @@
 // The estimated-movement core: every rule is a stated behaviour with a test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {addFix,advance,DEFAULT_PARAMS,decodePolyline,emptyHistory,estimate,headingAt,historyFrom,makeTrack,metres,
-        needsFrames,observedAt,pointAt,project,shortestTurn,slice,stepVisual,tickClock,turnToward,
+import {addFix,advance,alongAt,DEFAULT_PARAMS,DRAWING,drawingFor,decodePolyline,emptyHistory,estimate,headingAt,historyFrom,
+        makeTrack,metres,needsFrames,observedAt,pointAt,project,shortestTurn,slice,stepVisual,tickClock,turnToward,
         uncertaintyAt} from '../lib/motion.ts';
 
 // An L-shaped road: 600 m north from the origin, then 400 m east.
@@ -103,39 +103,47 @@ test('estimate: a standing bus does not drift', () => {
 test('visual: a new report never makes the drawn bus jump, and corrections decay without overshoot', () => {
  const track = L;
  const h1 = historyFrom([fix(200, 0), fix(360, 20_000)]);
- let v = stepVisual(null, estimate(h1, track, 25_000, P), 25_000, track, P);
- for (let t = 25_050; t <= 30_000; t += 50) v = stepVisual(v, estimate(h1, track, t, P), t, track, P);
+ let v = stepVisual(null, estimate(h1, track, 25_000, P), 25_000, track);
+ for (let t = 25_050; t <= 30_000; t += 50) v = stepVisual(v, estimate(h1, track, t, P), t, track);
  const before = v.s;
  // The next report says the bus was 25 m further on than we estimated.
  const h2 = addFix(h1, fix(360 + 8 * 10 + 25, 30_000)).history;
  const offsets = [];
- let previousS = before;
- for (let t = 30_050; t <= 36_000; t += 50) {
-  v = stepVisual(v, estimate(h2, track, t, P), t, track, P);
+ let previousS = before, previousV = v.velocity;
+ for (let t = 30_050; t <= 44_000; t += 50) {
+  v = stepVisual(v, estimate(h2, track, t, P), t, track);
   assert.ok(Math.abs(v.s - previousS) < 3, `no jump between frames (${(v.s - previousS).toFixed(2)} m)`);
   assert.ok(v.s >= previousS - 1e-9, 'never backwards while catching up');
-  previousS = v.s; offsets.push(v.offset);
+  assert.ok(Math.abs(v.velocity - previousV) <= DRAWING.approachAccel * 0.05 + 1e-9, 'its speed changes gradually');
+  previousS = v.s; previousV = v.velocity; offsets.push(v.offset);
  }
- assert.ok(offsets.every(o => o <= 0), 'the offset never changes sign: no overshoot');
+ assert.ok(offsets.every(o => o <= 1e-9), 'the offset never changes sign: no overshoot');
  assert.ok(Math.abs(offsets.at(-1)) < 0.5, 'and it has settled');
  assert.equal(v.lastCorrection.kind, 'smooth');
 });
 
-test('visual: a small correction backwards is held while moving; a large one snaps and says so', () => {
- const h1 = historyFrom([fix(200, 0), fix(360, 20_000)]);
- let v = stepVisual(null, estimate(h1, L, 29_000, P), 29_000, L, P);
- v = stepVisual(v, estimate(h1, L, 30_000, P), 30_000, L, P);
+test('visual: moving, a correction backwards slows the drawn bus, standing it if need be, but never reverses it; a large one snaps', () => {
+ const h1 = historyFrom([fix(200, 0), fix(300, 20_000)]);       // 5 m/s
+ let v = stepVisual(null, estimate(h1, L, 29_000, P), 29_000, L);
+ v = stepVisual(v, estimate(h1, L, 30_000, P), 30_000, L);
  const drawn = v.s;
- // The bus was 8 m behind the estimate: the drawn bus holds rather than reverses.
- const h2 = addFix(h1, fix(drawn - 8 - 8 * 0, 30_000 - 1)).history;
- v = stepVisual(v, estimate(h2, L, 30_100, P), 30_100, L, P);
- assert.equal(v.correction, 'hold');
- assert.ok(v.s >= drawn - 1e-6);
+ // The bus was 30 m behind where it is drawn, and slower (4 m/s): the drawn bus slows to a stand
+ // rather than reversing, and waits for the estimate.
+ const h2 = addFix(h1, fix(drawn - 30, 30_000 - 1)).history;
+ let previousS = drawn, held = false;
+ for (let t = 30_050; t <= 52_000; t += 50) {
+  v = stepVisual(v, estimate(h2, L, t, P), t, L);
+  held ||= v.correction === 'hold';
+  assert.ok(v.s >= previousS - 1e-9, `never backwards (${(v.s - previousS).toFixed(3)} m)`);
+  previousS = v.s;
+ }
+ assert.ok(held, 'it stood while the estimate caught up');
+ assert.ok(Math.abs(v.offset) < 0.5, `and then they met (${v.offset.toFixed(2)} m)`);
  // A report 400 m away snaps.
- const h3 = addFix(h2, fix(900, 31_000)).history;
- v = stepVisual(v, estimate(h3, L, 31_100, P), 31_100, L, P);
+ const h3 = addFix(h2, fix(900, 53_000)).history;
+ v = stepVisual(v, estimate(h3, L, 53_100, P), 53_100, L);
  assert.equal(v.lastCorrection.kind, 'snap');
- assert.ok(v.lastCorrection.metres > P.largeCorrection);
+ assert.ok(v.lastCorrection.metres > DRAWING.largeCorrection);
 });
 
 test('a jump in the reports is not read as speed: the report is shown until a second one follows', () => {
@@ -154,46 +162,47 @@ test('a jump in the reports is not read as speed: the report is shown until a se
 test('visual: when estimating resumes, the bus eases on from where it was drawn, no faster than it can catch up', () => {
  const one = historyFrom([fix(300, 20_000)]);
  let v = null;
- for (let t = 26_000; t <= 35_950; t += 50) v = stepVisual(v, estimate(one, L, t, P), t, L, P);
+ for (let t = 26_000; t <= 35_950; t += 50) v = stepVisual(v, estimate(one, L, t, P), t, L);
  assert.equal(v.mode, 'observed');
  const two = addFix(one, fix(380, 30_000)).history;               // 8 m/s: now it can be estimated
- v = stepVisual(v, estimate(two, L, 36_000, P), 36_000, L, P);    // one frame later
+ v = stepVisual(v, estimate(two, L, 36_000, P), 36_000, L);    // one frame later
  assert.equal(v.mode, 'estimated');
  assert.ok(Math.abs(v.s - project(L, one.fixes[0]).s) < 10, 'the first estimated frame starts where the bus was drawn');
- let previousS = v.s;
- for (let t = 36_050; t <= 50_000; t += 50) {
-  v = stepVisual(v, estimate(two, L, t, P), t, L, P);
-  assert.ok(v.s - previousS <= (8 + P.catchUp) * 0.05 + 1e-6, `no faster than its speed plus the catch-up rate (${(v.s - previousS).toFixed(2)} m)`);
-  previousS = v.s;
+ let previousS = v.s, previousV = v.velocity;
+ for (let t = 36_050; t <= 75_000; t += 50) {
+  v = stepVisual(v, estimate(two, L, t, P), t, L);
+  assert.ok(v.s - previousS <= (8 + DRAWING.catchUp) * 0.05 + 1e-6, `no faster than its speed plus the catch-up rate (${(v.s - previousS).toFixed(2)} m)`);
+  assert.ok(Math.abs(v.velocity - previousV) <= DRAWING.approachAccel * 0.05 + 1e-9, 'pulling away gradually');
+  previousS = v.s; previousV = v.velocity;
  }
- assert.ok(Math.abs(v.s - estimate(two, L, 50_000, P).s) < 1, 'and it has caught up');
+ assert.ok(Math.abs(v.s - estimate(two, L, 75_000, P).s) < 1, 'and it has caught up');
 });
 
 test('visual: a large correction is caught up gradually, not in a lurch', () => {
  const h1 = historyFrom([fix(200, 0), fix(360, 20_000)]);
  let v = null;
- for (let t = 25_000; t <= 30_000; t += 50) v = stepVisual(v, estimate(h1, L, t, P), t, L, P);
+ for (let t = 25_000; t <= 30_000; t += 50) v = stepVisual(v, estimate(h1, L, t, P), t, L);
  // The next report puts the bus about 120 m further on than it was drawn: glide, do not snap.
  const h2 = addFix(h1, fix(360 + 80 + 120, 30_000)).history;
  let previousS = v.s;
- for (let t = 30_050; t <= 42_000; t += 50) {
+ for (let t = 30_050; t <= 56_000; t += 50) {
   const e = estimate(h2, L, t, P);
-  v = stepVisual(v, e, t, L, P);
-  assert.ok(v.s - previousS <= (e.speed + P.catchUp) * 0.05 + 1e-6, `at most speed plus catch-up (${(v.s - previousS).toFixed(2)} m)`);
+  v = stepVisual(v, e, t, L);
+  assert.ok(v.s - previousS <= (e.speed + DRAWING.catchUp) * 0.05 + 1e-6, `at most speed plus catch-up (${(v.s - previousS).toFixed(2)} m)`);
   assert.ok(v.s >= previousS - 1e-9, 'and never backwards');
   previousS = v.s;
  }
  assert.equal(v.lastCorrection.kind, 'smooth');
- assert.ok(v.lastCorrection.metres > 100 && v.lastCorrection.metres < P.largeCorrection);
+ assert.ok(v.lastCorrection.metres > 100 && v.lastCorrection.metres < DRAWING.largeCorrection);
  assert.ok(Math.abs(v.offset) < 0.5, 'and it has caught up');
 });
 
 test('visual: a bus shown at its report only while loading is then simply drawn at its estimate', () => {
  const h = historyFrom([fix(200, 0), fix(360, 20_000)]);
- let v = stepVisual(null, observedAt(h, 25_000, 'loading its road geometry', true), 25_000, null, P);
+ let v = stepVisual(null, observedAt(h, 25_000, 'loading its road geometry', true), 25_000, null);
  assert.equal(v.provisional, true);
  const e = estimate(h, L, 25_100, P);
- v = stepVisual(v, e, 25_100, L, P);
+ v = stepVisual(v, e, 25_100, L);
  assert.equal(v.mode, 'estimated');
  assert.ok(Math.abs(v.s - e.s) < 0.01, 'no glide from the report: the estimate is simply drawn');
  assert.equal(v.lastCorrection, null, 'and it is not reported as a correction');
@@ -201,12 +210,12 @@ test('visual: a bus shown at its report only while loading is then simply drawn 
 
 test('visual: withdrawing an estimate is a correction that is said; moving to a new report is not', () => {
  const h = historyFrom([fix(200, 0), fix(360, 20_000)]);
- let v = stepVisual(null, estimate(h, L, 30_000, P), 30_000, L, P);       // drawn 80 m past its report
- v = stepVisual(v, observedAt(h, 30_050, 'you chose reported positions only'), 30_050, null, P);
+ let v = stepVisual(null, estimate(h, L, 30_000, P), 30_000, L);       // drawn 80 m past its report
+ v = stepVisual(v, observedAt(h, 30_050, 'you chose reported positions only'), 30_050, null);
  assert.equal(v.lastCorrection.kind, 'snap');
  assert.ok(Math.abs(v.lastCorrection.metres - 80) < 3, `it went back ${v.lastCorrection.metres} m to the report`);
  const h2 = addFix(h, fix(440, 30_000)).history;
- const w = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null, P);
+ const w = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null);
  assert.equal(w.lastCorrection, v.lastCorrection, 'a bus shown at its reports moving to the next is not a correction');
 });
 
@@ -224,10 +233,10 @@ test('the presentation clock is never stepped: a new server offset is approached
 
 test('visual: turning follows the shortest way round and settles', () => {
  const h = historyFrom([fix(560, 0), fix(640, 10_000)]);    // just past the corner, heading east
- let v = stepVisual(null, estimate(h, L, 10_000, P), 10_000, L, P);
+ let v = stepVisual(null, estimate(h, L, 10_000, P), 10_000, L);
  v = {...v, bearing: 350};                                   // drawn as if facing slightly west of north
  const seen = [];
- for (let t = 10_050; t <= 12_000; t += 50) { v = stepVisual(v, estimate(h, L, t, P), t, L, P); seen.push(v.bearing); }
+ for (let t = 10_050; t <= 12_000; t += 50) { v = stepVisual(v, estimate(h, L, t, P), t, L); seen.push(v.bearing); }
  assert.ok(seen.every(b => b <= 95 || b >= 345), 'it never swings the long way through the south');
  assert.ok(Math.abs(seen.at(-1) - 90) < 3);
 });
@@ -236,9 +245,16 @@ test('frames are requested only while something is actually moving', () => {
  const moving = historyFrom([fix(200, 0), fix(360, 20_000)]);
  const standing = historyFrom([fix(300, 0), fix(300, 20_000)]);
  const e1 = estimate(moving, L, 25_000, P), e2 = estimate(standing, L, 25_000, P);
- assert.equal(needsFrames(e1, stepVisual(null, e1, 25_000, L, P)), true);
- assert.equal(needsFrames(e2, stepVisual(null, e2, 25_000, L, P)), false);
+ assert.equal(needsFrames(e1, stepVisual(null, e1, 25_000, L)), true);
+ assert.equal(needsFrames(e2, stepVisual(null, e2, 25_000, L)), false);
  assert.equal(needsFrames(estimate(moving, null, 25_000, P), null), false);
+ // Standing just before the corner: the drawn bus turns to face the road ahead, then the clock
+ // stops (it used to compare the drawn heading with the estimate's, which differ at a bend, and
+ // kept drawing a standing bus sixty times a second).
+ const corner = historyFrom([fix(598, 0), fix(598, 20_000)]);
+ let v = stepVisual(null, estimate(corner, L, 25_000, P), 25_000, L);
+ for (let t = 25_050; t <= 29_000; t += 50) v = stepVisual(v, estimate(corner, L, t, P), t, L);
+ assert.equal(needsFrames(estimate(corner, L, 29_000, P), v), false, 'a bus standing at a bend costs nothing');
 });
 
 test('uncertainty comes from measured errors, or is not drawn', () => {
@@ -281,10 +297,126 @@ test('standing hold: a bus its reports show standing is held, then moves on at c
  assert.match(held.reason, /standing/);
  assert.ok(Math.abs(held.s - project(L, h.fixes.at(-1)).s) < 0.01, 'held at its last report');
  assert.equal(held.resumeAt, 70_000, 'and it says when it would move on');
- assert.equal(needsFrames(held, stepVisual(null, held, 60_000, L, P)), false, 'nothing to draw while held');
+ assert.equal(needsFrames(held, stepVisual(null, held, 60_000, L)), false, 'nothing to draw while held');
+ const soon = estimate(h, L, 68_000, Q);
+ assert.equal(soon.held, true);
+ assert.equal(needsFrames(soon, stepVisual(null, soon, 68_000, L)), true, 'a few seconds before it moves on, it is eased away');
  const moving = estimate(h, L, 80_000, Q);
  assert.equal(moving.held, false);
  assert.ok(Math.abs(moving.s - (project(L, h.fixes.at(-1)).s + 8 * 10)) < 1, `10 s on at 8 m/s (${moving.s})`);
  const off = estimate(h, L, 80_000, {...Q, standingHold: 0});
  assert.ok(off.s > moving.s, 'without a hold it moves off from the report at once');
+});
+
+test('the estimate’s path: read at any moment it covers, it is the estimate itself', () => {
+ const S = makeTrack('S', L.points, [300, 500, 900]);
+ const cases = [
+  [historyFrom([fix(100, 0), fix(260, 20_000)]), {...P, dwell: 10, horizon: 120, stale: 150}],
+  [historyFrom([fix(100, 0), fix(260, 20_000)]), {...P, dwell: 10, decay: 45, horizon: 120, stale: 150}],
+  [historyFrom([fix(200, 0), fix(360, 20_000), fix(362, 35_000), fix(361, 50_000)]),
+   {...P, speedWindow: 75, cruise: true, standingHold: 20, horizon: 120, stale: 150}],
+ ];
+ for (const [h, Q] of cases) {
+  const basis = h.fixes.at(-1).at, first = estimate(h, S, basis + 1000, Q);
+  let compared = 0;
+  for (let t = basis; t <= basis + Q.stale * 1000; t += 500) {
+   const e = estimate(h, S, t, Q);
+   if (e.mode !== 'estimated') continue;
+   assert.ok(Math.abs(alongAt(S, first, t) - e.s) < 1e-6, `at ${t} ms: ${alongAt(S, first, t)} against ${e.s}`);
+   compared++;
+  }
+  assert.ok(compared > 200, `compared over the whole horizon (${compared})`);
+ }
+ const moving = estimate(historyFrom([fix(200, 0), fix(360, 20_000)]), L, 25_000, P);
+ assert.ok(Math.abs(alongAt(L, moving, 18_000) - (360 - 16)) < 1e-6, 'before its report it is carried back at its starting speed');
+});
+
+test('visual: the drawn bus eases into a pause at a stop and away again, and its speed never jumps', () => {
+ const S = makeTrack('S', L.points, [300, 500, 900]);
+ const Q = {...P, dwell: 10, stopTolerance: 20, horizon: 120, stale: 150};
+ // 8 m/s, last report 40 m before the stop at 300: the estimate reaches it at 25 s, stands there
+ // until 35 s, then moves on.
+ const h = historyFrom([fix(100, 0), fix(260, 20_000)]);
+ let v = stepVisual(null, estimate(h, S, 20_000, Q), 20_000, S);
+ let previousV = v.velocity, previousS = v.s, furthest = -Infinity;
+ const at = {};
+ for (let t = 20_016; t <= 45_008; t += 16) {
+  v = stepVisual(v, estimate(h, S, t, Q), t, S);
+  assert.ok(Math.abs(v.velocity - previousV) <= DRAWING.approachAccel * 0.016 + 1e-9,
+   `its speed changes gradually (${previousV.toFixed(2)} to ${v.velocity.toFixed(2)} m/s at ${t} ms)`);
+  assert.ok(v.s >= previousS - 1e-9, 'never backwards');
+  if (t >= 25_000 && t <= 32_000) furthest = Math.max(furthest, v.s);
+  if ([21_008, 24_000, 30_000, 34_000, 45_008].includes(t)) at[t] = {s: v.s, speed: v.velocity};
+  previousV = v.velocity; previousS = v.s;
+ }
+ assert.ok(Math.abs(at[21_008].speed - 8) < 0.1, `at its speed before the stop (${at[21_008].speed.toFixed(2)} m/s)`);
+ assert.ok(at[24_000].speed < 7, `slowing before the estimate reaches the stop (${at[24_000].speed.toFixed(2)} m/s)`);
+ assert.ok(Math.abs(at[30_000].s - 300) < 0.5 && at[30_000].speed < 0.2,
+  `standing at the stop mid-pause (${at[30_000].s.toFixed(2)} m, ${at[30_000].speed.toFixed(2)} m/s)`);
+ assert.ok(furthest <= 300.5, `not past the stop until the estimate is about to leave it (${furthest.toFixed(2)} m)`);
+ assert.ok(at[34_000].speed > 0.5, `pulling away just before the estimate does (${at[34_000].speed.toFixed(2)} m/s)`);
+ assert.ok(Math.abs(at[45_008].speed - 8) < 0.2, `back to its speed (${at[45_008].speed.toFixed(2)} m/s)`);
+});
+
+test('visual: after a pause in drawing, the next frame starts from where the bus stood; it does not leap', () => {
+ const standing = historyFrom([fix(300, 0), fix(301, 20_000)]);
+ let v = stepVisual(null, estimate(standing, L, 25_000, P), 25_000, L);
+ for (let t = 25_050; t <= 27_000; t += 50) v = stepVisual(v, estimate(standing, L, t, P), t, L);
+ assert.equal(needsFrames(estimate(standing, L, 27_000, P), v), false, 'nothing moves, so the page stops drawing');
+ // 20 s later a report shows the bus 100 m on, and the page draws again.
+ const moved = addFix(standing, fix(400, 45_000)).history;
+ const before = v.s;
+ v = stepVisual(v, estimate(moved, L, 47_000, P), 47_000, L);
+ assert.ok(Math.abs(v.s - before) < 1, `no leap on the first frame back (${(v.s - before).toFixed(1)} m)`);
+ assert.equal(v.lastCorrection.kind, 'smooth', 'the change is a correction, and said');
+ let previousS = v.s;
+ for (let t = 47_050; t <= 60_000; t += 50) {
+  v = stepVisual(v, estimate(moved, L, t, P), t, L);
+  assert.ok(v.s - previousS < 1.5 && v.s >= previousS - 1e-9, `then it glides (${(v.s - previousS).toFixed(2)} m)`);
+  previousS = v.s;
+ }
+});
+
+test('visual: within the estimate’s measured error a report ahead of the drawn bus is waited for, not reversed', () => {
+ const profile = {version: 'x', basis: 'held-out', bins: [{upTo: 10, n: 120, p50: 30, p80: 49}, {upTo: 30, n: 120, p50: 50, p80: 110}]};
+ const h = historyFrom([fix(200, 0), fix(360, 20_000)]);
+ assert.equal(drawingFor(estimate(h, L, 25_000, P), profile).holdBack, 49);
+ assert.equal(drawingFor(estimate(h, L, 45_000, P), profile).holdBack, 110);
+ assert.equal(drawingFor(estimate(h, L, 25_000, P), null).holdBack, DRAWING.holdBack, 'no measured error: the fixed hold');
+ // Drawn 45 m ahead of where a moving bus turns out to be.
+ const h1 = historyFrom([fix(200, 0), fix(300, 20_000)]);   // 5 m/s
+ const furthestBack = draw => {
+  let v = stepVisual(null, estimate(h1, L, 29_000, P), 29_000, L);
+  v = stepVisual(v, estimate(h1, L, 30_000, P), 30_000, L);
+  const h2 = addFix(h1, fix(v.s - 45, 30_000 - 1)).history;
+  let back = 0, previous = v.s;
+  for (let t = 30_050; t <= 50_000; t += 50) {
+   const e = estimate(h2, L, t, P);
+   v = stepVisual(v, e, t, L, draw(e));
+   back = Math.max(back, previous - v.s); previous = v.s;
+  }
+  return back;
+ };
+ assert.ok(furthestBack(e => drawingFor(e, profile)) < 1e-9, 'within the measured error it stands and waits');
+ assert.ok(furthestBack(() => DRAWING) > 0.1, 'with the fixed 35 m hold alone it would have reversed');
+});
+
+test('visual: a new report that changes the speed changes the drawn speed gradually, never at once', () => {
+ const W = {...P, speedWindow: 15};
+ const h1 = historyFrom([fix(200, 0), fix(280, 10_000)]);            // 8 m/s
+ let v = stepVisual(null, estimate(h1, L, 12_000, W), 12_000, L);
+ for (let t = 12_016; t <= 20_000; t += 16) v = stepVisual(v, estimate(h1, L, t, W), t, L);
+ // The next report: 30 m short of the drawn bus, and 5 m/s since the one before.
+ const h2 = addFix(h1, fix(330, 20_000)).history;
+ assert.ok(Math.abs(estimate(h2, L, 20_016, W).speed - 5) < 0.1);
+ let previousV = v.velocity, previousS = v.s;
+ for (let t = 20_016; t <= 42_000; t += 16) {
+  v = stepVisual(v, estimate(h2, L, t, W), t, L);
+  assert.ok(Math.abs(v.velocity - previousV) <= DRAWING.approachAccel * 0.016 + 1e-9,
+   `no step in speed (${previousV.toFixed(2)} to ${v.velocity.toFixed(2)} m/s at ${t} ms)`);
+  assert.ok(v.s >= previousS - 1e-9, 'never backwards');
+  previousV = v.velocity; previousS = v.s;
+ }
+ assert.ok(Math.abs(v.velocity - 5) < 0.1 && Math.abs(v.offset) < 0.5,
+  `it settles on the new speed (${v.velocity.toFixed(2)} m/s, ${v.offset.toFixed(2)} m)`);
 });

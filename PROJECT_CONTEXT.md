@@ -4,12 +4,15 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 13 September 2026, evening (the ride-along's camera and visibility repaired, the
-night map made legible, stop-aware estimated movement, and a recorded window-seat journey on
-the Explore tab; earlier the same day: walking guidance, estimated movement, collector run
-records, the stop-first passenger view, original cartography, Bearing, and identity-first
-timetable matching). The requirement-by-requirement evidence for each milestone is in
-`docs/MILESTONE_CHECKLIST.md`.
+Last updated: 13 September 2026, late evening (ready for a first passenger comparison: the
+ride-along enters straight to the bus and works under `next dev`, an optional front view, smoother
+drawn movement, the selected-stop answer reordered, the journey kept across visits and shared
+without location, a route coverage check, the motion model frozen and scored on fresh captures, a
+passenger worksheet, and a deployment configuration validated but not provisioned; the embedded
+window-seat film was removed. Earlier the same day: the ride-along's camera and visibility, the
+night map, stop-aware estimated movement, walking guidance, collector run records, the stop-first
+passenger view, original cartography, Bearing, and identity-first timetable matching). The
+requirement-by-requirement evidence for each milestone is in `docs/MILESTONE_CHECKLIST.md`.
 
 ## Product goal
 
@@ -99,6 +102,14 @@ python3 -m unittest discover -s tests               # parser and matching tests,
 .venv/bin/python -m pipeline.shapes build --lines 15,250,256        # road shapes, then `publish`
 .venv/bin/python -m pipeline.motion_data export --lines 15,250,256  # reports for the evaluation
 node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-motion.mjs
+                            # writes a candidate; the published model is frozen (docs/MOTION_MODEL.md)
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-frozen.mjs \
+  --reports data/evaluation/motion-reports-fresh.json --label <name>   # the frozen model, fresh captures
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-drawing.mjs \
+  --reports data/evaluation/motion-reports-fresh.json --label <name>   # how smoothly it is drawn
+.venv/bin/python -m pipeline.route_coverage --line 15 --stop 1800SJ32231  # one route: patterns,
+                            # road shapes, estimates and live buses, each reported separately
+CADDY=/path/to/caddy deploy/validate.sh    # the server configuration, checked on this machine
 .venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching on a frozen moment
 ```
 
@@ -150,9 +161,11 @@ Three clocks and three things are kept apart: the reports (immutable, each at it
 time), the estimate (the bus's state at the presentation time, re-derived from the reports
 available by then; a new report is reconciled at the same presentation time as the estimate it
 replaces, so the difference between them is a correction, never a mixture of times) and the
-drawn position (which follows the estimate at a bounded rate, on the road; a step back of up
-to 35 m is held while the estimate catches up; over 150 m it snaps to the new report and says
-so). An estimate moves only along an accepted road shape, at the speed the bus's own recent
+drawn position (which follows the estimate's own path on the road with a speed that changes
+gradually; while the bus moves, a step back no larger than the estimate's measured error at
+that report age, and at least 35 m, is waited for rather than reversed; over 150 m it snaps to
+the new report and says so; `DRAWING` in `lib/motion.ts`, measured by
+`scripts/evaluate-drawing.mjs`). An estimate moves only along an accepted road shape, at the speed the bus's own recent
 reports show while moving, pausing 10 s at each timetabled stop it reaches and eased off slightly as the report
 ages (motion-3, fitted on the earlier captures by a rule set before any held-out figure was
 read), for at most the measured horizon of 120 s. Anything
@@ -226,8 +239,25 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **Ride-along, night map, motion and the window-seat journey (13 September 2026, evening,
-  latest):** 102 Node tests, typecheck, lint and the static build on the final code (87 Python
+- **Ready for a first passenger comparison (13 September 2026, late evening, latest):** 111 Node
+  tests (among them the drawing's rules: the drawn speed never steps, a pause at a stop is eased
+  into and out of, a report within the estimate's measured error is waited for rather than
+  reversed, a frame after a pause does not leap) and 92 Python tests (with the route coverage
+  check), typecheck, lint and the static build on the final code. In a real Chromium on the final
+  build, every browser check: 120 passed and 16 skipped by design, none failing (the ride and
+  replay specs, then everything else); the real-feed checks against a running `pnpm dev:live`,
+  desktop and phone, 4 passed, the ride-along following a real bus among them; and the real
+  recorded 256 journey through the page, 1,325 frames over 281 s, 13 reports eased, no snap, the
+  largest step outside a correction 3.7 m. The drawing, measured over every captured journey with the frozen estimate:
+  speed steps 267 an hour to none (development, 109 journeys) and 292 to 0.1 (fresh, 30
+  journeys); reversing 1,198 to 405 and 1,048 to 302 m an hour; at the cost of the drawn bus
+  straying further from the estimate (95th percentile 84–87 m, against 49–53 m). The frozen
+  model on fresh captures from the same evening: median error up to a minute 65 m, against 143 m
+  for the last report. The deployment configuration validated locally (seven systemd units; the
+  Caddyfile run with 19 route and header checks). Details in `docs/LOCAL_VERIFICATION.md` and
+  `docs/MILESTONE_CHECKLIST.md`.
+- **Ride-along, night map, motion and the window-seat journey (13 September 2026, evening; the
+  film and its checks were removed later that evening):** 102 Node tests, typecheck, lint and the static build on the final code (87 Python
   tests earlier the same day; no Python changed). In a real Chromium on the final build: the 36
   browser checks that enter the ride-along, at desktop and phone size, all passing, and the
   window-seat checks, which play the real film through YouTube's embed and show the fallback when
@@ -282,7 +312,9 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 ## Known limitations
 
 - **Local only.** One WSL process, no scheduler, no hosted worker. When the machine stops,
-  collection stops. Nothing is labelled continuously live.
+  collection stops. Nothing is labelled continuously live. A server configuration is written
+  and checked locally (`deploy/`), but nothing is provisioned: the certificate, the collector
+  under systemd and the nightly rebuild have only been validated, not run.
 - **Along-route distance is a stop-to-stop chain, not road geometry**, and is null where the
   timetable omits a link (about 1.6% of links across the three datasets).
 - **Progress has no measured error bound.** It is counted from the nearest pattern stop.
@@ -297,20 +329,25 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
   nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
   shown from above as a round token.
-- **Estimated movement covers 6 patterns on 3 routes** (15, 250 and 256), and was fitted and
-  scored on one Sunday's captures, held out by later journeys rather than later days. Weekday
-  traffic is untested. Real corrections remain visible: on the held-out captures about 1
-  report in 4 pulls the drawn bus back by more than 35 m (the previous, eased-speed model:
-  1 in 5, but it pushed the bus forward by more than 35 m on 41% of reports, against 35% now),
-  and 1 in 11 moves it over 150 m
-  and snaps, with the card saying so. The cause is measured, not guessed: buses stand at
-  stops and lights while any estimate rolls on, and the reports are 20 s apart.
+- **Estimated movement covers 6 patterns on 3 routes** (15, 250 and 256). The model is frozen
+  (`docs/MOTION_MODEL.md`); it was fitted on one Sunday's captures and has been scored on fresh
+  captures from the same Sunday evening only (median error up to a minute 65 m, against 143 m
+  for the last report), so weekday traffic is untested. Real corrections remain: about 1
+  arriving report in 4 finds the estimate more than 35 m ahead of the bus, 2 in 5 more than
+  35 m behind, and 1 in 10 over 150 m away, which snaps with the card saying so. The cause is
+  measured, not guessed: buses stand at stops and lights while any estimate rolls on, and the
+  reports are 20 s apart. The drawing absorbs corrections by speeding up, slowing or standing
+  rather than jumping, so the drawn bus can trail or lead the estimate for several seconds
+  after a report.
+- **The front view is stylised, not a street view.** It is drawn from OpenStreetMap vector
+  tiles: extruded, untextured building blocks at OSM's heights, road ribbons at typical widths, a
+  flat sky; no lane markings, signals, trees, street furniture or other traffic. Where OSM has
+  few buildings mapped it is sparse. It shows the estimated position from eye height, so it can
+  look more certain than it is; the HUD keeps the report age and "estimated position" in view.
+  Offered on the 6 patterns with accepted road shapes only; judged in a software renderer.
 - **The ride-along's identifiability was judged in a software-rendered browser** on a 1280 px
   desktop and a 390 px phone, by projection and pixel measurement and by eye on the frames;
   a real phone, a real GPU and sunlight are still unchecked.
-- **The window-seat journey depends on YouTube** honouring the creator's embed permission and
-  on the creator keeping the video up; both were true on 13 September 2026 and are checked
-  by a browser test that talks to the real service. Only one film is offered.
 - **Walking routes depend on a free community service** (FOSSGIS e.V.) with no service
   guarantee. Its usage-policy page, in German, was behind a bot check and could not be read in
   full here; the limits followed are the ones its own pages state (attribution, a "fix the map"
@@ -351,18 +388,28 @@ detail admitted by zoom. **2D** is north up and flat; **City** tilts it and rais
 buildings; **Fit journey** frames you, your stop and your bus without letting distant buses
 widen it. Buses with a reported bearing carry a nose pointing where they are heading.
 **Ride along** is one camera state at a time, shared by the map's frame loop, its HUD and the
-passenger card (`data-ride`): *entering* (the first ride of a visit plays a short introduction,
-the journey, you, your stop and the bus, centred on the bus, then down to it, skippable by button
-or by a tap; later rides and reduced motion go straight to the bus), *following* (the camera is put on the drawn bus every frame, but never
-while the map is already moving, so an animated zoom, a wheel or a pinch runs to its end and
-the camera glides back), *exploring* (a drag pauses following; the bus goes on without the
-camera and one button, **Return to bus**, glides back to the ride framing) and *returning*.
-A gesture during an introduction or a return ends it; a transition made obsolete by another
-bus or by leaving is cancelled by its token. The framing (zoom 20, above and behind the drawn
-heading) is set on entry and by Return to bus, each of which first brings the bus to the middle
-at the zoom shown and then zooms, tilts and turns around it, so the bus never swings out of the
-frame. The map's padding changes only while the camera is still: setting it is a jump, which
-would cancel a glide. The passenger's own zoom is kept through updates. The chosen bus is identifiable at every zoom: below 18 the flat lime marker with its
+passenger card (`data-ride`): *entering* (straight to the bus, with no introduction: the camera
+first brings the drawn bus to the middle at the zoom shown, then zooms, tilts and turns around it,
+so the bus never swings out of the frame), *following* (the camera is put on the drawn bus every
+frame, but never while the map is already moving, so an animated zoom, a wheel or a pinch runs to
+its end and the camera glides back), *exploring* (a drag pauses following; the bus goes on without
+the camera and one button, **Return to bus**, glides back to the ride framing) and *returning*.
+A gesture during entry or a return ends it; a transition made obsolete by another bus or by
+leaving is cancelled by its token. The framing is zoom 20, above and behind the drawn heading.
+The map's padding changes only while the camera is still: setting it is a jump, which would
+cancel a glide. The passenger's own zoom is kept through updates. **Front view** puts the eye
+3.5 m above the road at the front of the drawn bus, looking 30 m ahead, with the bus's own
+outside hidden and the route, destination, report age and estimated-or-reported status kept in
+the HUD beside an **Outside view** button. It is offered only for a bus on an accepted road shape
+(one checked against that service's own reports); otherwise the button says why and the bus is
+left as it is. In it the heading is eased, so each corner of the road shape turns the view
+smoothly, and street names laid along the road are hidden (from eye height they stand on end).
+Both views follow the same drawn state, and the drawn bus follows the estimate smoothly: along
+the estimate's own path averaged over the few seconds of it already known, so a pause at a stop
+is eased into and out of, with a speed that changes gradually and never steps; a report that
+finds the drawn bus ahead of a moving estimate, by no more than the estimate's measured error at
+that report age, stands it until the estimate catches up rather than reversing it (`DRAWING` and
+`drawingFor` in `lib/motion.ts`). The chosen bus is identifiable at every zoom: below 18 the flat lime marker with its
 route number; from 18 the stylised 3D bus (`public/models/lm-bus.json`) inside a lime ground
 ring with the route number floating above it, both symbols, which MapLibre draws over every
 building, so a model behind one is still found. The HUD carries a short mode line ("Ride-along
@@ -371,13 +418,15 @@ reports are drawn as small dots, and an estimate as a dashed line from its repor
 bus, captioned ESTIMATE. The walking route is dotted blue. If the model cannot load the flat
 symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over.
 
-**The Explore tab** also carries a **window-seat journey**: an independent creator's film from
-the upper deck of a real 142, shown through YouTube's own embed only after the passenger asks,
-with play, pause, full screen and the original video one tap away, and labelled as a recording
-from 2022 that is tied to no live bus. Its facts (`public/data/window-seat.json`, validated by
-`lib/window-seat.ts`) are each stated by the creator or read from the service; the film has no
-timestamped chapters, so the map is not moved with it, and today's timetable for the line is
-shown apart as orientation, never as the recorded route.
+**No embedded film.** An embedded "window-seat journey" (an independent creator's upper-deck
+video of a 142, played through YouTube's embed on the Explore tab) was added on 13 September and
+removed the same evening at the owner's request, with its component, metadata, tests and
+styles. What the owner wants from a window seat is a virtual view from the bus moving through
+the mapped streets, drawn by this app from its own map and motion state, not someone else's
+recording. The recorded GPS replay (real reports re-timed through the page) and the motion
+evaluation are a different thing and remain: they replay observations, not video. The
+ride-along's **Front view** is that virtual view, drawn from the map's own vector tiles and the
+displayed motion state, with its limits stated below.
 
 MapLibre's own modules are served unbundled from `public/vendor/maplibre-gl/<version>/`
 (`scripts/vendor-maplibre.mjs`), because bundling them rewrote the worker URL to a
@@ -399,9 +448,12 @@ build-machine path and no tile ever loaded.
 
 ## Next priorities
 
-1. **Decide on hosting** so collection runs when this machine does not. A costed proposal is
-   in `docs/HOSTING.md`: one Hetzner CX22 with systemd and Cloudflare, about £3–5 a month.
-   Needs your approval before anything is provisioned.
+1. **Decide on hosting** so collection runs when this machine does not. The costed proposal is
+   in `docs/HOSTING.md` (one Hetzner CX23 with systemd, about £5–6 a month with VAT, backups and
+   a domain; confirm the price in Hetzner's console), and the whole server configuration is
+   ready in `deploy/` (Caddy with HTTPS, the collector under systemd, a nightly timetable rebuild,
+   a watchdog) and checked on this machine by `deploy/validate.sh`. Needs your approval, and a
+   domain, before anything is provisioned.
 2. **Identify the timetabled journey**, not just the pattern: match the operator's reported
    origin departure time against journeys on the same line, direction and day, and measure
    the hit rate before any scheduled time is shown (opportunity log, entry 7).

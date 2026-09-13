@@ -65,11 +65,6 @@ this file.
   is labelled "Estimated position" with the real report age and scored on held-out captures
   against the last report itself (Evidence tab). Showing reported positions only is one tap
   away.
-- A window-seat journey on the Explore tab: an independent creator's upper-deck film of
-  route 142 from Piccadilly to East Didsbury (2022), shown through YouTube's own player,
-  loaded only when asked, with play, pause, full screen and the original video one tap away.
-  It is labelled as a recording, with the creator's own stop list beside today's timetable for
-  the line, kept apart: nothing in it is synchronised with the film or tied to a live bus.
 - Timetable matching against TfGM TransXChange stop patterns: operator, timetable version,
   operating day and direction are checked before position, and branches the position cannot
   separate are kept unresolved rather than guessed.
@@ -131,7 +126,10 @@ pnpm test:browser                                 # the built site in a real bro
 of your own domain. `pnpm start` serves it locally using Python. GitHub holds the source;
 the website host serves the built output. This copy has no ChatGPT hosting requirement.
 GitHub Pages under /lost-minutes/ needs explicit base-path and fetch-URL configuration;
-the present build assumes a domain root. Backend collection must run separately.
+the present build assumes a domain root. Backend collection must run separately: `deploy/`
+holds a ready but unprovisioned server configuration (Caddy with HTTPS, the collector and a
+nightly timetable rebuild under systemd), described in deploy/README.md and costed in
+docs/HOSTING.md.
 
 To reproduce the sample, optionally run `python3 -m pipeline.import_archive`. It downloads
 the eleven named snapshots, caches them under data/raw/, and regenerates the replay.
@@ -213,13 +211,6 @@ Bus route shapes for the evaluated routes (`public/data/shapes/`) were generated
 OpenStreetMap data (ODbL) by the FOSSGIS Valhalla service, and kept only where observed reports
 lie close to them. They carry labelled estimates between reports and are not evidence that a
 bus followed that road.
-
-The window-seat journey is "【4K HDR】 Upper deck bus ride in Manchester 2022 🚌 | Curry Mile |
-Route 142 | 4K HDR Bus tour in UK" by Travel wow (https://www.youtube.com/@Travelwow7),
-under the standard YouTube licence. It is shown only through YouTube's own embed
-(youtube-nocookie.com), which its owner allows; it is never downloaded, copied or rehosted,
-and the creator asks that the channel's content is not copied or redistributed. Its facts are
-in `public/data/window-seat.json`, each with its basis.
 
 Walking routes come from routing.openstreetmap.de (FOSSGIS e.V., OSRM foot profile, over
 OpenStreetMap data under the ODbL). They are asked for only when the passenger chooses to, with

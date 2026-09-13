@@ -150,6 +150,10 @@ the recorded videos were reviewed as contact sheets of sampled frames.
 
 ## 4. Window-seat journey
 
+> **Removed later the same evening at the owner's request.** The owner wanted a virtual view
+> from the bus moving through the mapped streets, not an embedded film; the card, its metadata,
+> tests and styles were deleted. The rows below record what was built and checked before that.
+
 | Requirement | Implemented behaviour | Evidence | Status |
 |---|---|---|---|
 | Verified recorded video, official embed, attribution | Travel wow's 142 film, embeddable (checked 13 September), credited and linked; the description gives the direction (Piccadilly to East Didsbury), the filming date (3 June 2022, 18:35) and the stop list | `public/data/window-seat.json`; `tests/window-seat.test.mjs` | Done |
@@ -194,3 +198,85 @@ Frames and recordings were reviewed as sampled frames and contact sheets, not by
 continuous playback: the FIXTURE demo recorded from the final build (desktop day with a 32 s
 video, phone night, desktop night; ten steps each), the browser checks' own screenshots, and the
 window-seat card with the real film paused after the playback check.
+
+# Milestone: ready for a first passenger comparison
+
+13 September 2026, late evening. Same status words and evidence labels as above. Measurements are
+in `docs/LOCAL_VERIFICATION.md` under the same heading.
+
+## 1. The ride-along works, and goes straight to the bus
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| "Ride along doesn't seem to be doing anything" | Only under `next dev`: React's Strict Mode double mount left the frame loop's id behind, so no frame was drawn and the bus never appeared; the cleanup now clears it | Reproduced, then checked on the owner's running `pnpm dev:live` with the real feed (route 15: estimated, following at zoom 20, pitch 60) | Done |
+| Phone: the Ride along button no longer covers the stop label; stop, bus and controls readable in both themes | The fitted view measures the view buttons, the tools and the legend, and keeps the stop, its name (40 px of room) and the bus clear of them | `ride.spec` "before riding, a fitted map keeps your stop, its name and your bus clear of the Ride along button, the legend and the tools, by day and by night", desktop and phone | Done |
+| No automatic introduction; an overview only when asked for | Entering goes straight to the bus: centred at the zoom shown, then zoom 20, pitch 60 and its heading; Fit journey is the overview | `ride.spec` "entering goes straight to the bus"; `motion.spec` "entering the ride-along goes straight to the bus" | Done |
+
+## 2. The stop's answer
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Boarding point and direction, suitable services, the chosen bus's progress, report age, walking route, other buses; uncertain relationships clear; no arrival prediction | The stop (side of the road, street, direction of travel); its services today; buses coming, maybe coming and near it, before the chosen bus's card; progress in stops from the last report with its age, estimated or reported; walking on request; unsettled branches stay "may be coming"; "arrival time not predicted" | `journey.spec` (the two sides of a road, services and buses coming, branching unresolved, a chosen bus leaving the feed); frames at both sizes | Done |
+
+## 3. The journey kept
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Keep and restore stop, service, direction and destination; refresh; expired buses and changed services never silently replaced; no location in share links | `lib/journey-context.ts`: kept on the device for 12 hours and in the address (stop, service and bus keys only); a bus that has gone, or is now on another journey, is said so, with a choice to follow it anyway or show the first bus coming; a service missing from today's timetable is reported | 8 Node tests; `journey-context.spec` (3 checks, desktop and phone) | Done |
+
+## 4. The tester's route
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Report missing patterns, geometry and live observations separately; no wider prediction just to make the map move | `python -m pipeline.route_coverage --line … --stop …` (5 tests) | Routes 15 and 245 at Marston Road (verification notes) | Tool done; the tester's route not yet supplied |
+
+## 5. The motion model frozen and scored fresh
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Freeze it; reproducible fresh-capture evaluation; the Sunday data as development evidence; error, corrections, abstention and uncertainty coverage; no replacement on one aggregate | `docs/MOTION_MODEL.md` (version, settings hash, data hash, a five-condition replacement rule); `scripts/evaluate-motion.mjs` refuses to overwrite the published model without `--replace-frozen yes`; `scripts/evaluate-frozen.mjs`; `pipeline.motion_data export --since/--until` | Fresh window, 30 journeys: median error up to a minute 65.0 m (last report 143.0, constant speed 71.7); band held 75–82%; 22.9% of reports back over 35 m, 40.0% forward, 10.1% snapped; 3.2% abstained | Done; a weekday test is still outstanding |
+
+## 6. Deployment prepared, not provisioned
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| HTTPS and continuous collection; configuration, validation and costs before any paid provisioning | `deploy/`: Caddyfile, systemd units (collector, nightly rebuild, watchdog, optional retention), install and upload scripts, `deploy/README.md`; costs in `docs/HOSTING.md` (CX23, about £4 a month with VAT, £5–6 with backups and a domain; to be confirmed in Hetzner's console) | `deploy/validate.sh`: 4 scripts' syntax, 7 units verified, the Caddyfile run locally with 19 route and header checks, all passing | Ready; awaiting approval and a domain |
+
+## 7. Front view (the correction)
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Remove the embedded film; keep the recorded GPS replay | Component, metadata, tests and styles deleted; the replay and the evaluation kept; the distinction recorded in `PROJECT_CONTEXT.md` | Five files removed; what mentions the film now is history, marked as such | Done |
+| An optional front view from the current renderer, reusing the map and motion, no paid imagery; validated road geometry only; no stop-to-stop lines; never a silent change of bus | The eye 3.5 m above the road at the front of the drawn bus, looking 30 m ahead along its accepted road shape; offered only with one, otherwise a note and the same bus | `ride.spec` "front view needs a road checked against the bus's own reports", desktop and phone, final build | Done |
+| Hide the bus's outside; keep route, destination, report age, status and Outside view; restore it on switching back | Model, ring, number, caption and trail hidden; the HUD kept; Outside view restores them | `ride.spec` "front view: a passenger's eye along the checked road…" (no lime in the middle of the view; identifiable again outside), desktop and phone, final build | Done |
+| Camera and bus from the displayed state; bounded prediction, standing and stale behaviour and reconciliation kept; nothing invented | The front camera is computed from the drawn state every frame; a standing bus holds the view; a 60 m correction is absorbed without a jump | `ride.spec` standing and correction checks, and the reduced-motion check (a handful of stills in 6 s), desktop and phone, final build | Done |
+| Verified over time, desktop and phone, day and night, reduced motion and failures; continuous playback reviewed | FIXTURE probes at desktop by day and phone by night; the ride video frame by frame | 33 and 32 samples over 8 s: zoom steady, pitch 83.3°, the eye moving 69 and 62 m along the road, no page errors; no lime in any video frame once the front view began; the heading's turn acceleration at most 33°/s² (80°/s² before it was eased); the browser checks cover standing, a 60 m correction, reduced motion and a bus with no checked road | Done; the video reviewed as measured frames, not watched in playback |
+| Remove it if empty, unstable or misleading | Kept: it reads as the road ahead with buildings towards the horizon; its limits are stated (stylised, sparse where OSM is, shows an estimate) | Frames (verification notes) | Kept, with limits |
+
+## 8. A smooth ride (the owner's report of twitching)
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| No twitch; use prediction where it helps; easy to follow | The drawn bus's speed changes gradually (at most 3 m/s each second) and never steps; it follows the estimate's own path averaged over the few seconds of it already known, so it eases into and out of stops; within the estimate's measured error it waits instead of reversing; no leap after a pause in drawing | Every captured journey: speed steps 267 and 292 an hour to 0 and 0.1; a real recorded journey: 34 steps and 26 hard changes to none; in the page (the recorded replay, final build): 1,325 frames over 281 s, 13 reports eased, no snap, the largest step outside a snap 3.7 m in 0.21 s, 32 frames drawn backwards, each while a labelled correction settled | Done |
+
+## 9. Verification
+
+| Check | Result | Build |
+|---|---|---|
+| `pnpm typecheck && pnpm lint && pnpm build` | Pass | Final |
+| `pnpm test` (Node) | 111 passed | Final |
+| Python (`.venv/bin/python -m unittest discover -s tests`) | 92 passed | Final code |
+| Browser: `ride` and `replay` (FIXTURE and RECORDED) | 37 passed, 1 skipped by design (the replay runs on desktop only), 11.2 min | Final |
+| Browser: the same with `motion`, `journey` and `journey-context` | 84 passed, 3 failed, 1 skipped by design (15.5 min). The three failures were browser contexts that got no WebGL: the page's own SVG fallback, 45 s before any riding (opportunity log, entry 17). All three pass on the final build | The build before the final, which differs only in when the map writes its diagnostics |
+| Full browser suite | 120 passed, 16 skipped by design, none failed: the `ride` and `replay` specs (37 passed, 11.2 min) and every other spec (83 passed, 9.5 min) | Final |
+| Real feed (LIVE: the owner's running `pnpm dev:live`, the collector publishing from BODS) | 4 passed, desktop and phone: the live badge, a painted basemap, buses drawn and a genuine refresh; the ride-along goes to the chosen bus, draws it and follows it | Final code, under `next dev` |
+| A real phone | Not done | — |
+
+**Version, address and commands.** The version is the commit that adds this section. The built
+site: `pnpm install --frozen-lockfile && pnpm build && pnpm start`, then http://localhost:3000
+(it shows the last publication in `public/data/`, so without a collector it says the feed is not
+updating). With the real feed: `pnpm dev:live`, then http://localhost:3000. A phone on the same
+Wi-Fi cannot reach a WSL port until Windows forwards it; that was not set up here. The checks:
+`pnpm typecheck && pnpm lint && pnpm test`, `.venv/bin/python -m unittest discover -s tests`,
+`pnpm test:browser`, and, with `pnpm dev:live` running,
+`LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs`.

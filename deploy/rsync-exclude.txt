@@ -1,0 +1,13 @@
+.git/
+.venv/
+node_modules/
+.next/
+test-results/
+playwright-report/
+data/
+.env
+.env.local
+# Written on the server by the collector and the status job: never overwritten by a deploy.
+public/data/live.json
+public/data/config.json
+public/data/operations.json

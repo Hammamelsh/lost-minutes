@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 /**
- * Scores estimated movement against what buses actually reported next.
+ * Fits estimated movement and scores it against what buses actually reported next.
  *
  *   node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-motion.mjs \
- *     [--reports data/evaluation/motion-reports.json] [--split 2026-09-13T12:50:00Z]
+ *     [--reports data/evaluation/motion-reports.json] [--split 2026-09-13T12:50:00Z] \
+ *     [--out data/evaluation/motion-evaluation-candidate.json]
+ *
+ * The published model is frozen (docs/MOTION_MODEL.md). This script writes a candidate; it replaces
+ * public/data/motion-evaluation.json only when run with `--out public/data/motion-evaluation.json
+ * --replace-frozen yes`, after the replacement rule there has been met. A frozen model is scored on
+ * fresh captures, without refitting, by scripts/evaluate-frozen.mjs.
  *
  * For each report, at the moment it had been fetched, the estimator is given only the reports
  * of that journey fetched by then, and asked where the bus was at the time of each later report
@@ -17,108 +23,28 @@
  */
 import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
-import {dirname,join} from 'node:path';
-import {DEFAULT_PARAMS,decodePolyline,estimate,historyFrom,makeTrack,metres,project} from '../lib/motion.ts';
+import {dirname} from 'node:path';
+import {DEFAULT_PARAMS,project} from '../lib/motion.ts';
+import {BINS,MAX_AHEAD,fixesOf,loadTracks,mean,quantile,round,score,summarise,visible} from './motion-scoring.mjs';
 
 const args={};
 for(let i=2;i<process.argv.length;i+=2)args[process.argv[i].replace(/^--/,'')]=process.argv[i+1];
 const REPORTS=args.reports??'data/evaluation/motion-reports.json';
 const SHAPES=args.shapes??'public/data/shapes';
 const SPLIT=Date.parse(args.split??'2026-09-13T12:50:00Z');
-const FULL=args.full??'data/evaluation/motion-evaluation-full.json';
-const OUT=args.out??'public/data/motion-evaluation.json';
-const MAX_AHEAD=120;
-const BINS=[10,20,30,45,60,90,120];
+const PUBLISHED='public/data/motion-evaluation.json';
+const OUT=args.out??'data/evaluation/motion-evaluation-candidate.json';
+const FULL=args.full??(OUT===PUBLISHED?'data/evaluation/motion-evaluation-full.json':OUT.replace(/\.json$/,'-full.json'));
 const METHOD='along-route extrapolation at the speed of the journey’s own recent reports, bounded in time';
+if(OUT===PUBLISHED&&args['replace-frozen']!=='yes'){
+ console.error('The published motion model is frozen (docs/MOTION_MODEL.md). Write the fit elsewhere with --out, '
+  +'or add --replace-frozen yes once the replacement rule has been met.');
+ process.exit(2);
+}
 
 const raw=readFileSync(REPORTS);
 const data=JSON.parse(raw);
-const index=JSON.parse(readFileSync(join(SHAPES,'index.json')));
-const tracks=new Map();
-for(const [id,entry] of Object.entries(index.patterns)){
- if(entry.status!=='accepted'||!entry.file)continue;
- const shape=JSON.parse(readFileSync(join(SHAPES,entry.file)));
- tracks.set(id,makeTrack(id,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]));
-}
-
-const quantile=(values,q)=>{
- if(!values.length)return null;
- const sorted=[...values].sort((a,b)=>a-b),k=(sorted.length-1)*q,lo=Math.floor(k),hi=Math.ceil(k);
- return sorted[lo]+(sorted[hi]-sorted[lo])*(k-lo);
-};
-const round=(value,places=1)=>value===null||value===undefined?null:Math.round(value*10**places)/10**places;
-const binOf=h=>BINS.find(b=>h<=b)??null;
-const mean=values=>values.reduce((total,value)=>total+value,0)/Math.max(1,values.length);
-
-function fixesOf(sequence){
- const service=`${sequence.route}|${sequence.direction}|${sequence.journeyRef}`,seen=new Set(),fixes=[];
- for(const [at,available,lat,lon,bearing,pattern,source,run] of sequence.fixes){
-  if(seen.has(at))continue;
-  seen.add(at);
-  fixes.push({at,availableAt:available??at,lat,lon,bearing,pattern,source,run,service});
- }
- return fixes.sort((a,b)=>a.at-b.at);
-}
-
-function category(reason){
- if(/branch/.test(reason))return 'branch not settled';
- if(/not placed/.test(reason))return 'not placed on a timetable pattern';
- if(/m from the route/.test(reason))return 'report off the road geometry';
- if(/geometry/.test(reason))return 'no accepted road geometry';
- if(/too old/.test(reason))return 'report too old to estimate from';
- if(/jumped/.test(reason))return 'reports jumped further than a bus travels';
- if(/second report/.test(reason))return 'only one report of the journey so far';
- if(/too close/.test(reason))return 'reports too close together';
- if(/apart/.test(reason))return 'reports too far apart';
- if(/backwards/.test(reason))return 'reports went backwards along the route';
- return reason;
-}
-
-function score(sequences,params){
- const rows=[],abstained=new Map();
- const abstain=(reason,horizon)=>{
-  const key=category(reason),entry=abstained.get(key)??{reason:key,count:0,byBin:{}};
-  entry.count+=1;
-  const bin=binOf(horizon);
-  entry.byBin[bin]=(entry.byBin[bin]??0)+1;
-  abstained.set(key,entry);
- };
- sequences.forEach((sequence,sequenceIndex)=>{
-  const fixes=fixesOf(sequence);
-  for(let k=0;k<fixes.length-1;k++){
-   const basis=fixes[k],issuedAt=basis.availableAt;
-   // Only what had been fetched when this report arrived, and this report the newest of it.
-   const known=fixes.filter(f=>f.availableAt<=issuedAt);
-   if(known.some(f=>f.at>basis.at))continue;
-   const track=basis.pattern?tracks.get(basis.pattern)??null:null;
-   const history=historyFrom(known);
-   for(let j=k+1;j<fixes.length&&fixes[j].at-basis.at<=MAX_AHEAD*1000;j++){
-    const target=fixes[j],horizon=(target.at-basis.at)/1000,baseline=metres(basis,target);
-    if(!basis.pattern){abstain('it is not placed on a timetable pattern',horizon);continue}
-    if(!track){abstain('no accepted road geometry',horizon);continue}
-    const e=estimate(history,track,target.at,params);
-    if(e.mode!=='estimated'){abstain(e.reason,horizon);continue}
-    rows.push({sequence:sequenceIndex,basis:k,target:j,horizon,issuedAt,basisAt:basis.at,targetAt:target.at,
-     predicted:[round(e.lat,6),round(e.lon,6)],error:metres(e,target),baseline,speed:e.speed,capped:e.capped,
-     along:e.s-project(track,target,e.s).s,basisSource:basis.source,targetSource:target.source,pattern:basis.pattern});
-   }
-  }
- });
- return {rows,abstained:[...abstained.values()].sort((a,b)=>b.count-a.count)};
-}
-
-function summarise(result,profile){
- return BINS.map((upTo,i)=>{
-  const lo=BINS[i-1]??0,inBin=result.rows.filter(r=>r.horizon>lo&&r.horizon<=upTo);
-  const model=inBin.map(r=>r.error),base=inBin.map(r=>r.baseline);
-  const band=profile?.bins.find(b=>b.upTo===upTo);
-  return {upTo,n:inBin.length,
-   model:{p50:round(quantile(model,.5)),p80:round(quantile(model,.8)),p90:round(quantile(model,.9))},
-   baseline:{p50:round(quantile(base,.5)),p80:round(quantile(base,.8)),p90:round(quantile(base,.9))},
-   betterThanBaseline:inBin.length?round(inBin.filter(r=>r.error<r.baseline).length/inBin.length,3):null,
-   bandCoverage:band&&inBin.length?round(inBin.filter(r=>r.error<=band.p80).length/inBin.length,3):null};
- });
-}
+const {index,tracks}=loadTracks(SHAPES);
 
 // ------------------------------------------------------------------ split by time
 const start=sequence=>sequence.fixes[0][0];
@@ -141,31 +67,9 @@ const maxSpeed=round(Math.max(8,quantile(speeds,0.99)??DEFAULT_PARAMS.maxSpeed),
 let best=null;
 for(const speedWindow of [25,45,75]){
  const params={...DEFAULT_PARAMS,maxSpeed,speedWindow,horizon:MAX_AHEAD,stale:MAX_AHEAD+30,version:'fitting'};
- const result=score(training,params),near=result.rows.filter(r=>r.horizon<=60);
+ const result=score(training,params,tracks),near=result.rows.filter(r=>r.horizon<=60);
  const mean=near.reduce((total,r)=>total+r.error,0)/Math.max(1,near.length);
  if(!best||mean<best.mean)best={speedWindow,mean,result};
-}
-// What a passenger sees: when each new report reaches the page, how far the estimate moves,
-// before any smoothing. Forward is the estimate catching up; back draws the bus backwards.
-function visible(sequences,params){
- const moves=[];
- for(const sequence of sequences){
-  const fixes=fixesOf(sequence);
-  for(let k=1;k<fixes.length;k++){
-   const at=fixes[k].availableAt;
-   const before=fixes.filter(f=>f.availableAt<at),after=fixes.filter(f=>f.availableAt<=at);
-   if(!before.length||after[after.length-1].at!==fixes[k].at)continue;
-   const track=fixes[k].pattern?tracks.get(fixes[k].pattern)??null:null;
-   if(!track||before[before.length-1].pattern!==fixes[k].pattern)continue;
-   const a=estimate(historyFrom(before),track,at,params),b=estimate(historyFrom(after),track,at,params);
-   if(a.mode!=='estimated'||b.mode!=='estimated')continue;
-   moves.push(b.s-a.s);
-  }
- }
- const size=moves.map(Math.abs),share=test=>moves.length?round(moves.filter(test).length/moves.length,3):null;
- return {n:moves.length,meanMove:round(mean(size)),p50:round(quantile(size,.5)),p80:round(quantile(size,.8)),
-  p95:round(quantile(size,.95)),snapped:share(m=>Math.abs(m)>params.largeCorrection),
-  back:share(m=>m<-params.holdBack),forward:share(m=>m>params.holdBack)};
 }
 
 // The estimator's family, fitted on training by one rule set before any held-out figure was
@@ -182,8 +86,8 @@ const family=[];
 for(const cruise of [false,true])for(const standingHold of [0,15])for(const decay of [0,45,60,90,120])
  for(const dwell of [0,6,10,15,20])family.push({dwell,cruise,standingHold,decay});
 const candidates=family.map(setting=>{
- const params={...fitParams,...setting},result=score(training,params),errors=upToMinute(result);
- return {setting,result,p50:quantile(errors,.5),mean:mean(errors),visible:visible(training,params)};
+ const params={...fitParams,...setting},result=score(training,params,tracks),errors=upToMinute(result);
+ return {setting,result,p50:quantile(errors,.5),mean:mean(errors),visible:visible(training,params,tracks)};
 });
 const constant=candidates.find(c=>!c.setting.dwell&&!c.setting.cruise&&!c.setting.standingHold&&!c.setting.decay);
 const previous=candidates.find(c=>!c.setting.dwell&&!c.setting.cruise&&!c.setting.standingHold&&c.setting.decay===45);
@@ -213,13 +117,13 @@ const params={...DEFAULT_PARAMS,maxSpeed,speedWindow:best.speedWindow,...chosen.
 
 // The uncertainty band is fitted on training (8 in 10 errors per report-age bin) and checked on
 // held-out cases: how often the band actually held the bus is reported beside it.
-const trained=score(training,params);
+const trained=score(training,params,tracks);
 const profile={version,basis:'training captures: the distance that 8 in 10 estimates at this report age came within',
  bins:BINS.map((upTo,i)=>{
   const lo=BINS[i-1]??0,errors=trained.rows.filter(r=>r.horizon>lo&&r.horizon<=upTo).map(r=>r.error);
   return {upTo,n:errors.length,p50:round(quantile(errors,.5))??0,p80:round(quantile(errors,.8))??0};
  })};
-const held=score(heldOut,params);
+const held=score(heldOut,params,tracks);
 const heldSummary=summarise(held,profile),trainSummary=summarise(trained,profile);
 
 // ------------------------------------------------------------------ outputs
@@ -273,10 +177,10 @@ const published={
  training:{bins:trainSummary,abstained:trained.abstained},
  visibleCorrections:{basis:'at the moment each new report reached the page, how far the estimate moved, before any '
    +'smoothing; back means more than holdBack towards the start of the route, snapped more than largeCorrection',
-  heldOut:visible(heldOut,params),
-  heldOutConstantSpeed:visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:0}),
+  heldOut:visible(heldOut,params,tracks),
+  heldOutConstantSpeed:visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:0},tracks),
   heldOutPrevious:{setting:'motion-2: constant speed eased off with a 45 s decay, no stops',
-   ...visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:45})},
+   ...visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:45},tracks)},
   fitting:candidates.map(c=>({...c.setting,medianError:round(c.p50),meanError:round(c.mean),...c.visible}))},
  replay,
  notes:['Scored only against reports that arrived. Sparse reports, about 20 s apart, cannot check a drawn position between two of them.',
@@ -286,7 +190,7 @@ const published={
 };
 mkdirSync(dirname(OUT),{recursive:true});
 writeFileSync(OUT,JSON.stringify(published)+'\n');
-console.log(JSON.stringify({version,supported,maxSpeed,speedWindow:best.speedWindow,setting:chosen.setting,horizon,
+console.log(JSON.stringify({out:OUT,version,supported,maxSpeed,speedWindow:best.speedWindow,setting:chosen.setting,horizon,
  heldOutError:{chosen:{p50:round(quantile(upToMinute(held),.5)),mean:round(mean(upToMinute(held)))},
   constant:constant?{trainP50:round(constant.p50),trainMean:round(constant.mean)}:null,
   previous:previous?{trainP50:round(previous.p50),trainMean:round(previous.mean)}:null},

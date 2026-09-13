@@ -217,7 +217,7 @@ test.describe('views and themes', () => {
 // Everything drawn over the map must leave everything else readable. These collisions came
 // back once already, through a phone rule that lost to a later base rule on source order.
 const OVER_MAP = ['.map-views', '.map-tools', '.ride-launch', '.map-legend-chips', '.map-credit-line'];
-const OVER_RIDE = ['.ride-exit', '.ride-mode', '.ride-about', '.ride-note', '.ride-skip', '.ride-return', '.map-notice',
+const OVER_RIDE = ['.ride-exit', '.ride-mode', '.ride-about', '.ride-note', '.ride-return', '.map-notice',
                    '.ride-card', '.map-tools', '.map-views', '.map-credit-line'];
 async function collisions(page, selectors) {
   return page.evaluate(list => {

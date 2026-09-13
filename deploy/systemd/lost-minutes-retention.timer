@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily raw-capture retention for Lost Minutes (enable only once the policy is approved)
+
+[Timer]
+OnCalendar=*-*-* 04:20:00 Europe/London
+Persistent=true
+
+[Install]
+WantedBy=timers.target

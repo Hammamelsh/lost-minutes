@@ -834,6 +834,10 @@ Both were fixed before the final run.
 
 # Ride-along visibility, night map, motion continuity and a window-seat journey — 13 September 2026, evening
 
+(The window-seat film card recorded below was removed later that evening at the owner's request:
+the window seat wanted is a virtual view from the bus through the mapped streets. The checks of
+it are kept here as a record.)
+
 Everything here was measured on this machine in a software-rendered Chromium (SwiftShader) at
 1280×900 and at 390×844 with touch emulation, on the built site (`out/`). FIXTURE means fixture
 buses on real recorded road and stop geometry; RECORDED means real reports of one journey
@@ -984,3 +988,201 @@ of its trail, and the FIXTURE motion evaluation reads speed over the whole 45 s 
 card's "moving about … km/h" starts at 2–3 km/h and rises as the standing reports leave the
 window, while each new fixture report eases the drawn bus forward. The published motion-3
 settings read speed from the stretches where the bus moved; the recorded replay uses them.
+
+# Ready for a first passenger comparison — 13 September 2026, late evening
+
+Same conventions as the section above. The final build is the commit that adds this section.
+
+## "Ride along doesn't seem to be doing anything"
+
+Reproduced on the owner's own setup (`pnpm dev:live`, `localhost:3000`): entering the ride-along
+glided to an empty map. It happened only under `next dev`. React's Strict Mode mounts each
+component twice, and the frame loop's cleanup cancelled its animation frame but kept the id, so no
+frame was asked for again and the chosen bus was never drawn. The cleanup now clears the ids.
+Checked on the running dev server with the real feed: route 15, estimated, following at zoom 20,
+pitch 60, bearing 158°. The automatic introduction is gone; entering goes straight to the bus.
+
+## Why the ride twitched, and what changed
+
+Four measurements, from the camera to every captured journey.
+
+1. **The camera, frame by frame** (FIXTURE: 7 m/s, reports every 10 s with a ±6 m wobble; the
+   camera diagnostic read on every animation frame for 24 s outside and 24 s in the front view,
+   resampled to 50 ms; speed over 100 ms, acceleration over 200 ms):
+
+| Build | Outside: speed, 5th–95th percentile | Outside: acceleration p95; windows over 3 m/s² | Front: acceleration p95; over 3 m/s² |
+|---|---|---|---|
+| Committed | 5.3–8.5 m/s | 4.7 m/s²; 40 of 474 | 5.3; 54 |
+| First repair (catch-up limited to 6 m/s²) | 6.4–10.3 m/s | 5.1; 40 | 6.1; 80 |
+| Final | 6.1–9.1 m/s | 2.6 m/s²; 15 of 474 | 4.8; 75 (see below) |
+
+   The first repair measured no better, which sent the search to real data. On the final build
+   the outside view's acceleration fell to 2.6 m/s² at the 95th percentile, with 15 windows over
+   3 m/s² instead of 40. In the front view the measured point is the spot 30 m ahead that the eye
+   looks at, which also swings sideways as the heading turns, so its speed is not the bus's; what
+   matters there is the heading, whose turn acceleration fell from up to 80°/s² to 33°/s² (95th
+   percentile 28 to 15°/s²; windows over 60°/s² from 6 to none).
+
+2. **On screen** (the chosen bus's lime marks located in every frame of the recorded ride video,
+   25 a second, while it was in view): the bus moved on screen from frame to frame by 0.96 px at
+   the median and 2.5 px at the 90th percentile (committed), 0.62 and 1.9 px (first repair),
+   0.97 and 2.5 px (final). The camera is set in step with the drawn state, and the bus is drawn
+   through a GeoJSON source a frame or so later. That movement, about a pixel, is the same before
+   and after (the first repair's lower figure is within the software renderer's run-to-run
+   variation), and it is not what read as twitching.
+
+3. **One real journey, frame by frame** (RECORDED: BNML 256 outbound, SK74BNB, 14 reports over
+   4.75 min; the published road shape and motion-3 settings; the page polling every 10 s; offline
+   at 60 frames a second; the estimate identical, frame for frame, in both):
+
+| | Committed drawing | Final drawing |
+|---|---|---|
+| Speed stepping by over 1 m/s in one frame | 34 times | never |
+| Hard speed changes (over 4 m/s²) | 26, 5.5 a minute | none |
+| Largest change of speed in one frame | 1,214 m/s² (a step) | 3.25 m/s² |
+| Drawn speed, 95th percentile | 19.2 m/s | 13.5 m/s |
+| Frames drawn backwards | 601 | 504 |
+| Drawn bus from the estimate, median; 95th percentile | 0.0; 65.5 m | 5.2; 102.5 m |
+
+   The two backward stretches left both follow reports that put the bus 117–119 m behind where it
+   was drawn, beyond the estimate's measured error.
+
+4. **Every captured journey** (`scripts/evaluate-drawing.mjs`, 10 frames a second, polling every
+   10 s; outputs in `data/evaluation/`, not in Git):
+
+| | Development: committed | Development: final | Fresh: committed | Fresh: final |
+|---|---|---|---|---|
+| Journeys; hours drawn | 109; 62.0 | 109; 62.0 | 30; 11.2 | 30; 11.2 |
+| Speed steps per hour | 267 | 0 | 292 | 0.1 |
+| Hard changes, share of frames | 3.5% | 0 | 4.0% | 0 |
+| Reversing: share of time; metres an hour | 3.2%; 1,198 | 2.6%; 405 | 2.8%; 1,048 | 2.1%; 302 |
+| Drawn speed, 95th percentile | 17.4 m/s | 12.9 m/s | 18.7 m/s | 14.0 m/s |
+| From the estimate: median; 80th; 95th percentile | 0; 10.8; 48.7 m | 1.5; 35.4; 84.2 m | 0; 9.6; 52.6 m | 1.8; 35.4; 86.8 m |
+| Snaps per hour | 23.3 | 22.9 | 25.5 | 25.2 |
+
+   Also tried on both sets: the same drawing with only the fixed 35 m hold (no steps, but it
+   reversed far more: 6.8% and 6.0% of the time); an 8 m/s catch-up (less reversing, 320 and
+   247 m an hour, but further from the estimate: 95th percentile 88.5 and 90.8 m); 4 m/s² with a
+   1.5 s settle (nearer the estimate, 80.7 and 83.1 m, but 2.6–2.9% of frames changing speed at
+   over 4 m/s²). The final drawing was the best balance on both sets.
+
+**The cause.** The estimate's own speed changes instantly: it pauses 10 s at each timetabled stop,
+stops at the end of its horizon, and a new report can change its speed reading. The drawing passed
+each change straight through, so the drawn bus stopped dead, leapt away or changed pace within a
+frame, and a correction started at full rate.
+
+**The change** (`lib/motion.ts`: `DRAWING`, `drawingFor`, `stepVisual`; the estimate is untouched,
+and identical frame for frame):
+- the drawn bus has its own speed, which changes by at most 3 m/s each second;
+- it heads for the estimate's own path averaged over ±3 s of what is already known of it, so it
+  slows before a timetabled stop, stands at it, and pulls away just before the estimate does.
+  Nothing is invented: the average is of the estimate's path, read at nearby moments;
+- a correction is closed at up to 12 m/s beyond the path's speed, along a braking curve that
+  lands softly;
+- while the bus moves, a report that finds the drawn bus ahead by no more than the estimate's
+  measured error at that report age (the published 80% band: 49 m for a fresh report, 110 m at
+  30 s) stands it and lets the estimate catch up instead of reversing it; beyond that it glides
+  back, and past 150 m it snaps, as before;
+- a frame after the page stopped drawing (a standing bus) starts from where the bus stood. The
+  in-page replay found this on the first build of the change: after a pause a bus leapt 157 m in
+  0.2 s, unlabelled. A unit test now covers it;
+- a standing bus at a bend no longer keeps the clock running (the drawn heading was compared with
+  the estimate's, which differ at a bend).
+
+The stated cost: after each report the drawn bus trails or leads the estimate for longer (95th
+percentile 84–87 m from it, against 49–53 m before). The estimate's own error up to a minute is
+65 m at the median, and while the drawn bus waits the estimate stays inside the band drawn
+around it.
+
+## Front view
+
+Assessed with a bounded prototype and kept, with the limits stated in `PROJECT_CONTEXT.md`.
+FIXTURE bus at 7 m/s on the route-256 road shape (the published shape was accepted against 1,578
+reports, 95th percentile 11.3 m):
+- the eye 3.5 m above the road at the front of the drawn bus, looking 30 m ahead: pitch 83.3°,
+  zoom 20.3 on the desktop and 20.5 on the phone. The camera is set from the displayed state, so
+  it holds when the drawn bus holds;
+- first frames: the roads were hairlines at eye height. They now have typical widths (a 4 m
+  service road to an 11 m motorway, casings 1.5 m wider), the buildings are solid, and there is a
+  sky by day and by night;
+- second frames: the view read as a road ahead with buildings towards the horizon, but the name of
+  the road ahead stood on end and overlapped itself, and the heading turned with a jolt at each
+  corner of the road shape (turn acceleration up to 77°/s²). Line labels are now hidden in the
+  front view and the heading is eased with a 0.4 s time constant;
+- final frames: the road ahead reads cleanly by day and by night, with no name standing on end.
+  Continuity: sampled every 250 ms for 8 s at desktop by day and phone by night (33 and 32
+  samples, each with a new camera), zoom steady at 20.27 and 20.46, pitch 83.3°, the eye moving
+  69 m and 62 m along the road, no page errors. The recorded video was reviewed through its
+  per-frame measurements and as frames, not by watching it play;
+- the bus's own model, ring, number, caption and trail are hidden: no lime was found in any frame
+  of the recorded ride once the front view began. Outside view restores them; the HUD keeps the
+  route, destination, report age and "Estimated position";
+- offered only on an accepted road shape. A bus without one (route 53 in the fixtures) gets a
+  button that says why, and stays selected. A latest position more than 40 m off its road leaves
+  the front view with a note. Under reduced motion the view is a still every 3 s.
+
+## The rest of the milestone
+
+- **The stop's answer, reordered:** the stop's services and the buses coming, maybe coming and
+  near it come before the chosen bus's card, and how the estimate is made is folded away
+  (`journey.spec` "your stop leads to its services, the buses coming, and the bus standing
+  there"; reviewed in frames at both sizes).
+- **The journey kept and shared:** `lib/journey-context.ts` keeps the stop, service, bus and
+  destination on the device for 12 hours and in the page's address, never a position (8 Node
+  tests). `journey-context.spec`, desktop and phone: the chosen stop, service and bus survive a
+  reload and the address names them, never the location; a shared link opens its stop and
+  service, and a bus it names that has gone is said so, with no other bus chosen for it; a
+  remembered bus now on another journey is not chosen again unless the passenger asks.
+- **Coverage for a route** (`python -m pipeline.route_coverage`, 5 tests), reporting timetable
+  patterns, road shapes, estimate coverage and live buses separately. Route 15 at Marston Road
+  (1800SJ32231): 3 patterns, 1 calling there; 2 accepted shapes (756 reports, 95th percentile
+  11.7 m; 752, 13.8 m); estimates evaluated; 2 live buses at the time. Route 245 at the same
+  stop: 6 patterns, none calling there; no shapes; reports only. The tester's route has not been
+  supplied.
+- **The motion model frozen** (`docs/MOTION_MODEL.md`), with a guard in
+  `scripts/evaluate-motion.mjs` and `scripts/evaluate-frozen.mjs` for fresh captures. First fresh
+  window (30 journeys, 19:15–22:37 BST, the same Sunday): median error up to a minute 65.0 m,
+  against 143.0 m for the last report and 71.7 m at constant speed; the band held 75–82% bin by
+  bin; 3.2% abstained.
+- **Deployment configuration** (`deploy/`): `deploy/validate.sh` with Caddy 2.11.4, its archive
+  checked against the published SHA-512: four scripts' syntax; seven systemd units verified with
+  `systemd-analyze verify`; the Caddyfile validated, then run on 127.0.0.1:8099 against this
+  checkout with 19 route and header checks, all passing. The certificate, the collector under
+  systemd with the real key, and the timers can only be exercised on a server.
+- **Passenger worksheet:** `docs/PASSENGER_TEST.md`.
+- **The embedded window-seat film removed:** component, metadata, tests, styles and docs.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 111 passed
+    .venv/bin/python -m unittest discover -s tests  # 92 passed
+    pnpm test:browser tests/browser/ride.spec.mjs tests/browser/replay.spec.mjs
+                                                    # 37 passed, 1 skipped by design (11.2 min)
+    pnpm test:browser <every other spec file>       # 83 passed, 15 skipped by design (9.5 min)
+
+On the build before the final (which differs only in when the map writes its diagnostics), the
+ride, replay, motion, journey and journey-context specs gave 84 passed, 3 failed, 1 skipped by
+design. The three failures were browser contexts that got no WebGL, so the page drew its own SVG
+fallback 45 s before any riding (opportunity log, entry 17); all three pass on the final build.
+
+The recorded journey through the page on the final build (desktop; the published motion-3
+settings and road shape): 1,325 frames over 281 s; 13 reports eased (22–133 m); no snap (the
+offline evaluation expected one for this slice); the largest step between frames outside a snap
+3.7 m in 0.21 s; 32 frames drawn backwards, each while a labelled correction settled; following
+throughout. On the previous milestone's build: 1,481 frames, 13 eased, the largest step 4.3 m,
+44 backward frames.
+
+LIVE, against the owner's own running `pnpm dev:live` (14 September, 00:32 BST: `next dev` serving
+the final code, the collector publishing from BODS), which the check only reads:
+`LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs`
+passed 4 of 4 on desktop and phone: the live badge, a painted basemap, buses drawn and a genuine
+refresh; and the ride-along going to the chosen real bus, drawing it and following it.
+
+## Not verified here
+
+- A real phone and GPU: legibility in sunlight, frame rate, battery, and the front view on a real
+  device.
+- Weekday traffic: the fresh window is the same Sunday.
+- The tester's own route.
+- Anything on a server.

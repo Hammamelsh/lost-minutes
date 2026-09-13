@@ -494,4 +494,113 @@ workaround is simply to serve the page.
 
 **Right answer.** A note, now in the spec and here. No tool.
 
-**Status:** closed.
+**Status:** closed. The embedded film itself was removed later the same evening at the owner's
+request (he wanted a view from the bus through the mapped streets, not a film), so the spec is
+gone too; the lesson stands for any future embed.
+
+## 15. A frame loop that died only under `next dev`
+
+**Problem and evidence.** The owner's screenshot (13 September, `localhost:3000` under
+`pnpm dev:live`) showed the ride-along gliding to an empty map, with no bus drawn. Every browser
+check was green, because the suite runs the static build. React's development Strict Mode
+unmounts and remounts each component once; the frame loop's cleanup cancelled its pending
+animation frame but left the id in a ref, so `kick()` believed a frame was pending and never
+asked for another. Under `next dev` the chosen bus was never drawn. Fixed in
+`components/city-map.tsx` by clearing the ids in the cleanup, and checked on the running dev
+server with the real feed.
+
+**Who hits it and the current workaround.** Whoever reproduces an owner's report, which is made
+on the dev server, while the automated checks only see `out/`. The workaround is to reproduce by
+hand on `next dev`.
+
+**Recurrence and effort.** Once; about an hour, most of it spent doubting green checks.
+
+**Right answer.** A small addition to the existing suite, not a tool: a smoke project that runs
+three checks (map painted, a bus drawn, ride-along following) against `pnpm dev` as well as the
+build. Playwright's `webServer` can start either.
+
+**Existing tools.** Playwright projects with their own `webServer`; Strict Mode's double
+mounting is documented React behaviour.
+
+**Smallest reusable capability.** A `dev-smoke` Playwright project, run before handing a UI
+change to the owner.
+
+**Next cheap validation.** Add the project and run it once against `pnpm dev`.
+
+**Status:** observed (the defect is fixed; the suite still only runs the build).
+
+## 16. Smoothness was judged by eye, and the first fix measured no better
+
+**Problem and evidence.** The owner reported that the ride-along "twitches". A first repair
+(an acceleration-limited catch-up for corrections, 13 September) passed every unit test, yet a
+per-frame camera probe on a FIXTURE ride showed no improvement (40 of 474 windows of 200 ms over
+3 m/s², before and after). Replaying the page's drawing frame by frame, offline, over real
+captured journeys found the cause: the estimate's own speed changes instantly at each timetabled
+stop (a 10 s pause), at the end of its horizon, and whenever a new report changes the speed
+reading, and the drawing passed those straight through. On the 30 fresh journeys the committed
+drawing stepped its speed by over 1 m/s within a tenth of a second 292 times an hour. The redesign
+(the drawn bus has its own speed, follows the estimate's path averaged over the few seconds of it
+already known, and waits rather than reversing within the estimate's measured error) brought that
+to 0.1 an hour and reversing from 1,048 to 302 m an hour, at a stated cost: the drawn bus strays
+further from the estimate (95th percentile 87 m against 53 m). The in-page replay then caught what
+the offline replay could not: once a standing bus let the page stop drawing, the next frame
+integrated the whole pause and the bus leapt 157 m, unlabelled. The work also showed that the
+drawing's settings were stored inside the frozen estimator's settings, so tuning the drawing would
+have changed the frozen record's hash; they are now separate (`DRAWING` in `lib/motion.ts`).
+
+**Who hits it and the current workaround.** Anyone changing how estimated movement is drawn. The
+workaround was watching recorded videos.
+
+**Recurrence and effort.** Two rounds in one evening; building the measurements took longer than
+either fix.
+
+**Right answer.** Scripts in the repository, not a product. `scripts/evaluate-drawing.mjs` runs
+the page's frame loop offline over the captured journeys and counts speed steps, hard changes,
+reversing and stray, beside the estimate's own evaluation; the recorded replay in the browser
+covers what only the page does (pausing and resuming its frames). For what the renderer adds, the
+chosen bus's on-screen position in a recorded ride video moved 0.6 px per frame at the median.
+
+**Existing tools.** Browser frame-timing tools (Chrome's performance panel, long-animation-frame
+reports) measure dropped frames, not whether a data-driven object moves plausibly; not researched
+further.
+
+**Smallest reusable capability.** The script above: drawing variants in, a table out.
+
+**Next cheap validation.** Run it on the first weekday captures, and give the in-page replay a
+bus that stands long enough for the page to stop drawing.
+
+**Status:** mitigated.
+
+## 17. A browser context that gets no WebGL fails a check that has nothing to do with WebGL
+
+**Problem and evidence.** In the run of 13–14 September on the final build (88 checks, 15.5 min),
+three desktop checks failed at 45–46 s, before any riding: the map never reached
+`data-map-state="painted"`. Each page snapshot shows the drawn SVG map that replaces the vector
+map when WebGL or the basemap fails, and the trace of one shows all 23 tile requests answered.
+The same three checks had passed that point on the build before. The map's own fallback behaved
+correctly; the browser context simply had no working WebGL. The suite runs one check at a time
+(`workers: 1`) in one browser, each check in a new context, so by the end of a long run that
+browser has created many software-rendered (SwiftShader) WebGL contexts, and now and then a new
+one fails; a long recording session had shown the same before (a fourth context losing WebGL).
+Each occurrence costs a rerun, and a reader of the report cannot tell it from a real failure
+without opening the snapshot.
+
+**Who hits it and the current workaround.** Whoever runs `pnpm test:browser`. The workaround is
+to read each failure's page snapshot for "Map of …" and rerun.
+
+**Recurrence and effort.** Seen in two sessions; three of 88 checks in the worst run. About ten
+minutes each time to confirm and rerun.
+
+**Right answer.** A small fix in the suite: the shared "map painted" wait should fail at once with
+"no WebGL in this browser context" when the page reports the fallback, and that one condition can
+be retried in a fresh browser.
+
+**Existing tools.** Playwright's `retries` (per project or per test), a new browser per retry, and
+`testInfo.retry`, which lets a check know it is a retry. No new tool is needed.
+
+**Smallest reusable capability.** `waitForPaint(page)` in `tests/browser/fixtures.mjs`, telling
+"fallback" from "slow" and naming the cause.
+
+**Next cheap validation.** Add it, and see whether a full run still needs a manual rerun.
+
+**Status:** observed.

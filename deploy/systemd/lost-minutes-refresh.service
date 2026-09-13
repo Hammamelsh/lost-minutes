@@ -1,0 +1,24 @@
+[Unit]
+Description=Lost Minutes: rebuild timetable patterns and the pipeline status, collector paused
+Documentation=file:///srv/lost-minutes/app/deploy/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=lostminutes
+Group=lostminutes
+WorkingDirectory=/srv/lost-minutes/app
+EnvironmentFile=/etc/lost-minutes/collector.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The warehouse has one writer. The collector stops for the rebuild (a gap of a few minutes a
+# night, recorded as a run boundary) and is always started again, even if the rebuild fails.
+ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
+ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
+TimeoutStartSec=30min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/lost-minutes/app/data /srv/lost-minutes/app/public/data

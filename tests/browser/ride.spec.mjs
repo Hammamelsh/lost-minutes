@@ -80,51 +80,83 @@ async function dragMap(page, dx, dy) {
   await page.mouse.up();
 }
 const ride = page => page.getByRole('button', {name: 'Ride along with route 256'});
+const metresApart = (a, b) => Math.hypot((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 111195;
+const drawn = async page => {
+  const [lat, lon, s] = ((await map(page).getAttribute('data-display')) || ',,').split(',').map(Number);
+  return {lat, lon, s};
+};
+/** Lime in the middle of the map, below the ride's notes and buttons and above its card, in CSS
+ *  pixels: where the bus's own marks would be if they were drawn. (The notes and buttons are
+ *  outlined in lime themselves, so the area must stay clear of them.) */
+async function limeInMiddle(page) {
+  const area = await map(page).evaluate(el => {
+    const canvas = el.querySelector('.vector-map-canvas').getBoundingClientRect();
+    const edge = (selector, side) => { const r = el.querySelector(selector)?.getBoundingClientRect(); return r && r.height ? r[side] : null; };
+    const top = Math.max(canvas.top + canvas.height * 0.3, (edge('.ride-notes', 'bottom') ?? 0) + 8);
+    const bottom = Math.min(canvas.top + canvas.height * 0.62, (edge('.ride-card', 'top') ?? Infinity) - 8);
+    return {x: canvas.left + canvas.width * 0.25, y: top, width: canvas.width * 0.5, height: Math.max(20, bottom - top),
+      scale: window.devicePixelRatio};
+  });
+  const png = await page.screenshot({clip: {x: area.x, y: area.y, width: area.width, height: area.height}});
+  const devicePixels = await page.evaluate(async b64 => {
+    const img = new Image(); img.src = `data:image/png;base64,${b64}`; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - 0xc6, dg = d[i + 1] - 0xf3, db = d[i + 2] - 0x6a;
+      if (dr * dr + dg * dg + db * db <= 30 * 30) n++;
+    }
+    return n;
+  }, png.toString('base64'));
+  return devicePixels / (area.scale * area.scale);
+}
+async function frontView(page) {
+  await page.getByRole('button', {name: 'Front view'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+}
 
-test('entering: the introduction plays with the bus identifiable throughout, then following begins', async ({page}) => {
+test('entering goes straight to the bus: identifiable while the camera glides, then following at zoom 20', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  const clicked = Date.now();
   await ride(page).click();
-  await expect(map(page)).toHaveAttribute('data-ride', 'entering');
-  await expect(page.locator('.ride-mode')).toContainText('entering');
-  const started = Date.now(), during = [];
+  // No tour and nothing to skip: the camera goes to the drawn bus at once.
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
+  await expect(page.getByRole('button', {name: 'Skip to the bus'})).toHaveCount(0);
+  const during = [];
   while ((await map(page).getAttribute('data-ride')) === 'entering' && during.length < 40) {
-    during.push({...await identify(page), at: Date.now() - started}); await page.waitForTimeout(100);
+    during.push({...await identify(page), at: Date.now() - clicked}); await page.waitForTimeout(80);
   }
-  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 8000});
-  expect(during.length, 'the introduction was sampled').toBeGreaterThan(3);
-  // The first glide (1.2 s) starts from wherever the flat map was and brings the bus into the
-  // frame; from then on the bus is on the map at every sampled moment. While the camera glides
-  // between framings it may pass behind a control for a moment, never for two samples running;
-  // for at least half of the way, and at rest, it is clear of every control with its lime
-  // marker painted around it.
-  const underWay = during.filter(s => s.at >= 1300);
-  const offCanvas = underWay.filter(s => !s.inside);
-  expect(offCanvas, 'the bus never leaves the map once the introduction is under way').toEqual([]);
-  const clear = during.filter(s => s.identifiable).length;
-  expect(clear / during.length, `identifiable in at least half the sampled moments (${clear} of ${during.length})`).toBeGreaterThanOrEqual(0.5);
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  expect(Date.now() - clicked, 'following within a few seconds, even in a software renderer').toBeLessThan(5000);
+  // The glide brings the bus to the middle at the zoom shown, then zooms, tilts and turns around
+  // it: the bus is on the map at every sampled moment, and never behind a control for two
+  // samples running.
+  expect(during.filter(s => !s.inside), 'the bus never leaves the map while the camera glides').toEqual([]);
   let run = 0, longest = 0;
-  for (const s of underWay) { run = s.identifiable ? 0 : run + 1; longest = Math.max(longest, run); }
-  expect(longest, `never hidden behind a control for two samples running (${JSON.stringify(underWay.map(s => s.identifiable ? 1 : s.covering.join('+') || 'off'))})`).toBeLessThanOrEqual(1);
+  for (const s of during) { run = s.identifiable ? 0 : run + 1; longest = Math.max(longest, run); }
+  expect(longest, `never unidentifiable for two samples running (${JSON.stringify(during.map(s => s.identifiable ? 1 : s.covering.join('+') || 'off'))})`).toBeLessThanOrEqual(1);
   await page.waitForTimeout(800);
-  await expectIdentifiable(page, 'following after the introduction');
+  await expectIdentifiable(page, 'following');
   expect((await camera(page)).zoom).toBeCloseTo(20, 0);
   await expect(page.locator('.ride-mode')).toContainText('following the bus');
   await expect(page.locator('.ride-status')).toContainText('following the bus');
   await shot(page, 'ride-following');
 });
 
-test('a drag during the introduction ends it, exploring; Return to bus restores the framing and following', async ({page}) => {
+test('a drag as the camera goes to the bus ends the glide, exploring; Return to bus restores the framing and following', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await ride(page).click();
-  await expect(map(page)).toHaveAttribute('data-ride', 'entering');
-  await page.waitForTimeout(500);
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
+  await page.waitForTimeout(200);
   await dragMap(page, -180, 90);
   await expect(map(page)).toHaveAttribute('data-ride', 'exploring');
-  await expect(page.getByRole('button', {name: 'Skip to the bus'})).toHaveCount(0);
   await expect(page.locator('.ride-status')).toContainText('you moved the map');
   const before = await camera(page);
   await page.waitForTimeout(1500);
@@ -138,12 +170,12 @@ test('a drag during the introduction ends it, exploring; Return to bus restores 
   await expectIdentifiable(page, 'after Return to bus');
 });
 
-test('a tap during the introduction skips to the bus', async ({page}) => {
+test('a tap as the camera goes to the bus finishes the glide quickly, not stranded mid-way', async ({page}) => {
   test.setTimeout(60_000);
   await openAtStopA(page);
   await ride(page).click();
-  await expect(map(page)).toHaveAttribute('data-ride', 'entering');
-  await page.waitForTimeout(400);
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
+  await page.waitForTimeout(150);
   const box = await page.locator('.vector-map-canvas').boundingBox();
   await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.55);
   await expect(map(page)).toHaveAttribute('data-ride', /returning|following/);
@@ -156,7 +188,7 @@ test('dragging while following pauses it predictably, and the negative control: 
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(600);
   await expectIdentifiable(page, 'following');
@@ -180,7 +212,7 @@ test('the passenger’s zoom is kept while following, through new publications, 
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(500);
   // Two animated zoom-outs: they used to be cancelled by the per-frame jump.
@@ -204,7 +236,7 @@ test('exit returns to the flat map; a repeated entry goes straight to the bus', 
   test.setTimeout(90_000);
   await openAtStopA(page);
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.getByRole('button', {name: 'Exit ride-along'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'off');
@@ -213,7 +245,7 @@ test('exit returns to the flat map; a repeated entry goes straight to the bus', 
   await ride(page).click();
   const states = [];
   for (let i = 0; i < 30; i++) { states.push(await map(page).getAttribute('data-ride')); if (states.at(-1) === 'following') break; await page.waitForTimeout(150); }
-  expect(states, 'no second introduction').not.toContain('entering');
+  expect(states.filter(s => !['off', 'entering', 'following'].includes(s)), 'straight to the bus, as the first time').toEqual([]);
   expect(states.at(-1)).toBe('following');
   await page.waitForTimeout(500);
   // On a phone the map grows as the ride starts; applying the new padding at once used to cancel
@@ -229,7 +261,7 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   await openAtStopA(page, {wobble: 5}, {evaluation: null});
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(600);
   await expectIdentifiable(page, 'observed-only bus, following');
@@ -253,7 +285,7 @@ test('a bus without a bearing is shown from above with its number, and a failed 
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await page.locator('.nearby-reports .follow-row').first().click();
   await page.getByRole('button', {name: 'Ride along with route 53'}).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(page.locator('.ride-note')).toContainText('did not report a direction');
   await page.waitForTimeout(800);
@@ -267,7 +299,7 @@ test('a 3D model that fails to load leaves the flat symbol, identifiable at the 
   await page.route('**/models/lm-bus.json*', route => route.fulfill({status: 404, body: ''}));
   await openAtStopA(page, {wobble: 5});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-model', 'failed', {timeout: 15_000});
   await page.waitForTimeout(800);
@@ -278,7 +310,7 @@ test('a theme change and new publications while riding keep following, with the 
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.getByRole('button', {name: 'Switch to the night map'}).click();
   await expect(map(page)).toHaveAttribute('data-theme', 'night');
@@ -293,7 +325,7 @@ test('choosing another bus mid-ride re-frames on it; nothing is said to have mov
   test.setTimeout(90_000);
   await openAtStopA(page, {wobble: 5});
   await ride(page).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', /returning|following/);
@@ -301,6 +333,133 @@ test('choosing another bus mid-ride re-frames on it; nothing is said to have mov
   await page.waitForTimeout(700);
   await expect(map(page)).toHaveAttribute('data-correction', 'none');
   await expectIdentifiable(page, 'the other bus');
+});
+
+test('before riding, a fitted map keeps your stop, its name and your bus clear of the Ride along button, the legend and the tools, by day and by night', async ({page}) => {
+  test.setTimeout(90_000);
+  // This scenario put Stretford Mall's name under the Ride along button on a phone.
+  await openAtStopA(page);
+  for (const theme of ['day', 'night']) {
+    if (theme === 'night') await page.getByRole('button', {name: 'Switch to the night map'}).click();
+    await page.getByRole('button', {name: 'Fit journey'}).click();
+    await page.waitForTimeout(1200);
+    const seen = await map(page).evaluate(el => {
+      const canvas = el.querySelector('.vector-map-canvas').getBoundingClientRect();
+      const point = name => { const raw = el.getAttribute(name); if (!raw) return null; const [x, y] = raw.split(',').map(Number); return {x: canvas.left + x, y: canvas.top + y}; };
+      const controls = [...el.querySelectorAll('.ride-launch,.map-legend-chips span,.map-views,.map-tools,.map-credit-line')]
+        .map(n => ({name: n.className.split(' ')[0], r: n.getBoundingClientRect()})).filter(c => c.r.width && c.r.height);
+      // A name can sit on any side of its dot (variable anchors), so a box around the dot stays clear.
+      const clear = (p, w, h) => controls.filter(c => p.x - w < c.r.right && p.x + w > c.r.left && p.y - h < c.r.bottom && p.y + h > c.r.top).map(c => c.name);
+      const inside = p => p.x >= canvas.left && p.x <= canvas.right && p.y >= canvas.top && p.y <= canvas.bottom;
+      const stop = point('data-stop-screen'), bus = point('data-bus-screen');
+      return {stop: stop && {inside: inside(stop), under: clear(stop, 60, 36)}, bus: bus && {inside: inside(bus), under: clear(bus, 26, 30)}};
+    });
+    expect(seen.stop?.inside && seen.stop.under.length === 0, `${theme}: your stop and its name are clear (${JSON.stringify(seen)})`).toBe(true);
+    expect(seen.bus?.inside && seen.bus.under.length === 0, `${theme}: your bus is clear (${JSON.stringify(seen)})`).toBe(true);
+    await shot(page, `fit-${theme}`);
+  }
+});
+
+// Already moving for 90 s when the page opens, so its trail shows it moving and it is estimated
+// at its speed (a bus that has just set off is read as standing until its trail shows otherwise).
+const underWay = (extra = {}) => ({startMs: Date.now() - 90_000, startS: 150, speed: 7, ...extra});
+
+test('front view: a passenger’s eye along the checked road, the bus’s outside hidden, and Outside view brings it back', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, underWay({wobble: 3}));
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  await page.waitForTimeout(600);
+  const c = await camera(page), d = await drawn(page);
+  expect(c.pitch, 'looking along the road, just below the horizon').toBeGreaterThan(78);
+  expect(c.zoom, 'close to the road, at eye height').toBeGreaterThan(19.8);
+  const ahead = metresApart(c, d);
+  expect(ahead, `the eye rests on the road ahead of the drawn bus (${ahead.toFixed(1)} m)`).toBeGreaterThan(15);
+  expect(ahead).toBeLessThan(45);
+  expect(await limeInMiddle(page), 'nothing of the bus’s outside is drawn in the view').toBeLessThan(20);
+  // What stays: route, destination, report age, whether it is estimated, and the way back out.
+  await expect(page.locator('.ride-card')).toContainText('256');
+  await expect(page.locator('.ride-card')).toContainText('Piccadilly Gardens');
+  await expect(page.locator('.ride-card .ride-motion')).toContainText(/Estimated position · last report \d+ s ago/);
+  await expect(page.locator('.ride-mode')).toContainText('front view');
+  await expect(page.getByRole('button', {name: 'Zoom in'})).toBeDisabled();
+  await shot(page, 'front-view');
+  // Over time the eye moves with the drawn bus, and only as far as it does.
+  const first = {c: await camera(page), d: await drawn(page)};
+  await page.waitForTimeout(3000);
+  const last = {c: await camera(page), d: await drawn(page)};
+  const eyeMoved = metresApart(first.c, last.c), busMoved = last.d.s - first.d.s;
+  expect(busMoved, 'the bus moved').toBeGreaterThan(5);
+  expect(Math.abs(eyeMoved - busMoved), `the eye moved as the bus did (${eyeMoved.toFixed(1)} m against ${busMoved.toFixed(1)} m)`).toBeLessThan(6);
+  await page.getByRole('button', {name: 'Outside view'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'outside');
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await page.waitForTimeout(700);
+  expect((await camera(page)).zoom).toBeCloseTo(20, 0);
+  await expectIdentifiable(page, 'outside again: the bus is back');
+});
+
+test('front view needs a road checked against the bus’s own reports: without one it says why, and the bus stays the same', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page);
+  // Route 53 has no timetable pattern here, so it has no checked road shape either.
+  await page.locator('.nearby-reports .follow-row', {hasText: '53'}).first().click();
+  await expect(page.locator('.bus-card .route-badge')).toHaveText('53');
+  await page.getByRole('button', {name: 'Ride along with route 53'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  const front = page.getByRole('button', {name: 'Front view'});
+  await expect(front).toHaveAttribute('aria-disabled', 'true');
+  // aria-disabled, not disabled: it stays focusable and a tap explains itself. Playwright will not
+  // click what is marked disabled, so the tap is forced.
+  await front.click({force: true});
+  await expect(page.locator('.ride-note', {hasText: 'Front view needs the road this bus is on'})).toBeVisible();
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'outside');
+  await expect(page.locator('.bus-card .route-badge'), 'the selected bus is not changed').toHaveText('53');
+  await expectIdentifiable(page, 'still outside, the same bus');
+});
+
+test('front view: a standing bus holds the view still, and leaving the ride returns to the flat map', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, {standing: true});
+  await expect(map(page)).toHaveAttribute('data-motion-reason', /standing/, {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  await page.waitForTimeout(800);
+  const still = await map(page).getAttribute('data-camera');
+  await page.waitForTimeout(3000);
+  expect(await map(page).getAttribute('data-camera'), 'nothing moves the view while the bus stands').toBe(still);
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'off');
+  await expect.poll(async () => (await camera(page)).pitch, {timeout: 10_000}).toBe(0);
+});
+
+test('front view: a report that corrects the estimate by 60 m is absorbed smoothly, never as a jump', async ({page}) => {
+  test.setTimeout(150_000);
+  await openAtStopA(page, underWay({wobble: 0, jump: {atMs: Date.now() + 30_000, metres: 60}}));
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  const seen = [];
+  const until = Date.now() + 45_000;
+  while (Date.now() < until) {
+    seen.push({t: Date.now(), c: await camera(page), correction: await map(page).getAttribute('data-correction')});
+    if (/^smooth:(4|5|6|7)\d:/.test(seen.at(-1).correction) && seen.length > 20
+        && Date.now() - Number(seen.at(-1).correction.split(':')[2]) > 8000) break;
+    await page.waitForTimeout(200);
+  }
+  const corrections = [...new Set(seen.map(s => s.correction).filter(c => c && c !== 'none'))];
+  expect(corrections.some(c => /^smooth:(4|5|6|7)\d:/.test(c)), `the 60 m report was a smooth correction (${corrections})`).toBe(true);
+  let fastest = 0;
+  for (let i = 1; i < seen.length; i++) {
+    const dt = (seen[i].t - seen[i - 1].t) / 1000;
+    if (dt > 0) fastest = Math.max(fastest, metresApart(seen[i - 1].c, seen[i].c) / dt);
+  }
+  // At most the bus's own speed plus the catch-up limit (15 m/s), with room for sampling.
+  expect(fastest, `the eye never jumped (fastest ${fastest.toFixed(1)} m/s)`).toBeLessThan(28);
 });
 
 test.describe('reduced motion', () => {
@@ -317,5 +476,18 @@ test.describe('reduced motion', () => {
     await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 1500});
     await page.waitForTimeout(400);
     await expectIdentifiable(page, 'reduced motion, returned');
+  });
+
+  test('the front view steps every few seconds instead of flowing', async ({page}) => {
+    test.setTimeout(60_000);
+    await openAtStopA(page, underWay({wobble: 3}));
+    await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+    await ride(page).click();
+    await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 3000});
+    await frontView(page);
+    await page.waitForTimeout(500);
+    const views = new Set();
+    for (let i = 0; i < 24; i++) { views.add(await map(page).getAttribute('data-camera')); await page.waitForTimeout(250); }
+    expect(views.size, `a handful of still views in 6 s, not a flow (${views.size})`).toBeLessThanOrEqual(4);
   });
 });

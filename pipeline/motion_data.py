@@ -34,7 +34,9 @@ ORDER BY o.operator, o.vehicle, o.journey_ref, o.observed_at_ms
 """
 
 
-def export(con, lines):
+def export(con, lines, since_ms=None, until_ms=None):
+    """Sequences for the lines; with a window, only journeys whose first report falls inside it,
+    so a fresh evaluation never sees a journey that began in the development captures."""
     from .match import load_patterns, match_vehicle
     from .service_days import service_day
     patterns = load_patterns(con)
@@ -71,9 +73,13 @@ def export(con, lines):
                                  road, source_index[sha], run])
     for sequence in sequences:
         del sequence['key']
+    inside = lambda s: ((since_ms is None or s['fixes'][0][0] >= since_ms)
+                        and (until_ms is None or s['fixes'][0][0] < until_ms))
     return {'schemaVersion': 1, 'generatedAt': utc_now(), 'lines': list(lines),
+            'window': {'since': since_ms, 'until': until_ms,
+                       'rule': 'a journey is included when its first report is inside the window'},
             'runs': sorted(runs.values(), key=lambda r: r['startedAt'] or ''),
-            'sources': sources, 'sequences': [s for s in sequences if len(s['fixes']) >= 2],
+            'sources': sources, 'sequences': [s for s in sequences if len(s['fixes']) >= 2 and inside(s)],
             'note': 'Observed reports only, one sequence per journey of one vehicle. Each fix: '
                     '[observed ms, retrieved ms, lat, lon, reported bearing or null, matched '
                     'pattern or null, index into sources, first-seen run].'}
@@ -85,11 +91,21 @@ def main(argv=None):
     out = sub.add_parser('export')
     out.add_argument('--lines', required=True)
     out.add_argument('--out', default=str(TARGET))
+    out.add_argument('--since', help='ISO time: only journeys that began at or after it (UTC if no offset)')
+    out.add_argument('--until', help='ISO time: only journeys that began before it')
     args = parser.parse_args(argv)
+    from datetime import datetime, timezone
+
+    def ms(text):
+        if not text:
+            return None
+        moment = datetime.fromisoformat(text.replace('Z', '+00:00'))
+        return int((moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp() * 1000)
     from .warehouse import connect
     con = connect(ROOT / DEFAULT_DB)
     try:
-        payload = export(con, [line.strip() for line in args.lines.split(',') if line.strip()])
+        payload = export(con, [line.strip() for line in args.lines.split(',') if line.strip()],
+                         ms(args.since), ms(args.until))
     finally:
         con.close()
     atomic_json(ROOT / args.out, payload)

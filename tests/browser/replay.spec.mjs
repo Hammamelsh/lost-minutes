@@ -84,7 +84,6 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 25_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();
-  await page.getByRole('button', {name: 'Skip to the bus'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
 
   // Sample every frame until the last recorded report has arrived and settled.
@@ -101,9 +100,11 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   const smooth = pairs.filter(p => !p.snap);
   const worst = smooth.reduce((w, p) => (p.ds - 25 * p.dt > w.ds - 25 * w.dt ? p : w), smooth[0]);
   expect(worst.ds - 25 * worst.dt, `no jump between frames except at a labelled snap (${JSON.stringify(worst)})`).toBeLessThan(3);
-  // Drawn backwards only as a labelled correction being absorbed: a report that put the bus
-  // behind where it was drawn is caught up at no more than 15 m/s, so the settling lasts the
-  // correction's size over that rate, plus the decay's tail. Never at a whim between reports.
+  // Drawn backwards only as a labelled correction being absorbed. A report that finds the drawn
+  // bus further ahead than it may wait for (the estimate's measured error at that age) first
+  // slows it at 3 m/s² from its drawn speed (at most about 6 s), then closes the gap at no more
+  // than 12 m/s and lands softly (DRAWING in lib/motion.ts): the settling lasts at most the
+  // correction's size over 12 m/s plus about 15 s. Never at a whim between reports.
   const backwards = [];
   for (let i = 1; i < valid.length; i++) {
     const a = valid[i - 1], b = valid[i];
@@ -112,7 +113,7 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
     const since = at ? (b.frame - Number(at)) / 1000 : null;
     backwards.push({ds: +(b.s - a.s).toFixed(1), kind, metres: Number(metres) || 0, since: since === null ? null : +since.toFixed(1)});
   }
-  const stray = backwards.filter(m => !(m.kind === 'smooth' || m.kind === 'snap') || m.since === null || m.since > m.metres / 15 + 3);
+  const stray = backwards.filter(m => !(m.kind === 'smooth' || m.kind === 'snap') || m.since === null || m.since > m.metres / 12 + 15);
   expect(stray, `backward drawing only while a labelled correction settles (${backwards.length} backward frames)`).toEqual([]);
   const corrections = [...new Set(valid.map(v => v.correction).filter(c => c && c !== 'none'))];
   const snaps = corrections.filter(c => /^snap/.test(c)).length, smooths = corrections.filter(c => /^smooth/.test(c)).length;

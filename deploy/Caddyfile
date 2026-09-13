@@ -1,0 +1,49 @@
+# Lost Minutes: the static site from out/ and the published data from public/data, over HTTPS.
+#
+# LM_DOMAIN and LM_ROOT come from /etc/lost-minutes/caddy.env through the drop-in in
+# deploy/systemd/caddy.service.d/. With a real domain whose A record points at the server, Caddy
+# obtains and renews the certificate itself (ports 80 and 443 open). For a local check,
+# deploy/validate.sh runs this same file over plain HTTP on 127.0.0.1.
+
+{$LM_DOMAIN} {
+	encode zstd gzip
+
+	# Everything under /data is served from where the pipeline publishes, so the collector's
+	# rewrites are live at once. out/data is only the copy taken at build time.
+	handle /data/* {
+		root * {$LM_ROOT}/public
+		# Rewritten every 20 s by one writer: a short cache absorbs load without serving
+		# anything more than about 10 s behind the collector.
+		header /data/live.json Cache-Control "public, max-age=10, stale-while-revalidate=20"
+		header /data/operations.json Cache-Control "public, max-age=10, stale-while-revalidate=20"
+		# Runtime pointers: a change takes effect within a minute, with no rebuild.
+		header /data/config.json Cache-Control "public, max-age=60"
+		header /data/replay.json Cache-Control "public, max-age=3600"
+		header /data/roads.json Cache-Control "public, max-age=3600"
+		# Timetable patterns, stops, road shapes and the evaluation change at most nightly.
+		header ?Cache-Control "public, max-age=300"
+		file_server
+	}
+
+	handle {
+		root * {$LM_ROOT}/out
+		# Content-hashed file names never change.
+		header /_next/static/* Cache-Control "public, max-age=31536000, immutable"
+		# The page and the service worker must revalidate, so a deploy is picked up.
+		header / Cache-Control "no-cache"
+		header /index.html Cache-Control "no-cache"
+		header /sw.js Cache-Control "no-cache"
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Location only for this site's own "Locate me"; nothing else is asked for.
+		Permissions-Policy "geolocation=(self), camera=(), microphone=(), payment=()"
+		-Server
+	}
+
+	log
+}

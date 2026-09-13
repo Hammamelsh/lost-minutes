@@ -12,7 +12,6 @@ import {Operations,parseOperations} from '@/lib/operations';
 import OperationsView from '@/components/operations-view';
 import FollowView from '@/components/follow-view';
 import MotionEvidence from '@/components/motion-evidence';
-import WindowSeatJourneys from '@/components/window-seat';
 import {busesFromArchive,busesFromLive,busFromVehicle} from '@/lib/follow';
 import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
 import type {LiveVehicle} from '@/lib/live';
@@ -27,6 +26,7 @@ async function fingerprint(text:string){
 }
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
+import {initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -72,6 +72,8 @@ export default function Home(){
  const [catalogue,setCatalogue]=useState<Catalogue|null>(null);
  const [patterns,setPatterns]=useState<PatternCatalogue|null>(null);
  const [stop,setStop]=useState<Stop|null>(null);
+ // The journey left on this device or opened from a link: undefined until the stops are known.
+ const [journey,setJourney]=useState<InitialJourney|null|undefined>(undefined);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  const [here,setHere]=useState<{lat:number;lon:number;accuracyMetres?:number}|null>(null);
  const [outsideArea,setOutsideArea]=useState(false);
@@ -79,7 +81,18 @@ export default function Home(){
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
  const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
  useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/stops.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
- .then(value=>{if(value)setCatalogue(parseCatalogue(value))}).catch(()=>{});
+ .then(value=>{
+  if(!value)return;
+  const parsed=parseCatalogue(value);
+  setCatalogue(parsed);
+  // A link wins over this device; neither ever holds where the passenger is.
+  let storage:Storage|null=null;
+  try{storage=window.localStorage}catch{/* a refused store: nothing to restore */}
+  const restored=readInitialJourney(window.location.search,storage,Date.now());
+  const found=restored?.stopId?parsed.stops.find(s=>s.id===restored.stopId)??null:null;
+  if(found)setStop(current=>current??found);
+  setJourney(restored);
+ }).catch(()=>{});
  fetch('/data/patterns.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
  .then(value=>{if(value)setPatterns(parsePatterns(value))}).catch(()=>{});
  fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
@@ -214,12 +227,12 @@ export default function Home(){
      here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
      onUseArchive={data?()=>setUsingArchive(true):undefined}
-     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}/>
+     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}
+     initialJourney={journey}/>
     {usingArchive&&<button className="text-action follow-leave-archive"
      onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
    </TabsContent>
    <TabsContent value="explore" id="workspace">
-    <WindowSeatJourneys patterns={patterns} stops={catalogue?.stops??[]}/>
     <div className="workspace-grid"><section className="map-card"><div className="map-card-head"><div><span className="eyebrow">{route==='all'?'THE RECORDED NETWORK':`ROUTE ${routeLabel}`}</span><h2>{chosen?cleanLabel(chosen.destination)||'Manchester journeys':'No journeys in this selection'}{chosen&&<ArrowDown size={18}/>}</h2></div><span className="time-chip">{clock(time,true)} <small>BST</small></span></div><MapView journeys={filtered} time={time} selected={chosen?.id??''} choose={setSelected} roads={roads}/><div className="map-foot"><Info size={15}/><p>Positions update only when an observation exists. Dashed trails connect samples; they are not exact road paths.</p></div></section>
     <aside className="journey-panel"><div className="panel-top"><span className="eyebrow">IN THIS VIEW</span><span className="tiny-label">at {clock(time)}</span></div><div className="headline-number">{seen.length}<span> buses observed</span></div><p className="muted">With a position no more than 2 minutes old at the replay time.</p><div className="mini-stats"><div><strong>{count.toLocaleString()}</strong><span>unique observations<br/>up to this moment</span></div><div><strong>{filtered.length}</strong><span>recorded journey tracks<br/>across the full sample</span></div></div><div className="section-rule"/><div className="section-title"><h3>Select a journey</h3><BusFront size={18}/></div><div className="journey-list">{filtered.length===0?<p className="empty-copy">No observations match this route and direction. Try another selection.</p>:filtered.map(j=>{const p=lastObservation(j,time);const isCurrent=!!latestVisible(j,time);return <button key={j.id} className={`journey-choice ${chosen?.id===j.id?'chosen':''}`} onClick={()=>setSelected(j.id)} aria-pressed={chosen?.id===j.id}><span className="route-pill">{j.route}</span><span className="journey-choice-copy"><strong>{j.vehicle}</strong><span>{cleanLabel(j.destination)||'Destination not supplied'}</span></span><span className={isCurrent?'fresh-label':'quiet-label'}>{isCurrent?'Observed':p?'Older':'Later'}</span></button>})}</div>
     {chosen&&<div className="selected-evidence"><div className="section-title"><h3>One bus, up close</h3><span>{chosen.vehicle}</span></div><dl><div><dt>Last observation</dt><dd>{point?clock(point.time,true):'Not yet observed'}</dd></div><div><dt>Age at replay time</dt><dd>{age===null?'—':`${age}s`}{age!==null&&age>120?' · older':''}</dd></div><div><dt>90th percentile sample gap</dt><dd>{p90===null?'Not enough points':`${Math.round(p90)}s`}</dd></div></dl><p className="microcopy">These are gaps in this sampled archive, not a measure of the operator’s full reporting frequency.</p><button className="text-action" onClick={()=>{setTab('evidence');setPlaying(false)}}>Inspect the source <ArrowUpRight size={16}/></button></div>}

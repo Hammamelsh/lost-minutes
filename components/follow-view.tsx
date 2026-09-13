@@ -1,7 +1,7 @@
 "use client";
 
-import {useCallback,useMemo,useState,useSyncExternalStore} from 'react';
-import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Star,WifiOff,X} from 'lucide-react';
+import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
+import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Share2,Star,WifiOff,X} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState} from '@/components/city-map';
 import Nearby from '@/components/nearby';
@@ -23,6 +23,8 @@ import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
+import {journeyQuery,restoreBus,restoreService,savedBusOf,writeJourney,
+        type BusRestore,type InitialJourney,type SavedBus} from '@/lib/journey-context';
 
 const MODE:Record<FeedMode,{label:string;tone:string}>={
  live:{label:'LIVE',tone:'live'},
@@ -48,7 +50,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
                                     onLocate,locating,locationError,patterns,patternsById,
                                     here,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
-                                    clockOffsetMs=0}:{
+                                    clockOffsetMs=0,initialJourney}:{
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
@@ -57,6 +59,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>;
  here:Here|null;outsideArea:boolean;onClearHere:()=>void;
  nowMs:number;liveFingerprint?:string|null;recall?:(key:string)=>FollowBus|null;
+ /** The journey left on this device or opened from a link; undefined until the page has read it. */
+ initialJourney?:InitialJourney|null;
  walkingConfig?:WalkingConfig|null;clockOffsetMs?:number}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
@@ -69,8 +73,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const [rideState,setRideState]=useState<RideState>('off');
  const [blocked,setBlocked]=useState(false);
  const [choice,setChoice]=useState<{route:string;direction:string}|null>(null);
- const [serviceKey,setServiceKey]=useState<string|null>(null);
- const [selectedKey,setSelectedKey]=useState('');
+ // The passenger's own choices in this visit, undefined until they make one: until then a journey
+ // restored from this device or a link stands in, checked against fresh data below.
+ const [serviceChoice,setServiceChoice]=useState<string|null|undefined>(undefined);
+ const [busChoice,setBusChoice]=useState<string|undefined>(undefined);
+ const [shareState,setShareState]=useState<'idle'|'copied'|'failed'>('idle');
+ const chosenSnapshot=useRef<SavedBus|null>(null);
  const [follow,setFollow]=useState(false);
  const [view,setView]=useState<MapView>('2d');
  const [fitRequest,setFitRequest]=useState(0);
@@ -81,7 +89,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // five-second clock would tear the map down on every tick (the 13 September lifecycle bug).
  const stopFollowing=useCallback(()=>setFollow(false),[]);
  const showMapFallback=useCallback(()=>setMapFallback(true),[]);
- const selectFromMap=useCallback((key:string)=>{setSelectedKey(key);setFollow(false)},[]);
+ const selectFromMap=useCallback((key:string)=>{setBusChoice(key);setFollow(false)},[]);
 
  // The day a timetable is judged against: today in Manchester, or the recording's day.
  const day=londonDate(mode==='archive'?(buses[0]?.observedAtMs??nowMs):nowMs);
@@ -102,6 +110,11 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  },[buses,stop,patternsById]);
  const services=useMemo(()=>stop?servicesAtStop(patterns,stop.id,day,buses,patternsById):[],
   [patterns,stop,day,buses,patternsById]);
+ // A restored service filter applies only at the restored stop and once today's services are
+ // known; one the stop no longer has is said so below, not silently dropped.
+ const serviceRestore=serviceChoice===undefined&&patterns&&initialJourney?.serviceKey&&stop?.id===initialJourney.stopId
+  ?restoreService(initialJourney.serviceKey,services):{kind:'none' as const,key:null};
+ const serviceKey=serviceChoice!==undefined?serviceChoice:serviceRestore.kind==='chosen'?serviceRestore.key:null;
  const activeService=services.find(s=>s.key===serviceKey)??null;
  const board=useMemo(()=>stop?stopBoard(buses,stop,relations,
   activeService?(bus,relation)=>busOnService(bus,activeService,relation):undefined):null,
@@ -134,13 +147,21 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
                       ...board.elsewhere].map(row=>row.bus.key));
   return buses.filter(b=>keys.has(b.key));
  },[stop,board,onRoute,buses]);
+ // A restored bus is chosen again only as the same vehicle on the same journey. Until the latest
+ // positions are in, and while it has gone or started another journey, nothing is chosen for the
+ // passenger in its place: they are told, and they choose.
+ const restoredKey=mode==='archive'?'':initialJourney?.bus?.key??initialJourney?.busKey??'';
+ const pendingRestore=busChoice===undefined&&restoredKey!=='';
+ const busRestore:BusRestore=pendingRestore&&buses.length>0?restoreBus(initialJourney??null,buses):{kind:'none'};
+ const selectedKey=busChoice??(busRestore.kind==='chosen'?busRestore.key:'');
+ const holdChoice=pendingRestore&&busRestore.kind!=='chosen';
  const liveSelected=selectedKey?buses.find(b=>b.key===selectedKey):undefined;
  // An explicit choice is kept when its bus leaves the feed; the card says so rather than
  // quietly switching to another bus.
  const gone=selectedKey&&!liveSelected?recall?.(selectedKey)??null:null;
  // Only a bus timetabled to call at your stop and not yet past it is chosen for you. Anything
  // else is shown only when you pick it, and is labelled as not coming to your stop.
- const selected=liveSelected??(selectedKey?undefined:(stop?board?.coming[0]?.bus:onRoute[0]));
+ const selected=liveSelected??(selectedKey||holdChoice?undefined:(stop?board?.coming[0]?.bus:onRoute[0]));
  const cardBus=selected??gone??undefined;
  const cardRelation=cardBus&&stop?(relations.get(cardBus.key)??relateToStop(cardBus,stop.id,patternsById)):undefined;
  const cardStanding=cardRelation?standing(cardRelation):null;
@@ -148,22 +169,71 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const effectiveView:MapView=view==='ride'&&!selected?'2d':view;
  const riding=effectiveView==='ride';
 
+ // What became of a restored journey, said once fresh data is in.
+ const restoreNotes:string[]=[];
+ if(busRestore.kind==='gone')restoreNotes.push(busRestore.saved
+  ?`The bus you chose before, ${busRestore.saved.route} to ${destinationLabel(busRestore.saved.destination)}, is not in the latest positions (the last report we had from it was at ${clock(busRestore.saved.observedAtMs,true)}). No other bus has been chosen in its place.`
+  :`The bus in this link (vehicle ${busRestore.busKey.split('|')[1]}) is not in the latest positions. No other bus has been chosen in its place.`);
+ if(busRestore.kind==='other_journey')restoreNotes.push(`The bus you chose before, ${busRestore.saved.route} to ${destinationLabel(busRestore.saved.destination)}, `
+  +`is now reporting another journey${busRestore.now.route!==busRestore.saved.route?` as route ${busRestore.now.route}`:''} to ${destinationLabel(busRestore.now.destination)}, so it has not been chosen again.`);
+ if(pendingRestore&&buses.length===0&&(mode==='unavailable'||mode==='offline'))
+  restoreNotes.push('Live positions are not available, so the bus you chose before cannot be checked. Nothing has been chosen in its place.');
+ if(serviceRestore.kind==='gone'&&initialJourney?.serviceKey){
+  const [,line,,destination]=initialJourney.serviceKey.split('|');
+  restoreNotes.push(`${line} to ${destination} is not in today’s timetable for this stop, so every service is listed.`);
+ }
+ if(initialJourney?.stopId&&!stop&&stops.length>0&&!stops.some(s=>s.id===initialJourney.stopId))
+  restoreNotes.push('The stop you had chosen is not in the current stop list. Search for your stop.');
+
+ // The journey as it stands, kept on this device and in the address bar (replaced, never pushed).
+ // Nothing is written until the page has read what was there, and never from a recording.
+ useEffect(()=>{
+  if(initialJourney===undefined||mode==='archive')return;
+  let bus:SavedBus|null=null;
+  if(busChoice===undefined)bus=busRestore.kind==='chosen'&&liveSelected?savedBusOf(liveSelected):initialJourney?.bus??null;
+  else if(busChoice!==''){
+   if(liveSelected?.key===busChoice)chosenSnapshot.current=savedBusOf(liveSelected);
+   bus=chosenSnapshot.current?.key===busChoice?chosenSnapshot.current:null;
+  }
+  // A restored service the passenger has not changed is kept, even on a day it does not run.
+  const service=serviceChoice!==undefined?serviceChoice
+   :initialJourney&&stop?.id===initialJourney.stopId?initialJourney.serviceKey:null;
+  let storage:Storage|null=null;
+  try{storage=window.localStorage}catch{/* a refused store still works for this visit */}
+  writeJourney(storage,{stopId:stop?.id??null,serviceKey:service,bus});
+  const busKey=bus?.key??(busChoice===undefined?initialJourney?.busKey??null:null);
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey:service,busKey});
+  const next=`${window.location.pathname}${query?`?${query}`:''}${window.location.hash}`;
+  if(next!==`${window.location.pathname}${window.location.search}${window.location.hash}`)
+   window.history.replaceState(window.history.state,'',next);
+ },[initialJourney,mode,busChoice,busRestore.kind,liveSelected,serviceChoice,stop]);
+
  const copy=MODE[mode];
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
  const collector=live?.collection.collector;
 
- function chooseBus(key:string){setSelectedKey(key);setFollow(false);setFitRequest(n=>n+1)}
+ function chooseBus(key:string){setBusChoice(key);setFollow(false);setFitRequest(n=>n+1)}
  function chooseService(key:string){
-  setServiceKey(current=>current===key?null:key);setSelectedKey('');setFollow(false);setFitRequest(n=>n+1);
+  setServiceChoice(serviceKey===key?null:key);setBusChoice('');setFollow(false);setFitRequest(n=>n+1);
  }
  function pick(next:{route:string;direction:string}){
-  setChoice(next);setSelectedKey('');setFollow(false);setFitRequest(n=>n+1);
+  setChoice(next);setBusChoice('');setFollow(false);setFitRequest(n=>n+1);
  }
  function selectStop(next:Stop|null){
-  onSelectStop(next);setServiceKey(null);setSelectedKey('');setView('2d');setFitRequest(n=>n+1);
+  onSelectStop(next);setServiceChoice(null);setBusChoice('');setView('2d');setFitRequest(n=>n+1);
  }
- function backToStop(){setSelectedKey('');setFollow(false);setView('2d');setFitRequest(n=>n+1)}
+ function backToStop(){setBusChoice('');setFollow(false);setView('2d');setFitRequest(n=>n+1)}
+ // A shared link names the stop, the service and a bus the passenger chose: never where they are.
+ async function share(){
+  const busKey=busChoice||busRestore.kind==='chosen'?selectedKey||null:null;
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey});
+  const url=`${window.location.origin}${window.location.pathname}${query?`?${query}`:''}`;
+  try{
+   if(navigator.share){await navigator.share({title:`Lost Minutes · ${stopLabel}`,url});setShareState('idle');return}
+   await navigator.clipboard.writeText(url);setShareState('copied');
+  }catch(error){setShareState(error instanceof DOMException&&error.name==='AbortError'?'idle':'failed')}
+ }
 
  const ageText=(bus:FollowBus)=>mode==='archive'?`reported ${clock(bus.observedAtMs,true)}`:bus.ageWords;
  const ageChip=(bus:FollowBus)=>mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','');
@@ -240,6 +310,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
          aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
          onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
          <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/></button>
+        <button onClick={share} aria-label="Share this stop"><Share2 size={15}/></button>
         <button onClick={()=>selectStop(null)}>Change</button>
        </span>
       </div>
@@ -261,6 +332,18 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       </div>}
      </div>)}
   {blocked&&<p className="follow-hint warn">This device would not let us save that. It still works for this visit.</p>}
+  {shareState==='copied'&&<p className="follow-hint">Link copied. It names this stop{busChoice?' and the bus you chose':''}, never
+   your location.</p>}
+  {shareState==='failed'&&<p className="follow-hint warn">This browser would not share or copy the link.</p>}
+  {restoreNotes.length>0&&<div className="restore-notice" role="status">
+   {restoreNotes.map(note=><p key={note}>{note}</p>)}
+   {holdChoice&&(busRestore.kind==='gone'||busRestore.kind==='other_journey')&&<div className="restore-actions">
+    {busRestore.kind==='other_journey'&&<button className="text-action" onClick={()=>chooseBus(busRestore.now.key)}>
+     Follow it on its new journey</button>}
+    <button className="text-action" onClick={()=>setBusChoice('')}>
+     {stop?'Show the first bus coming to your stop':'Show another bus'}</button>
+   </div>}
+  </div>}
 
   {mapFallback
    ? <FollowMap buses={mapBuses} selected={selected} follow={follow} roads={roads}
@@ -272,6 +355,51 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       busLabel={relevant?'Your bus':'Selected bus'}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
       clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}/>}
+
+  {/* The stop first: what leaves from here, then the buses coming to it with how far each has got
+      and how old its report is, then everything else listed apart with what it is. The card for
+      the chosen bus follows, so the alternatives are never below a long card. */}
+  {stop&&<section className="services" aria-label="Services from your stop">
+   <h3 className="section-head">Services from this stop{services.length?<small>timetabled · tap to filter</small>:null}</h3>
+   {services.length===0
+    ? <p className="services-empty">No timetable coverage for this stop yet. Buses near it can be shown,
+       but none can be confirmed as calling here.</p>
+    : <div className="service-chips">{services.map(service=>
+       <button key={service.key} aria-pressed={activeService?.key===service.key}
+        className={`service-chip${activeService?.key===service.key?' on':''}${service.runsToday===false?' not-today':''}`}
+        onClick={()=>chooseService(service.key)}>
+        <span className="route-pill">{service.line}</span>
+        <span className="service-chip-copy"><strong>to {service.destination}</strong>
+         <small>{service.runsToday===false?`not running today · ${service.runs}`
+          :service.reporting?`${service.reporting} coming or here`:'none reporting nearby'}</small></span>
+       </button>)}</div>}
+  </section>}
+  {stop&&board&&<section className="waiting" aria-label="Buses coming to your stop">
+   <h3 className="section-head">{activeService?`${activeService.line} to ${activeService.destination}`:'Coming to your stop'}
+    <small>by the timetable’s stop order</small></h3>
+   {board.coming.length===0
+    ? <p className="services-empty">{services.length
+       ?'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.'
+       :'Without timetable coverage for this stop, no bus can be confirmed as coming here.'}</p>
+    : board.coming.map(item=>row(item,standingWords(item)))}
+  </section>}
+  {stop&&board&&board.maybe.length>0&&<section className="maybe-coming" aria-label="Buses that may call at your stop">
+   <h3 className="section-head">May call at your stop<small>branch not settled</small></h3>
+   {board.maybe.map(item=>row(item,standingWords(item)))}
+  </section>}
+  {stop&&board&&board.nearby.length>0&&<section className="nearby-reports" aria-label="Last reported nearby">
+   <h3 className="section-head">Last reported nearby<small>within 150 m, not coming to your stop</small></h3>
+   {board.nearby.map(item=>row(item,`${Math.round(item.metres/10)*10} m away · ${standingWords(item)}`))}
+  </section>}
+  {stop&&board&&more>0&&<details className="exploring">
+   <summary>More buses near your stop ({more})</summary>
+   {board.passed.length>0&&<div className="board-group"><h4>Already past your stop</h4>
+    {board.passed.map(item=>row(item,standingWords(item)))}</div>}
+   {board.elsewhere.length>0&&<div className="board-group"><h4>Not for your stop</h4>
+    {board.elsewhere.map(item=>row(item,`${(item.metres/1000).toFixed(1)} km away · ${standingWords(item)}`))}</div>}
+   {board.old.length>0&&<div className="board-group"><h4>Old reports</h4>
+    {board.old.map(item=>row(item,`${standingWords(item)} · an old report`))}</div>}
+  </details>}
 
   {/* Which bus, is it coming here, how far has it got, how old is that? */}
   {cardBus&&<article className={`bus-card${gone?' gone':''}${relevant?'':' explored'}`}
@@ -294,7 +422,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
    </div>}
    {motionWords&&!gone&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
-    <p><strong>{motionWords.label}</strong><span>{motionWords.detail}</span></p>
+    {/* The label is the claim; how an estimate is made is one tap away. Why a bus is not
+        estimated stays in view. */}
+    {motionInfo?.mode==='estimated'
+     ? <details><summary><strong>{motionWords.label}</strong><span>How the estimate is made</span></summary>
+        <p>{motionWords.detail}</p></details>
+     : <p><strong>{motionWords.label}</strong><span>{motionWords.detail}</span></p>}
     <button className="text-action" aria-pressed={!estimatedMovement}
      onClick={()=>saveMotionPreference(!estimatedMovement)}>
      {estimatedMovement?'Show reported positions only':'Show estimated movement'}</button>
@@ -338,7 +471,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      expiryMinutes={expiryMinutes} name={name} onOpenEvidence={onOpenEvidence}/>
    </details>
   </article>}
-  {stop&&board&&!cardBus&&buses.length>0&&<article className="bus-card empty" aria-label="Your bus">
+  {stop&&board&&!cardBus&&!holdChoice&&buses.length>0&&<article className="bus-card empty" aria-label="Your bus">
    <p className="bus-card-eyebrow">Your bus</p>
    <div className="bus-card-answer tone-neutral"><strong>No bus is confirmed coming to your stop yet</strong>
     <span>{board.maybe.length?`${board.maybe.length===1?'One bus':`${board.maybe.length} buses`} may call here; the branch is not settled.`
@@ -365,50 +498,6 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     {publicationAgeSeconds===null?'at an unknown time':`${Math.round(publicationAgeSeconds)} seconds ago`}.</p>}
    {onUseArchive&&!usingArchive&&<button className="action" onClick={onUseArchive}>Follow a bus in the recording</button>}
   </div>}
-
-  {stop&&<section className="services" aria-label="Services from your stop">
-   <h3 className="section-head">Services from this stop{services.length?<small>timetabled · tap to filter</small>:null}</h3>
-   {services.length===0
-    ? <p className="services-empty">No timetable coverage for this stop yet. Buses near it can be shown,
-       but none can be confirmed as calling here.</p>
-    : <div className="service-chips">{services.map(service=>
-       <button key={service.key} aria-pressed={activeService?.key===service.key}
-        className={`service-chip${activeService?.key===service.key?' on':''}${service.runsToday===false?' not-today':''}`}
-        onClick={()=>chooseService(service.key)}>
-        <span className="route-pill">{service.line}</span>
-        <span className="service-chip-copy"><strong>to {service.destination}</strong>
-         <small>{service.runsToday===false?`not running today · ${service.runs}`
-          :service.reporting?`${service.reporting} coming or here`:'none reporting nearby'}</small></span>
-       </button>)}</div>}
-  </section>}
-
-  {/* Relevant buses first and alone; everything else is listed apart with what it is. */}
-  {stop&&board&&<section className="waiting" aria-label="Buses coming to your stop">
-   <h3 className="section-head">{activeService?`${activeService.line} to ${activeService.destination}`:'Coming to your stop'}
-    <small>by the timetable’s stop order</small></h3>
-   {board.coming.length===0
-    ? <p className="services-empty">{services.length
-       ?'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.'
-       :'Without timetable coverage for this stop, no bus can be confirmed as coming here.'}</p>
-    : board.coming.map(item=>row(item,standingWords(item)))}
-  </section>}
-  {stop&&board&&board.maybe.length>0&&<section className="maybe-coming" aria-label="Buses that may call at your stop">
-   <h3 className="section-head">May call at your stop<small>branch not settled</small></h3>
-   {board.maybe.map(item=>row(item,standingWords(item)))}
-  </section>}
-  {stop&&board&&board.nearby.length>0&&<section className="nearby-reports" aria-label="Last reported nearby">
-   <h3 className="section-head">Last reported nearby<small>within 150 m, not coming to your stop</small></h3>
-   {board.nearby.map(item=>row(item,`${Math.round(item.metres/10)*10} m away · ${standingWords(item)}`))}
-  </section>}
-  {stop&&board&&more>0&&<details className="exploring">
-   <summary>More buses near your stop ({more})</summary>
-   {board.passed.length>0&&<div className="board-group"><h4>Already past your stop</h4>
-    {board.passed.map(item=>row(item,standingWords(item)))}</div>}
-   {board.elsewhere.length>0&&<div className="board-group"><h4>Not for your stop</h4>
-    {board.elsewhere.map(item=>row(item,`${(item.metres/1000).toFixed(1)} km away · ${standingWords(item)}`))}</div>}
-   {board.old.length>0&&<div className="board-group"><h4>Old reports</h4>
-    {board.old.map(item=>row(item,`${standingWords(item)} · an old report`))}</div>}
-  </details>}
 
   {!stop&&buses.length>0&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">Or follow a route<small>without choosing a stop</small></h3>

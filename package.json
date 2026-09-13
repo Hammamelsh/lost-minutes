@@ -9,7 +9,7 @@
     "dev": "node scripts/vendor-maplibre.mjs && next dev",
     "build": "node scripts/vendor-maplibre.mjs && next build --webpack",
     "start": "python3 -m http.server 3000 --directory out",
-    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs tests/nearby.test.mjs tests/journey.test.mjs tests/map-style.test.mjs tests/motion.test.mjs tests/walking.test.mjs tests/window-seat.test.mjs",
+    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs tests/nearby.test.mjs tests/journey.test.mjs tests/map-style.test.mjs tests/motion.test.mjs tests/walking.test.mjs tests/journey-context.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern out --ignore-pattern .next --ignore-pattern public/vendor",
     "dev:live": "node scripts/dev-live.mjs",

@@ -1,0 +1,10 @@
+[Unit]
+Description=Lost Minutes: restart a collector that has stopped publishing
+Documentation=file:///srv/lost-minutes/app/deploy/README.md
+
+[Service]
+Type=oneshot
+# Root only to restart the collector unit; the check reads one published file and nothing else.
+ExecStart=/srv/lost-minutes/app/deploy/check-health.sh
+Environment=LM_ROOT=/srv/lost-minutes/app
+Environment=LM_MAX_PUBLICATION_AGE=600

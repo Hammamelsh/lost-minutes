@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
-import {Crosshair,Eye,LocateFixed,Minus,Moon,Plus,Scan,SkipForward,Sun,X} from 'lucide-react';
+import {Armchair,Bus,Crosshair,Eye,LocateFixed,Minus,Moon,Plus,Scan,Sun,X} from 'lucide-react';
 import {BASEMAP_CREDITS,MAPLIBRE_MODULE_URL,prefersReducedMotion,webglAvailable} from '@/lib/basemap';
 import {applyTheme,buildingExtrusion,buildStyle,type MapTheme} from '@/lib/map-style';
 import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
@@ -10,12 +10,13 @@ import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
-import {DEFAULT_PARAMS,estimate,needsFrames,observedAt,project,slice,stepVisual,tickClock,type PresentationClock,uncertaintyAt,
+import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
+        type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
 import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
-import type {GeoJSONSource,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
+import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
 import type {FollowBus} from '@/lib/follow';
 import type {Stop} from '@/lib/stops';
 
@@ -59,18 +60,46 @@ const VIEW_CAMERA={'2d':{pitch:0,bearing:0},city:{pitch:58,bearing:-17}};
 // While following, the camera is re-centred on the drawn bus every frame; after a gesture or
 // an animated zoom has moved it further than this (px), it glides back rather than jumping.
 const SETTLE_PX=40;
+// The front view: a passenger's eye at the front of the upper deck of a double-decker, looking
+// down the road ahead along the bus's own road shape (never the raw GPS heading, which jitters).
+const EYE_HEIGHT=3.5;          // m above the road
+const EYE_FORWARD=4;           // m ahead of the drawn position, the middle of a 12 m bus
+const LOOK_AHEAD=30;           // m further along the road, where the eye rests: turns sweep smoothly
+const FRONT_MAX_PITCH=85;      // the view looks about 7° below the horizon; MapLibre allows 180
+const OUTSIDE_MAX_PITCH=70;    // the map's own limit everywhere else
+const NO_PADDING={top:0,bottom:0,left:0,right:0};
+// Above the horizon a sky, and towards it a haze, so the map's far edge fades rather than ends.
+const FRONT_SKY:Record<MapTheme,NonNullable<Parameters<MapLibreMap['setSky']>[0]>>={
+ day:{'sky-color':'#a9cbe3','horizon-color':'#e9e3d3','fog-color':'#efe7d6','sky-horizon-blend':0.5,
+  'horizon-fog-blend':0.6,'fog-ground-blend':0.35,'atmosphere-blend':0},
+ night:{'sky-color':'#07111a','horizon-color':'#1b2b37','fog-color':'#13212c','sky-horizon-blend':0.5,
+  'horizon-fog-blend':0.6,'fog-ground-blend':0.35,'atmosphere-blend':0}};
+// No sky: what MapLibre itself uses when a style sets none.
+const SKY_OFF:NonNullable<Parameters<MapLibreMap['setSky']>[0]>={'sky-color':'transparent','horizon-color':'transparent',
+ 'fog-color':'transparent','fog-ground-blend':1,'atmosphere-blend':0};
+// At eye level a road drawn at its map width is a 1 m ribbon: the front view draws each class at a
+// real width in metres, its casing a kerb wider. Exponential base 2 in zoom is constant in metres.
+const ROAD_METRES:Record<string,number>={'lm-motorway':11,'lm-primary':9,'lm-secondary':7.5,'lm-minor':6,
+ 'lm-service':4,'lm-path':2,'lm-rail':2.5};
+const METRES_PER_PIXEL_Z0=156543.03*Math.cos(53.46*Math.PI/180);   // Manchester's latitude
+const metresWide=(metres:number)=>['interpolate',['exponential',2],['zoom'],
+ 14,metres*2**14/METRES_PER_PIXEL_Z0,24,metres*2**24/METRES_PER_PIXEL_Z0];
+// The chosen bus's own marks on the map: hidden in the front view, where the camera is inside it.
+const SELECTED_TRAIL=['lm-trail-band','lm-trail-estimate','lm-trail-report'];
 
 /**
  * The ride-along's camera, one state at a time, so the map and the card can say the same thing:
- *   entering    the optional introduction (you, your stop, then the bus), or the first framing
+ *   entering    gliding to the bus as the ride starts
  *   following   the camera is on the drawn bus every frame
  *   exploring   the passenger moved the map; the bus goes on without the camera
- *   returning   "Return to bus" or "Skip": gliding back to the ride framing, then following
+ *   returning   "Return to bus", another bus or another viewpoint: gliding there, then following
  * A gesture during a transition ends it; a transition made obsolete (another bus chosen, the
- * ride left) is cancelled by its token before it can finish.
+ * ride left) is cancelled by its token before it can finish. The viewpoint is separate: outside
+ * (above and behind the bus) or front (a passenger's eye at the front of the upper deck, offered
+ * only where the bus's road has been checked against its own reports).
  */
 export type RideState='off'|'entering'|'following'|'exploring'|'returning';
-export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'entering',following:'following the bus',
+export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'going to the bus',following:'following the bus',
  exploring:'exploring the map',returning:'returning to the bus'};
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
@@ -168,8 +197,28 @@ function ridePadding(canvas:HTMLElement){
  return {top:Math.round(top+8),bottom:Math.round(bottom+8),left:0,right:0};
 }
 
+/**
+ * Room at each edge for the map's own controls, measured, so that a fitted journey lands clear of
+ * them with its names (a stop's name sits up to about 40 px from its dot, on whichever side has
+ * room). On a phone the legend and the Ride along button take about 110 px at the foot; the fixed
+ * 88 px allowed before put a stop fitted near the bottom under the button.
+ */
+const NAME_ROOM=40;
+function fitPadding(container:HTMLElement){
+ const box=container.getBoundingClientRect();
+ const within=container.closest('.vector-map');
+ const edge=(selector:string)=>{
+  const r=within?.querySelector(selector)?.getBoundingClientRect();
+  return r&&r.width>0&&r.height>0?r:null;
+ };
+ const views=edge('.map-views'),tools=edge('.map-tools'),foot=edge('.vector-map-foot');
+ return {top:Math.round(Math.max(70,views?views.bottom-box.top+NAME_ROOM:0)),
+  bottom:Math.round(Math.max(88,foot?box.bottom-foot.top+NAME_ROOM:0)),
+  left:64,right:Math.round(Math.max(64,tools?box.right-tools.left+14:0))};
+}
+
 /** Resolve when a camera move ends, or a little after it should have. */
-function glide(instance:MapLibreMap,options:Record<string,unknown>&{duration:number}){
+function glide(instance:MapLibreMap,options:Parameters<MapLibreMap['easeTo']>[0]&{duration:number}){
  return new Promise<void>(resolve=>{
   const done=()=>{clearTimeout(timer);instance.off('moveend',done);resolve()};
   const timer=setTimeout(done,options.duration+700);
@@ -185,7 +234,7 @@ function glide(instance:MapLibreMap,options:Record<string,unknown>&{duration:num
  * the middle first, at the zoom already shown, and the zoom, tilt and turn then happen around
  * it. False if something else took the camera in between.
  */
-async function approach(instance:MapLibreMap,target:()=>Record<string,unknown>&{center:[number,number]},
+async function approach(instance:MapLibreMap,target:()=>CameraOptions&{center:LngLatLike},
  duration:number,still:()=>boolean){
  const middle=instance.project(instance.getCenter()),bus=instance.project(target().center);
  const off=Math.hypot(bus.x-middle.x,bus.y-middle.y);
@@ -195,6 +244,46 @@ async function approach(instance:MapLibreMap,target:()=>Record<string,unknown>&{
  }
  await glide(instance,{...target(),duration});
  return still();
+}
+
+/** Bearing from one point to another, degrees from north; flat, which is exact enough over 30 m. */
+const bearingTo=(a:{lat:number;lon:number},b:{lat:number;lon:number})=>
+ (Math.atan2((b.lon-a.lon)*Math.cos(a.lat*Math.PI/180),b.lat-a.lat)*180/Math.PI+360)%360;
+
+/** The front view's eye, at the front of the drawn bus on its own road shape, and the bearing of
+ *  the road LOOK_AHEAD metres ahead of it. Null off the road, or with too little road left. */
+function frontAim(track:Track,v:{lat:number;lon:number;s:number|null},lead=0){
+ const placed=v.s===null?project(track,v):null;
+ if(placed&&placed.offset>40)return null;
+ const s=(v.s??placed?.s??0)+lead;
+ const eyeS=Math.min(track.length,s+EYE_FORWARD),lookS=Math.min(track.length,eyeS+LOOK_AHEAD);
+ if(lookS-eyeS<5)return null;
+ const eye=pointAt(track,eyeS);
+ return {eye,bearing:bearingTo(eye,pointAt(track,lookS))};
+}
+
+/**
+ * The front view's camera: the eye EYE_HEIGHT above the road at the front of the drawn bus,
+ * looking LOOK_AHEAD metres ahead, along the road there or along the eased `bearing` the frame
+ * loop passes. The eye comes from the displayed state (its place along the road), so the view
+ * moves exactly as the bus is drawn: holding when it holds, easing when a report corrects it,
+ * never travelling on its own. Null where nothing is left ahead to look along, or the drawn bus
+ * is off its road.
+ */
+function frontCamera(instance:MapLibreMap,track:Track,v:{lat:number;lon:number;s:number|null},lead=0,
+ bearing?:number):CameraOptions|null{
+ const aim=frontAim(track,v,lead);
+ if(!aim)return null;
+ const {eye}=aim,b=(bearing??aim.bearing)*Math.PI/180;
+ const ahead={lat:eye.lat+LOOK_AHEAD*Math.cos(b)/111195,
+  lon:eye.lon+LOOK_AHEAD*Math.sin(b)/(111195*Math.cos(eye.lat*Math.PI/180))};
+ try{
+  // MapLibre converts any [lon, lat] pair; its typings ask for its own LngLat class, which this
+  // module only has once MapLibre itself has loaded.
+  const at=(p:{lat:number;lon:number})=>[p.lon,p.lat] as unknown as LngLat;
+  const options=instance.calculateCameraOptionsFromTo(at(eye),EYE_HEIGHT,at(ahead),0);
+  return Number.isFinite(options.zoom??Number.NaN)&&Number.isFinite(options.pitch??Number.NaN)?options:null;
+ }catch{return null}
 }
 
 const lineFeature=(coordinates:LonLat[],kind:string)=>({type:'Feature' as const,
@@ -239,7 +328,7 @@ type Inputs={ready:boolean;selected?:FollowBus;history:History|null;track:Track|
  onMotion?:(info:MotionInfo|null)=>void};
 
 /** The ride-along's camera state, kept in a ref for the frame loop and mirrored to React. */
-type Ride={state:RideState;intro:boolean;introSeen:boolean;transition:number;
+type Ride={state:RideState;camera:'outside'|'front';transition:number;
  pointer:{down:boolean;moved:boolean};settling:boolean};
 
 /**
@@ -261,6 +350,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  const [track,setTrack]=useState<(TrackResult&{patternId:string})|null>(null);
  const [motionModel,setMotionModel]=useState<MotionModel|null|undefined>(undefined);
  const [rideState,setRideState]=useState<RideState>('off');
+ // The passenger's choice of viewpoint, kept for the visit. The front view is used only where it
+ // can be drawn honestly (frontReason below), and never changes which bus is followed.
+ const [cameraWish,setCameraWish]=useState<'outside'|'front'>('outside');
+ const [frontNote,setFrontNote]=useState<string|null>(null);
+ const leaveFront=useRef<((note:string)=>void)|null>(null);
+ // The map's own road widths, kept while the front view draws roads at real widths.
+ const savedWidths=useRef(new Map<string,unknown>());
+ useEffect(()=>{leaveFront.current=note=>{setCameraWish('outside');setFrontNote(note)}},[]);
  // Once the passenger drags, pinches or zooms, the view is theirs until they ask again.
  const userMoved=useRef(false);
  // The theme the map is created in; later changes are applied in place, never by rebuilding.
@@ -269,13 +366,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  const viewRef=useRef(view);
  const visualRef=useRef<Visual|null>(null);
  const estimateRef=useRef<Estimate|null>(null);
- const ride=useRef<Ride>({state:'off',intro:false,introSeen:false,transition:0,pointer:{down:false,moved:false},settling:false});
+ const ride=useRef<Ride>({state:'off',camera:'outside',transition:0,pointer:{down:false,moved:false},settling:false});
  const wasRiding=useRef(false);
  // The bus being ridden, so a change of bus mid-ride re-frames rather than being mistaken for a move.
  const rideKey=useRef('');
- const returnRef=useRef<(fast?:boolean)=>void>(()=>{});
+ const returnRef=useRef<(fast?:boolean,as?:'entering'|'returning')=>void>(()=>{});
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
- const loop=useRef({raf:null as number|null,lastDraw:0,lastDiag:0,infoKey:'',drawn:false,frames:0,
+ const loop=useRef({raf:null as number|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
+  frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,
   key:null as string|null,clock:null as PresentationClock|null});
  // One place changes the ride state, so the frame loop, the HUD and the card never disagree.
  const setRide=useCallback((next:RideState)=>{
@@ -355,21 +453,22 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    // moving camera does not re-render the page on every frame.
    instance.on('moveend',()=>{
     const centre=instance.getCenter();
-    root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(2)},${centre.lat.toFixed(5)},`
-     +`${centre.lng.toFixed(5)},${Math.round(instance.getPitch())},${Math.round(instance.getBearing())}`);
+    // Centimetres and tenths of a degree: fine enough to measure how smoothly it moves per frame.
+    root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(3)},${centre.lat.toFixed(7)},`
+     +`${centre.lng.toFixed(7)},${instance.getPitch().toFixed(1)},${instance.getBearing().toFixed(1)}`);
    });
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
-   // does; a standing bus draws no frames, so it is projected here too.
+   // does; a standing bus draws no frames, so it is projected here too, and so is the stop.
    instance.on('move',()=>{
-    const v=visualRef.current;
-    if(!v||!root.current)return;
-    const at=instance.project([v.lon,v.lat]);
-    root.current.setAttribute('data-bus-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
+    if(!root.current)return;
+    const v=visualRef.current,s=inputs.current.stop;
+    if(v){const at=instance.project([v.lon,v.lat]);root.current.setAttribute('data-bus-screen',`${Math.round(at.x)},${Math.round(at.y)}`)}
+    if(s){const at=instance.project([s.lon,s.lat]);root.current.setAttribute('data-stop-screen',`${Math.round(at.x)},${Math.round(at.y)}`)}
    });
    // A gesture is the passenger taking over. MapLibre marks its own camera events with the
    // DOM event that caused them; ours carry none, so they can never pass as gestures. In the
    // ride-along a drag pauses following ("Return to bus" resumes it) and a zoom keeps following
-   // at the passenger's zoom; either ends an introduction or a return where it is.
+   // at the passenger's zoom; either ends the glide to the bus where it is.
    const gesture=(kind:'drag'|'zoom')=>(event:{originalEvent?:unknown})=>{
     if(!event.originalEvent)return;
     const r=ride.current;
@@ -385,10 +484,10 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    };
    instance.on('dragstart',gesture('drag'));
    instance.on('zoomstart',gesture('zoom'));
-   // A finger or a pointer on the map during an introduction or a return stops that camera
-   // move at once, before MapLibre decides whether it is a drag: chaining the next move on the
-   // interrupted one's end would otherwise swallow the drag. A tap that moves nothing skips
-   // to the bus instead of stranding the passenger mid-way.
+   // A finger or a pointer on the map while the camera glides to the bus stops that move at
+   // once, before MapLibre decides whether it is a drag: chaining the next move on the
+   // interrupted one's end would otherwise swallow the drag. A tap that moves nothing finishes
+   // the glide quickly instead of stranding the passenger mid-way.
    const canvasBox=instance.getCanvasContainer();
    const pointerDown=()=>{
     const r=ride.current;
@@ -443,18 +542,24 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   if(!selected||follow||view==='ride'||userMoved.current)return;
   const point=instance.project([selected.lon,selected.lat]);
   const {clientWidth:width,clientHeight:height}=instance.getContainer();
-  const inset=56;
-  if(point.x<inset||point.y<inset||point.x>width-inset||point.y>height-inset){
+  // Under a control counts as outside: a bus behind the Ride along button is not in view.
+  const pad=fitPadding(instance.getContainer());
+  if(point.x<pad.left||point.y<pad.top||point.x>width-pad.right||point.y>height-pad.bottom){
    move(m=>m.easeTo({center:[selected.lon,selected.lat],duration:prefersReducedMotion()?0:450}));
   }
  },[ready,busCollection,selected,follow,view,move]);
 
  useEffect(()=>{
-  if(!ready||!map.current)return;
-  const source=map.current.getSource(STOP_SOURCE) as GeoJSONSource|undefined;
+  const instance=map.current;
+  if(!ready||!instance)return;
+  const source=instance.getSource(STOP_SOURCE) as GeoJSONSource|undefined;
   source?.setData({type:'FeatureCollection',features:stop?[{type:'Feature',
    geometry:{type:'Point',coordinates:[stop.lon,stop.lat]},
    properties:{label:stop.indicator?`${stop.name} (${stop.indicator})`:stop.name}}]:[]});
+  // Diagnostic, as for the bus: where the stop is on the canvas, refreshed on every camera move.
+  if(!stop){root.current?.removeAttribute('data-stop-screen');return}
+  const at=instance.project([stop.lon,stop.lat]);
+  root.current?.setAttribute('data-stop-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
  },[ready,stop]);
 
  useEffect(()=>{
@@ -526,6 +631,15 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   :null;
  const modelShown=view!=='2d'&&model!==null&&Boolean(selected);
  const provisional=blocked===CHECKING||blocked===LOADING;
+ // The front view needs the road the bus is on, checked against its own reports: an accepted
+ // road shape. Without one it would be guesswork at eye level, so the ride stays outside and
+ // says why. Stop-to-stop straight lines are never used instead.
+ const frontReason=!selected?null
+  :trackFor===null&&patternId?'Front view is waiting for this bus’s road geometry.'
+  :!trackFor?.track?'Front view needs the road this bus is on, checked against its own reports. This service has none yet, so it is shown from outside.'
+  :null;
+ const camera=view==='ride'&&cameraWish==='front'&&!frontReason?'front':'outside';
+ const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
 
  // --- the presentation clock -------------------------------------------------------------
  const inputs=useRef<Inputs>({ready:false,history:null,track:null,blocked:null,provisional:false,params:DEFAULT_PARAMS,
@@ -553,10 +667,12 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   const now=state.clock.now;
   const e=input.blocked||!input.track?observedAt(input.history,now,input.blocked??'no road geometry',input.provisional)
    :estimate(input.history,input.track,now,input.params);
-  const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,input.params);
+  const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile));
   visualRef.current=v;estimateRef.current=e;
   const t=performance.now();
-  if(!state.drawn||t-state.lastDraw>=32){
+  // In the ride-along the camera moves every frame, so the bus is drawn every frame too: drawn
+  // at half the camera's rate it shimmied against the street. Elsewhere 30 a second is plenty.
+  if(!state.drawn||t-state.lastDraw>=(input.view==='ride'?0:32)){
    state.lastDraw=t;state.drawn=true;
    selectedSource?.setData({type:'FeatureCollection',features:[{type:'Feature',
     geometry:{type:'Point',coordinates:[v.lon,v.lat]},
@@ -583,13 +699,33 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   const r=ride.current;
   const following=input.view==='ride'?r.state==='following':input.follow&&e.mode==='estimated';
   if(following&&!instance.isMoving()){
-   const bearing=input.view==='ride'&&v.bearing!==null?{bearing:v.bearing}:{};
-   const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
-   if(Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
-    instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
-   else instance.jumpTo({center:[v.lon,v.lat],...bearing});
+   if(input.view==='ride'&&r.camera==='front'){
+    // Inside the bus: the eye is set from the displayed state every frame (every few seconds
+    // under reduced motion), so it holds, eases and corrects exactly as the bus is drawn. It
+    // looks along the road ahead, eased with a 0.4 s time constant, so each corner of the road's
+    // shape turns the view smoothly rather than with a jolt.
+    const aim=input.track?frontAim(input.track,v):null;
+    if(aim){
+     const gap=t-state.lastFrontT;
+     state.frontBearing=state.frontBearing===null||gap>500?aim.bearing
+      :turnToward(state.frontBearing,aim.bearing,1-Math.exp(-gap/400));
+     state.lastFrontT=t;
+    }
+    const front=input.track&&aim?frontCamera(instance,input.track,v,0,state.frontBearing??undefined):null;
+    if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
+    else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}
+   }else{
+    const bearing=input.view==='ride'&&v.bearing!==null?{bearing:v.bearing}:{};
+    const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
+    if(Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
+     instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
+    else instance.jumpTo({center:[v.lon,v.lat],...bearing});
+   }
   }
-  if(t-state.lastDiag>=200){
+  // Diagnostics a few times a second, and always on the last frame before the loop rests, so a
+  // bus that has just come to a stand is described as it is.
+  const more=needsFrames(e,v);
+  if(!more||t-state.lastDiag>=200){
    state.lastDiag=t;
    diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]));
   }
@@ -597,13 +733,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
-  // A bus held at its last reports wakes the clock when its hold would end.
-  if(needsFrames(e,v))state.raf=requestAnimationFrame(tick);
+  // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that
+  // it is eased away on time rather than leaping off.
+  if(more)state.raf=requestAnimationFrame(tick);
   else if(e.held&&e.resumeAt&&resumeTimer.current?.at!==e.resumeAt){
    if(resumeTimer.current)clearTimeout(resumeTimer.current.timer);
    const at=e.resumeAt;
    resumeTimer.current={at,timer:setTimeout(()=>{resumeTimer.current=null;if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(tick)},
-    Math.max(50,e.resumeAt-now+30))};
+    Math.max(50,e.resumeAt-now-DRAWING.smoothing*1000))};
   }
  },[]);
  const kick=useCallback(()=>{if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(frame)},[frame]);
@@ -613,26 +750,54 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    view,follow,model,modelShown,here,stop,walk,onMotion};
   kick();
  });
+ // The ids go with the frame and the timer. React's development Strict Mode unmounts and
+ // remounts every component once; a cancelled frame whose id stayed behind made kick() think a
+ // frame was pending, so under `next dev` the selected bus was never drawn and the ride-along
+ // glided to an empty map.
  useEffect(()=>()=>{
-  if(loop.current.raf!==null)cancelAnimationFrame(loop.current.raf);
-  if(resumeTimer.current)clearTimeout(resumeTimer.current.timer);
+  if(loop.current.raf!==null){cancelAnimationFrame(loop.current.raf);loop.current.raf=null}
+  if(resumeTimer.current){clearTimeout(resumeTimer.current.timer);resumeTimer.current=null}
  },[]);
 
  // With the model drawn, the flat symbol gives way to the ring and the badge from the model's
  // zoom up; below it, and whenever there is no model, the flat symbol is the marker. "Model
  // loaded" is not "model visible": the ring and badge are symbols, drawn over any building.
+ // In the front view the camera is inside the bus: its model, ring, number, caption and trail
+ // are all hidden so nothing of its outside can block the view, the buildings are solid (from
+ // street level a see-through block reads as a ghost), and a sky and haze fill the horizon.
  useEffect(()=>{
   const instance=map.current;
   if(!ready||!instance)return;
+  const inside=camera==='front';
   try{
-   instance.setLayoutProperty('lm-bus-model','visibility',modelShown?'visible':'none');
-   instance.setLayoutProperty('lm-bus-badge','visibility',modelShown?'visible':'none');
-   instance.setPaintProperty('lm-sel-marker','icon-opacity',(modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
-   instance.setPaintProperty('lm-sel-marker','text-opacity',(modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
-   instance.setPaintProperty('lm-sel-ring','icon-opacity',(modelShown?SHOW_RING_WHEN_MODEL:0) as never);
+   instance.setLayoutProperty('lm-bus-model','visibility',modelShown&&!inside?'visible':'none');
+   instance.setLayoutProperty('lm-bus-badge','visibility',modelShown&&!inside?'visible':'none');
+   instance.setPaintProperty('lm-sel-marker','icon-opacity',(inside?0:modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
+   instance.setPaintProperty('lm-sel-marker','text-opacity',(inside?0:modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
+   instance.setPaintProperty('lm-sel-ring','icon-opacity',(inside?0:modelShown?SHOW_RING_WHEN_MODEL:0) as never);
+   instance.setLayoutProperty('lm-sel-caption','visibility',inside?'none':'visible');
+   for(const id of SELECTED_TRAIL)instance.setLayoutProperty(id,'visibility',inside?'none':'visible');
+   if(instance.getLayer('lm-buildings-3d'))instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',
+    inside?1:(buildingExtrusion(theme) as unknown as {paint:Record<string,number>}).paint['fill-extrusion-opacity']);
+   instance.setSky(inside?FRONT_SKY[theme]:SKY_OFF);
+   for(const [id,metres] of Object.entries(ROAD_METRES))for(const [layer,extra] of [[id,0],[`${id}-casing`,1.5]] as const){
+    if(!instance.getLayer(layer))continue;
+    if(inside){
+     if(!savedWidths.current.has(layer))savedWidths.current.set(layer,instance.getPaintProperty(layer,'line-width'));
+     instance.setPaintProperty(layer,'line-width',metresWide(metres+extra) as never);
+    }else if(savedWidths.current.has(layer)){
+     instance.setPaintProperty(layer,'line-width',savedWidths.current.get(layer) as never);
+     savedWidths.current.delete(layer);
+    }
+   }
+   // Street and river names are laid along their lines. From eye height the name of the road
+   // ahead stands on end and overlaps itself, so the front view leaves them out.
+   for(const layer of instance.getStyle().layers??[])
+    if(layer.type==='symbol'&&(layer.layout as Record<string,unknown>|undefined)?.['symbol-placement']==='line')
+     instance.setLayoutProperty(layer.id,'visibility',inside?'none':'visible');
   }catch{/* the flat symbol stays: the 2D map is always the fallback */}
   kick();
- },[ready,modelShown,kick]);
+ },[ready,modelShown,kick,camera,theme]);
 
  // --- camera ----------------------------------------------------------------------
  // `camera` is the tilt and heading to end at; without it the current tilt is kept.
@@ -659,10 +824,10 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    return;
   }
   const lons=points.map(p=>p[0]),lats=points.map(p=>p[1]);
-  // The right-hand padding clears the tool column, the top the view switch, the bottom a
-  // marker's label and the credit line: fitted means readable, not merely inside.
+  // Fitted means readable, not merely inside: the padding is the room the controls actually take,
+  // measured, plus room for a marker's name.
   move(m=>m.fitBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],
-   {padding:{top:70,bottom:88,left:64,right:84},maxZoom:16.2,...camera,duration:reduce?0:500}));
+   {padding:fitPadding(m.getContainer()),maxZoom:16.2,...camera,duration:reduce?0:500}));
  },[here,stop,selected,buses,walk,move]);
 
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
@@ -710,9 +875,17 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   }
  },[ready,view,move]);
 
- // The ride-along's framing, from the drawn state: above and behind it, turned to its heading.
- const rideFraming=useCallback((instance:MapLibreMap)=>{
-  const v=visualRef.current,s=inputs.current.selected;
+ // The ride-along's framing, from the drawn state. Outside: above and behind the bus, turned to
+ // its heading. Front: the passenger's eye (frontCamera), led by how far a moving bus will have
+ // gone by the end of the glide, so the glide ends where the next frame begins.
+ const rideFraming=useCallback((instance:MapLibreMap,leadSeconds=0):CameraOptions&{center:LngLatLike}=>{
+  const v=visualRef.current,s=inputs.current.selected,track=inputs.current.track;
+  if(ride.current.camera==='front'&&track&&v){
+   const e=estimateRef.current;
+   const lead=e?.mode==='estimated'&&!e.held&&(e.speed??0)>0?(e.speed??0)*leadSeconds:0;
+   const front=frontCamera(instance,track,v,lead);
+   if(front?.center)return front as CameraOptions&{center:LngLatLike};
+  }
   const centre=instance.getCenter();
   const heading=v?.bearing??s?.bearing??null;
   return {center:(v?[v.lon,v.lat]:s?[s.lon,s.lat]:[centre.lng,centre.lat]) as [number,number],zoom:RIDE_ZOOM,
@@ -720,32 +893,40 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  },[]);
 
  /**
-  * "Return to bus", "Skip to the bus", and the first framing of a ride without an
-  * introduction: glide to the ride framing (a jump under reduced motion), then follow. The
-  * glide is obsolete the moment a gesture, another bus or leaving moves the camera instead.
+  * Every entry, "Return to bus" and a change of bus: glide to the ride framing (a jump under
+  * reduced motion), then follow. The glide is obsolete the moment a gesture, another bus or
+  * leaving moves the camera instead.
   */
- const returnToBus=useCallback((fast=false)=>{
+ const returnToBus=useCallback((fast=false,as:'entering'|'returning'='returning')=>{
   const instance=map.current,r=ride.current;
   if(!instance||viewRef.current!=='ride')return;
   const token=++r.transition;
   instance.stop();
+  const duration=fast?450:900;
+  // Once outside again, the map's own pitch limit returns.
+  const settle=()=>{
+   if(r.camera==='outside'&&instance.getPitch()<=OUTSIDE_MAX_PITCH)instance.setMaxPitch(OUTSIDE_MAX_PITCH);
+   setRide('following');kick();
+  };
   if(prefersReducedMotion()){
    instance.jumpTo(rideFraming(instance));
-   setRide('following');kick();
+   settle();
    return;
   }
-  setRide('returning');
-  approach(instance,()=>rideFraming(instance),fast?450:900,()=>r.transition===token&&r.state==='returning').then(still=>{
-   if(!still)return;
-   setRide('following');kick();
-  });
+  setRide(as);
+  const still=()=>r.transition===token&&r.state===as;
+  // The front view glides straight to the eye: its look-at point is already ahead of the bus.
+  const arrived=r.camera==='front'
+   ?glide(instance,{...rideFraming(instance,duration/1000),duration}).then(still)
+   :approach(instance,()=>rideFraming(instance),duration,still);
+  arrived.then(ok=>{if(ok)settle()});
  },[rideFraming,setRide,kick]);
  useEffect(()=>{returnRef.current=returnToBus},[returnToBus]);
 
- // Entering the ride-along: the first time, an introduction (you, your stop and the bus,
- // then the stop, then the bus), each step interruptible and skippable; later entries and
- // reduced motion go straight to the bus. Leaving cancels whatever the camera was doing and
- // returns to the practical map.
+ // Entering the ride-along goes straight to the bus: the map the passenger has just left already
+ // showed the journey, so a tour only delayed the one thing asked for. A change of viewpoint
+ // while riding glides to the new one. Leaving cancels whatever the camera was doing and returns
+ // to the practical map, with its own pitch limit.
  useEffect(()=>{
   const instance=map.current,r=ride.current;
   if(!ready||!instance)return;
@@ -753,57 +934,30 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    if(!wasRiding.current)return;
    wasRiding.current=false;
    r.transition+=1;
+   r.camera='outside';
    // Stopping the ride's camera also stops the view's own ease, so the fit carries the tilt and
    // heading of the view being returned to.
    instance.stop();
    instance.resize();
-   instance.setPadding({top:0,bottom:0,left:0,right:0});
+   instance.setPadding(NO_PADDING);
+   instance.setMaxPitch(OUTSIDE_MAX_PITCH);
    setRide('off');
    userMoved.current=false;
    fitLatest.current(VIEW_CAMERA[view==='city'?'city':'2d']);
    return;
   }
-  if(wasRiding.current)return;
+  const entering=!wasRiding.current;
+  if(!entering&&r.camera===camera)return;
   wasRiding.current=true;
-  rideKey.current=inputs.current.selected?.key??'';
-  // A phone's ride map is taller: the camera takes the new size before anything is framed.
-  instance.resize();
-  instance.setPadding(ridePadding(instance.getContainer()));
-  const intro=r.intro&&!prefersReducedMotion();
-  r.intro=false;
-  if(!intro){returnRef.current(false);return}
-  r.introSeen=true;
-  const token=++r.transition;
-  setRide('entering');
-  const {here:you,stop:board,selected:bus,walk:path}=inputs.current;
-  const points:LonLat[]=journeyFocus({here:you,stop:board,bus}).map(p=>[p.lon,p.lat]);
-  if(path)points.push(...path.path);
-  // A framing that cannot fit (a small screen under the ride-along's notes) is skipped:
-  // MapLibre throws on it, and nothing here may take the page down.
-  const framing=(list:LonLat[],maxZoom:number)=>{
-   const lons=list.map(p=>p[0]),lats=list.map(p=>p[1]);
-   try{
-    const fitted=instance.cameraForBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],{padding:48,maxZoom});
-    return fitted&&Number.isFinite(fitted.zoom??Number.NaN)?fitted:null;
-   }catch{return null}
-  };
-  // Two glides, the bus in the frame throughout: the whole journey (you, your stop, the bus
-  // and the walk) centred on the drawn bus, then down to the bus itself, which therefore stays
-  // in the middle while the camera zooms, tilts and turns. A middle step on the stop was tried
-  // and dropped: on a phone its tilt swung the bus out of the frame, and it said nothing new.
-  const drawn=visualRef.current??bus;
-  const overview=points.length>=2&&drawn
-   ?framing(points.flatMap(([lon,lat])=>[[lon,lat],[2*drawn.lon-lon,2*drawn.lat-lat]] as LonLat[]),17):null;
-  const still=()=>r.transition===token&&r.state==='entering';
-  (async()=>{
-   if(overview){
-    await glide(instance,{...overview,pitch:35,duration:1200});
-    if(!still())return;
-   }
-   if(!await approach(instance,()=>rideFraming(instance),1400,still))return;
-   setRide('following');kick();
-  })();
- },[ready,view,kick,rideFraming,setRide]);
+  if(entering)rideKey.current=inputs.current.selected?.key??'';
+  r.camera=camera;
+  // A phone's ride map is taller: the camera takes the new size before anything is framed. The
+  // front view is the whole canvas; the outside view keeps the bus in the band the notes leave.
+  if(entering)instance.resize();
+  instance.setPadding(camera==='front'?NO_PADDING:ridePadding(instance.getContainer()));
+  if(camera==='front')instance.setMaxPitch(FRONT_MAX_PITCH);
+  returnRef.current(false,entering?'entering':'returning');
+ },[ready,view,camera,setRide]);
 
  // Another bus chosen mid-ride: whatever the camera was doing is obsolete; it goes to the
  // new bus and follows that. The same key is a new report of the same bus, not a change.
@@ -822,7 +976,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   const instance=map.current;
   if(!ready||!instance||view!=='ride')return;
   let live=true,waiting=false;
-  const apply=()=>{waiting=false;if(live)instance.setPadding(ridePadding(instance.getContainer()))};
+  const apply=()=>{waiting=false;if(live)instance.setPadding(ride.current.camera==='front'?NO_PADDING:ridePadding(instance.getContainer()))};
   const onResize=()=>{
    if(!instance.isMoving()){apply();return}
    if(waiting)return;
@@ -833,9 +987,13 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   return()=>{live=false;instance.off('resize',onResize);instance.off('moveend',apply)};
  },[ready,view]);
 
- const skipIntro=()=>returnToBus(true);
- const startRide=()=>{ride.current.intro=!ride.current.introSeen;onViewChange('ride')};
- const exitRide=()=>onViewChange('2d');
+ const startRide=()=>onViewChange('ride');
+ const exitRide=()=>{setFrontNote(null);onViewChange('2d')};
+ const chooseFront=()=>{
+  if(frontReason){setFrontNote(frontReason);return}
+  setFrontNote(null);setCameraWish('front');
+ };
+ const chooseOutside=()=>{setFrontNote(null);setCameraWish('outside')};
 
  useEffect(()=>{onRideState?.(view==='ride'?rideState:'off')},[view,rideState,onRideState]);
 
@@ -864,7 +1022,8 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  return <div ref={root} className={`vector-map theme-${theme} view-${view}`}
    data-map-state={painted?'painted':ready?'ready':'starting'}
    data-view={view} data-theme={theme} data-model={model?'ready':modelFailed?'failed':'idle'}
-   data-ride={view==='ride'?rideState:'off'} data-walk={walk?'route':'none'}>
+   data-ride={view==='ride'?rideState:'off'} data-ride-camera={view==='ride'?camera:'off'}
+   data-walk={walk?'route':'none'}>
   <div ref={container} className="vector-map-canvas" aria-label={
    `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>
@@ -880,8 +1039,9 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   </div>}
 
   <div className="map-tools">
-   <button onClick={()=>zoomBy(1)} aria-label="Zoom in"><Plus size={18}/></button>
-   <button onClick={()=>zoomBy(-1)} aria-label="Zoom out"><Minus size={18}/></button>
+   {/* The front view sets its own height: zooming there would move the eye out of the bus. */}
+   <button onClick={()=>zoomBy(1)} aria-label="Zoom in" disabled={camera==='front'}><Plus size={18}/></button>
+   <button onClick={()=>zoomBy(-1)} aria-label="Zoom out" disabled={camera==='front'}><Minus size={18}/></button>
    {onLocate&&<button onClick={onLocate} disabled={locating} aria-label="Locate me">
     <LocateFixed size={17} className={locating?'spin':''}/></button>}
    <button onClick={()=>onThemeChange(theme==='day'?'night':'day')}
@@ -907,16 +1067,22 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
        mode line is short; what a ride-along is sits behind "What is this?". */}
    <div className="ride-notes">
     <p className="ride-mode" data-state={rideState} role="status"><Eye size={14}/>
-     <strong>Ride-along</strong><span>· {RIDE_WORDS[rideState]||'starting'}</span></p>
+     <strong>Ride-along</strong><span>· {camera==='front'?'front view · ':''}{RIDE_WORDS[rideState]||'starting'}</span></p>
     <details className="ride-about"><summary>What is this?</summary>
      <p>A map visualisation, not a film from on board. The bus is drawn at its last report, or at an
       estimate labelled as one. Drag to look around; the bus goes on without the camera until you
-      return to it.</p></details>
+      return to it. The front view puts you at the front of the upper deck, 3.5 m above the road,
+      looking along the road ahead; the streets and buildings are the map’s own, not photographs,
+      and it moves only as the bus is drawn.</p></details>
+    {camera==='front'
+     ? <button className="ride-camera on" onClick={chooseOutside}><Bus size={14}/>Outside view</button>
+     : <button className="ride-camera" aria-disabled={frontReason!==null} onClick={chooseFront}>
+        <Armchair size={14}/>Front view</button>}
+    {(frontNote??frontFallback)&&<p className="ride-note" role="status">{frontNote??frontFallback}</p>}
     {selected&&selected.bearing===null&&blocked!==null&&<p className="ride-note">This bus did not report
      a direction, so it is shown from above, not from behind.</p>}
     {modelFailed&&<p className="ride-note" role="status">The 3D bus could not be loaded, so the map
      symbol is shown instead.</p>}
-    {rideState==='entering'&&<button className="ride-skip" onClick={skipIntro}><SkipForward size={14}/>Skip to the bus</button>}
     {rideState==='exploring'&&<button className="ride-return" onClick={()=>returnToBus()}><Crosshair size={14}/>Return to bus</button>}
    </div>
    {rideOverlay}

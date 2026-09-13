@@ -14,7 +14,17 @@ export type FollowBus = {
  /** Where the timetable places this bus, or why it could not be placed. Carried through
   *  from the published state so the map, the card and the list all say the same thing. */
  match?:LiveVehicle['match'];
+ /** Reported heading in degrees, or null. Never derived from movement: a bus that did not
+  *  report one is drawn without a direction. */
+ bearing:number|null;
+ bearingStatus:'reported'|'absent'|'invalid'|'not_captured';
+ /** Scheduled departure from the origin, as the operator reported it. */
+ aimedDeparture?:string|null;
 };
+
+/** A bearing is used only when reported and inside the compass. Anything else is null. */
+export const usableBearing=(value:unknown,status:unknown)=>
+ status==='reported'&&typeof value==='number'&&Number.isFinite(value)&&value>=0&&value<=360?value:null;
 
 export const routeId = (bus:{operator:string;route:string}) => `${bus.operator}|${bus.route}`;
 export const routeNumber = (id:string) => id.split('|')[1] ?? id;
@@ -33,18 +43,25 @@ export function destinationLabel(destination:string):string{
  return value||'Destination not supplied';
 }
 
+/** One published vehicle as the passenger view needs it, aged against the server's clock. */
+export function busFromVehicle(v:LiveVehicle,policy:LiveState['freshness']['policy'],
+                               serverReferenceMs:number,fetchedAtMs:number,nowMs:number):FollowBus{
+ const age=observationAge(v,{serverReferenceMs},fetchedAtMs,nowMs);
+ return {key:`${v.operator}|${v.vehicle}`,operator:v.operator,vehicle:v.vehicle,route:v.route,
+  direction:v.direction,journeyRef:v.journeyRef,destination:v.destination??'',
+  lat:v.lat,lon:v.lon,observedAtMs:v.observedAtMs,recordedAt:v.recordedAt,
+  ageSeconds:age,freshness:freshnessOf(age,policy),ageWords:ageWords(age),
+  sourceHash:v.sourceHash,match:v.match,
+  bearing:usableBearing(v.bearing,v.bearingStatus),bearingStatus:v.bearingStatus??'not_captured',
+  aimedDeparture:v.aimedDeparture??null};
+}
+
 /** Latest reported position per vehicle from the live state. */
 export function busesFromLive(live:LiveState|null,serverReferenceMs:number,
                               fetchedAtMs:number,nowMs:number):FollowBus[]{
  if(!live)return [];
- return live.vehicles.map(v=>{
-  const age=observationAge(v,{serverReferenceMs},fetchedAtMs,nowMs);
-  return {key:`${v.operator}|${v.vehicle}`,operator:v.operator,vehicle:v.vehicle,route:v.route,
-   direction:v.direction,journeyRef:v.journeyRef,destination:v.destination??'',
-   lat:v.lat,lon:v.lon,observedAtMs:v.observedAtMs,recordedAt:v.recordedAt,
-   ageSeconds:age,freshness:freshnessOf(age,live.freshness.policy),ageWords:ageWords(age),
-   sourceHash:v.sourceHash,match:v.match};
- }).filter(b=>b.freshness!=='expired');
+ return live.vehicles.map(v=>busFromVehicle(v,live.freshness.policy,serverReferenceMs,fetchedAtMs,nowMs))
+  .filter(b=>b.freshness!=='expired');
 }
 
 /** Last reported position per vehicle in the recording. Ages are deliberately absent:
@@ -61,7 +78,11 @@ export function busesFromArchive(journeys:Journey[]):FollowBus[]{
    direction:journey.direction,journeyRef:journey.journeyRef,destination:journey.destination,
    lat:point.lat,lon:point.lon,observedAtMs:point.time,recordedAt:point.recordedAt,
    retrievedAt:point.retrievedAt,ageSeconds:null,freshness:null,ageWords:'',
-   sourceHash:point.sourceHash});
+   sourceHash:point.sourceHash,
+   // The recording was captured before bearings were stored; a later reprocess may add them.
+   bearing:usableBearing((point as {bearing?:unknown}).bearing,(point as {bearingStatus?:unknown}).bearingStatus),
+   bearingStatus:((point as {bearingStatus?:FollowBus['bearingStatus']}).bearingStatus)??'not_captured',
+   aimedDeparture:journey.aimedDeparture||null});
  }
  return Array.from(latest.values());
 }

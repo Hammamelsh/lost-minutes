@@ -353,22 +353,6 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .follow-notes{margin:0;padding-left:19px;list-style:square}
 .follow-notes li{font-size:12px;line-height:1.85;color:#8ca1ae}
 .follow-leave-archive{margin-top:4px}
-@media(min-width:820px){
- .follow{display:grid;grid-template-columns:minmax(0,1fr) 380px;
-  grid-template-rows:auto auto auto 1fr auto;gap:14px;align-items:start}
- .follow-bar{grid-column:1;grid-row:1}
- .follow-map{grid-column:1;grid-row:2/6;align-self:stretch;display:flex;flex-direction:column;
-  min-height:560px}
- .follow-map svg{flex:1;min-height:0;height:auto;aspect-ratio:auto}
- .follow-pickers{grid-column:2;grid-row:1}
- .follow-chips,.follow-hint{grid-column:2;grid-row:2}
- .follow-panel{grid-column:2;grid-row:3;position:static;box-shadow:none}
- .follow-empty{grid-column:2;grid-row:3}
- .follow-list{grid-column:2;grid-row:4;align-self:start;max-height:46vh;overflow-y:auto}
- .how-it-works{grid-column:1/-1;grid-row:6}
- .follow-notes{grid-column:1/-1;grid-row:7}
- .follow-leave-archive{grid-column:1/-1;grid-row:8}
-}
 /* ---- The vector map. Every symbol is an observation or a fixed reference point. */
 .vector-map{position:relative;border:1px solid #314452;border-radius:14px;overflow:hidden;
  background:#0f1e29;min-height:340px}
@@ -385,20 +369,13 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-credit-line a{color:#b6c9d4;text-decoration:none}
 .map-credit-line a:hover{text-decoration:underline}
-@media(max-width:480px){.map-credit-line{white-space:normal;max-width:min(100% - 20px,290px)}}
-/* A phone pinches to zoom, and the map earns more of the first screen: the status strip,
-   the picker and the sticky bus card frame it rather than crowd it. */
-@media(max-width:819px){
- .vector-map{height:clamp(340px,52vh,560px)}
- /* Map first on a phone: status, pickers, the map, your bus; the stop finder and the
-    other buses follow it. The desktop grid above places these explicitly instead. */
- .your-stop{order:5}
- .follow-list{order:6}
- .how-it-works,.follow-notes,.follow-leave-archive{order:7}
-}
-@media(max-width:700px),(pointer:coarse){
- .vector-map .map-tools button.zoom{display:none}
- .vector-map .map-tools button.zoom+button{border-top:0}
+/* On a phone the credit stays one complete line (a smaller size, not an ellipsis), and the
+   legend and the ride button stack above it instead of on top of it. */
+@media(max-width:640px){
+ .map-credit-line{font-size:9.5px;padding:2px 6px;bottom:6px;white-space:nowrap;text-overflow:clip}
+ .follow .your-stop-mark,.follow .your-stop-locate{display:none}
+ .follow .your-stop{padding:10px 11px}
+ .follow .your-stop-copy strong{font-size:16px}
 }
 
 /* ---- Buses near me: location first, search beside it with the same reach. */
@@ -463,12 +440,6 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .exploring-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #24394699}
 .exploring-row strong{display:block;font-size:14px;font-weight:600}
 .exploring-row small{font-size:11px;color:#9db1bd}
-@media(min-width:820px){
- .nearby{grid-column:1/-1;grid-row:2}
- .services{grid-column:2;grid-row:4}
- .exploring{grid-column:1/-1;grid-row:6}
- .vector-map{grid-column:1;grid-row:2/6;align-self:stretch;min-height:560px}
-}
 /* Four views do not fit across a phone. The tab strip scrolls inside itself rather than
    widening the page, and keeps 44px touch targets. */
 @media(max-width:700px){
@@ -481,10 +452,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 }
 @media(max-width:420px){
  .view-tabs [data-slot=tabs-trigger]{padding:8px 10px!important;gap:5px!important}
+ /* The labels alone fit all four views across a 390 px phone; with icons the last was cut. */
+ .view-tabs [data-slot=tabs-trigger] svg{display:none}
 }
 /* Compact heading for the passenger view: the status banner and the map do the talking. */
-.page-heading.compact{padding:20px 0 14px;display:block}
-.page-heading.compact h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.1px;margin:0 0 6px}
+.page-heading.compact{padding:16px 0 10px;display:block}
+.page-heading.compact h1{font-size:clamp(24px,2.4vw,30px);letter-spacing:-1px;margin:0 0 4px}
 .page-heading.compact .intro{font-size:14px;max-width:46ch}
 /* On a phone the passenger view earns its first screen: the masthead and the status strip
    already say what this is, so the hero stands down and the picker and map come up. */
@@ -498,3 +471,233 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .bus-halo{animation:halo 2.4s ease-in-out infinite}
  @keyframes halo{0%,100%{opacity:.2;r:14}50%{opacity:.6;r:19}}
 }
+
+/* =====================================================================================
+   Passenger view, 13 September 2026 redesign.
+   Mobile first, in reading order: status, your stop, the map, your bus, the services and
+   buses for your stop, then everything else. On a wide screen the map holds the left and
+   stays in view while the right-hand column scrolls.
+   Colour meanings are fixed: blue is You, orange is your stop, lime is your chosen bus.
+   ===================================================================================== */
+.follow{display:flex;flex-direction:column;gap:12px;padding-bottom:8px}
+.follow>*{min-width:0}
+@media(min-width:1024px){
+ .follow{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,410px);column-gap:18px;row-gap:0;align-items:start}
+ .follow>*{grid-column:2;margin-bottom:12px}
+ /* Tall enough to matter, short enough that its legend and ride button are on the first screen
+    of a 900 px display, then held in view while the right-hand column scrolls. */
+ .follow>.vector-map,.follow>.follow-map{grid-column:1;grid-row:1 / span 16;position:sticky;top:14px;
+  height:clamp(540px,calc(100vh - 250px),820px);margin-bottom:0}
+ .follow>.follow-map{display:flex;flex-direction:column}
+ .follow>.follow-map svg{flex:1;min-height:0;aspect-ratio:auto}
+ .follow>.follow-notes{grid-column:1 / -1;margin-top:8px}
+}
+
+/* ---- Status: one slim line, never a banner. */
+.follow .follow-bar{min-height:0;padding:4px 4px 4px 12px;border-radius:999px;gap:8px;align-self:flex-start;
+ max-width:100%}
+.follow .follow-badge{font-size:11.5px;letter-spacing:1.2px}
+.follow .follow-bar-when{font-size:12.5px;flex:0 1 auto}
+.follow .follow-refresh{min-width:36px;min-height:36px;border-radius:999px}
+@media(min-width:1024px){.follow>.follow-bar{justify-self:start}}
+
+/* ---- Your stop. */
+.follow .your-stop{padding:11px 12px;gap:10px;flex-wrap:nowrap;align-items:center}
+.follow .your-stop.unset{padding:12px}
+.your-stop-eyebrow{display:block;font-size:10.5px!important;font-weight:800;letter-spacing:1.2px;
+ text-transform:uppercase;color:#ffb459!important;margin:0 0 2px!important}
+.follow .your-stop-actions{order:0;margin:0 0 0 auto;gap:6px}
+.follow .your-stop-actions button{min-height:40px;min-width:40px;padding:0 10px}
+
+/* ---- The map: an elevated city map, framed. */
+.vector-map{height:clamp(360px,54vh,600px);border-radius:16px;isolation:isolate}
+.vector-map.theme-day{background:#efe5cf;border-color:#b9a27a;box-shadow:0 18px 40px #0009,0 0 0 1px #5d4a2e55}
+.vector-map.theme-night{background:#0d1820;border-color:#2f4553;box-shadow:0 18px 40px #0008}
+.map-vignette{position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit}
+.theme-day .map-vignette{background:radial-gradient(120% 95% at 50% 45%,transparent 62%,#6b4f2a40 100%);
+ box-shadow:inset 0 0 0 1px #fff6e344,inset 0 0 60px #7a5a2e2e}
+.theme-night .map-vignette{background:radial-gradient(120% 95% at 50% 45%,transparent 60%,#00000070 100%);
+ box-shadow:inset 0 0 60px #00000055}
+/* Controls are dark glass on both grounds, the way a game map lays its UI over the paper. */
+.map-views{position:absolute;left:11px;top:11px;z-index:3;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100% - 80px)}
+.view-switch{display:flex;background:#0f1b24e8;border:1px solid #3f5462;border-radius:11px;padding:3px;
+ backdrop-filter:blur(6px)}
+.view-switch button{min-height:38px;min-width:52px;padding:0 12px;border:0;border-radius:8px;background:none;
+ color:#c9d7de;font-size:13.5px;font-weight:750;letter-spacing:.3px}
+.view-switch button[aria-pressed=true]{background:#c6f36a;color:#16240c}
+.fit-journey{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:11px;
+ border:1px solid #3f5462;background:#0f1b24e8;color:#e4eef2;font-size:13.5px;font-weight:700;backdrop-filter:blur(6px)}
+.fit-journey:hover{border-color:#c6f36a}
+.vector-map .map-tools{background:#0f1b24e8;border-color:#3f5462;z-index:3}
+.vector-map .map-tools button{height:44px;width:44px}
+.vector-map .map-tools button:hover{background:#243845;color:#c6f36a}
+.vector-map .map-tools button:disabled{opacity:.55}
+.ride-launch{position:absolute;left:50%;bottom:42px;transform:translateX(-50%);z-index:3;min-height:46px;
+ display:inline-flex;align-items:center;gap:10px;padding:0 16px 0 6px;border-radius:999px;border:1px solid #1b2b12;
+ background:#c6f36a;color:#16240c;font-size:14.5px;font-weight:800;box-shadow:0 8px 22px #0007}
+.ride-launch-route{min-width:34px;height:34px;border-radius:999px;display:grid;place-items:center;
+ background:#16240c;color:#c6f36a;font-size:13px;padding:0 8px}
+.map-legend-chips{position:absolute;left:11px;bottom:34px;z-index:3;display:flex;gap:6px;flex-wrap:wrap;
+ pointer-events:none;max-width:calc(100% - 22px)}
+.map-legend-chips span{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:750;
+ padding:4px 9px 4px 7px;border-radius:999px;background:#0f1b24e0;color:#e4eef2;border:1px solid #3f5462}
+.map-legend-chips span::before{content:'';width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.legend-you::before{background:#5aa9e6;box-shadow:0 0 0 2px #eaf4f8}
+.legend-stop::before{background:#ffd9a5;box-shadow:0 0 0 2px #ffb459}
+.legend-bus::before{background:#c6f36a;box-shadow:0 0 0 2px #1b2a12}
+.vector-map.view-ride .map-legend-chips{display:none}
+.theme-day .map-credit-line{background:#fbf6eadd;color:#5a4a35}
+.theme-day .map-credit-line a{color:#5a4a35}
+/* Notices sit under the view controls on the left, clear of the tool column on the right. */
+.map-notice{position:absolute;left:11px;top:62px;z-index:4;margin:0;max-width:min(440px,calc(100% - 86px));
+ font-size:12.5px;line-height:1.45;padding:8px 12px;border-radius:10px;
+ background:#2b2519f2;border:1px solid #7e6541;color:#f6dcb4}
+
+/* ---- Ride-along: a map visualisation, labelled as one, with a way out that is always in reach. */
+.ride-hud{position:absolute;inset:0;z-index:3;pointer-events:none}
+.ride-hud>*{pointer-events:auto}
+.ride-notes{position:absolute;left:11px;top:62px;display:flex;flex-direction:column;align-items:flex-start;
+ gap:6px;max-width:min(440px,calc(100% - 86px))}
+.ride-disclaimer{margin:0;display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.35;padding:7px 11px;
+ border-radius:10px;background:#0f1b24e8;border:1px solid #3f5462;color:#cfdce3}
+.ride-note{margin:0;font-size:12px;line-height:1.4;padding:6px 10px;border-radius:9px;background:#2b2519f0;
+ border:1px solid #7e6541;color:#f6dcb4}
+.ride-exit{position:absolute;left:11px;top:11px;min-height:44px;display:inline-flex;align-items:center;gap:6px;
+ padding:0 13px;border-radius:11px;border:1px solid #c6f36a;background:#0f1b24ee;color:#e8ffc8;font-size:13.5px;font-weight:750}
+.ride-card{position:absolute;left:11px;bottom:34px;width:min(360px,calc(100% - 22px));padding:11px 12px;
+ border-radius:14px;background:#0f1b24ee;border:1px solid #3f5462;color:#e4eef2;box-shadow:0 12px 30px #0008}
+.ride-card-head{display:flex;align-items:center;gap:10px}
+.ride-card-head strong{display:block;font-size:15px}
+.ride-card-head small{font-size:12px;color:#a9bcc7}
+.ride-progress{margin:8px 0 0;font-size:13px;line-height:1.45;font-weight:650}
+/* Phone. These come after the base map-control rules so that they win: the legend, the ride
+   button and the credit stack instead of overlapping, and the ride-along notes and progress
+   card stay compact. */
+@media(max-width:640px){
+ .map-legend-chips{bottom:28px}
+ .map-legend-chips span{font-size:11px;padding:3px 8px 3px 6px}
+ .ride-launch{bottom:62px}
+ .ride-disclaimer,.ride-note{font-size:11px;padding:5px 9px}
+ .ride-card{bottom:26px;padding:9px 10px}
+ .ride-card-head strong{font-size:14px}
+ .ride-progress{font-size:12.5px;margin-top:6px}
+ .map-views{max-width:calc(100% - 70px)}
+}
+
+/* ---- Your bus: the answer card. */
+.bus-card{background:#132330;border:1px solid #3a5060;border-radius:16px;padding:13px 14px;
+ box-shadow:0 10px 30px #06101780}
+.bus-card.gone{border-style:dashed;border-color:#7e6541}
+.bus-card-head{display:flex;align-items:center;gap:11px}
+.route-badge{flex-shrink:0;min-width:48px;height:44px;padding:0 9px;border-radius:11px;display:grid;
+ place-items:center;background:#c6f36a;color:#16240c;font-size:19px;font-weight:850;letter-spacing:-.4px;
+ box-shadow:inset 0 -3px 0 #0000001f}
+.bus-card-title{flex:1;min-width:0}
+.bus-card-title strong{display:block;font-size:17px;font-weight:700;letter-spacing:-.3px;line-height:1.25}
+.bus-card-title small{display:block;font-size:12.5px;color:#9fb3bf;margin-top:2px}
+.age-chip{flex-shrink:0;font-size:12px;font-weight:750;padding:6px 9px;border-radius:8px;border:1px solid;white-space:nowrap}
+.age-chip.fresh{border-color:#4c6b39;background:#233021;color:#c2e39a}
+.age-chip.ageing{border-color:#7e6541;background:#2e2719;color:#f1c68a}
+.age-chip.stale,.age-chip.expired{border-color:#7d5a43;background:#33241c;color:#f0c0a0}
+.age-chip.archive,.age-chip.unknown{border-color:#3d5260;background:#1b2c38;color:#cfe0ea}
+.bus-card-gone{margin:10px 0 0;font-size:12.5px;line-height:1.55;color:#f1c68a}
+.bus-card-hint{margin:10px 0 0;font-size:13px;line-height:1.55;color:#a9bcc7}
+.claims{margin:12px 0 0;display:grid;gap:1px;background:#2a3f4c;border-radius:11px;overflow:hidden;border:1px solid #2a3f4c}
+.claim{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px;padding:9px 11px;background:#15262f}
+.claim dt{font-size:11px;font-weight:750;letter-spacing:.6px;text-transform:uppercase;color:#8ea4b1;padding-top:2px}
+.claim dd{margin:0;min-width:0}
+.claim dd strong{display:block;font-size:13.5px;font-weight:700;line-height:1.4;color:#e8f1f5}
+.claim dd span{display:block;font-size:12px;line-height:1.5;color:#9fb3bf;margin-top:2px}
+.claim.tone-good dd strong{color:#d4f59c}
+.claim.tone-caution dd strong{color:#f3cd8f}
+.claim.tone-bad dd strong{color:#f3b9a0}
+.claim.tone-neutral dd strong{color:#c9d6de}
+.distance-lines{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:4px}
+.distance-lines li{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;font-size:12.5px;
+ padding:6px 2px;border-bottom:1px solid #24394699}
+.distance-lines li:last-child{border-bottom:0}
+.distance-lines span{color:#a9bcc7}
+.distance-lines strong{text-align:right;font-variant-numeric:tabular-nums;color:#e8f1f5}
+.distance-lines small{grid-column:1 / -1;font-size:11px;color:#7f97a4}
+.bus-card-actions{display:flex;gap:8px;margin-top:11px}
+.ride-button{flex:1;min-height:46px;border-radius:12px;border:1px solid #1b2b12;background:#c6f36a;color:#16240c;
+ font-size:15px;font-weight:800}
+.bus-card-actions .follow-toggle{flex:0 0 auto}
+.bus-evidence-toggle{margin-top:10px;border-top:1px solid #2a3f4c;padding-top:4px}
+.bus-evidence-toggle summary{min-height:40px;display:flex;align-items:center;font-size:13px;font-weight:700;
+ color:#a9c5d3;cursor:pointer;list-style:none}
+.bus-evidence-toggle summary::-webkit-details-marker{display:none}
+.bus-evidence-toggle summary::after{content:'+';margin-left:auto;font-size:17px;color:#8fa6b3}
+.bus-evidence-toggle[open] summary::after{content:'−'}
+.bus-evidence section{margin:6px 0 10px}
+.bus-evidence h4{margin:8px 0 4px;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#8ea4b1}
+.bus-evidence dl{margin:0}
+.bus-evidence dl>div{display:grid;grid-template-columns:130px minmax(0,1fr);gap:10px;padding:6px 0;font-size:12.5px;
+ border-bottom:1px solid #24394666}
+.bus-evidence dt{color:#9fb3bf}
+.bus-evidence dd{margin:0;color:#dfeaef;line-height:1.5;overflow-wrap:anywhere}
+.bus-evidence dd small{display:block;font-size:11px;color:#8298a6}
+.bus-evidence .mono{font-family:var(--font-mono);font-size:11.5px}
+
+/* ---- Stop order, not the road. */
+.stop-progress{margin:12px 0 0}
+.stop-progress ol{list-style:none;margin:0;padding:0 0 0 4px;position:relative}
+.stop-progress ol::before{content:'';position:absolute;left:10px;top:9px;bottom:9px;width:2px;
+ background:repeating-linear-gradient(#4b6272 0 6px,transparent 6px 10px)}
+.stop-progress li{position:relative;display:flex;align-items:baseline;gap:9px;padding:4px 0 4px 22px;font-size:13px;color:#c5d3db}
+.sp-dot{position:absolute;left:3px;top:8px;width:14px;height:14px;border-radius:50%;background:#15262f;border:2px solid #56707f}
+.sp-stop.bus .sp-dot{background:#c6f36a;border-color:#f4ffe4;box-shadow:0 0 0 2px #1b2a12}
+.sp-stop.yours .sp-dot,.sp-stop.both .sp-dot{background:#ffd9a5;border-color:#ffb459;box-shadow:0 0 0 3px #ffb45944}
+.sp-stop.yours .sp-name,.sp-stop.both .sp-name{font-weight:750;color:#ffd9a5}
+.sp-stop.bus .sp-name{font-weight:700;color:#e8f1f5}
+.stop-progress em{font-style:normal;font-size:11px;color:#8ea4b1}
+.sp-gap .sp-dot{width:8px;height:8px;left:6px;top:11px;border:0;background:#56707f}
+.sp-gap .sp-name{font-size:12px;color:#8ea4b1;font-style:italic}
+.sp-fork .sp-dot{border-radius:3px;transform:rotate(45deg);border-color:#f1c68a}
+.sp-fork .sp-name{font-size:12px;color:#f1c68a}
+.stop-progress figcaption{font-size:11px;color:#7f97a4;margin-top:4px;padding-left:4px}
+.stop-progress.compact{margin-top:8px}
+.stop-progress.compact ol{display:flex;flex-wrap:wrap;gap:4px 10px;padding:0}
+.stop-progress.compact ol::before{display:none}
+.stop-progress.compact li{padding:0 0 0 14px;font-size:12px}
+.stop-progress.compact .sp-dot{left:0;top:4px;width:9px;height:9px}
+.stop-progress.compact em{display:none}
+
+/* ---- Services from your stop, and the buses for it. */
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:2px 4px 8px;
+ font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#9fb3bf}
+.section-head small{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:#7f97a4}
+.follow .services,.at-stop,.waiting,.route-browse{background:#132330;border:1px solid #2d4250;border-radius:14px;padding:10px}
+.service-chips{display:grid;grid-template-columns:1fr;gap:6px}
+.service-chip{display:flex;align-items:center;gap:9px;min-height:54px;padding:7px 9px;border-radius:11px;
+ border:1px solid #33495a;background:#172935;color:#e0e9ee;text-align:left}
+.service-chip.on{border-color:#8fbf4f;background:#253524}
+.service-chip.not-today{opacity:.62}
+.service-chip-copy{min-width:0}
+.service-chip-copy strong{display:block;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.service-chip-copy small{display:block;font-size:11.5px;color:#9fb3bf}
+.services-empty{margin:2px 4px 4px;font-size:13px;line-height:1.55;color:#a9bcc7}
+.at-stop .follow-row,.waiting .follow-row{min-height:54px}
+.follow-notes{margin:0;font-size:12px;line-height:1.7;color:#8ca1ae;list-style:none;padding:0}
+.follow-notes .text-action{font-size:12px}
+.exploring-row{width:100%;border:0;background:none;color:inherit;text-align:left;border-radius:9px}
+.exploring-row:hover{background:#1a2c38}
+.exploring-row small{display:block}
+.route-browse .follow-pickers{margin-bottom:8px}
+
+/* ---- Nearby stops: which side of the road, and what leaves from it today. */
+.nearby-stop-pin svg{color:#ffb459}
+.nearby-indicator{display:inline-block;margin-left:7px;font-size:11px;font-weight:750;padding:1px 6px;border-radius:5px;
+ background:#2b3a45;color:#cfe0ea;vertical-align:1px}
+.nearby-stop-copy small b{color:#e8f1f5;font-weight:700}
+.nearby-stop-lines.none{color:#8ea4b1}
+
+/* ---- Evidence tab: how the live view works, moved here from the passenger view. */
+.how-live-works ol{padding-left:20px;margin:0 0 14px}
+.how-live-works li{font-size:14px;color:#aebfc9;line-height:1.75;margin-bottom:6px}
+
+.map-loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;margin:0;
+ font-size:13px;font-weight:650;letter-spacing:.3px;padding:8px 14px;border-radius:999px;pointer-events:none}
+.theme-day .map-loading{background:#fbf6eadd;color:#5a4a35;border:1px solid #c9b48f}
+.theme-night .map-loading{background:#0f1b24dd;color:#c9d7de;border:1px solid #3f5462}
+.bus-card-hint strong{display:block;font-size:13.5px;color:#e8f1f5;margin-bottom:2px}

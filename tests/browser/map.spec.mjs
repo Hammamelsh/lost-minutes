@@ -111,8 +111,9 @@ test.describe('fallback', () => {
     await expectFallbackThatLasts(page);
   });
 
-  test('takes over when the map style never arrives', async ({page}) => {
-    await page.context().route(/tiles\.openfreemap\.org\/styles\//, () => { /* never answered */ });
+  test('takes over when the basemap metadata never arrives', async ({page}) => {
+    // Our style is inline; what can stall is the TileJSON naming the tile set.
+    await page.context().route(/tiles\.openfreemap\.org\/planet(\?|$)/, () => { /* never answered */ });
     await serveLive(page, [() => liveFromArchive()]);
     await page.goto('/');
     await expectFallbackThatLasts(page);

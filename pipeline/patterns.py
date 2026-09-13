@@ -1,42 +1,67 @@
 """Service patterns from TransXChange: the ordered stops a service actually calls at.
 
-    .venv/bin/python -m pipeline.patterns build     # extract, score, load and publish
+    .venv/bin/python -m pipeline.patterns build                  # every observed service we hold
+    .venv/bin/python -m pipeline.patterns build --coverage all   # every file valid today
+    .venv/bin/python -m pipeline.patterns build --lines 15,50    # named lines only
+    .venv/bin/python -m pipeline.patterns build --max-lines 10   # a quick development build
 
 A route label is not a route. One line has many journey patterns: directions, branches,
 short workings and school variants, each calling at a different ordered list of stops. This
 module reads those patterns out of the preserved timetable datasets so that a bus can be
 placed *on a pattern* rather than merely near a passenger.
 
-Nothing here is inferred. A pattern is only used when the file declaring it is valid today,
-its stops resolve to real NaPTAN boarding points, and enough of it lies inside the area we
-collect. Everything else is recorded as unsupported and said so on screen.
+Coverage is chosen by evidence and says so. By default it is every (operator, line) pair that
+live collection has actually observed and for which a preserved timetable file is valid on the
+build date. There is no hidden cap: until 13 September 2026 the build kept only the 14
+most-observed lines, which is why route 15 read "not held" while its file sat on disk.
+
+Nothing here is inferred. A pattern records its operator, the timetable version, the days its
+journeys run and the declared link distances. A distance the file does not declare stays
+unknown rather than becoming zero, and a pattern no journey runs is not a path anyone takes.
 """
 from __future__ import annotations
 
+import argparse
 import gzip
+import hashlib
 import io
 import json
 import re
 import sys
 import zipfile
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from .core import atomic_json, utc_now
+from .service_days import LONDON, describe
 from .warehouse import DEFAULT_DB, connect, finish_run, start_run
 
 ROOT = Path(__file__).resolve().parents[1]
 PATTERNS_TARGET = Path('public/data/patterns.json')
 TIMETABLE_DIR = Path('data/live-capture/timetables')
+SCHEMA_VERSION = 2
 
-# BNML_86_..._20260830_20310830_2411885.xml: operator, line and validity, without parsing.
-FILENAME = re.compile(r'^(?P<operator>[A-Z0-9]+)_(?P<line>[^_]+)_.*_(?P<start>\d{8})_(?P<end>\d{8})_\d+\.xml$')
+# BNML_86_..._20260830_20310830_2411885.xml and BNFM_456_..._20251224_20301123_<uuid>.xml:
+# operator, line and declared validity, readable without parsing the file. The suffix is a
+# number in some datasets and a UUID in others; requiring a number silently dropped all 83
+# First Manchester files.
+FILENAME = re.compile(r'^(?P<operator>[A-Z0-9]+)_(?P<line>[^_]+)_.*_(?P<start>\d{8})_(?P<end>\d{8})_[^_]+\.xml$')
 
-# A pattern is only publishable if we can follow it: most of its stops must be inside the
-# area we collect, and it must be long enough for "stops before yours" to mean anything.
-MIN_STOPS_IN_AREA = 0.6
+# A pattern is published when it calls at a stop inside the area we collect, because a
+# passenger there could board it, and when it is long enough for "stops before yours" to mean
+# anything. It used to need 60% of its stops inside, which hid whole days of service whose
+# journeys run a longer path: Sunday's 219 is 45% inside, so every Sunday 219 was refused.
+MIN_STOPS_IN_AREA = 1
 MIN_STOPS = 5
+
+WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+DAY_GROUPS = {name: [index] for index, name in enumerate(WEEKDAYS)}
+DAY_GROUPS.update({
+    'MondayToFriday': [0, 1, 2, 3, 4], 'MondayToSaturday': [0, 1, 2, 3, 4, 5],
+    'MondayToSunday': list(range(7)), 'Weekend': [5, 6],
+    **{f'Not{name}': [i for i in range(7) if i != index] for index, name in enumerate(WEEKDAYS)},
+})
 
 DDL = """
 CREATE TABLE IF NOT EXISTS service_pattern (
@@ -50,137 +75,303 @@ CREATE TABLE IF NOT EXISTS service_pattern (
     destination_display TEXT,
     stop_count          INTEGER,
     stops_in_area       INTEGER,
-    total_distance_m    INTEGER,
+    total_distance_m    INTEGER,   -- NULL when any link distance was not declared
     valid_from          DATE,
     valid_to            DATE,
     has_repeated_stop   BOOLEAN,   -- a loop: progress along it is ambiguous
     first_seen_run_id   TEXT,
-    first_seen_at       TIMESTAMPTZ
+    first_seen_at       TIMESTAMPTZ,
+    operating_rules     TEXT,      -- JSON: the operating profiles of the journeys that run it
+    version_modified    TEXT,      -- the file's ModificationDateTime
+    version_revision    TEXT,      -- the file's RevisionNumber
+    journey_count       INTEGER,
+    distances_known     BOOLEAN
 );
 
 CREATE TABLE IF NOT EXISTS service_pattern_stop (
     pattern_id      TEXT NOT NULL,
     sequence        INTEGER NOT NULL,
     atco_code       TEXT NOT NULL,
-    distance_from_start_m INTEGER,
+    distance_from_start_m INTEGER,  -- NULL: not declared, never zero by default
     PRIMARY KEY (pattern_id, sequence)
 );
 """
+
+# Warehouses built before operating days and versions were recorded.
+MIGRATIONS = [f'ALTER TABLE service_pattern ADD COLUMN IF NOT EXISTS {column}' for column in (
+    'operating_rules TEXT', 'version_modified TEXT', 'version_revision TEXT',
+    'journey_count INTEGER', 'distances_known BOOLEAN')]
+
+
+def ensure_schema(con):
+    con.execute(DDL)
+    for statement in MIGRATIONS:
+        con.execute(statement)
 
 
 def _parse_date(value):
     return date(int(value[:4]), int(value[4:6]), int(value[6:]))
 
 
-def index_datasets(directory=TIMETABLE_DIR, today=None):
-    """What each preserved dataset offers, from the member names alone."""
-    today = today or date.today()
-    entries = []
+def _iso(value):
+    return value.isoformat() if isinstance(value, date) else (str(value) if value else None)
+
+
+def survey_datasets(directory=TIMETABLE_DIR, today=None):
+    """What each preserved dataset offers on `today`, from the member names alone."""
+    today = today or datetime.now(LONDON).date()
+    entries, unrecognised, not_valid = [], [], 0
     for archive_path in sorted(Path(directory).glob('*.bin.gz')):
         sha = archive_path.stem.split('.')[0]
         body = gzip.decompress(archive_path.read_bytes())
         with zipfile.ZipFile(io.BytesIO(body)) as archive:
             for member in archive.infolist():
-                match = FILENAME.match(Path(member.filename).name)
+                name = Path(member.filename).name
+                if not name.lower().endswith('.xml'):
+                    continue
+                match = FILENAME.match(name)
                 if not match:
+                    unrecognised.append(name)
                     continue
                 start, end = _parse_date(match['start']), _parse_date(match['end'])
                 if not (start <= today <= end):
+                    not_valid += 1
                     continue
                 entries.append({'sha256': sha, 'path': archive_path, 'member': member.filename,
                                 'operator': match['operator'], 'line': match['line'],
                                 'validFrom': start, 'validTo': end, 'bytes': member.file_size})
-    return entries
+    return {'entries': entries, 'unrecognised': unrecognised, 'notValidOnDate': not_valid,
+            'date': today}
+
+
+def index_datasets(directory=TIMETABLE_DIR, today=None):
+    """The files valid on `today`. Kept for callers that only need the list."""
+    return survey_datasets(directory, today)['entries']
 
 
 def _local(tag):
     return tag.split('}')[-1]
 
 
+def _text(node, path):
+    value = node.findtext(path) if node is not None else None
+    return value.strip() if value else ''
+
+
+def _metres(value):
+    try:
+        metres = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return metres if metres >= 0 else None
+
+
+def _date_ranges(node):
+    """[start, end] ISO dates for each DateRange under `node`; a missing end means one day."""
+    ranges = []
+    for item in node.iter('DateRange') if node is not None else []:
+        start = _text(item, 'StartDate')
+        if start:
+            ranges.append([start, _text(item, 'EndDate') or start])
+    return ranges
+
+
+def serviced_calendars(root):
+    """Serviced organisation (usually a school) -> its working days and holidays."""
+    calendars = {}
+    for organisation in root.iter('ServicedOrganisation'):
+        code = _text(organisation, 'OrganisationCode')
+        if code:
+            calendars[code] = {'WorkingDays': _date_ranges(organisation.find('WorkingDays')),
+                               'Holidays': _date_ranges(organisation.find('Holidays'))}
+    return calendars
+
+
+def operating_rule(profile, calendars):
+    """One OperatingProfile as a rule a date can be tested against (see service_days)."""
+    if profile is None:
+        return None
+    days, holidays_only = set(), False
+    regular = profile.find('RegularDayType')
+    if regular is not None:
+        week = regular.find('DaysOfWeek')
+        for child in week if week is not None else []:
+            days.update(DAY_GROUPS.get(child.tag, []))
+        holidays_only = regular.find('HolidaysOnly') is not None
+    rule = {'days': sorted(days)}
+    if holidays_only:
+        rule['holidaysOnly'] = True
+    special = profile.find('SpecialDaysOperation')
+    if special is not None:
+        also_on = _date_ranges(special.find('DaysOfOperation'))
+        not_on = _date_ranges(special.find('DaysOfNonOperation'))
+        if also_on:
+            rule['alsoOn'] = also_on
+        if not_on:
+            rule['notOn'] = not_on
+    serviced = profile.find('ServicedOrganisationDayType')
+    if serviced is not None:
+        for mode, tag in (('only', 'DaysOfOperation'), ('except', 'DaysOfNonOperation')):
+            node = serviced.find(tag)
+            for kind in ('WorkingDays', 'Holidays'):
+                part = node.find(kind) if node is not None else None
+                if part is None:
+                    continue
+                codes = [(ref.text or '').strip() for ref in part.iter('ServicedOrganisationRef')
+                         if ref.text and ref.text.strip()]
+                ranges = [r for code in codes for r in calendars.get(code, {}).get(kind, [])]
+                rule.setdefault('serviced', []).append(
+                    {'mode': mode, 'kind': kind, 'organisations': codes, 'ranges': ranges})
+    if profile.find('BankHolidayOperation') is not None:
+        rule['bankHolidays'] = 'declared_not_evaluated'
+    return rule
+
+
+def _unique(rules):
+    seen, result = set(), []
+    for rule in rules:
+        key = json.dumps(rule, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            result.append(rule)
+    return result
+
+
 def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
-    """Ordered stop sequences with along-route distance, straight from the declaration."""
+    """Ordered stop sequences, their declared distances and the days they run."""
     root = ET.fromstring(xml_bytes)
     for node in root.iter():
         node.tag = _local(node.tag)
 
     line_name = next((e.text.strip() for e in root.iter('LineName') if e.text), None)
-    service_code = next((e.text.strip() for e in root.iter('ServiceCode') if e.text), None)
-    operator_code = next((e.text.strip() for e in root.iter('NationalOperatorCode') if e.text),
-                         next((e.text.strip() for e in root.iter('OperatorCode') if e.text), None))
     if not line_name:
         return []
+    service = next(root.iter('Service'), None)
+    service_code = _text(service, 'ServiceCode') or None
+    operator_code = next((e.text.strip() for e in root.iter('NationalOperatorCode') if e.text),
+                         next((e.text.strip() for e in root.iter('OperatorCode') if e.text), None))
+    period = service.find('OperatingPeriod') if service is not None else None
+    declared_from, declared_to = _text(period, 'StartDate'), _text(period, 'EndDate')
+    calendars = serviced_calendars(root)
+    service_rule = operating_rule(service.find('OperatingProfile') if service is not None else None,
+                                  calendars)
 
-    # Section id -> ordered [(atco, cumulative distance)], built from the timing links.
+    # Section id -> ordered [(atco, metres from the section start or None)].
     sections = {}
     for section in root.iter('JourneyPatternSection'):
         stops, distance = [], 0
         for link in section.findall('JourneyPatternTimingLink'):
-            origin = link.find('From/StopPointRef')
-            destination = link.find('To/StopPointRef')
-            if origin is None or destination is None:
+            origin, destination = link.find('From/StopPointRef'), link.find('To/StopPointRef')
+            if origin is None or destination is None or not origin.text or not destination.text:
                 continue
             if not stops:
                 stops.append((origin.text.strip(), 0))
-            step = link.find('Distance')
-            try:
-                distance += int(step.text) if step is not None and step.text else 0
-            except ValueError:
-                pass
+            step = _metres(link.findtext('Distance'))
+            # An undeclared link makes every distance after it unknown. Counting it as zero
+            # would publish a shorter journey than the file describes, as though measured.
+            distance = None if distance is None or step is None else distance + step
             stops.append((destination.text.strip(), distance))
         if stops:
             sections[section.get('id')] = stops
 
+    # Which patterns journeys actually run, and on which days.
+    journeys = list(root.iter('VehicleJourney'))
+    pattern_of_journey = {_text(vj, 'VehicleJourneyCode'): _text(vj, 'JourneyPatternRef')
+                          for vj in journeys if _text(vj, 'JourneyPatternRef')}
+    rules_by_pattern = {}
+    for vj in journeys:
+        ref = _text(vj, 'JourneyPatternRef') or pattern_of_journey.get(_text(vj, 'VehicleJourneyRef'))
+        if not ref:
+            continue
+        rules_by_pattern.setdefault(ref, []).append(
+            operating_rule(vj.find('OperatingProfile'), calendars) or service_rule)
+
     patterns = []
     for journey in root.iter('JourneyPattern'):
+        running = rules_by_pattern.get(journey.get('id'))
+        if not running:
+            continue              # declared but no journey runs it: not a path anyone takes
         refs = [r.text.strip() for r in journey.findall('JourneyPatternSectionRefs') if r.text]
+        if not refs or any(ref not in sections for ref in refs):
+            continue              # a section we cannot read would leave a hole in the order
         ordered, offset = [], 0
         for ref in refs:
-            part = sections.get(ref)
-            if not part:
-                continue
-            for atco, metres in part:
+            for atco, metres in sections[ref]:
                 if ordered and ordered[-1][0] == atco:
-                    continue          # section boundaries repeat the shared stop
-                ordered.append((atco, metres + offset))
+                    continue      # section boundaries repeat the shared stop
+                ordered.append((atco, None if offset is None or metres is None else metres + offset))
             offset = ordered[-1][1] if ordered else offset
         if len(ordered) < MIN_STOPS:
             continue
-        direction = journey.findtext('Direction') or ''
-        destination = journey.findtext('DestinationDisplay') or ''
+        known = [rule for rule in running if rule is not None]
         patterns.append({
             'lineName': line_name, 'serviceCode': service_code, 'operatorCode': operator_code,
-            'direction': direction.strip().lower(), 'destination': destination.strip(),
+            'direction': (journey.findtext('Direction') or '').strip().lower(),
+            'destination': (journey.findtext('DestinationDisplay') or '').strip(),
             'stops': ordered, 'sourceFile': source_file, 'datasetSha256': dataset_sha,
-            'validFrom': valid_from, 'validTo': valid_to,
+            'validFrom': declared_from or _iso(valid_from), 'validTo': declared_to or _iso(valid_to),
+            'modified': root.get('ModificationDateTime'), 'revision': root.get('RevisionNumber'),
+            'rules': _unique(known) if known else None, 'journeys': len(running),
         })
     return patterns
 
 
+def _declared(stops):
+    return sum(1 for _, metres in stops if metres is not None)
+
+
 def deduplicate(patterns):
-    """1,657 journey patterns collapse to a handful of distinct stop sequences."""
-    seen = {}
+    """Identical stop sequences for one operator, line and direction are one path.
+
+    Their operating days are combined, so weekday and Saturday journeys over the same stops
+    make one pattern that runs on both. Operator is part of the key: two operators running the
+    same number over the same stops are still two services.
+    """
+    merged = {}
     for pattern in patterns:
-        key = (pattern['lineName'], pattern['direction'],
+        key = (pattern.get('operatorCode'), pattern['lineName'], pattern['direction'],
                tuple(atco for atco, _ in pattern['stops']))
-        if key not in seen:
-            seen[key] = pattern
-    return list(seen.values())
+        kept = merged.get(key)
+        if kept is None:
+            merged[key] = {**pattern, 'journeys': pattern.get('journeys', 0)}
+            continue
+        if kept.get('rules') is not None and pattern.get('rules') is not None:
+            kept['rules'] = _unique(kept['rules'] + pattern['rules'])
+        else:
+            kept['rules'] = kept.get('rules') or pattern.get('rules')
+        kept['journeys'] += pattern.get('journeys', 0)
+        if _declared(pattern['stops']) > _declared(kept['stops']):
+            kept['stops'] = pattern['stops']
+    return list(merged.values())
+
+
+def pattern_key(pattern):
+    """Stable across rebuilds: the same operator, line, direction and stops keep one id."""
+    stops = [atco for atco, _ in pattern['stops']]
+    digest = hashlib.sha256(json.dumps([pattern.get('operatorCode'), pattern['lineName'],
+                                        pattern['direction'], stops]).encode()).hexdigest()[:10]
+    return f"{pattern.get('operatorCode') or 'NOC'}:{pattern['lineName']}:{pattern['direction'] or '-'}:{digest}"
 
 
 def load(con, run_id, patterns, stops_in_area):
-    con.execute(DDL)
+    ensure_schema(con)
     rows, stop_rows = [], []
-    for index, pattern in enumerate(patterns):
+    for pattern in patterns:
         codes = [atco for atco, _ in pattern['stops']]
         inside = sum(1 for atco in codes if atco in stops_in_area)
-        pattern_id = f"{pattern['datasetSha256'][:8]}:{pattern['lineName']}:{pattern['direction']}:{index}"
+        pattern_id = pattern_key(pattern)
         pattern['patternId'] = pattern_id
         pattern['stopsInArea'] = inside
+        known = all(metres is not None for _, metres in pattern['stops'])
         rows.append((pattern_id, pattern['datasetSha256'], pattern['sourceFile'],
-                     pattern['lineName'], pattern['serviceCode'], pattern['operatorCode'],
+                     pattern['lineName'], pattern.get('serviceCode'), pattern.get('operatorCode'),
                      pattern['direction'], pattern['destination'], len(codes), inside,
-                     pattern['stops'][-1][1], pattern['validFrom'], pattern['validTo'],
-                     len(set(codes)) != len(codes), run_id))
+                     pattern['stops'][-1][1] if known else None,
+                     pattern.get('validFrom'), pattern.get('validTo'),
+                     len(set(codes)) != len(codes), run_id,
+                     json.dumps(pattern['rules']) if pattern.get('rules') is not None else None,
+                     pattern.get('modified'), pattern.get('revision'),
+                     pattern.get('journeys'), known))
         for sequence, (atco, metres) in enumerate(pattern['stops']):
             stop_rows.append((pattern_id, sequence, atco, metres))
     con.execute('DELETE FROM service_pattern_stop')
@@ -189,107 +380,166 @@ def load(con, run_id, patterns, stops_in_area):
         'INSERT INTO service_pattern (pattern_id, dataset_sha256, source_file, line_name,'
         ' service_code, operator_code, direction, destination_display, stop_count,'
         ' stops_in_area, total_distance_m, valid_from, valid_to, has_repeated_stop,'
-        ' first_seen_run_id, first_seen_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now())', rows)
+        ' first_seen_run_id, first_seen_at, operating_rules, version_modified, version_revision,'
+        ' journey_count, distances_known)'
+        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?)', rows)
     con.executemany('INSERT INTO service_pattern_stop VALUES (?,?,?,?)', stop_rows)
     return len(rows), len(stop_rows)
 
 
 def supported_lines(con):
-    """Lines we can honestly follow: enough of the pattern lies inside the collected area."""
+    """Lines with at least one pattern that calls inside the collected area."""
     return con.execute(f"""
         SELECT line_name,
                count(*) AS patterns,
-               sum(CASE WHEN stops_in_area >= stop_count * {MIN_STOPS_IN_AREA} THEN 1 ELSE 0 END) AS usable,
+               sum(CASE WHEN stops_in_area >= {MIN_STOPS_IN_AREA} THEN 1 ELSE 0 END) AS usable,
                max(stop_count) AS longest,
                count(DISTINCT direction) AS directions
         FROM service_pattern GROUP BY 1 ORDER BY usable DESC, patterns DESC""").fetchall()
 
 
-def build_published(con):
+def build_published(con, coverage=None):
+    ensure_schema(con)
     usable = con.execute(f"""
         SELECT pattern_id, line_name, direction, destination_display, stop_count,
                stops_in_area, total_distance_m, has_repeated_stop, dataset_sha256,
-               source_file, valid_from, valid_to
+               source_file, valid_from, valid_to, operator_code, service_code, operating_rules,
+               version_modified, version_revision, journey_count, distances_known
         FROM service_pattern
-        WHERE stops_in_area >= stop_count * {MIN_STOPS_IN_AREA}
-        ORDER BY line_name, direction, stop_count DESC""").fetchall()
+        WHERE stops_in_area >= {MIN_STOPS_IN_AREA}
+        ORDER BY operator_code, line_name, direction, stop_count DESC""").fetchall()
+    stops_by_pattern = {}
+    for pattern_id, atco, metres in con.execute(
+            'SELECT pattern_id, atco_code, distance_from_start_m FROM service_pattern_stop'
+            ' ORDER BY pattern_id, sequence').fetchall():
+        stops_by_pattern.setdefault(pattern_id, []).append((atco, metres))
     patterns = []
     for row in usable:
-        stops = con.execute(
-            'SELECT atco_code, distance_from_start_m FROM service_pattern_stop'
-            ' WHERE pattern_id = ? ORDER BY sequence', [row[0]]).fetchall()
+        stops = stops_by_pattern.get(row[0], [])
+        rules = json.loads(row[14]) if row[14] else None
         patterns.append({
-            'id': row[0], 'line': row[1], 'direction': row[2] or None,
-            'destination': row[3] or None, 'stopCount': int(row[4]),
-            'stopsInArea': int(row[5]), 'lengthMetres': int(row[6] or 0),
+            'id': row[0], 'operator': row[12], 'line': row[1], 'serviceCode': row[13],
+            'direction': row[2] or None, 'destination': row[3] or None,
+            'stopCount': int(row[4]), 'stopsInArea': int(row[5]),
+            'lengthMetres': int(row[6]) if row[6] is not None else None,
+            'distancesKnown': bool(row[18]) if row[18] is not None else None,
             'hasRepeatedStop': bool(row[7]),
             'timetable': {'datasetSha256': row[8], 'file': row[9],
-                          'validFrom': str(row[10]), 'validTo': str(row[11])},
+                          'validFrom': _iso(row[10]), 'validTo': _iso(row[11]),
+                          'modified': row[15], 'revision': row[16]},
+            'runs': describe(rules), 'operatingRules': rules,
+            'journeys': int(row[17]) if row[17] is not None else None,
             'stops': [s[0] for s in stops],
-            'metres': [int(s[1] or 0) for s in stops],
+            'metres': [int(s[1]) if s[1] is not None else None for s in stops],
         })
-    lines = sorted({p['line'] for p in patterns})
+    services = sorted({f"{p['operator'] or ''}|{p['line']}" for p in patterns})
     return {
-        'schemaVersion': 1, 'generatedAt': utc_now(),
-        'supportedLines': lines, 'patterns': patterns,
-        'rules': {'minimumStopsInAreaFraction': MIN_STOPS_IN_AREA, 'minimumStops': MIN_STOPS},
+        'schemaVersion': SCHEMA_VERSION, 'generatedAt': utc_now(),
+        'supportedLines': sorted({p['line'] for p in patterns}),
+        'supportedServices': services,
+        'coverage': coverage,
+        'patterns': patterns,
+        'rules': {'minimumStopsInArea': MIN_STOPS_IN_AREA, 'minimumStops': MIN_STOPS},
         'attribution': 'Timetable data: Transport for Greater Manchester via the Bus Open Data '
                        'Service, Open Government Licence v3.0.',
         'notes': [
             'A pattern is one ordered list of stops a service calls at. One route label has '
             'several: directions, branches and short workings that call at different stops.',
-            'Only patterns with most of their stops inside the collected area are published, '
-            'because progress along the rest could not be followed.',
+            'A pattern belongs to one operator and one timetable version, and runs only on the '
+            'days its journeys declare. Bank-holiday operation is recorded but not evaluated.',
+            'A pattern is published when it calls at a stop inside the collected area, because a '
+            'passenger there could board it. Its stops outside the area keep their place in the '
+            'order but have no coordinates here, and buses out there are not collected.',
+            'A distance of null was not declared by the timetable. It is unknown, not zero.',
             'Holding a pattern is not a claim that a particular bus is running it. That match '
             'is made per observation and is shown with its reason.',
         ],
     }
 
 
-def build(root=ROOT, db_path=None, lines=None, limit_lines=14, log=print, today=None):
+def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=None, log=print,
+          today=None):
     root = Path(root)
-    entries = index_datasets(root / TIMETABLE_DIR, today)
+    today = today or datetime.now(LONDON).date()
+    survey = survey_datasets(root / TIMETABLE_DIR, today)
+    entries = survey['entries']
     con = connect(db_path or root / DEFAULT_DB)
     try:
+        ensure_schema(con)
         stops_in_area = {r[0] for r in con.execute('SELECT atco_code FROM stop').fetchall()}
-        observed = dict(con.execute("""
-            SELECT route, count(*) FROM v_publishable_observation o
+        observed = {(operator, route): int(count) for operator, route, count in con.execute("""
+            SELECT o.operator, o.route, count(*) FROM v_publishable_observation o
             JOIN raw_source r ON r.source_sha256 = o.source_sha256
-            WHERE r.source_kind = 'live_positions' AND route <> 'Unspecified'
-            GROUP BY 1""").fetchall())
-        # Evidence chooses the corridors: lines we have actually seen running, most first.
-        candidates = lines or [line for line, _ in
-                               sorted(((l, observed.get(l, 0)) for l in {e['line'] for e in entries}
-                                       if l in observed), key=lambda x: -x[1])][:limit_lines]
+            WHERE r.source_kind = 'live_positions' AND o.route <> 'Unspecified'
+            GROUP BY 1, 2""").fetchall()}
+        held = {(entry['operator'], entry['line']) for entry in entries}
+        if lines:
+            wanted = {line.strip() for line in lines if line.strip()}
+            selected, mode = {pair for pair in held if pair[1] in wanted}, 'explicit_lines'
+        elif coverage == 'all':
+            selected, mode = set(held), 'all_valid_files'
+        else:
+            # Evidence chooses: services seen running here, operator and line both.
+            selected, mode = {pair for pair in held if pair in observed}, 'observed_services'
+        if max_lines:
+            selected = set(sorted(selected, key=lambda pair: (-observed.get(pair, 0), pair))[:max_lines])
+        without = sorted(((op, line, n) for (op, line), n in observed.items() if (op, line) not in held),
+                         key=lambda item: (-item[2], item[0], item[1]))
+
         run_id = start_run(con, 'pattern_build', is_historical=False,
-                           note=f'TransXChange service patterns for {len(candidates)} observed lines')
-        collected = []
+                           note=f'TransXChange service patterns: {mode}, {len(selected)} services')
+        collected, files = [], 0
         for entry in entries:
-            if entry['line'] not in candidates:
+            if (entry['operator'], entry['line']) not in selected:
                 continue
             body = gzip.decompress(entry['path'].read_bytes())
             with zipfile.ZipFile(io.BytesIO(body)) as archive:
                 xml = archive.read(entry['member'])
+            files += 1
             collected.extend(extract_patterns(xml, entry['member'], entry['sha256'],
                                               entry['validFrom'], entry['validTo']))
         distinct = deduplicate(collected)
         loaded, stop_rows = load(con, run_id, distinct, stops_in_area)
         finish_run(con, run_id, 'succeeded')
-        published = build_published(con)
+        summary = {
+            'selection': mode, 'date': today.isoformat(), 'cap': max_lines,
+            'servicesSelected': len(selected), 'filesParsed': files,
+            'filesNotValidOnDate': survey['notValidOnDate'],
+            'unrecognisedFileNames': len(survey['unrecognised']),
+            'observedServicesWithoutTimetable': len(without),
+            'observedServicesWithoutTimetableExamples': [
+                {'operator': op, 'line': line, 'observations': n} for op, line, n in without[:20]],
+        }
+        published = build_published(con, summary)
         atomic_json(root / PATTERNS_TARGET, published)
-        log(json.dumps({'datasetsIndexed': len({e['sha256'] for e in entries}),
-                        'filesValidToday': len(entries), 'linesConsidered': len(candidates),
+        log(json.dumps({**{k: v for k, v in summary.items()
+                           if k != 'observedServicesWithoutTimetableExamples'},
+                        'datasetsIndexed': len({e['sha256'] for e in entries}),
                         'patternsParsed': len(collected), 'distinctPatterns': loaded,
-                        'patternStops': stop_rows,
-                        'publishedPatterns': len(published['patterns']),
-                        'supportedLines': published['supportedLines']}))
+                        'patternStops': stop_rows, 'publishedPatterns': len(published['patterns']),
+                        'publishedServices': len(published['supportedServices'])}))
         return published
     finally:
         con.close()
 
 
 def main(argv=None):
-    build()
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('command', nargs='?', default='build', choices=['build'])
+    parser.add_argument('--coverage', choices=['observed', 'all'], default='observed',
+                        help='observed: services seen in live collection (default); '
+                             'all: every file valid on the date')
+    parser.add_argument('--lines', help='comma-separated line labels; overrides --coverage')
+    parser.add_argument('--max-lines', type=int, default=None,
+                        help='keep only the N most-observed services (development only; '
+                             'recorded in the published coverage summary)')
+    parser.add_argument('--date', help='judge timetable validity on this day (YYYY-MM-DD); '
+                                       'default today in Europe/London')
+    args = parser.parse_args(argv)
+    day = date.fromisoformat(args.date) if args.date else None
+    build(lines=args.lines.split(',') if args.lines else None, coverage=args.coverage,
+          max_lines=args.max_lines, today=day)
     return 0
 
 

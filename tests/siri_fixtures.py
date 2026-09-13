@@ -12,7 +12,7 @@ ACTIVITY = """
           <DatedVehicleJourneyRef>{journey}</DatedVehicleJourneyRef>
         </FramedVehicleJourneyRef>
         <OperatorRef>{operator}</OperatorRef>
-        <VehicleLocation><Longitude>{lon}</Longitude><Latitude>{lat}</Latitude></VehicleLocation>
+        <VehicleLocation><Longitude>{lon}</Longitude><Latitude>{lat}</Latitude></VehicleLocation>{bearing}
         <DestinationName>{destination}</DestinationName>
         <VehicleRef>{vehicle}</VehicleRef>
       </MonitoredVehicleJourney>
@@ -29,10 +29,13 @@ DOCUMENT = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 def bus(recorded, lat=53.470, lon=-2.240, vehicle='V1', operator='TEST', route='142',
-        direction='inbound', journey='J1', destination='Piccadilly'):
+        direction='inbound', journey='J1', destination='Piccadilly', bearing=None):
+    """`bearing=None` omits the element; any other value is written verbatim, so a test can
+    supply an invalid one such as '-5' or 'NaN'."""
     return ACTIVITY.format(recorded=recorded, lat=lat, lon=lon, vehicle=vehicle,
                            operator=operator, route=route, direction=direction,
-                           journey=journey, destination=destination)
+                           journey=journey, destination=destination,
+                           bearing='' if bearing is None else f'<Bearing>{bearing}</Bearing>')
 
 
 def siri_document(activities):

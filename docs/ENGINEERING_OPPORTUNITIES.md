@@ -156,3 +156,143 @@ replace do not. No research; no novelty claimed.
 **Next cheap validation.** None; the pattern is in use.
 
 **Status:** mitigated.
+
+---
+
+## 5. MapLibre refuses a whole style over one invalid property, and says so only to a listener
+
+**Problem and evidence.** On 13 September 2026 the redesigned map style carried one data
+expression in `symbol-placement` (water labels), which MapLibre does not allow. MapLibre
+validated the style, emitted an `error` event naming `layers[26].layout.symbol-placement`, and
+loaded nothing. Our error listener only escalates messages containing "style", so the page
+waited for the seven-second watchdog and then showed the drawn fallback. The browser suite
+reported it only as eleven timeouts of 45 seconds each; the cause was found by running
+MapLibre's own validator (`@maplibre/maplibre-gl-style-spec`, `validateStyleMin`) in Node.
+
+**Who hits it and the current workaround.** Anyone editing `lib/map-style.ts` or
+`lib/map-overlay.ts`. The workaround was reading the spec by hand.
+
+**Recurrence and effort.** One occurrence; one full browser-suite run (about 15 minutes) lost.
+
+**Right answer.** A small fix, already taken: `tests/map-style.test.mjs` validates both themes
+with the City buildings and every overlay layer, in the Node suite, in under a second.
+
+**Existing tools.** MapLibre's style-spec package (validator, also a CLI `gl-style-validate`).
+No novelty claimed.
+
+**Smallest reusable capability.** The validation test itself; the same pattern applies to any
+generated style.
+
+**Next cheap validation.** None; the test is in place.
+
+**Status:** mitigated.
+
+---
+
+## 6. Timetable coverage was narrowed invisibly, three times
+
+**Problem and evidence.** Two defects, fixed in the 13 September commit, hid most of the
+timetable data already on disk: `pipeline.patterns.build(limit_lines=14)` kept only the 14
+most-observed lines, and the file-name pattern required a numeric suffix, so the 83 First
+Manchester files (UUID suffixes) were never read. Measured on one live payload the same day:
+112 observed operator-and-line pairs, 78 of them with a same-operator timetable file valid that
+day covering 424 of 535 vehicles, while only 93 vehicles were matched. Route 15 read "no
+timetable pattern is held" in the owner's screenshot while its file was in the dataset.
+
+A third was found the same afternoon by reading the real Sunday output, not the tests.
+Patterns were published, and matched against, only when 60% of their stops lay inside the
+collected area. Sunday journeys that run a longer path fell below it (route 219's Sunday
+pattern with 56 journeys to Ashton is 45% inside; route 203's Sunday patterns 45–54%), so
+32 of 338 live buses at 13:58 BST were told "the timetable held for this service has no
+journeys on this day", and a stop served only by them could read "nothing runs today". The
+matcher now checks identity against every held pattern and publication needs one stop inside
+the area; `PublicationRuleTests` in `tests/test_matching.py` fails on the old rule.
+
+**Who hits it and the current workaround.** The owner reading the passenger view; anyone
+judging coverage. There was no workaround: the narrowing did not appear in any output.
+
+**Recurrence and effort.** Three independent narrowings in one module: a cap, a file-name
+rule and an area threshold. None raised an error; each showed only when what was held was
+compared with what was published.
+
+**Right answer.** The defects are fixed in code. The reusable need is a coverage ledger: every
+observed service with its outcome (patterns built, no timetable for this operator, file not
+valid today, no journeys today), published and shown in Operations. `patterns.json` now carries
+a `coverage` summary with the selection rule, the date, any cap, and the observed services
+without a timetable; showing it in the Operations tab is the small next step.
+
+**Existing tools.** None researched; this is specific to the pipeline's own tables.
+
+**Smallest reusable capability.** A per-service coverage table joining observed services to
+timetable files and match outcomes, rebuilt with each pattern build.
+
+**Next cheap validation.** Render the published `coverage` block in Operations and check it
+against one hand count.
+
+**Status:** observed (defects fixed; the ledger is not built).
+
+---
+
+## 7. The feed's journey references do not identify timetabled journeys
+
+**Problem and evidence.** Checked on 13 September 2026 for BNML routes 15 and 86: 0 of 10 live
+`DatedVehicleJourneyRef` values matched either the timetable's `VehicleJourneyCode` or its
+ticket-machine `JourneyCode`. A bus can therefore be placed on a pattern by position, but not
+tied to one timetabled journey, which is what would settle branches exactly and give a
+scheduled time at a stop. The operator does report `OriginAimedDepartureTime`, which with line,
+direction and operating day may identify the journey.
+
+**Who hits it and the current workaround.** The matcher, whenever branches compete. The
+workaround is to keep the ambiguity and settle it only by the reported destination.
+
+**Recurrence and effort.** Every publication.
+
+**Right answer.** A small, testable matcher extension: candidate journeys whose departure time
+equals the reported origin departure, on the same line, direction and day. Needs validation
+before any scheduled time is shown.
+
+**Existing tools.** None claimed.
+
+**Smallest reusable capability.** A journey-identity check reported with its hit rate.
+
+**Next cheap validation.** Measure the share of live vehicles for which exactly one timetabled
+journey has that departure time.
+
+**Status:** observed.
+
+---
+
+## 8. Controls drawn over the map collide, and only screenshots noticed
+
+**Problem and evidence.** On 13 September the phone map's "Ride along" button covered the
+legend although the phone rule that stacks them existed: it sat near the top of
+`app/globals.css`, and the base rules for the same selectors further down won on source
+order. The same screenshot review found the ride-along disclaimer under its Exit button on a
+phone, the progress card over the 3D bus, a no-direction note touching the disclaimer when it
+wrapped, and the Operations tab cut off at 390 px. `pnpm test:browser` passed throughout: it
+checks that the map renders, survives updates and falls back, not that its overlays leave each
+other readable.
+
+**Who hits it and the current workaround.** Anyone changing the map's overlay CSS. The
+workaround was to take desktop and phone screenshots after each change and inspect them by eye.
+
+**Recurrence and effort.** The legend and button collision had been fixed once and came back;
+five collisions surfaced in one review. Each costs a screenshot pass and a fix; how often
+they would otherwise reach the owner is unknown.
+
+**Right answer.** A small check, now in the suite: `collisions()` in
+`tests/browser/journey.spec.mjs` measures every control, note and card drawn over the map and
+fails on any intersection, in the flat and City views and the ride-along with and without a
+bearing and with the model notice, at desktop and phone size. Not a product.
+
+**Existing tools.** Not researched here. Screenshot comparison (Playwright's own
+`toHaveScreenshot`) is the obvious candidate, but on a live vector basemap it would flag every
+tile or label change as a difference.
+
+**Smallest reusable capability.** A `noOverlap(page, selectors)` assertion any Playwright suite
+with overlays can call per view and viewport.
+
+**Next cheap validation.** Done: with the phone rules put back above the base rules, the check
+fails on the phone with `.ride-launch × .map-legend-chips` and passes on desktop.
+
+**Status:** mitigated (the check is in the suite and catches the original defect).

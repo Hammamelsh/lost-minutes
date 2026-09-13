@@ -139,6 +139,10 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
       onClick={()=>onSelect(bus.key)}
       onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(bus.key)}}}>
      {on&&<circle cx={x} cy={y} r={22} className="bus-halo"/>}
+     {/* The nose only where a bearing was reported; never inferred from movement. */}
+     {bus.bearing!==null&&<path d={`M${x} ${y-(on?23:13)} l${on?7:4.5} ${on?11:7} h${on?-14:-9} z`}
+      transform={`rotate(${bus.bearing} ${x} ${y})`} fill={on?'#c6f36a':faded?'#6f8896':'#e3eef2'}
+      stroke={on?'#f4ffe4':'#0d1b26'} strokeWidth={1.5} strokeLinejoin="round"/>}
      <circle cx={x} cy={y} r={on?13:7} fill={on?'#c6f36a':faded?'#6f8896':'#e3eef2'}
       stroke={on?'#f4ffe4':'#0d1b26'} strokeWidth={on?3:2}/>
      {on&&<text x={x} y={y+5} textAnchor="middle" className="bus-marker-route">{bus.route}</text>}

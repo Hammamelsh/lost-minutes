@@ -115,6 +115,10 @@ CREATE TABLE IF NOT EXISTS observation (
     retrieved_at      TIMESTAMPTZ,
     first_seen_run_id TEXT,
     first_seen_at     TIMESTAMPTZ,
+    bearing           DOUBLE,          -- degrees, 0 to 360; NULL unless reported and readable
+    bearing_status    TEXT,            -- reported | absent | invalid; NULL = stored before
+                                       -- bearings were captured, so unknown, not absent
+    bearing_raw       TEXT,            -- the source text, kept only when it was invalid
     PRIMARY KEY ({IDENTITY_SQL})
 );
 
@@ -263,12 +267,14 @@ def connect(db_path=DEFAULT_DB):
     con = duckdb.connect(str(path))
     con.execute('BEGIN')
     con.execute(DDL)
-    con.execute(VIEWS)
-    # Additive migration for warehouses created before the live milestone.
+    # Additive migrations for older warehouses, before the views that select from them.
     try:
         con.execute("ALTER TABLE publication ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'replay'")
     except Exception:  # pragma: no cover - already present on a fresh schema
         pass
+    for column in ('bearing DOUBLE', 'bearing_status TEXT', 'bearing_raw TEXT'):
+        con.execute(f'ALTER TABLE observation ADD COLUMN IF NOT EXISTS {column}')
+    con.execute(VIEWS)
     if con.execute('SELECT count(*) FROM schema_meta').fetchone()[0] == 0:
         con.execute('INSERT INTO schema_meta VALUES (?, now())', [SCHEMA_VERSION])
     con.execute('COMMIT')
@@ -345,7 +351,8 @@ CREATE OR REPLACE TEMP TABLE staging_obs (
     operator TEXT, vehicle TEXT, route TEXT, direction TEXT, journey_ref TEXT,
     observed_at_ms BIGINT, recorded_at_text TEXT, lat DOUBLE, lon DOUBLE,
     destination TEXT, origin TEXT, aimed_departure TEXT,
-    source_sha256 TEXT, source_member TEXT, retrieved_at_text TEXT
+    source_sha256 TEXT, source_member TEXT, retrieved_at_text TEXT,
+    bearing DOUBLE, bearing_status TEXT, bearing_raw TEXT
 );
 """
 
@@ -390,10 +397,11 @@ def load_observations(con, run_id, source_sha256, records, rejected, activities_
     con.execute(STAGING_DDL)
     if records:
         con.executemany(
-            'INSERT INTO staging_obs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO staging_obs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [(r['operator'], r['vehicle'], r['route'], r['direction'], r['journeyRef'],
               r['time'], r['recordedAt'], r['lat'], r['lon'], r['destination'], r['origin'],
-              r['aimedDeparture'], r['sourceHash'], r['sourceMember'], r['retrievedAt'])
+              r['aimedDeparture'], r['sourceHash'], r['sourceMember'], r['retrievedAt'],
+              r.get('bearing'), r.get('bearingStatus'), r.get('bearingRaw') or None)
              for r in records])
     con.execute(BATCH_SQL)
     con.execute(CLASSIFY_SQL)
@@ -401,13 +409,27 @@ def load_observations(con, run_id, source_sha256, records, rejected, activities_
     con.execute(f"""
         INSERT INTO observation ({IDENTITY_SQL}, observed_at, recorded_at_text, lat, lon,
             destination, origin, aimed_departure, source_sha256, source_member, retrieved_at,
-            first_seen_run_id, first_seen_at)
+            first_seen_run_id, first_seen_at, bearing, bearing_status, bearing_raw)
         SELECT {IDENTITY_SQL}, to_timestamp(observed_at_ms / 1000.0), recorded_at_text, lat, lon,
                destination, origin, aimed_departure, source_sha256, source_member,
-               try_cast(retrieved_at_text AS TIMESTAMPTZ), ?, now()
+               try_cast(retrieved_at_text AS TIMESTAMPTZ), ?, now(),
+               bearing, bearing_status, bearing_raw
         FROM classified_obs WHERE classification = 'new'
         ON CONFLICT DO NOTHING
     """, [run_id])
+
+    # Bearings were captured after the first observations were stored. A repeat of a stored
+    # identity, re-read from the same kind of raw bytes, may carry the bearing the stored row
+    # never recorded. It is filled in once and never overwritten; identity and position are
+    # untouched, so no analytical count moves.
+    con.execute(f"""
+        UPDATE observation SET bearing = c.bearing, bearing_status = c.bearing_status,
+                               bearing_raw = c.bearing_raw
+        FROM classified_obs c
+        WHERE c.classification = 'repeat' AND observation.bearing_status IS NULL
+          AND c.bearing_status IS NOT NULL
+          AND {' AND '.join(f'observation.{col} = c.{col}' for col in IDENTITY)}
+    """)
 
     con.execute(f"""
         INSERT INTO observation_conflict ({IDENTITY_SQL}, kind, stored_lat, stored_lon,

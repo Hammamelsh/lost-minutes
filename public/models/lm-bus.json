@@ -1,0 +1,195 @@
+{
+  "name": "Lost Minutes generic single-deck bus",
+  "licence": "Original work made for Lost Minutes, dedicated to the public domain (CC0 1.0).",
+  "note": "A stylised generic bus. It is not a model of any real vehicle, and says nothing about the type of bus actually running.",
+  "units": "metres; x across the bus (right positive), y along it (front positive), z up",
+  "lengthMetres": 12.0,
+  "widthMetres": 2.55,
+  "heightMetres": 3.38,
+  "parts": [
+    {
+      "name": "front wheels",
+      "x": [
+        -1.3,
+        1.3
+      ],
+      "y": [
+        3.1,
+        4.3
+      ],
+      "z": [
+        0,
+        0.56
+      ],
+      "colour": "tyre"
+    },
+    {
+      "name": "rear wheels",
+      "x": [
+        -1.3,
+        1.3
+      ],
+      "y": [
+        -4.5,
+        -3.3
+      ],
+      "z": [
+        0,
+        0.56
+      ],
+      "colour": "tyre"
+    },
+    {
+      "name": "skirt",
+      "x": [
+        -1.22,
+        1.22
+      ],
+      "y": [
+        -5.85,
+        5.8
+      ],
+      "z": [
+        0.28,
+        0.6
+      ],
+      "colour": "trim"
+    },
+    {
+      "name": "body",
+      "x": [
+        -1.27,
+        1.27
+      ],
+      "y": [
+        -5.95,
+        5.7
+      ],
+      "z": [
+        0.56,
+        2.06
+      ],
+      "colour": "body"
+    },
+    {
+      "name": "window band",
+      "x": [
+        -1.285,
+        1.285
+      ],
+      "y": [
+        -5.72,
+        5.2
+      ],
+      "z": [
+        2.06,
+        2.84
+      ],
+      "colour": "glass"
+    },
+    {
+      "name": "rear pillar",
+      "x": [
+        -1.29,
+        1.29
+      ],
+      "y": [
+        -5.96,
+        -5.72
+      ],
+      "z": [
+        2.06,
+        2.84
+      ],
+      "colour": "body"
+    },
+    {
+      "name": "windscreen",
+      "x": [
+        -1.2,
+        1.2
+      ],
+      "y": [
+        5.2,
+        5.98
+      ],
+      "z": [
+        0.92,
+        2.84
+      ],
+      "colour": "glass"
+    },
+    {
+      "name": "bumper",
+      "x": [
+        -1.24,
+        1.24
+      ],
+      "y": [
+        5.7,
+        6.0
+      ],
+      "z": [
+        0.34,
+        0.92
+      ],
+      "colour": "trim"
+    },
+    {
+      "name": "destination display",
+      "x": [
+        -0.95,
+        0.95
+      ],
+      "y": [
+        5.9,
+        6.03
+      ],
+      "z": [
+        2.52,
+        2.8
+      ],
+      "colour": "sign"
+    },
+    {
+      "name": "roof",
+      "x": [
+        -1.25,
+        1.25
+      ],
+      "y": [
+        -5.92,
+        5.95
+      ],
+      "z": [
+        2.84,
+        3.1
+      ],
+      "colour": "body"
+    },
+    {
+      "name": "roof pod",
+      "x": [
+        -0.72,
+        0.72
+      ],
+      "y": [
+        -3.9,
+        -1.4
+      ],
+      "z": [
+        3.1,
+        3.38
+      ],
+      "colour": "roof"
+    }
+  ],
+  "colours": {
+    "body": "#c6f36a",
+    "glass": "#1a2a33",
+    "roof": "#eef4e6",
+    "trim": "#27373f",
+    "tyre": "#0c1216",
+    "sign": "#ffb000"
+  }
+}

@@ -3,6 +3,14 @@ import {z} from 'zod';
 const nullableString = z.string().nullable().optional();
 const count = z.number().int().nonnegative();
 
+// What the matcher checked, so the passenger view can show its inputs, not just its verdict.
+const matchEvidence = z.object({
+ serviceDay:z.string().optional(), weekday:z.string().optional(),
+ operatorChecked:z.boolean().optional(), directionReported:z.boolean().optional(),
+ operatingDayChecked:z.boolean().optional(), plausiblePaths:z.number().int().optional(),
+ resolvedBy:z.string().optional(), destinationAgrees:z.boolean().nullable().optional(),
+}).optional();
+
 const vehicleSchema = z.object({
  operator:z.string(), vehicle:z.string(), route:z.string(), direction:z.string(),
  journeyRef:z.string(), destination:z.string().nullable().optional(),
@@ -16,11 +24,25 @@ const vehicleSchema = z.object({
  // Where the timetable places this bus, or why it could not be placed. Never a guess.
  match:z.union([
   z.object({patternId:z.string(),patternIndex:z.number().int().nonnegative(),
-            nearestStop:z.string(),metresAlongPattern:z.number(),
+            nearestStop:z.string(),
+            // null: the timetable did not declare every link distance, so it is unknown.
+            metresAlongPattern:z.number().nullable(),
             metresFromPatternStop:z.number(),
-            patternDirection:nullableString,patternDestination:nullableString}),
-  z.object({unresolved:z.string(),explanation:z.string()}),
+            patternDirection:nullableString,patternDestination:nullableString,
+            evidence:matchEvidence}),
+  z.object({unresolved:z.string(),explanation:z.string(),
+            // An unresolved branch keeps every candidate: a shared stop is not a shared route.
+            candidates:z.array(z.object({patternId:z.string(),patternIndex:z.number().int().nonnegative()})).optional(),
+            nearestStop:z.string().optional(), sharedNext:z.array(z.string()).optional(),
+            metresFromPatternStop:z.number().optional(), nearestPatternMetres:z.number().optional(),
+            evidence:matchEvidence}),
  ]).optional(),
+ // Reported heading, 0-360 degrees; null unless the vehicle reported a readable one. Zero is
+ // north. 'not_captured' means stored before bearings were recorded, which is not 'absent'.
+ bearing:z.number().min(0).max(360).nullable().optional(),
+ bearingStatus:z.enum(['reported','absent','invalid','not_captured']).optional(),
+ // The operator's scheduled departure from the origin: a timetable claim, not an observation.
+ aimedDeparture:z.string().nullable().optional(),
 });
 
 const summarySchema = z.object({
@@ -63,7 +85,8 @@ const liveSchema = z.object({
   quarantinedRecords:count,
   quarantineReasons:z.array(z.object({reason:z.string(),count:count})),
  }),
- sourceQuality:z.object({quarantineReasons:z.array(z.object({reason:z.string(),count:count})),note:z.string()}),
+ sourceQuality:z.object({quarantineReasons:z.array(z.object({reason:z.string(),count:count})),
+  bearings:z.record(z.number()).optional(),note:z.string()}),
  pipelineFailures:z.object({cycles:z.array(z.object({outcome:z.string(),count:count})),note:z.string()}),
  attribution:z.string(),
  notes:z.array(z.string()),

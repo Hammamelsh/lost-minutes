@@ -1,6 +1,6 @@
 // The passenger flows in the built site, on desktop and a 390 px phone.
 import {test, expect} from '@playwright/test';
-import {liveFromArchive, markerPixels, serveLive, unavailableState} from './fixtures.mjs';
+import {journeyLive, liveFromArchive, markerPixels, serveLive, servePatterns, unavailableState} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 // The vector map must actually settle here; the drawn fallback has its own tests in map.spec.
@@ -51,10 +51,13 @@ test('offline: the page says so rather than implying the data is current', async
 });
 
 test.describe('location granted', () => {
-  test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
+  // Night map: its road colours are far from the three marker fills, so counting marker pixels
+  // cannot be fooled by a paper-coloured road. The day map is checked by eye in the screenshots.
+  test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK, colorScheme: 'dark'});
 
   test('finds the nearby stops, then You, your stop and a bus are all on the map', async ({page}) => {
-    await serveLive(page, [() => liveFromArchive()]);
+    await servePatterns(page);
+    await serveLive(page, [() => journeyLive()]);
     await page.goto('/');
     await expect(mapPainted(page)).toBeVisible({timeout: 45_000});
     await page.getByRole('button', {name: 'Buses near me'}).click();
@@ -66,11 +69,12 @@ test.describe('location granted', () => {
     await page.waitForTimeout(1500);
     await shot(page, 'nearby-granted', {fullPage: true});
 
-    await page.locator('.nearby-stop', {hasText: 'Stretford Mall'}).first().click();
+    await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
     await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
+    await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
     // Look at the map the way a passenger would: with it on screen, then ask for the fit.
     await page.locator('.vector-map').evaluate(el => el.scrollIntoView({block: 'start'}));
-    await page.getByRole('button', {name: 'Fit you, your stop and the selected bus on screen'}).click({timeout: 10_000});
+    await page.getByRole('button', {name: /Fit journey/}).click({timeout: 10_000});
     await page.waitForTimeout(2000);
     await shot(page, 'your-stop');
     // All three symbols drawn on the rendered map, each in its own colour.

@@ -9,7 +9,7 @@
     "dev": "node scripts/vendor-maplibre.mjs && next dev",
     "build": "node scripts/vendor-maplibre.mjs && next build --webpack",
     "start": "python3 -m http.server 3000 --directory out",
-    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs tests/nearby.test.mjs",
+    "test": "node --experimental-strip-types --import ./tests/alias-loader.mjs --test tests/replay.test.mjs tests/operations.test.mjs tests/live.test.mjs tests/sw.test.mjs tests/follow.test.mjs tests/patterns.test.mjs tests/nearby.test.mjs tests/journey.test.mjs tests/map-style.test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern out --ignore-pattern .next --ignore-pattern public/vendor",
     "dev:live": "node scripts/dev-live.mjs",
@@ -45,6 +45,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "4.20260515.1",
+    "@maplibre/maplibre-gl-style-spec": "26.4.1",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",

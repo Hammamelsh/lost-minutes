@@ -36,9 +36,13 @@ NOTES = [
     'or predicted.',
     'A position older than the expiry threshold is withheld and counted, because the feed '
     'demonstrably carries positions that are hours old.',
-    'No arrival time, approaching-bus claim or nearby-stop distance is offered: that needs '
-    'a validated route and stop relationship, which has not been established.',
+    'No arrival time is offered. Progress toward a stop is shown only where a timetabled '
+    'service pattern is matched, and is counted in stops along that pattern, not minutes.',
+    'Direction of travel is drawn only where the vehicle reported a bearing. A missing or '
+    'unreadable bearing is stated, never estimated from movement.',
 ]
+
+BEARING_STATUSES = ('reported', 'absent', 'invalid', 'not_captured')
 
 # Latest report per vehicle, newest first. Out-of-order arrivals are handled here rather
 # than at load time: the row with the greatest observation time wins, whenever it arrived.
@@ -50,7 +54,7 @@ WITH ranked AS (
     WHERE o.source_sha256 IN (SELECT source_sha256 FROM raw_source WHERE source_kind = ?)
 )
 SELECT operator, vehicle, route, direction, journey_ref, observed_at_ms, recorded_at_text,
-       lat, lon, destination, origin, source_sha256
+       lat, lon, destination, origin, source_sha256, bearing, bearing_status, aimed_departure
 FROM ranked WHERE rn = 1 ORDER BY observed_at_ms DESC
 """
 
@@ -72,7 +76,8 @@ def build_live(con, published_at=None):
     now_ms = int(now.timestamp() * 1000)
     rows = con.execute(LATEST_SQL, [LIVE_KIND]).fetchall()
     columns = ['operator', 'vehicle', 'route', 'direction', 'journeyRef', 'observedAtMs',
-               'recordedAt', 'lat', 'lon', 'destination', 'origin', 'sourceHash']
+               'recordedAt', 'lat', 'lon', 'destination', 'origin', 'sourceHash', 'bearing',
+               'bearingStatus', 'aimedDeparture']
 
     vehicles, expired, ahead_of_clock = [], 0, 0
     for row in rows:
@@ -88,6 +93,13 @@ def build_live(con, published_at=None):
             continue
         item['ageSeconds'] = round(age, 1)
         item['freshness'] = state
+        # NULL status means the row was stored before bearings were captured: unknown, which
+        # is a different statement from "the vehicle did not report one".
+        item['bearingStatus'] = item['bearingStatus'] or 'not_captured'
+        if item['bearingStatus'] != 'reported':
+            item['bearing'] = None
+        # The operator's scheduled departure from the origin: a timetable claim, not a fix.
+        item['aimedDeparture'] = item['aimedDeparture'] or None
         # Stated on every position so no consumer has to infer it.
         item['positionKind'] = 'observed'
         vehicles.append(item)
@@ -165,6 +177,8 @@ def build_live(con, published_at=None):
             'quarantineReasons': reasons,
         },
         'sourceQuality': {'quarantineReasons': reasons,
+                          'bearings': {status: sum(1 for v in vehicles if v['bearingStatus'] == status)
+                                       for status in BEARING_STATUSES},
                           'note': 'Problems in the data we were given.'},
         'pipelineFailures': {'cycles': pipeline_failures,
                              'note': 'Problems in our own collection, kept separate from '
@@ -202,6 +216,11 @@ def validate_live(payload, previous=None):
         f'expiry {EXPIRY}s, withheld {payload.get("withheld", {}).get("expiredPositions")}')
     add('every_position_is_an_observed_fix',
         all(v.get('positionKind') == 'observed' for v in vehicles), 'no estimated positions')
+    add('bearings_reported_or_explicitly_absent',
+        all(v.get('bearingStatus', 'not_captured') in BEARING_STATUSES
+            and ((v.get('bearing') is not None) == (v.get('bearingStatus') == 'reported'))
+            and (v.get('bearing') is None or 0 <= v['bearing'] <= 360) for v in vehicles),
+        'a bearing is published only when reported and within 0-360'),
     add('live_state_requires_positions',
         payload.get('state') != 'live' or bool(vehicles), f'{len(vehicles)} vehicles')
     add('publication_time_not_before_newest_observation',

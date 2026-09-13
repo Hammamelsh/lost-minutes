@@ -1,7 +1,8 @@
 # Lost Minutes
 
-Explore a real, recorded slice of Manchester bus movement. Choose a route and direction,
-select a bus, scrub through the recording, and inspect the exact source behind a point.
+Find your bus stop in Manchester, see which reported buses are timetabled to call there and
+how old each report is, and follow one; or explore a recorded slice of bus movement and
+inspect the exact source behind a point.
 
 ## Project context
 
@@ -16,10 +17,12 @@ than filled in. Counts are reconciled rather than asserted: the totals in the Ev
 Operations views add up to the inputs they came from, including the records that were
 rejected or suppressed and why.
 
-Current stage: a historical replay of an 11-snapshot public archive sample, with a local,
-restartable DuckDB history of every input, run and publication behind it. It is deliberately **not** a
-live service, a punctuality monitor or a delay predictor — timetable identity, stop-passage
-inference and scheduled-service coverage are not yet validated, so no such figure is shown.
+Current stage: a local companion that collects the live feed on this machine in bounded runs
+and places each bus on a timetabled stop pattern, or states why it cannot, plus a historical
+replay of an 11-snapshot public archive sample, with a restartable DuckDB history of every
+input, run and publication behind both. It is deliberately **not** a hosted live service, a
+punctuality monitor or a delay predictor: no arrival time is predicted, progress is counted
+from the nearest pattern stop without a measured error bound, and no scheduled time is shown.
 Roadmap work is tracked in `research/IMPLEMENTED.md`.
 
 Data comes from the Department for Transport's Bus Open Data Service via the Open
@@ -43,9 +46,14 @@ this file.
 - An Operations view driven by those records: collection, processing and publication times,
   source age, inputs, retained, repeats, conflicts, rejections, per-run outcomes, and every
   total reconciled against the history it came from.
-- A mobile-first Follow view: save a route and direction on the device, see the last
-  reported positions on a route-fitted map, follow one bus, and read the age of each report
-  rather than a reassuring "last updated".
+- A mobile-first, stop-first Follow view: find a boarding point by location or search (with
+  its side of the road and today's services), see the buses at it now and those coming to it
+  in the timetable's stop order, follow one, and read the age of each report rather than a
+  reassuring "last updated". An original map style in daylight and night themes, a City view
+  and a ride-along with a generic 3D bus, each labelled for what it is.
+- Timetable matching against TfGM TransXChange stop patterns: operator, timetable version,
+  operating day and direction are checked before position, and branches the position cannot
+  separate are kept unresolved rather than guessed.
 - A single-writer live collector for one shared Manchester feed, with repeated-payload
   detection, bounded backoff and an evidence-led freshness policy. Phones read our published
   state; no device ever contacts the data service.
@@ -53,8 +61,9 @@ this file.
   cached observation's original timestamps.
 - A Python archive importer and a separate credentialed, bounded live collector.
 
-This is a first working release. It is **not a live service or validated delay monitor**.
-Timetable matching, stop passage inference and scheduled-service coverage remain open.
+It is **not a hosted live service or a validated delay monitor**. Buses are matched to
+timetabled stop patterns, not to individual journeys; stop passage is not inferred beyond the
+nearest pattern stop, and there is no scheduled-time comparison or arrival prediction.
 Tracks are reconstructed by observation time from sampled archive responses. They do not
 represent a complete stream of what was known at every moment.
 

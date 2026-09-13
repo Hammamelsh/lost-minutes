@@ -52,6 +52,25 @@ def _moment(value):
         return None
 
 
+def read_bearing(text):
+    """SIRI-VM Bearing: the compass direction the vehicle is heading, 0 to 360 degrees.
+
+    Zero is a real bearing (due north), never a stand-in for missing. Missing stays missing.
+    A value that is unreadable or outside the range is kept as text with its status and is
+    never repaired: nothing is oriented by a bearing we could not read.
+    """
+    text = (text or '').strip()
+    if not text:
+        return None, 'absent'
+    try:
+        value = float(text)
+    except ValueError:
+        return None, 'invalid'
+    if not math.isfinite(value) or not 0 <= value <= 360:
+        return None, 'invalid'
+    return (0.0 if value == 0 else value), 'reported'
+
+
 def redact_url(url):
     p = urlsplit(url)
     hidden = {'api_key', 'apikey', 'key', 'token', 'access_token'}
@@ -98,6 +117,7 @@ def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
     """
     records, rejected = [], Counter()
     quarantined = []
+    bearings = Counter()
     activities_total = outside_area = 0
     received = _moment(retrieved_at)
 
@@ -156,6 +176,8 @@ def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
                     quarantine('missing_vehicle_identity', member, field,
                                f'operator={operator!r} vehicle={vehicle!r}')
                     continue
+                bearing, bearing_status = read_bearing(field('Bearing'))
+                bearings[bearing_status] += 1
                 record = {
                     'time': t, 'recordedAt': recorded_at, 'retrievedAt': retrieved_at,
                     'lat': lat, 'lon': lon, 'operator': operator, 'vehicle': vehicle,
@@ -164,13 +186,16 @@ def parse_source(body, source_hash, retrieved_at, bounds=BBOX):
                     'destination': field('DestinationName'), 'origin': field('OriginName'),
                     'aimedDeparture': field('OriginAimedDepartureTime'),
                     'sourceHash': source_hash, 'sourceMember': member,
+                    'bearing': bearing, 'bearingStatus': bearing_status,
+                    'bearingRaw': field('Bearing')[:40] if bearing_status == 'invalid' else '',
                 }
                 records.append(record)
             except OverflowError as error:
                 quarantine('coordinate_out_of_range', member, field, error)
     return records, dict(rejected), {'activitiesTotal': activities_total,
                                      'outsideArea': outside_area,
-                                     'quarantined': quarantined}
+                                     'quarantined': quarantined,
+                                     'bearing': dict(bearings)}
 
 
 def observations(body, source_hash, retrieved_at, bounds=BBOX):

@@ -457,3 +457,124 @@ available from reported data; see `docs/INSPIRATION_RESEARCH.md`.
 Node contract tests 52/52 (one new: `accuracyRing`); `pnpm typecheck`; `pnpm lint` (the
 vendored MapLibre copies excluded); `pnpm build`; `pnpm test:browser` 19/19 with 11 skipped
 by design; real-feed check 2/2.
+
+---
+
+# Passenger redesign — 13 September 2026
+
+Stop-first passenger view, an original map style in daylight and night themes, 2D / City /
+Fit journey, a 3D ride-along, Bearing carried from the feed to the screen, identity-first
+timetable matching, a stop-order schematic and per-bus evidence. Fixture screens are labelled
+FIXTURE and built on real NaPTAN stops; the real-feed figures below come from bounded
+`pnpm dev:live` runs on this machine and prove those runs only.
+
+## Bearing, source to screen
+
+`core.read_bearing` keeps 0° as a reported north (it is not "missing"), marks an empty element
+`absent` and anything unparseable, non-finite or outside 0–360 `invalid` with the raw text
+kept; the warehouse migrates additively (old rows read `not_captured`) and backfills repeats;
+`live.json` publishes `bearing` only when reported. Tested end to end in `tests/test_bearing.py`.
+Real run, publication of 13:57:56 BST: **338 vehicles, 225 bearings reported, 84 absent,
+0 invalid, 29 not captured** (their newest row predates the column).
+
+## Coverage, deliberately
+
+The 14-line cap is gone: the build selects every observed operator-and-line pair with a
+timetable file valid on the day (`--coverage observed`, the default), or every valid file
+(`--coverage all`), or named lines, with an optional explicit `--max-lines`; the choice, the
+date and every observed service without a timetable are published in `patterns.json`
+`coverage`. First real build: 443 files valid on the day parsed, **89 observed services
+selected, 49 observed without a timetable held** (largest by reports: BNGN 10, 36, 37 and 8;
+BNSM 2 and 1), 9,331 journey patterns → 404 distinct.
+
+**A defect found in the real Sunday output, not by the tests.** Patterns were published and
+matched against only when 60% of their stops lay inside the collected area. At 13:58 BST
+**32 of 338 buses** were refused with "the timetable held for this service has no journeys on
+this day". The raw TransXChange says otherwise: route 219's Sunday pattern carries 56
+journeys to Ashton with 45% of its stops inside; route 203's Sunday patterns are 45–54%
+inside; 42B 49%. The matcher now checks operator, version, day and direction against every
+held pattern, and a pattern is published when it calls at any stop inside the area. The three
+`PublicationRuleTests` fail on a copy of the old rule (`[10] != [5, 10]`,
+`no_pattern_operating_today`, `no_pattern_for_route`) and pass now. The extraction minimum of
+five stops hides nothing of the same kind: **0 of the 121 services with journeys today** run
+only on shorter patterns.
+
+**A wording defect found the same way.** "Mon–Sun, term days only" was attached to route 50,
+whose calendars include TfGM's holiday calendars (`SchOffUniOff`); a serviced-organisation
+calendar is a list of dates, so it now reads "on listed calendar dates only".
+
+**After both fixes** (patterns rebuilt 14:14 BST): **387 patterns across all 89 selected
+services** (was 221 across 58), 166 of which the old rule would have hidden; `patterns.json`
+grew from 853 KB to 1.47 MB (60 KB to 105 KB gzipped). The first run (13:56–14:12 BST) had
+45 cycles and the corrected run (14:15–14:27) 36, none failed. The publication of 14:16:22 BST, from the corrected code:
+
+| Outcome | 13:58, old rule (338 buses) | 14:16, corrected (342 buses) |
+|---|---|---|
+| Placed on a pattern | 153 | **201** |
+| No timetable held for the route | 117 | 78 |
+| Branches unresolved | 25 | 57 |
+| No journeys that day | 32 | **2** |
+| Wrong direction for every pattern | 9 | 0 |
+| Too far from any pattern stop | 2 | 4 |
+
+"No timetable held" fell because 31 of the services we hold had been left out of the matcher
+entirely, so their buses were told none was held. The two remaining "no journeys that day"
+are BNSM route 33: both of its files valid today carry one operating profile each with no
+Sunday, Weekend or MondayToSunday element, while an expired August version did run on
+Sundays, so the refusal is literally true. Unresolved branches grew with coverage; of the 59
+at 14:18, 42 have identical stops from the nearest stop on and differ only behind the bus.
+The passenger view already says "every possible branch calls at your stop" for those, and the
+evidence panel now says the stops ahead are the same on each. Bearings in the same
+publication: 267 reported, 75 absent, none invalid. The real-feed browser check passed 2/2
+against both runs.
+
+### One supported example, real
+
+BNML route 250, vehicle BU25YVB, to The Trafford Centre; reported 14:16:27 BST at 53.46341,
+−2.28177 with a bearing of 242°; published 14:16:42. Checked against its operator, a timetable
+version valid that day (`BNML_250_…_2390038.xml`, revision 20, valid 19 July 2026 to 19 July
+2031), journeys that run on Sundays, and the reported direction; one path fits the position,
+so the position alone placed it on `BNML:250:outbound:7930c3c3b8`, stop 18 of 36, 307 m from
+Trafford Bar. Standing at Matt Busby Way (westbound, Wharfside Way), the page said
+"Timetabled to call at your stop" and "Last report nearest Trafford Bar · 1 stop before
+yours", adding that it may or may not have called there yet; the bus was 940 m away in a
+straight line and 1.2 km along the stop sequence; the arrival time was not predicted.
+
+## Browser checks
+
+`pnpm test:browser` on the built `out/`, desktop 1280×900 and a 390×844 phone: **43 passed,
+11 skipped by design**. New in `tests/browser/journey.spec.mjs`: nearby stops on opposite
+sides of the road with their services and an uncovered stop; stop first, then its services,
+then a bus; shared-stop branching with both branches kept; a chosen bus that leaves the feed
+stays chosen and says so; an unsupported stop found by search; day and night themes on one
+map instance; 2D → City → ride-along → 2D with the model's pixels counted; a model that fails
+to load leaves the symbol and says so; a stale publication, whose report ages must include
+the publication's own age; and no control, note or card drawn over the map covering another,
+in each view. The lifecycle, worker and fallback checks from the map repair all still pass.
+
+**Layout defects found by looking, now held by a check.** The screenshots showed the phone's
+"Ride along" button over the legend (a phone rule that lost to a later base rule on source
+order), the ride-along disclaimer under its Exit button, the progress card over the 3D bus, a
+no-direction note touching the disclaimer, and the Operations tab cut off at 390 px. The
+notes now stack in one column under the exit, the camera centres the bus in the measured gap
+between them and the card, and `collisions()` fails on any intersection. With the source-order
+bug put back, the phone check fails with `.ride-launch × .map-legend-chips` and the desktop
+check passes, as it should. The stale-publication fixture had reports seconds old inside a
+file published ten minutes earlier, which cannot happen; it now dates reports before the
+publication, and the page shows them as ten minutes old.
+
+## Not verified here
+
+A real phone and GPU (the suite renders with SwiftShader), legibility in sunlight and at
+night on a device, battery cost, collection beyond bounded runs, bank-holiday operation (it
+is recorded, not evaluated), and any arrival time: none is predicted.
+
+## Also observed
+
+The owner's own `pnpm dev:live` stopped publishing at 13:44:56 BST (238 cycles); its
+`pipeline_run` row was left `running` with no finish time, which is what an abrupt stop
+leaves. The kernel log shows no out-of-memory kill and WSL had not restarted. A dependency
+install in this repository (13:41) and hot-reloaded component edits happened shortly before;
+the cause is not established. Its run record still reads `running` after three later bounded
+runs started and finished normally (45, 36 and 18 cycles, none failed): nothing marks an abandoned
+live run as interrupted, so that record will read as running until something does.

@@ -11,8 +11,18 @@ import {cleanLabel,clock,gaps,Journey,lastObservation,latestVisible,percentile,p
 import {Operations,parseOperations} from '@/lib/operations';
 import OperationsView from '@/components/operations-view';
 import FollowView from '@/components/follow-view';
-import {busesFromArchive,busesFromLive} from '@/lib/follow';
+import {busesFromArchive,busesFromLive,busFromVehicle} from '@/lib/follow';
 import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
+import type {LiveVehicle} from '@/lib/live';
+
+/** SHA-256 of the live file exactly as this page received it, so the passenger's evidence can
+ *  be matched to the publisher's recorded fingerprint. Absent where the browser cannot hash. */
+async function fingerprint(text:string){
+ try{
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+ }catch{return null}
+}
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 
@@ -50,6 +60,10 @@ export default function Home(){
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
  const [config,setConfig]=useState<SiteConfig>(DEFAULT_CONFIG);
  const [live,setLive]=useState<LiveState|null>(null),[liveFetchedAt,setLiveFetchedAt]=useState(0);
+ // Every vehicle this visit has seen, so a chosen bus that drops out of the feed can still be
+ // described by its last report instead of silently vanishing.
+ const [lastSeen,setLastSeen]=useState<Map<string,LiveVehicle>>(()=>new Map());
+ const [liveFingerprint,setLiveFingerprint]=useState<string|null>(null);
  const [serverRef,setServerRef]=useState(0),[ageBasis,setAgeBasis]=useState<'server'|'device'>('server');
  const [fromCache,setFromCache]=useState(false),[online,setOnline]=useState(true);
  const [refreshing,setRefreshing]=useState(false),[usingArchive,setUsingArchive]=useState(false);
@@ -75,9 +89,16 @@ export default function Home(){
    if(!response.ok)throw Error(`live state unavailable (${response.status})`);
    const cached=response.headers.get('X-Lost-Minutes-From-Cache')==='1';
    const headerDate=response.headers.get('Date'),headerAge=response.headers.get('Age');
-   const value=parseLive(await response.json());
+   const text=await response.text();
+   const value=parseLive(JSON.parse(text));
    const reference=serverReference(headerDate,headerAge,value,Date.now());
    setLive(value);setFromCache(cached);setServerRef(reference.serverReferenceMs);
+   setLastSeen(previous=>{
+    const next=new Map(previous);
+    for(const vehicle of value.vehicles)next.set(`${vehicle.operator}|${vehicle.vehicle}`,vehicle);
+    return next;
+   });
+   setLiveFingerprint(await fingerprint(text));
    setAgeBasis(reference.basis);
    setLiveFetchedAt(Date.now());setNowMs(Date.now());
   }catch{
@@ -156,6 +177,10 @@ export default function Home(){
   :busesFromLive(live,serverRef||live?.publishedAtMs||0,liveFetchedAt,reference),
   [usingArchive,data,live,serverRef,liveFetchedAt,reference]);
  const patternsById=useMemo(()=>patternIndex(patterns),[patterns]);
+ const recall=useCallback((key:string)=>{
+  const vehicle=lastSeen.get(key);
+  return vehicle&&live?busFromVehicle(vehicle,live.freshness.policy,serverRef||live.publishedAtMs,liveFetchedAt,reference):null;
+ },[lastSeen,live,serverRef,liveFetchedAt,reference]);
  const archiveDate=data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):undefined;
  const age=point?Math.max(0,Math.round((time-point.time)/1000)):null;
  const routeLabel=route==='all'?'All routes':route.split('|')[1];
@@ -185,7 +210,8 @@ export default function Home(){
      onLocate={locate} locating={locating} locationError={locationError}
      here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
      onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
-     onUseArchive={data?()=>setUsingArchive(true):undefined}/>
+     onUseArchive={data?()=>setUsingArchive(true):undefined}
+     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}/>
     {usingArchive&&<button className="text-action follow-leave-archive"
      onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
    </TabsContent>
@@ -197,7 +223,7 @@ export default function Home(){
     <section className="timeline-card" aria-label="Replay controls"><div className="playback"><button className="play-button" onClick={()=>{if(offset>=duration)setOffset(0);setPlaying(v=>!v)}} aria-label={playing?'Pause replay':'Play replay'}>{playing?<Pause size={23} fill="currentColor"/>:<Play size={23} fill="currentColor"/>}</button><div><strong>{clock(time,true)}</strong><span>Replay · 40× speed</span></div><button className="restart-button" aria-label="Restart recording" onClick={()=>{setOffset(0);setPlaying(false)}}><RotateCcw size={17}/></button></div><div className="timeline-track"><Slider min={0} max={duration} step={1} value={[offset]} onValueChange={v=>{setOffset(v[0]);setPlaying(false)}} aria-label="Replay time"/><div className="timeline-labels"><span>{clock(data.start)}</span><span>{Math.round(duration/60)}-minute recording · BST</span><span>{clock(data.end)}</span></div></div></section>
     <div className="next-measure"><Layers3 size={21}/><div><strong>A clear view of the evidence comes first.</strong><p>Timetable matching and stop arrivals are not yet validated. This version shows recorded movement; delay and reliability figures will appear only when supported.</p></div><button onClick={()=>setTab('evidence')} className="text-action">See what’s verified <ArrowUpRight size={16}/></button></div>
    </TabsContent>
-   <TabsContent value="evidence" id="evidence"><section className="evidence-heading"><span className="eyebrow">OBSERVATIONS, NOT ASSUMPTIONS</span><h2>What this recording can tell you.</h2><p>Real public bus data, sampled from the Open Innovations archive. Each accepted point retains its original timestamp and source fingerprint.</p></section><div className="evidence-stats"><div><Database size={21}/><strong>{data.sources.length}</strong><span>archived source snapshots</span></div><div><Check size={21}/><strong>{data.quality.uniqueObservations.toLocaleString()}</strong><span>accepted observations in the area</span></div><div><RotateCcw size={21}/><strong>{data.quality.duplicateObservations.toLocaleString()}</strong><span>repeated observations removed</span></div><div><ShieldCheck size={21}/><strong>{data.quality.conflictingObservations}</strong><span>conflicting identities suppressed</span></div></div><div className="evidence-columns"><section className="evidence-card"><h3>Reading this sample</h3><p>4,236 input observations = 3,426 retained + 740 repeats + 70 outside the capture window. A repeat has the same operator, vehicle, route, direction, journey reference, timestamp and coordinates. Identical coordinates with a new timestamp are retained. Conflicting coordinates at the same identity and time are suppressed.</p><ul>{data.limitations.map(l=><li key={l}>{l}</li>)}</ul><p><strong>Expected service coverage: unknown.</strong> We have not validated a schedule denominator. The number of observed buses is not a percentage of the expected service.</p><a href={data.sourceUrl} target="_blank" rel="noreferrer" className="text-action">Open the original archive <ExternalLink size={15}/></a></section><section className="evidence-card"><h3>Selected observation</h3>{chosen&&point?<><dl><div><dt>Vehicle / operator</dt><dd>{chosen.vehicle} / {chosen.operator}</dd></div><div><dt>Journey reference</dt><dd>{chosen.journeyRef||'Not supplied'}</dd></div><div><dt>Source observation time</dt><dd>{point.recordedAt}</dd></div><div><dt>Coordinates</dt><dd>{point.lat.toFixed(6)}, {point.lon.toFixed(6)}</dd></div><div><dt>Archive capture time</dt><dd>{source?.capturedAt||'Unknown'}</dd></div></dl><p className="microcopy">SHA-256 identifies the exact downloaded source file.</p><code className="source-hash">{point.sourceHash}</code>{source&&<a href={source.url} target="_blank" rel="noreferrer" className="text-action">Original source ZIP ({(source.bytes/1e6).toFixed(1)} MB) <ExternalLink size={15}/></a>}</>:<p>Select a journey and replay time to inspect an observation.</p>}</section></div>{chosen&&<section className="evidence-card observation-table"><h3>Observation sequence · {chosen.vehicle}</h3><p>Source timestamps retain their supplied offsets; this sample is UTC, displayed in Europe/London (BST on this date). Coordinates have not been snapped to roads or stops.</p><Table><TableHeader><TableRow><TableHead>Recorded at</TableHead><TableHead>Latitude</TableHead><TableHead>Longitude</TableHead><TableHead>Gap from previous</TableHead><TableHead>At replay time</TableHead></TableRow></TableHeader><TableBody>{chosen.points.map((p,i)=><TableRow key={p.time}><TableCell>{clock(p.time,true)}</TableCell><TableCell>{p.lat.toFixed(6)}</TableCell><TableCell>{p.lon.toFixed(6)}</TableCell><TableCell>{i?`${Math.round((p.time-chosen.points[i-1].time)/1000)}s`:'First sample'}</TableCell><TableCell>{p.time>time?'Later in recording':'Available'}</TableCell></TableRow>)}</TableBody></Table></section>}</TabsContent>
+   <TabsContent value="evidence" id="evidence"><section className="evidence-heading"><span className="eyebrow">OBSERVATIONS, NOT ASSUMPTIONS</span><h2>What this recording can tell you.</h2><p>Real public bus data, sampled from the Open Innovations archive. Each accepted point retains its original timestamp and source fingerprint.</p></section><div className="evidence-stats"><div><Database size={21}/><strong>{data.sources.length}</strong><span>archived source snapshots</span></div><div><Check size={21}/><strong>{data.quality.uniqueObservations.toLocaleString()}</strong><span>accepted observations in the area</span></div><div><RotateCcw size={21}/><strong>{data.quality.duplicateObservations.toLocaleString()}</strong><span>repeated observations removed</span></div><div><ShieldCheck size={21}/><strong>{data.quality.conflictingObservations}</strong><span>conflicting identities suppressed</span></div></div><div className="evidence-columns"><section className="evidence-card"><h3>Reading this sample</h3><p>4,236 input observations = 3,426 retained + 740 repeats + 70 outside the capture window. A repeat has the same operator, vehicle, route, direction, journey reference, timestamp and coordinates. Identical coordinates with a new timestamp are retained. Conflicting coordinates at the same identity and time are suppressed.</p><ul>{data.limitations.map(l=><li key={l}>{l}</li>)}</ul><p><strong>Expected service coverage: unknown.</strong> We have not validated a schedule denominator. The number of observed buses is not a percentage of the expected service.</p><a href={data.sourceUrl} target="_blank" rel="noreferrer" className="text-action">Open the original archive <ExternalLink size={15}/></a></section><section className="evidence-card how-live-works"><h3>How the live view works</h3><ol><li><strong>A bus reports.</strong> Its equipment sends a position with its own timestamp, and a bearing where it has one. Operators must report every 10 to 30 seconds.</li><li><strong>We ask once, for everyone.</strong> One collector reads the feed on a fixed interval. Phones never contact the data service, and an identical response is recorded as a repeat rather than treated as news.</li><li><strong>Every report is checked.</strong> A timestamp without a time zone, an unreadable coordinate or a position dated in the future is set aside with its reason. Two sources disagreeing about one bus means neither is shown.</li><li><strong>A bus is placed on a timetable pattern only when the evidence allows.</strong> Same operator, a timetable version valid that day, journeys on that day, the reported direction, then position. When branches still compete, all of them are kept.</li><li><strong>Only checked data is published.</strong> If a publication fails its checks, the previous good one keeps serving.</li></ol><p>Nothing here is a prediction. A bus is drawn where it said it was, and when; the camera may move between reports, the bus never does.</p></section><section className="evidence-card"><h3>Selected observation</h3>{chosen&&point?<><dl><div><dt>Vehicle / operator</dt><dd>{chosen.vehicle} / {chosen.operator}</dd></div><div><dt>Journey reference</dt><dd>{chosen.journeyRef||'Not supplied'}</dd></div><div><dt>Source observation time</dt><dd>{point.recordedAt}</dd></div><div><dt>Coordinates</dt><dd>{point.lat.toFixed(6)}, {point.lon.toFixed(6)}</dd></div><div><dt>Archive capture time</dt><dd>{source?.capturedAt||'Unknown'}</dd></div></dl><p className="microcopy">SHA-256 identifies the exact downloaded source file.</p><code className="source-hash">{point.sourceHash}</code>{source&&<a href={source.url} target="_blank" rel="noreferrer" className="text-action">Original source ZIP ({(source.bytes/1e6).toFixed(1)} MB) <ExternalLink size={15}/></a>}</>:<p>Select a journey and replay time to inspect an observation.</p>}</section></div>{chosen&&<section className="evidence-card observation-table"><h3>Observation sequence · {chosen.vehicle}</h3><p>Source timestamps retain their supplied offsets; this sample is UTC, displayed in Europe/London (BST on this date). Coordinates have not been snapped to roads or stops.</p><Table><TableHeader><TableRow><TableHead>Recorded at</TableHead><TableHead>Latitude</TableHead><TableHead>Longitude</TableHead><TableHead>Gap from previous</TableHead><TableHead>At replay time</TableHead></TableRow></TableHeader><TableBody>{chosen.points.map((p,i)=><TableRow key={p.time}><TableCell>{clock(p.time,true)}</TableCell><TableCell>{p.lat.toFixed(6)}</TableCell><TableCell>{p.lon.toFixed(6)}</TableCell><TableCell>{i?`${Math.round((p.time-chosen.points[i-1].time)/1000)}s`:'First sample'}</TableCell><TableCell>{p.time>time?'Later in recording':'Available'}</TableCell></TableRow>)}</TableBody></Table></section>}</TabsContent>
    <TabsContent value="operations" id="operations">{ops
     ?<OperationsView ops={ops} servedSnapshotId={data.snapshotId}/>
     :<section className="ops-card ops-empty"><Activity size={22}/><h3>No pipeline record is published</h3>

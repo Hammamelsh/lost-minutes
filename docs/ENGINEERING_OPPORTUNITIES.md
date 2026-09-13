@@ -401,3 +401,97 @@ frame's page time, presentation time and value, with `noJump(speed)` and
 every 150 ms without frame times.
 
 **Status:** mitigated.
+
+## 12. A camera that is re-centred every frame cancels everything else the camera does
+
+**Problem and evidence.** MapLibre's `jumpTo` begins with `stop()`, which cancels any running
+camera animation and resets the gesture handlers. The ride-along re-centred the camera on the
+drawn bus with `jumpTo` on every animation frame, so while following: the animated zoom
+buttons did nothing (a probe on 13 September: three "Zoom out" taps left the zoom at 20.00);
+a wheel zoom was cut to a fraction of its distance; and a pinch would have been reset every
+frame. Separately, the introduction chained each camera glide on the previous one's `moveend`,
+so a drag that interrupted a glide started the next glide, whose `stop()` reset the drag
+before MapLibre reported it: the passenger could not interrupt the introduction by dragging,
+and the app never learned they had tried. Both were found by reproducing the reported
+screenshots (`scratchpad` probes against the isolated MapLibre module, then the built page).
+A third instance appeared the same evening, on the phone only: `setPadding` is itself a jump
+(`setPadding(e,t){return this.jumpTo({padding:e},t),this}` in 6.7.0), and the `resize`
+handler applied the ride's clear band at once. A phone's ride map finishes growing just after
+the ride starts, so the introduction's first glide was cancelled after about 80 ms and a
+second ride was left flat at zoom 13.6 while saying it was following. The handler now waits
+for `moveend`. Any camera call made while something else animates the camera (padding
+included) has to yield.
+
+**Who hits it and the current workaround.** Anyone animating a camera per frame alongside user
+gestures or their own transitions. The fix now in `components/city-map.tsx`: the frame loop
+moves the camera only when `map.isMoving()` is false (a gesture, an animated zoom or a glide
+of ours then runs to its end and the camera glides back); every transition carries a token so
+an obsolete one cannot finish; user intent during a transition is read from the raw
+`pointerdown`/`wheel` events before MapLibre decides what the gesture is; and one state
+(`entering`, `following`, `exploring`, `returning`) is shared by the loop, the HUD and the card.
+
+**Recurrence and effort.** Two milestones of the ride-along shipped with the first defect and
+one with the second; about half a day to reproduce, isolate and repair.
+
+**Right answer.** A small reusable piece, not a product: a "follow" controller for MapLibre
+that owns the camera while following, yields to gestures and animations, and exposes the state.
+
+**Existing tools.** MapLibre has no built-in follow mode. Not researched further.
+
+**Smallest reusable capability.** `followCamera(map, target(), {settlePx, onState})`: per-frame
+centring that never fights an in-progress move, with tokens for transitions.
+
+**Next cheap validation.** The ride-along browser checks (`tests/browser/ride.spec.mjs`) cover
+the zoom buttons, a drag during the introduction, a change of bus and a repeated entry.
+
+**Status:** mitigated.
+
+## 13. "The model is loaded" said nothing about whether the passenger could see the bus
+
+**Problem and evidence.** The 3D bus is a fill-extrusion layer, which MapLibre depth-tests
+against the buildings' extrusions: a bus behind a building is hidden, and at zoom 17 the 12 m
+model was 17 px long. The flat marker was hidden the moment the model was drawable, so between
+zoom 17 and about 19, or behind any building, the chosen bus was a sliver or nothing. Browser
+checks passed throughout: they counted lime pixels anywhere in the map, or read `data-model`.
+The screenshots the owner sent showed the result.
+
+**Who hits it and the current workaround.** Anyone drawing a chosen object in 3D over a city.
+The fix: symbols (which MapLibre draws over every building) carry identification at every
+zoom, a ring on the ground and the route number above the model, and the flat marker is kept
+below zoom 18. The check now projects the drawn bus to canvas pixels (`data-bus-screen`),
+requires the point to be inside the map and clear of every control drawn over it, counts the
+chosen bus's colour only around that point, and proves the measurement can fail on a bus
+dragged off screen.
+
+**Recurrence and effort.** Once, but the failing check design had been in place since the
+map was introduced.
+
+**Right answer.** A small helper in the suite, not a product.
+
+**Existing tools.** Playwright's `toHaveScreenshot` would flag every tile change; no
+occlusion-aware assertion is known to me. Not researched further.
+
+**Smallest reusable capability.** `identifiable(page, projectedPoint, colour, {hud})`, with a
+negative control in the same test.
+
+**Next cheap validation.** Done in `tests/browser/ride.spec.mjs`.
+
+**Status:** mitigated.
+
+## 14. Embedded video cannot be checked from a blank page
+
+**Problem and evidence.** The first probe of the YouTube embed (13 September) failed with the
+player's error 153, "Video player configuration error", because the probe page was created
+with `page.setContent` and had no origin to send as referrer. Served from a local origin with
+the `origin` parameter set, the same embed played, and its message API reported state and
+answered play and pause. The checks in `tests/browser/window-seat.spec.mjs` run against the
+served build for that reason, and read playback from the player's own frame.
+
+**Who hits it and the current workaround.** Anyone automating an embedded player. The
+workaround is simply to serve the page.
+
+**Recurrence and effort.** Once; an hour.
+
+**Right answer.** A note, now in the spec and here. No tool.
+
+**Status:** closed.

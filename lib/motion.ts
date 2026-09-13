@@ -28,7 +28,8 @@ export type Fix = {
  source?: string | null;         // SHA-256 of the source file
 };
 
-export type Track = {id: string; points: LonLat[]; cum: number[]; length: number};
+/** Road geometry, with the timetabled stops' offsets along it where the shape carries them. */
+export type Track = {id: string; points: LonLat[]; cum: number[]; length: number; stops: number[]};
 
 // ------------------------------------------------------------------ geometry
 
@@ -44,10 +45,14 @@ export function metres(a: {lat: number; lon: number}, b: {lat: number; lon: numb
 
 const at = (p: LonLat) => ({lon: p[0], lat: p[1]});
 
-export function makeTrack(id: string, points: LonLat[]): Track {
+export function makeTrack(id: string, points: LonLat[], stops: (number | null)[] = []): Track {
  const cum = [0];
  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + metres(at(points[i - 1]), at(points[i])));
- return {id, points, cum, length: cum[cum.length - 1] ?? 0};
+ const length = cum[cum.length - 1] ?? 0;
+ // A stop the shape could not place is null and is simply not a pause; the rest are kept in order.
+ const placed = stops.filter((s): s is number => typeof s === 'number' && Number.isFinite(s) && s >= 0 && s <= length)
+  .sort((a, b) => a - b);
+ return {id, points, cum, length, stops: placed};
 }
 
 /** Google's encoded polyline, as the published shapes carry it. */
@@ -187,12 +192,20 @@ export type MotionParams = {
  holdBack: number;            // m: a smaller backward correction, while moving, is held not reversed
  turnSettle: number;          // s: time constant of turning the drawn bus
  catchUp: number;             // m/s: a correction is absorbed no faster than this, on top of the bus's own movement
+ // Stops. Buses pause at timetabled stops, and the reports show it: the estimate can allow for
+ // that instead of easing every speed off everywhere.
+ dwell: number;               // s: the pause allowed at each timetabled stop the estimate passes; 0 ignores stops
+ stopTolerance: number;       // m: a report this close before a stop is taken to be at it, so it is not paused twice
+ cruise: boolean;             // read speed from the stretches between reports where the bus moved, not the whole window
+ standingMetres: number;      // m: two reports closer than this along the road show the bus standing
+ standingHold: number;        // s: a bus standing at its last reports is held there this long after them before it is moved on
 };
 
 export const DEFAULT_PARAMS: MotionParams = {
  version: 'motion-1 (unevaluated defaults)', maxSpeed: 17, stationarySpeed: 0.6, minSpan: 8,
  speedWindow: 45, maxGap: 120, horizon: 30, decay: 0, stale: 150, offTrack: 40, backwardTolerance: 25,
  largeCorrection: 150, settle: 0.9, holdBack: 35, turnSettle: 0.35, catchUp: 15,
+ dwell: 0, stopTolerance: 20, cruise: false, standingMetres: 8, standingHold: 0,
 };
 
 // ------------------------------------------------------------------ the estimate
@@ -209,9 +222,11 @@ export type Estimate = {
  speed: number | null;        // m/s along the track
  speedBasis: string | null;
  provisional?: boolean;       // shown at its report only while the settings or road geometry load
+ held?: boolean;              // standing at its last reports, and held there for now
+ resumeAt?: number | null;    // ms: when a held estimate would move on, if no report comes first
 };
 
-type Speed = {speed: number | null; basis: string};
+type Speed = {speed: number | null; basis: string; standingNow?: boolean; cruise?: number | null};
 
 function speedAlong(history: History, track: Track, params: MotionParams, sLatest: number): Speed {
  const all = history.fixes, latest = all[all.length - 1];
@@ -246,10 +261,44 @@ function speedAlong(history: History, track: Track, params: MotionParams, sLates
  const ds = sLatest - along[previous];
  if (ds < -params.backwardTolerance) return {speed: null, basis: 'its reports went backwards along the route'};
  let speed = Math.max(0, ds) / dt;
- if (speed < params.stationarySpeed) return {speed: 0, basis: `standing: ${Math.round(Math.max(0, ds))} m in ${Math.round(dt)} s`};
+ // The chain of readable reports back from the latest, each at least minSpan before the next:
+ // the stretches between them show where the bus moved and where it stood.
+ const chain = [all.length - 1];
+ for (let i = readableBefore(chain[chain.length - 1]); i >= previous && i >= from; i = readableBefore(i)) chain.push(i);
+ let movingMetres = 0, movingSeconds = 0;
+ for (let k = 0; k + 1 < chain.length; k++) {
+  const j = chain[k], i = chain[k + 1], step = along[j] - along[i], seconds = (all[j].at - all[i].at) / 1000;
+  if (step >= params.standingMetres) { movingMetres += step; movingSeconds += seconds; }
+ }
+ const cruise = movingSeconds >= params.minSpan ? Math.min(params.maxSpeed, movingMetres / movingSeconds) : null;
+ const standingNow = chain.length > 1 && along[chain[0]] - along[chain[1]] < params.standingMetres;
+ if (speed < params.stationarySpeed) return {speed: 0, basis: `standing: ${Math.round(Math.max(0, ds))} m in ${Math.round(dt)} s`,
+  standingNow, cruise};
  const capped = speed > params.maxSpeed;
  speed = Math.min(speed, params.maxSpeed);
- return {speed, basis: `${Math.round(ds)} m in ${Math.round(dt)} s between its reports${capped ? ', capped' : ''}`};
+ if (params.cruise && cruise !== null) return {speed: cruise, standingNow, cruise,
+  basis: `${Math.round(movingMetres)} m in the ${Math.round(movingSeconds)} s its reports show it moving`};
+ return {speed, basis: `${Math.round(ds)} m in ${Math.round(dt)} s between its reports${capped ? ', capped' : ''}`, standingNow, cruise};
+}
+
+/**
+ * Where a bus at s0 gets to in `seconds` at `speed`, allowing `dwell` seconds at each timetabled
+ * stop it reaches on the way. A report within stopTolerance before a stop is taken to be at it
+ * already, so that stop is not paused for again.
+ */
+export function advance(track: Track, s0: number, speed: number, seconds: number, params = DEFAULT_PARAMS): number {
+ if (speed <= 0 || seconds <= 0) return s0;
+ if (!(params.dwell > 0) || !track.stops.length) return s0 + speed * seconds;
+ let s = s0, t = seconds;
+ for (const stop of track.stops) {
+  if (stop <= s0 + params.stopTolerance) continue;
+  const need = (stop - s) / speed;
+  if (t <= need) return s + speed * t;
+  s = stop; t -= need;
+  if (t <= params.dwell) return s;
+  t -= params.dwell;
+ }
+ return s + speed * t;
 }
 
 /** The estimated state at a presentation time, from the reports available by then. */
@@ -266,14 +315,25 @@ export function estimate(history: History, track: Track | null, when: number, pa
  const speed = speedAlong(history, track, params, place.s);
  if (speed.speed === null) return observed(speed.basis);
  const horizon = Math.min(reportAge, params.horizon);
- // Buses stop at stops and lights, so the longer since the report, the less likely it has kept
- // its speed: with a decay time the distance eases off as speed × decay × (1 − e^(−t/decay)).
- const travelled = params.decay > 0 ? params.decay * (1 - Math.exp(-horizon / params.decay)) : horizon;
- const s = Math.min(track.length, Math.max(0, place.s + speed.speed * travelled));
+ let s = place.s, held = false, resumeAt: number | null = null, applied = speed.speed;
+ if (speed.standingNow && params.standingHold > 0 && speed.speed > 0) {
+  // Its last reports show it standing (a stop, or lights). It is held there for a measured
+  // while after the latest one, then moved on at the speed its reports show while moving.
+  resumeAt = latest.at + params.standingHold * 1000;
+  const go = horizon - params.standingHold;
+  if (go <= 0) held = true;
+  else s = advance(track, place.s, speed.speed, go, params);
+ } else if (speed.speed > 0) {
+  // With a decay time the distance eases off as speed × decay × (1 − e^(−t/decay)); with a dwell
+  // time the bus pauses at each timetabled stop it reaches instead.
+  const travelled = params.decay > 0 ? params.decay * (1 - Math.exp(-horizon / params.decay)) : horizon;
+  s = advance(track, place.s, speed.speed, travelled, params);
+ } else applied = 0;
+ s = Math.min(track.length, Math.max(0, s));
  const point = pointAt(track, s);
- return {mode: 'estimated', reason: speed.speed === 0 ? 'standing at its last reports' : 'moving along its route',
+ return {mode: 'estimated', reason: applied === 0 || held ? 'standing at its last reports' : 'moving along its route',
   lat: point.lat, lon: point.lon, bearing: headingAt(track, s), s, basis: latest, reportAge, horizon,
-  capped: reportAge > params.horizon, speed: speed.speed, speedBasis: speed.basis};
+  capped: reportAge > params.horizon, speed: applied, speedBasis: speed.basis, held, resumeAt};
 }
 
 /** The last report itself, with the reason no estimate is drawn. `provisional` while loading. */
@@ -395,7 +455,7 @@ export function tickClock(clock: PresentationClock | null, wall: number, target:
 /** Whether another frame is needed: an estimate is moving, or a correction is still settling. */
 export function needsFrames(e: Estimate | null, v: Visual | null) {
  if (!e || !v || e.mode !== 'estimated') return false;
- return (e.speed ?? 0) > 0 && !e.capped || Math.abs(v.offset) > 0.5
+ return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.offset) > 0.5
   || (v.bearing !== null && e.bearing !== null && Math.abs(shortestTurn(v.bearing, e.bearing)) > 0.5);
 }
 

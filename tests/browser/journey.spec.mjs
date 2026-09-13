@@ -175,8 +175,11 @@ test.describe('views and themes', () => {
 
     await page.getByRole('button', {name: 'Ride along with route 256'}).click();
     await expect(page.locator('.vector-map')).toHaveAttribute('data-view', 'ride');
-    await expect(page.locator('.ride-disclaimer')).toContainText('Map visualisation');
-    await expect(page.locator('.ride-disclaimer')).toContainText('not filmed from on board');
+    // A short mode line; what a ride-along is sits behind a summary.
+    await expect(page.locator('.ride-mode')).toContainText('Ride-along');
+    await page.locator('.ride-about summary').click();
+    await expect(page.locator('.ride-about')).toContainText('not a film from on board');
+    await page.locator('.ride-about summary').click();
     await expect(page.locator('.vector-map')).toHaveAttribute('data-model', 'ready', {timeout: 15_000});
     // Above and behind the reported bearing (135°): the camera turns to it, the bus does not move.
     await expect.poll(async () => {
@@ -214,8 +217,8 @@ test.describe('views and themes', () => {
 // Everything drawn over the map must leave everything else readable. These collisions came
 // back once already, through a phone rule that lost to a later base rule on source order.
 const OVER_MAP = ['.map-views', '.map-tools', '.ride-launch', '.map-legend-chips', '.map-credit-line'];
-const OVER_RIDE = ['.ride-exit', '.ride-disclaimer', '.ride-note', '.map-notice', '.ride-card', '.map-tools',
-                   '.map-views', '.map-credit-line'];
+const OVER_RIDE = ['.ride-exit', '.ride-mode', '.ride-about', '.ride-note', '.ride-skip', '.ride-return', '.map-notice',
+                   '.ride-card', '.map-tools', '.map-views', '.map-credit-line'];
 async function collisions(page, selectors) {
   return page.evaluate(list => {
     const boxes = list.flatMap(selector => [...document.querySelectorAll(`.vector-map ${selector}`)]

@@ -49,12 +49,14 @@ export const PALETTES:Record<MapTheme,Palette>={
   // it, arterials in a warm lamp-lit amber, side streets a readable slate, brighter labels.
   ground:'#101d27',residential:'#13212b',commercial:'#15232e',industrial:'#142029',institution:'#162430',
   park:'#132e22',parkEdge:'#24503a',wood:'#11301f',grass:'#142f23',pitch:'#163a28',cemetery:'#152b1f',
-  water:'#0f3645',waterEdge:'#2a7188',waterText:'#9fd0dc',
-  building:'#1f303c',buildingEdge:'#324a5a',extrusion:'#2c4252',
+  water:'#0f3645',waterEdge:'#2a7188',waterText:'#a9d8e3',
+  // Buildings sit close to the ground tone, so blocks read as texture and the journey's
+  // streets, stops and bus keep the contrast.
+  building:'#182934',buildingEdge:'#243746',extrusion:'#22363f',
   casingMajor:'#04080b',casingMinor:'#0a141c',motorway:'#d9a458',trunk:'#c39a5c',primary:'#a88b5c',
-  secondary:'#6d7e89',minor:'#46586a',service:'#35464f',path:'#56707d',rail:'#6c7b85',
-  placeText:'#e6eef2',districtText:'#aec1cc',halo:'#081016',roadText:'#c9d6dd',
-  landmarkText:'#e6c08f',landmark:'#d9a15c',
+  secondary:'#6d7e89',minor:'#4a5d6f',service:'#35464f',path:'#56707d',rail:'#6c7b85',
+  placeText:'#eef4f7',districtText:'#b8c9d3',halo:'#060d12',roadText:'#e4edf2',
+  landmarkText:'#f2c37c',landmark:'#d9a15c',
   sky:'#0a1219',horizon:'#1c2c37',fog:'#0d1820',light:'#c7d7ff',lightIntensity:0.32,
  },
 };
@@ -113,30 +115,35 @@ export function baseLayers(theme:MapTheme):Layer[]{
   ...road('lm-motorway',['motorway'],6,[6,0.8,12,4,18,22],p.motorway,{colour:p.casingMajor,extra:2}),
   // Labels: water, then streets, then landmarks, then places on top.
   // symbol-placement takes no data expression, so lines and points are two layers.
+  // Line labels follow their street or river (rotation aligned to the map) but stand upright
+  // on a tilted map (pitch aligned to the viewport): the style specification allows the two
+  // alignments to differ, and MapLibre keeps line-placed text upright with text-keep-upright.
   {id:'lm-water-name-line',type:'symbol',source:'openmaptiles','source-layer':'water_name',minzoom:12,
    filter:['==',['geometry-type'],'LineString'],
    layout:{'text-field':['get','name'],'text-font':ITALIC,'text-size':13,'text-letter-spacing':0.12,
-           'symbol-placement':'line'},
-   paint:{'text-color':p.waterText,'text-halo-color':p.halo,'text-halo-width':1.2}},
+           'symbol-placement':'line','text-pitch-alignment':'viewport'},
+   paint:{'text-color':p.waterText,'text-halo-color':p.halo,'text-halo-width':1.4}},
   {id:'lm-water-name',type:'symbol',source:'openmaptiles','source-layer':'water_name',minzoom:12,
    filter:['!=',['geometry-type'],'LineString'],
    layout:{'text-field':['get','name'],'text-font':ITALIC,'text-size':13,'text-letter-spacing':0.12},
    paint:{'text-color':p.waterText,'text-halo-color':p.halo,'text-halo-width':1.2}},
   {id:'lm-waterway-name',type:'symbol',source:'openmaptiles','source-layer':'waterway',minzoom:14,
    layout:{'text-field':['get','name'],'text-font':ITALIC,'text-size':12,'symbol-placement':'line',
-           'text-letter-spacing':0.1},
-   paint:{'text-color':p.waterText,'text-halo-color':p.halo,'text-halo-width':1.2}},
+           'text-letter-spacing':0.1,'text-pitch-alignment':'viewport'},
+   paint:{'text-color':p.waterText,'text-halo-color':p.halo,'text-halo-width':1.4}},
+  // Street names: a little larger than before, with a halo a quarter of the size (the
+  // specification's maximum), so they read on a phone at night without shouting by day.
   {id:'lm-street-name-minor',type:'symbol',source:'openmaptiles','source-layer':'transportation_name',
    minzoom:15,filter:byClass('minor','service'),
-   layout:{'text-field':['get','name'],'text-font':REGULAR,'text-size':z([15,10.5,18,13]),
-           'symbol-placement':'line','text-max-angle':30,'symbol-spacing':320},
-   paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':1.4}},
+   layout:{'text-field':['get','name'],'text-font':REGULAR,'text-size':z([15,11.5,18,14]),
+           'symbol-placement':'line','text-max-angle':30,'symbol-spacing':320,'text-pitch-alignment':'viewport'},
+   paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':2}},
   {id:'lm-street-name',type:'symbol',source:'openmaptiles','source-layer':'transportation_name',
    minzoom:13,filter:byClass('motorway','trunk','primary','secondary','tertiary'),
-   layout:{'text-field':['get','name'],'text-font':BOLD,'text-size':z([13,10.5,17,14]),
+   layout:{'text-field':['get','name'],'text-font':BOLD,'text-size':z([13,11,17,15]),
            'symbol-placement':'line','text-max-angle':30,'symbol-spacing':360,
-           'text-transform':'uppercase','text-letter-spacing':0.06},
-   paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':1.6}},
+           'text-transform':'uppercase','text-letter-spacing':0.06,'text-pitch-alignment':'viewport'},
+   paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':2.2}},
   {id:'lm-landmark-dot',type:'circle',source:'openmaptiles','source-layer':'poi',minzoom:14,
    filter:['all',byClass('stadium','railway','attraction','museum','university','college','hospital',
                            'theatre','castle','monument','town_hall','library'),['<=',['get','rank'],24]],
@@ -145,9 +152,9 @@ export function baseLayers(theme:MapTheme):Layer[]{
   {id:'lm-landmark',type:'symbol',source:'openmaptiles','source-layer':'poi',minzoom:14,
    filter:['all',byClass('stadium','railway','attraction','museum','university','college','hospital',
                            'theatre','castle','monument','town_hall','library'),['<=',['get','rank'],24]],
-   layout:{'text-field':['get','name'],'text-font':BOLD,'text-size':z([14,11,18,13.5]),
+   layout:{'text-field':['get','name'],'text-font':BOLD,'text-size':z([14,11.5,18,14]),
            'text-anchor':'top','text-offset':[0,0.7],'text-max-width':9,'text-padding':4},
-   paint:{'text-color':p.landmarkText,'text-halo-color':p.halo,'text-halo-width':1.6}},
+   paint:{'text-color':p.landmarkText,'text-halo-color':p.halo,'text-halo-width':2}},
   {id:'lm-district',type:'symbol',source:'openmaptiles','source-layer':'place',minzoom:11,maxzoom:17,
    filter:byClass('suburb','quarter','neighbourhood'),
    layout:{'text-field':['upcase',['get','name']],'text-font':BOLD,
@@ -182,14 +189,15 @@ export function skyFor(theme:MapTheme){
   'sky-horizon-blend':0.6,'horizon-fog-blend':0.7,'fog-ground-blend':0.35,'atmosphere-blend':0};
 }
 
-/** Buildings for the City view, coloured to the theme. */
+/** Buildings for the City view, coloured to the theme. By night they are lower in contrast, so
+ *  the lit streets and the bus stay the subject; by day they keep their paper look. */
 export function buildingExtrusion(theme:MapTheme):Layer{
  return {id:'lm-buildings-3d',type:'fill-extrusion',source:'openmaptiles','source-layer':'building',
   minzoom:14,filter:['!=',['get','hide_3d'],true],
   paint:{'fill-extrusion-color':PALETTES[theme].extrusion,
    'fill-extrusion-height':['coalesce',['get','render_height'],10],
    'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
-   'fill-extrusion-opacity':0.88,'fill-extrusion-vertical-gradient':true}};
+   'fill-extrusion-opacity':theme==='night'?0.78:0.88,'fill-extrusion-vertical-gradient':true}};
 }
 
 /** The small part of MapLibre's Map this module needs, so it stays testable without WebGL. */

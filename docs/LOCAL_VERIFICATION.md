@@ -831,3 +831,156 @@ Both were fixed before the final run.
 - the FOSSGIS usage-policy page in full;
 - walking routes beyond the areas tried;
 - any arrival time: none is predicted.
+
+# Ride-along visibility, night map, motion continuity and a window-seat journey — 13 September 2026, evening
+
+Everything here was measured on this machine in a software-rendered Chromium (SwiftShader) at
+1280×900 and at 390×844 with touch emulation, on the built site (`out/`). FIXTURE means fixture
+buses on real recorded road and stop geometry; RECORDED means real reports of one journey
+re-timed to the test clock; LIVE names its run. Continuous behaviour was measured by sampling
+the map's own diagnostic attributes (`data-display`, `data-camera`, `data-ride`,
+`data-bus-screen`, `data-correction`) every 120–250 ms during the interaction; the recorded
+videos were reviewed as contact sheets of sampled frames, not watched end to end.
+
+## The reported ride-along state, reproduced first
+
+On 83053c7, with FIXTURES (`scratchpad` probe, 13 September 18:10 BST):
+
+- Drag while following: "Recentre on the bus" appeared; 12 s later the estimate had moved
+  65 m out of the frame. Wheel-zoom to 17.59 while paused: the model was a 20 px sliver, the
+  flat marker hidden (it hid from zoom 17), the badge the only mark. Recentre re-centred at
+  zoom 17.59: the bus a speck in the middle.
+- Three "Zoom out" taps while following: the zoom stayed 20.00. Per-frame `jumpTo` begins
+  with `stop()`, which cancels an animated zoom; in isolation the same loop cut a wheel zoom
+  to a fraction and would reset a pinch every frame.
+- A drag during the introduction: the camera reached the introduction's stop step regardless,
+  "Skip to the bus" stayed up, and the introduction finished 10 s later. In isolation MapLibre
+  does report a drag that interrupts an ease, but the introduction chained its next glide on
+  the interrupted glide's `moveend`, and that glide's `stop()` reset the drag before it was
+  reported. At that step (zoom 17) the bus was not visible at all.
+- A bus with no estimates (as route 142) and a bus without a bearing both framed correctly at
+  zoom 20; the problem was not confined to either.
+
+The two findings named in the brief were both true (`recentre()` kept the zoom; the flat
+marker hid at the model's zoom regardless of size), and the cancelled zooms and the swallowed
+drag were the further causes.
+
+## What changed
+
+- One ride state (`entering`, `following`, `exploring`, `returning`, `off`) shared by the
+  frame loop, the HUD and the card. The loop moves the camera only when the map is not
+  already moving; a camera left more than 40 px from the bus glides back. Every transition has
+  a token; raw pointer and wheel events end an introduction or a return; a tap during the
+  introduction skips to the bus. "Return to bus" brings the bus to the middle at the zoom
+  shown, then glides around it to zoom 20, pitch 60 and the bus's heading, then follows. The
+  introduction plays once per visit: the journey centred on the bus, then down to it.
+- Found on the phone, by the entering check and then a probe without screenshots (`data-ride`
+  and `data-camera` every 40 ms, 40 s to run): a phone's ride map finishes growing just after
+  the ride starts, MapLibre fires `resize`, and the handler re-applied the clear band with
+  `setPadding`, which in 6.7.0 is `jumpTo({padding})` and so stops any glide. The introduction's
+  first glide ended after about 80 ms, and a second ride was left "following the bus" at zoom
+  13.6, flat. The band now waits for the camera to be still. Separately, one ease that zooms in
+  six levels while moving the centre swings an off-centre bus out to about three times its
+  offset before it lands (MapLibre moves the centre in world space while the zoom changes),
+  which took the bus off a 390 px screen mid-introduction; every glide to the bus now centres
+  it first.
+- Identification at every zoom: the flat marker below zoom 18 (the model is not drawn there
+  at all); from 18 the model inside a lime ground ring with the route number above it, both
+  symbols, which MapLibre draws over buildings. The stale-projection defect the new check
+  itself found (a standing bus draws no frames, so its canvas position was not refreshed while
+  the camera moved) is fixed by projecting on every camera move.
+- Night: buildings and extrusions nearer the ground tone, extrusion opacity 0.78, street
+  names 11–15 px with a 2–2.2 px halo, landmark names 11.5–14 px, brighter text on a darker
+  halo; line labels pitch-aligned to the viewport (upright when tilted) while following their
+  street. The day palette is unchanged; `tests/map-style.test.mjs` validates both themes
+  against the MapLibre v8 specification and the reserved-colour rule.
+- The HUD's mode line ("Ride-along · following the bus") replaces the long disclaimer, which
+  sits behind "What is this?". The card's ride status reads the same state.
+
+## Motion: the audit and the new model
+
+Visible corrections on the held-out captures (3,826 report arrivals; the moment each new
+report reached the page, how far the estimate moved before any smoothing), with the model
+published that afternoon (motion-2, constant speed eased off with a 45 s decay):
+
+| Kind | Share | What was true of those |
+|---|---|---|
+| Back by more than 35 m | 20.9% | 45% were reports showing the bus had not moved (under 10 m); 50% were within 40 m of a timetabled stop; 32% had slowed to under 60% of the earlier speed |
+| Forward by more than 35 m | 40.8% | median 99 m; 0% standing: the blanket decay's cost at steady speed |
+| Over 150 m (snap) | 10.0% | median 186 m, mostly forward |
+
+The cause of backward corrections is buses standing at stops and lights while the estimate
+rolls on; the cause of forward corrections was the blanket decay. So the estimator gained
+stops: it can pause at each timetabled stop it reaches (the shapes carry the stops' offsets),
+read speed from the stretches where the reports show the bus moving, hold a bus shown
+standing, and still ease with report age. Two hundred candidates (dwell 0–20 s × window or
+cruise speed × standing hold 0 or 15 s × decay 0–120 s) were scored on training by a rule
+fixed before any held-out figure was read: within 2% of the best mean error up to a minute,
+the smallest mean visible move. Chosen: dwell 10 s, cruise speed, no standing hold, decay
+120 s (`motion-3 · 2026-09-13 · window 75s · dwell 10s · cruise speed · decay 120s · horizon 120s`).
+
+Held out (38 journeys, 20,708 predictions):
+
+| | motion-3 (chosen) | motion-2 (previous) | constant speed |
+|---|---|---|---|
+| Error up to a minute, median | 62.6 m | 64.9 m | 69.3 m |
+| Error up to a minute, mean | 86.4 m | 92.5 m | 94.0 m |
+| Within 30 s of a report, median vs the last report | 44.5 m vs 61.1 m | 45.7 m vs 61.1 m | — |
+| Mean visible move per arriving report | 65.5 m | 68.0 m | 70.7 m |
+| Back by more than 35 m | 26.2% | 20.9% | 32.6% |
+| Forward by more than 35 m | 35.2% | 40.8% | 32.1% |
+| Over 150 m (snap) | 8.9% | 10.0% | 10.3% |
+
+By report age, held out (estimate median vs the last report's): 10 s 32.8 vs 56.3; 20 s
+39.5 vs 52.1; 30 s 50.7 vs 71.4; 45 s 72.9 vs 137.5; 60 s 88.8 vs 181.7; 90 s 118.9 vs 272;
+120 s 166.3 vs 375.9 (motion-2 at 120 s: 237.4). The training band held 74–82% of held-out
+cases per bin. The residual stands: a quarter of arriving reports still put the bus back more
+than 35 m, because the reports are 20 s apart and a bus at a stop is standing or not. Those
+are drawn (held up to 35 m, eased along the road above that, snapped and said above 150 m),
+never hidden. The standing hold was tried and rejected by the rule: it raised snaps.
+
+## Verification
+
+On the final build unless stated:
+
+    pnpm typecheck && pnpm lint && pnpm build
+    pnpm test                                              # 102 passed
+    pnpm test:browser tests/browser/ride.spec.mjs tests/browser/motion.spec.mjs:79 \
+      tests/browser/motion.spec.mjs:102 tests/browser/journey.spec.mjs:166 \
+      tests/browser/journey.spec.mjs:202 tests/browser/journey.spec.mjs:240 \
+      tests/browser/journey.spec.mjs:263                   # 36 passed, desktop and phone, 5.7 min
+    pnpm test:browser tests/browser/window-seat.spec.mjs   # 5 passed, 1 skipped by design
+    pnpm test:browser tests/browser/replay.spec.mjs        # passed, on the build before the last camera repair
+    node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-motion.mjs
+
+- Python: 87 tests passed earlier on 13 September; no Python changed in this milestone.
+- The last full browser run (`pnpm test:browser`, 20.1 min, an earlier build that evening):
+  104 passed, 3 failed, 15 skipped by design. `replay.spec` flagged backward drawing 5 s after
+  a correction, which was the correction settling (the check now allows the correction's size
+  at 15 m/s plus 3 s: the catch-up rate and the decay's tail), and the entering check failed on
+  desktop and phone because the introduction lost the bus. Both were repaired; both pass on the
+  final build.
+- The real recorded journey through the page (desktop, the published motion-3 settings and
+  road shape): 1,481 frames over 276 s; 13 report arrivals, each eased (22–133 m, median 53 m);
+  no snap (the offline evaluation expected one for this slice); the largest step between frames
+  outside a snap 4.3 m in 0.2 s; drawn backwards only while a labelled correction settled (44
+  frames); following throughout.
+- The ride-along probe on the final build (no screenshots, attributes every 40 ms): the phone's
+  introduction reached its overview at 1.26 s (zoom 12.85, tilt 35°, the bus in the middle of the
+  clear band) and following at zoom 20 at 2.67 s; a repeated entry reached zoom 20 and 60° in
+  1.25 s (desktop 1.28 s). Before the repair the phone skipped the overview (the same probe) and
+  its second ride stayed at zoom 13.6 (the recorded frames).
+- The FIXTURE demo, recorded from the final build: desktop day (a 32 s video and ten frames),
+  phone night and desktop night (ten frames each), reviewed as frames and contact sheets. In
+  every run each step reported the expected state: entering; following at zoom 20 and 60°;
+  exploring after a drag; following after Return to bus; zoom 18 kept through a new report and a
+  theme change; off after exit; following at zoom 20 on re-entry.
+- LIVE window-seat: YouTube's player loaded only on request, played the film (the `<video>` in
+  its own frame past 1 s and not paused) and paused on command; with its host blocked, the
+  fallback appeared.
+
+Seen in the FIXTURE frames, and not a defect: the fixture bus stands still for the first minute
+of its trail, and the FIXTURE motion evaluation reads speed over the whole 45 s window, so the
+card's "moving about … km/h" starts at 2–3 km/h and rises as the standing reports leave the
+window, while each new fixture report eases the drawn bus forward. The published motion-3
+settings read speed from the stretches where the bus moved; the recorded replay uses them.

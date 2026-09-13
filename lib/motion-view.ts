@@ -26,7 +26,8 @@ export function historyOf(bus:FollowBus):History{
 
 const indexSchema=z.object({patterns:z.record(z.object({status:z.string(),reason:z.string().nullable().optional(),
  file:z.string().optional()}).passthrough())}).passthrough();
-const shapeSchema=z.object({id:z.string(),polyline6:z.string()}).passthrough();
+const shapeSchema=z.object({id:z.string(),polyline6:z.string(),
+ stopOffsets:z.array(z.number().nullable()).optional()}).passthrough();
 
 export type TrackResult={track:Track|null;reason:string|null};
 
@@ -54,7 +55,7 @@ export function loadTrack(patternId:string|null|undefined,base='/data/shapes'):P
   const response=await fetch(`${base}/${entry.file}`,{cache:'no-store'}).catch(()=>null);
   if(!response?.ok)return {track:null,reason:'its road geometry could not be loaded'};
   const shape=shapeSchema.parse(await response.json());
-  return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6)),reason:null};
+  return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]),reason:null};
  })().catch(()=>({track:null,reason:'its road geometry could not be read'}));
  trackRequests.set(patternId,request);
  return request;

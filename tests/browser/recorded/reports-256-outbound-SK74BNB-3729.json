@@ -1,0 +1,213 @@
+{
+ "note": "A real held-out journey from the motion evaluation captures (bounded local collection, 13 September 2026): BNML 256 outbound, vehicle SK74BNB, journey 3729. Times are the operator’s observation times and our retrieval times; the browser fixture re-times them to the test clock without changing their spacing. Nothing here is a fixture value: every position was reported by the bus.",
+ "operator": "BNML",
+ "vehicle": "SK74BNB",
+ "route": "256",
+ "direction": "outbound",
+ "journeyRef": "3729",
+ "destination": "Towns Gate",
+ "pattern": "BNML:256:outbound:7d555419a1",
+ "shapeFile": "BNML_256_outbound_7d555419a1.json",
+ "leadIn": 6,
+ "reports": [
+  {
+   "observedAtMs": 1789307567000,
+   "retrievedAtMs": 1789307571453,
+   "lat": 53.460704,
+   "lon": -2.289097,
+   "bearing": 221,
+   "source": "1bd436cb82849df8e570cab8e5fecc4dc2f82c68f9c85ea868c2a886df7ef518",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307579000,
+   "retrievedAtMs": 1789307591454,
+   "lat": 53.460704,
+   "lon": -2.289097,
+   "bearing": 221,
+   "source": "2c064f3995d944300cab3610ba6046e183a94928d3552c77850b2ca731722f91",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307603000,
+   "retrievedAtMs": 1789307611454,
+   "lat": 53.460691,
+   "lon": -2.289163,
+   "bearing": 238,
+   "source": "ce6aac93e742ebebe2d4e31acb690b7eec15470c1769dd5cb3aa1e2c2f1fc7a0",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307622000,
+   "retrievedAtMs": 1789307631454,
+   "lat": 53.459814,
+   "lon": -2.290996,
+   "bearing": 230,
+   "source": "420040c544e2ad6436ae4f7a7ba2bd6a28788c8f51135c85c4fda0fa37d9b03e",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307634000,
+   "retrievedAtMs": 1789307651454,
+   "lat": 53.459442,
+   "lon": -2.29167,
+   "bearing": 225,
+   "source": "62c216b126c7ad72d9e8923cc4b640c2ea2fa0ade7260299c6fdc65f1ac780cc",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307660000,
+   "retrievedAtMs": 1789307671455,
+   "lat": 53.458921,
+   "lon": -2.292656,
+   "bearing": 233,
+   "source": "c4a1ad8e3dd623cf498debbca7737ab7277bfb8d318634729686daf491ca2f28",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307686000,
+   "retrievedAtMs": 1789307691455,
+   "lat": 53.458592,
+   "lon": -2.293368,
+   "bearing": 228,
+   "source": "77f4b6c4e13534ae56ee5a304c924bfbe2b25ef1169a1900e72c7253846e7e9a",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307706000,
+   "retrievedAtMs": 1789307711455,
+   "lat": 53.457477,
+   "lon": -2.295397,
+   "bearing": 217,
+   "source": "b9fd9208ae59e2f3144e11af7417b74e6ae58190bd8ec134a00e286fbd4097b8",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307725000,
+   "retrievedAtMs": 1789307731455,
+   "lat": 53.45593,
+   "lon": -2.29697,
+   "bearing": 209,
+   "source": "db0cb4fa07673d2390cb1ab55f1ef90b80a8c8b3392eb42b8223587f4e968ff2",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307748000,
+   "retrievedAtMs": 1789307751455,
+   "lat": 53.455556,
+   "lon": -2.297335,
+   "bearing": 210,
+   "source": "f5a45cb3b04d75e7a38b9982a9cc95c9dc2bcd2ff137452fe17827720cd51e7c",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307765000,
+   "retrievedAtMs": 1789307771456,
+   "lat": 53.454246,
+   "lon": -2.298612,
+   "bearing": 205,
+   "source": "579a6a9e74885d5ff65b3671450edc31563f245ef8fa31c9da6310c076dba6fd",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307783000,
+   "retrievedAtMs": 1789307791456,
+   "lat": 53.453964,
+   "lon": -2.298826,
+   "bearing": 208,
+   "source": "a56b7071c4adb4c0d502a02682ddb64a79f657dd28ba92dd9897e7803daecb71",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307795000,
+   "retrievedAtMs": 1789307811456,
+   "lat": 53.453978,
+   "lon": -2.298821,
+   "bearing": null,
+   "source": "efbd95bbc027b36d851502e90b4f83c5ffe7281657a338c3cface823bab2b28e",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307817000,
+   "retrievedAtMs": 1789307831456,
+   "lat": 53.45316,
+   "lon": -2.299604,
+   "bearing": 211,
+   "source": "524cc5d62776eec2939a07b8997b3a8781f3aac7595a4fdc0313530a371cd7fe",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307840000,
+   "retrievedAtMs": 1789307851457,
+   "lat": 53.452932,
+   "lon": -2.299823,
+   "bearing": 209,
+   "source": "cbf8272afedbb287ef48be4c03b74f96392407c0df88dd5da4acfcf610a0582b",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307864000,
+   "retrievedAtMs": 1789307871458,
+   "lat": 53.452932,
+   "lon": -2.299823,
+   "bearing": null,
+   "source": "5a3e8941b1f127952a8fb9293e4319bdbc1f4e7ac3f51da735ae8b07ad825575",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307888000,
+   "retrievedAtMs": 1789307891458,
+   "lat": 53.452034,
+   "lon": -2.300591,
+   "bearing": 208,
+   "source": "0e434c3e3d190ea27f9b66b67600ed3bbc841dd972c45904e4c867f37ffcff64",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307900000,
+   "retrievedAtMs": 1789307911459,
+   "lat": 53.451072,
+   "lon": -2.301345,
+   "bearing": 207,
+   "source": "c4f12928546e7d8f869e188c88c9b1895853214bbfa29915b73e5d62b2a2c8eb",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307924000,
+   "retrievedAtMs": 1789307931459,
+   "lat": 53.449869,
+   "lon": -2.302556,
+   "bearing": 216,
+   "source": "e4b58b946239b999b7f82001d44fe50a1cd7a63a847d35b6bc6ea6c5e8ab86f7",
+   "run": "20260913T134351-live_capture-af963e"
+  },
+  {
+   "observedAtMs": 1789307940000,
+   "retrievedAtMs": 1789307951459,
+   "lat": 53.449701,
+   "lon": -2.302775,
+   "bearing": 217,
+   "source": "e802d94b350e599f45bca102714bf813a650ced4ba4b85b04bbd7baac8070328",
+   "run": "20260913T134351-live_capture-af963e"
+  }
+ ],
+ "expected": {
+  "note": "What the page’s estimator does at each report’s arrival, computed offline with the published settings at export time.",
+  "moves": [
+   132.67229589167164,
+   118.5795992080466,
+   -22.148383927203213,
+   47.8685093341237,
+   -27.668381596894505,
+   -44.56800815307179,
+   44.241641353937666,
+   -103.67501784500928,
+   -52.856541163058864,
+   48.35640082514328,
+   123.77534505004769,
+   52.80341279521235,
+   -71.85202434665734,
+   151.4672465359472
+  ]
+ }
+}

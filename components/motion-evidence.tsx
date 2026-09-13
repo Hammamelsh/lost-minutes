@@ -9,9 +9,9 @@ type Bin={upTo:number;n:number;model:Stat;baseline:Stat;betterThanBaseline:numbe
 type Replay={operator:string;vehicle:string;route:string;direction:string;journeyRef:string;pattern:string|null;
  shapeFile:string|null;fixes:[number,number,number,number][];
  estimates:[number,number,number,number,number,number,number][]};
-type Visible={n:number;p50:number|null;p80:number|null;p95:number|null;snapped:number|null;back:number|null;forward:number|null};
+type Visible={n:number;meanMove?:number|null;p50:number|null;p80:number|null;p95:number|null;snapped:number|null;back:number|null;forward:number|null};
 type Evaluation={version:string;method:string;generatedAt:string;supported:boolean;
- visibleCorrections?:{basis:string;heldOut?:Visible;heldOutConstantSpeed?:Visible};
+ visibleCorrections?:{basis:string;heldOut?:Visible;heldOutConstantSpeed?:Visible;heldOutPrevious?:Visible&{setting?:string}};
  data:{reportsSha256:string;lines:string[];split:string;training:{sequences:number;fixes:number};
   heldOut:{sequences:number;fixes:number}};
  params:Record<string,unknown>;fitted:Record<string,unknown>;
@@ -19,8 +19,8 @@ type Evaluation={version:string;method:string;generatedAt:string;supported:boole
   headline:{reportAgeUpTo:number;n:number;modelMedianMetres:number|null;baselineMedianMetres:number|null}};
  replay:Replay[];notes:string[]};
 
-const metres=(v:number|null)=>v===null?'—':`${Math.round(v)} m`;
-const share=(v:number|null)=>v===null?'—':`${Math.round(v*100)}%`;
+const metres=(v:number|null|undefined)=>v===null||v===undefined?'—':`${Math.round(v)} m`;
+const share=(v:number|null|undefined)=>v===null||v===undefined?'—':`${Math.round(v*100)}%`;
 
 /**
  * The evidence behind estimated movement: how far estimates were from the reports that later
@@ -94,14 +94,19 @@ export default function MotionEvidence(){
   </table></div>
   {evaluation.visibleCorrections?.heldOut&&(()=>{
    const seen=evaluation.visibleCorrections.heldOut,constant=evaluation.visibleCorrections.heldOutConstantSpeed;
+   const previous=evaluation.visibleCorrections.heldOutPrevious;
    const hold=Number(evaluation.params.holdBack??35),snap=Number(evaluation.params.largeCorrection??150);
+   const compare=(pick:(v:Visible)=>number|null|undefined,unit:(v:number|null|undefined)=>string)=>[
+    constant?`${unit(pick(constant))} at constant speed`:'',
+    previous?`${unit(pick(previous))} with the earlier eased-speed model`:''].filter(Boolean).join(', ');
    return <>
     <h4>When a new report arrives</h4>
     <p className="motion-visible">On held-out captures each new report moved the estimate by a median
-     of {metres(seen.p50)}, and by less than {metres(seen.p80)} in 8 cases of 10 ({seen.n} reports).
-     In {share(seen.back)} it went back by more than {hold} m{constant?` (${share(constant.back)} at constant speed)`:''}; a
-     smaller step back is held rather than drawn. {share(seen.snapped)} were over {snap} m: those jump to the new
-     report, and the card says by how much.</p>
+     of {metres(seen.p50)}, and by less than {metres(seen.p80)} in 8 cases of 10 ({seen.n} reports)
+     {seen.meanMove!==null&&seen.meanMove!==undefined?`; ${metres(seen.meanMove)} on average (${compare(v=>v.meanMove,metres)})`:''}.
+     In {share(seen.back)} it went back by more than {hold} m ({compare(v=>v.back,share)}); a
+     smaller step back is held rather than drawn. {share(seen.snapped)} were over {snap} m ({compare(v=>v.snapped,share)}):
+     those jump to the new report, and the card says by how much.</p>
    </>;
   })()}
   <h4>When nothing is estimated</h4>

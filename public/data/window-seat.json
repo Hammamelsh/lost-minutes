@@ -1,0 +1,69 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-09-13T17:30:00Z",
+ "journeys": [
+  {
+   "id": "manchester-142-piccadilly-to-east-didsbury-2022",
+   "title": "Route 142 from Piccadilly to East Didsbury, from the upper deck",
+   "video": {
+    "provider": "youtube",
+    "id": "Iu-gz9CUq4U",
+    "url": "https://www.youtube.com/watch?v=Iu-gz9CUq4U",
+    "embedUrl": "https://www.youtube-nocookie.com/embed/Iu-gz9CUq4U",
+    "titleAsPublished": "【4K HDR】 Upper deck bus ride in Manchester 2022 🚌 | Curry Mile | Route 142 | 4K HDR Bus tour in UK",
+    "creator": {
+     "name": "Travel wow",
+     "url": "https://www.youtube.com/@Travelwow7",
+     "channelId": "UCChuCwKMKZAIScGag8jNIiw"
+    },
+    "publishedAt": "2022-06-12",
+    "lengthSeconds": 3246,
+    "embeddableCheckedAt": "2026-09-13",
+    "licence": "Standard YouTube licence. Shown here only through YouTube's own embed, as its terms permit; never downloaded, copied or rehosted. The creator asks that the channel's content is not copied, reproduced or distributed."
+   },
+   "recording": {
+    "date": "2022-06-03",
+    "timeLocal": "18:35",
+    "dateCertainty": "stated_by_creator",
+    "basis": "The video description reads: FILMED · Manchester | Piccadilly to East Didsbury · 03-June-2022 @ 06:35 PM / 17°C."
+   },
+   "route": {
+    "line": "142",
+    "from": "Piccadilly Gardens",
+    "to": "East Didsbury",
+    "direction": "outbound",
+    "basis": "The title and description say Piccadilly to East Didsbury; the description lists the stops in that order.",
+    "operatorAtRecording": null,
+    "operatorNote": "The creator does not name the operator or the bus. In this app's 2026 timetable the 142 is run by BNML.",
+    "todayLookup": {"line": "142", "direction": "outbound"}
+   },
+   "stopsAsListedByCreator": [
+    "Piccadilly Gardens", "Chinatown (Stop CU)", "Major Street (Stop SL)", "Oxford Road Station (Stop B)",
+    "Oxford House", "Aquatics Centre", "University Shopping Centre (Stop E)", "University",
+    "Royal Infirmary (Stop F)", "Hathersage Road", "Wilmslow Road (Stop H)", "Rusholme Centre (Stop F)",
+    "Wilmslow Road (Stop E)", "Platt Fields Park (Stop A)", "Grangethorpe Road", "Old Hall Lane",
+    "Owen's Park (Stop B)", "Friendship Inn (Stop F)", "Granville Road", "Mauldeth Road (Stop C)",
+    "Withington Library (Stop E)", "Withington St Paul's (Stop D)", "The Christie (Stop F)",
+    "Ferndene Road", "Old Broadway", "Fog Lane", "Belfield Road", "Didsbury Library (Stop B)",
+    "Didsbury Village (Stop E)", "Wilmslow Road (Stop D)", "Methodist Church", "Fletcher Moss",
+    "Didsbury Cricket Club (Stop N)", "East Didsbury Station (Stop J)", "Parrs Wood (Stop E3)", "East Didsbury"
+   ],
+   "highlights": [
+    {"name": "Piccadilly Gardens", "note": "where the journey starts, by the creator's account"},
+    {"name": "Oxford Road", "note": "the university corridor: Oxford Road Station, the University, the Royal Infirmary"},
+    {"name": "Rusholme, the Curry Mile", "note": "named in the video's title; Rusholme Centre is on the creator's stop list"},
+    {"name": "Platt Fields Park", "note": "on the creator's stop list, after Rusholme"},
+    {"name": "Withington and The Christie", "note": "on the creator's stop list"},
+    {"name": "Didsbury Village", "note": "on the creator's stop list, towards the end"},
+    {"name": "Parrs Wood and East Didsbury", "note": "where the journey ends, by the creator's account"}
+   ],
+   "chapters": [],
+   "chaptersNote": "The video is published without timestamped chapters, and nobody has checked which moment of it is at which stop. The map is not moved with the film."
+  }
+ ],
+ "notes": [
+  "A recorded journey is an independent creator's film, shown through the video service's own embed. It is not live and is not tied to any bus tracked on the Follow tab.",
+  "Facts here are either stated by the creator, read from the service on the date given, or left absent.",
+  "Today's timetable for the same line is shown apart, for orientation: it is not the route recorded in 2022."
+ ]
+}

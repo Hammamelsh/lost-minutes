@@ -8,7 +8,7 @@ import {applyTheme,buildingExtrusion,buildStyle,type MapTheme} from '@/lib/map-s
 import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
-        overlayLayers,SELECTED_SOURCE,STOP_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
+        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,estimate,needsFrames,observedAt,project,slice,stepVisual,tickClock,type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
@@ -45,15 +45,33 @@ type Props = {
  motion?:{enabled:boolean;reason?:string|null};
  /** Coarse news of the estimate, for the page's words: mode, reason, age and corrections. */
  onMotion?:(info:MotionInfo|null)=>void;
+ /** The ride-along's camera state, so the card can say the same thing as the map. */
+ onRideState?:(state:RideState)=>void;
 };
 
 const EMPTY={type:'FeatureCollection' as const,features:[]};
-/** The ride-along's first framing. After it the passenger's own zoom and tilt are kept. */
-// Close enough that the 12 m bus reads as a bus (about 135 px long, seen flat, at Manchester's
-// latitude). Set once when the ride starts; the passenger's own zoom is kept after that.
+/** The ride-along's framing: close enough that the 12 m bus reads as a bus (about 135 px long,
+ *  seen flat, at Manchester's latitude). Set when the ride starts and by "Return to bus"; the
+ *  passenger's own zoom and tilt are kept through ordinary updates. */
 const RIDE_ZOOM=20;
 // The tilt and heading each everyday view returns to, including on leaving the ride-along.
 const VIEW_CAMERA={'2d':{pitch:0,bearing:0},city:{pitch:58,bearing:-17}};
+// While following, the camera is re-centred on the drawn bus every frame; after a gesture or
+// an animated zoom has moved it further than this (px), it glides back rather than jumping.
+const SETTLE_PX=40;
+
+/**
+ * The ride-along's camera, one state at a time, so the map and the card can say the same thing:
+ *   entering    the optional introduction (you, your stop, then the bus), or the first framing
+ *   following   the camera is on the drawn bus every frame
+ *   exploring   the passenger moved the map; the bus goes on without the camera
+ *   returning   "Return to bus" or "Skip": gliding back to the ride framing, then following
+ * A gesture during a transition ends it; a transition made obsolete (another bus chosen, the
+ * ride left) is cancelled by its token before it can finish.
+ */
+export type RideState='off'|'entering'|'following'|'exploring'|'returning';
+export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'entering',following:'following the bus',
+ exploring:'exploring the map',returning:'returning to the bus'};
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
  *  drawn pointing north and turned by MapLibre to the bearing. */
@@ -80,11 +98,27 @@ function marker({fill,stroke,outline,radius,nose}:{fill:string;stroke:string;out
  return g.getImageData(0,0,size*ratio,size*ratio);
 }
 
+/** A hollow ring, drawn for zoom 20 and scaled down with the ground below it: it encircles the
+ *  drawn bus (about 8 m radius) so the bus is found even when a building hides the model. */
+function ring({stroke,outline,radius}:{stroke:string;outline:string;radius:number}):ImageData{
+ const ratio=2,size=Math.ceil(radius*2+16);
+ const canvas=document.createElement('canvas');
+ canvas.width=size*ratio;canvas.height=size*ratio;
+ const g=canvas.getContext('2d')!;
+ g.scale(ratio,ratio);g.translate(size/2,size/2);
+ g.beginPath();g.arc(0,0,radius,0,2*Math.PI);
+ g.lineWidth=11;g.strokeStyle=outline;g.globalAlpha=0.55;g.stroke();
+ g.globalAlpha=1;g.lineWidth=6;g.strokeStyle=stroke;g.stroke();
+ g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.fillStyle=stroke;g.globalAlpha=0.12;g.fill();
+ return g.getImageData(0,0,size*ratio,size*ratio);
+}
+
 function markerImages(theme:MapTheme){
  const o=OVERLAY[theme];
  return {
   'lm-sel-arrow':marker({fill:'#c6f36a',stroke:'#f4ffe4',outline:o.ink,radius:13,nose:true}),
   'lm-sel-dot':marker({fill:'#c6f36a',stroke:'#f4ffe4',outline:o.ink,radius:13,nose:false}),
+  'lm-sel-ring':ring({stroke:'#c6f36a',outline:o.ink,radius:92}),
   'lm-bus-arrow':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:true}),
   'lm-bus-dot':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:false}),
   'lm-stale-arrow':marker({fill:o.stale,stroke:o.staleStroke,outline:o.staleStroke,radius:6,nose:true}),
@@ -144,12 +178,31 @@ function glide(instance:MapLibreMap,options:Record<string,unknown>&{duration:num
  });
 }
 
+/**
+ * Glide to a framing centred on the bus without losing it on the way. One ease that zooms in
+ * and moves the centre together swings an off-centre point outwards before it lands (to about
+ * three times its offset over six zoom levels), off a phone's screen. So the bus is brought to
+ * the middle first, at the zoom already shown, and the zoom, tilt and turn then happen around
+ * it. False if something else took the camera in between.
+ */
+async function approach(instance:MapLibreMap,target:()=>Record<string,unknown>&{center:[number,number]},
+ duration:number,still:()=>boolean){
+ const middle=instance.project(instance.getCenter()),bus=instance.project(target().center);
+ const off=Math.hypot(bus.x-middle.x,bus.y-middle.y);
+ if(off>24){
+  await glide(instance,{center:target().center,duration:Math.round(Math.min(600,Math.max(250,off*0.8)))});
+  if(!still())return false;
+ }
+ await glide(instance,{...target(),duration});
+ return still();
+}
+
 const lineFeature=(coordinates:LonLat[],kind:string)=>({type:'Feature' as const,
  geometry:{type:'LineString' as const,coordinates},properties:{kind}});
 
 /** Diagnostic, not a feature: the drawn state as text, so the browser suite can check that it
  *  moves continuously, keeps its zoom, turns the short way and falls back when it should. */
-function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,wall=0){
+function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,wall=0,screen:{x:number;y:number}|null=null){
  if(!el)return;
  // Frames drawn so far: it stops rising when nothing moves, which is the point.
  el.setAttribute('data-frames',String(frames));
@@ -161,6 +214,8 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
   +`${v.bearing===null?'':v.bearing.toFixed(1)},${Math.round(v.frame)},${Math.round(wall)}`:'');
  el.setAttribute('data-correction',v?.lastCorrection
   ?`${v.lastCorrection.kind}:${Math.round(v.lastCorrection.metres)}:${Math.round(v.lastCorrection.at)}`:'none');
+ // Where the drawn bus is on the canvas, in CSS pixels from its top-left corner.
+ el.setAttribute('data-bus-screen',screen?`${Math.round(screen.x)},${Math.round(screen.y)}`:'');
 }
 
 function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number):MotionInfo{
@@ -183,6 +238,10 @@ type Inputs={ready:boolean;selected?:FollowBus;history:History|null;track:Track|
  model:BusModel|null;modelShown:boolean;here?:Here|null;stop?:Stop|null;walk:Props['walk'];
  onMotion?:(info:MotionInfo|null)=>void};
 
+/** The ride-along's camera state, kept in a ref for the frame loop and mirrored to React. */
+type Ride={state:RideState;intro:boolean;introSeen:boolean;transition:number;
+ pointer:{down:boolean;moved:boolean};settling:boolean};
+
 /**
  * The map. Reports are drawn where they were made. The chosen bus may also be drawn at a
  * clearly labelled estimate between reports, which moves only along accepted road geometry,
@@ -191,7 +250,7 @@ type Inputs={ready:boolean;selected?:FollowBus;history:History|null;track:Track|
 export default function CityMap({buses,selected,stop,here,follow,onSelect,onManualMove,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,rideOverlay,busLabel='Your bus',walk=null,
-                                 clockOffsetMs=0,motion,onMotion}:Props){
+                                 clockOffsetMs=0,motion,onMotion,onRideState}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
  const map=useRef<MapLibreMap|null>(null);
@@ -201,9 +260,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  const [modelFailed,setModelFailed]=useState(false);
  const [track,setTrack]=useState<(TrackResult&{patternId:string})|null>(null);
  const [motionModel,setMotionModel]=useState<MotionModel|null|undefined>(undefined);
- const [touring,setTouring]=useState(false);
- const [ridePaused,setRidePaused]=useState(false);
- const programmatic=useRef(false);
+ const [rideState,setRideState]=useState<RideState>('off');
  // Once the passenger drags, pinches or zooms, the view is theirs until they ask again.
  const userMoved=useRef(false);
  // The theme the map is created in; later changes are applied in place, never by rebuilding.
@@ -212,11 +269,20 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  const viewRef=useRef(view);
  const visualRef=useRef<Visual|null>(null);
  const estimateRef=useRef<Estimate|null>(null);
- const tour=useRef({active:false});
- const rideFollow=useRef(false);
+ const ride=useRef<Ride>({state:'off',intro:false,introSeen:false,transition:0,pointer:{down:false,moved:false},settling:false});
  const wasRiding=useRef(false);
+ // The bus being ridden, so a change of bus mid-ride re-frames rather than being mistaken for a move.
+ const rideKey=useRef('');
+ const returnRef=useRef<(fast?:boolean)=>void>(()=>{});
+ const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
  const loop=useRef({raf:null as number|null,lastDraw:0,lastDiag:0,infoKey:'',drawn:false,frames:0,
   key:null as string|null,clock:null as PresentationClock|null});
+ // One place changes the ride state, so the frame loop, the HUD and the card never disagree.
+ const setRide=useCallback((next:RideState)=>{
+  ride.current.state=next;
+  root.current?.setAttribute('data-ride',next);
+  setRideState(next);
+ },[]);
 
  // The selected bus is drawn from its own source; every other bus stays a plain report.
  const busCollection=useCallback(()=>({type:'FeatureCollection' as const,
@@ -292,36 +358,70 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
     root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(2)},${centre.lat.toFixed(5)},`
      +`${centre.lng.toFixed(5)},${Math.round(instance.getPitch())},${Math.round(instance.getBearing())}`);
    });
-   // A gesture is the passenger taking over. In the ride-along a drag pauses following
-   // (Recentre resumes it); zooming keeps following at the passenger's zoom. Either one ends
-   // a camera tour where it is.
+   // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
+   // does; a standing bus draws no frames, so it is projected here too.
+   instance.on('move',()=>{
+    const v=visualRef.current;
+    if(!v||!root.current)return;
+    const at=instance.project([v.lon,v.lat]);
+    root.current.setAttribute('data-bus-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
+   });
+   // A gesture is the passenger taking over. MapLibre marks its own camera events with the
+   // DOM event that caused them; ours carry none, so they can never pass as gestures. In the
+   // ride-along a drag pauses following ("Return to bus" resumes it) and a zoom keeps following
+   // at the passenger's zoom; either ends an introduction or a return where it is.
    const gesture=(kind:'drag'|'zoom')=>(event:{originalEvent?:unknown})=>{
-    if(!event.originalEvent||programmatic.current)return;
-    if(tour.current.active){tour.current.active=false;instance.stop();setTouring(false);rideFollow.current=kind==='zoom'}
+    if(!event.originalEvent)return;
+    const r=ride.current;
     if(viewRef.current==='ride'){
-     if(kind==='drag'&&rideFollow.current){rideFollow.current=false;setRidePaused(true)}
+     r.pointer.moved=true;
+     if(kind==='drag'||r.state==='entering'||r.state==='returning'){
+      r.transition+=1;
+      if(r.state!=='exploring')setRide('exploring');
+     }
      return;
     }
     userMoved.current=true;onManualMove();
    };
    instance.on('dragstart',gesture('drag'));
    instance.on('zoomstart',gesture('zoom'));
+   // A finger or a pointer on the map during an introduction or a return stops that camera
+   // move at once, before MapLibre decides whether it is a drag: chaining the next move on the
+   // interrupted one's end would otherwise swallow the drag. A tap that moves nothing skips
+   // to the bus instead of stranding the passenger mid-way.
+   const canvasBox=instance.getCanvasContainer();
+   const pointerDown=()=>{
+    const r=ride.current;
+    if(viewRef.current!=='ride')return;
+    r.pointer={down:true,moved:false};
+    if(r.state==='entering'||r.state==='returning'){r.transition+=1;instance.stop()}
+   };
+   const pointerUp=()=>{
+    const r=ride.current;
+    if(viewRef.current!=='ride'||!r.pointer.down)return;
+    r.pointer.down=false;
+    if(!r.pointer.moved&&(r.state==='entering'||r.state==='returning'))returnRef.current(true);
+   };
+   canvasBox.addEventListener('pointerdown',pointerDown);
+   canvasBox.addEventListener('pointerup',pointerUp);
+   canvasBox.addEventListener('pointercancel',pointerUp);
+   canvasBox.addEventListener('wheel',()=>{
+    const r=ride.current;
+    if(viewRef.current!=='ride')return;
+    if(r.state==='entering'||r.state==='returning'){r.transition+=1;instance.stop();setRide('exploring')}
+   },{passive:true});
    map.current=instance;
   })().catch(()=>{if(!cancelled)onUnavailable()});
   return()=>{cancelled=true;clearTimeout(firstPaint);map.current?.remove();map.current=null};
- },[onSelect,onManualMove,onUnavailable]);
+ },[onSelect,onManualMove,onUnavailable,setRide]);
 
  useEffect(()=>{viewRef.current=view},[view]);
 
- // Every camera move the app makes goes through here, so the drag and zoom handlers can
- // tell the passenger's own gestures from ours.
- const move=useCallback((run:(m:MapLibreMap)=>void,holdMs=350)=>{
+ // Every camera move the app makes goes through here. A camera that cannot be computed (a
+ // frame too small for its padding) leaves the view as it is; it must never take the page down.
+ const move=useCallback((run:(m:MapLibreMap)=>void)=>{
   if(!map.current)return;
-  programmatic.current=true;
-  // A camera that cannot be computed (a frame too small for its padding) leaves the view as it
-  // is; it must never take the page down.
   try{run(map.current)}catch{}
-  setTimeout(()=>{programmatic.current=false},holdMs);
  },[]);
 
  // --- theme: repaint in place ----------------------------------------------------------
@@ -443,7 +543,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    if(state.drawn){selectedSource?.setData(EMPTY);trailSource?.setData(EMPTY);modelSource?.setData(EMPTY);state.drawn=false}
    visualRef.current=null;estimateRef.current=null;state.key=null;
    if(state.infoKey!=='none'){state.infoKey='none';input.onMotion?.(null)}
-   diagnostics(root.current,null,null,state.frames);
+   diagnostics(root.current,null,null,state.frames,0,null);
    return;
   }
   // Another bus is a new drawing, never a correction of the last one.
@@ -477,18 +577,34 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
     :EMPTY);
   }
   // Model, marker and camera all follow the same drawn state. Only the centre (and in the
-  // ride-along the heading) is set: the passenger's zoom and tilt are left alone.
-  if(input.view==='ride'&&rideFollow.current&&!tour.current.active){
-   instance.jumpTo({center:[v.lon,v.lat],...(v.bearing!==null?{bearing:v.bearing}:{})});
-  }else if(input.follow&&input.view!=='ride'&&e.mode==='estimated'){
-   instance.jumpTo({center:[v.lon,v.lat]});
+  // ride-along the heading) is set: the passenger's zoom and tilt are left alone. Nothing is
+  // set while the map is already moving (a gesture, an animated zoom, a glide of ours): a jump
+  // then would cancel it. Once it ends, a camera left far from the bus glides back.
+  const r=ride.current;
+  const following=input.view==='ride'?r.state==='following':input.follow&&e.mode==='estimated';
+  if(following&&!instance.isMoving()){
+   const bearing=input.view==='ride'&&v.bearing!==null?{bearing:v.bearing}:{};
+   const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
+   if(Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
+    instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
+   else instance.jumpTo({center:[v.lon,v.lat],...bearing});
   }
-  if(t-state.lastDiag>=200){state.lastDiag=t;diagnostics(root.current,e,v,state.frames,t)}
+  if(t-state.lastDiag>=200){
+   state.lastDiag=t;
+   diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]));
+  }
   const info=motionInfo(e,v,input.profile,input.params,now);
   const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
+  // A bus held at its last reports wakes the clock when its hold would end.
   if(needsFrames(e,v))state.raf=requestAnimationFrame(tick);
+  else if(e.held&&e.resumeAt&&resumeTimer.current?.at!==e.resumeAt){
+   if(resumeTimer.current)clearTimeout(resumeTimer.current.timer);
+   const at=e.resumeAt;
+   resumeTimer.current={at,timer:setTimeout(()=>{resumeTimer.current=null;if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(tick)},
+    Math.max(50,e.resumeAt-now+30))};
+  }
  },[]);
  const kick=useCallback(()=>{if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(frame)},[frame]);
  useEffect(()=>{
@@ -497,8 +613,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    view,follow,model,modelShown,here,stop,walk,onMotion};
   kick();
  });
- useEffect(()=>()=>{if(loop.current.raf!==null)cancelAnimationFrame(loop.current.raf)},[]);
+ useEffect(()=>()=>{
+  if(loop.current.raf!==null)cancelAnimationFrame(loop.current.raf);
+  if(resumeTimer.current)clearTimeout(resumeTimer.current.timer);
+ },[]);
 
+ // With the model drawn, the flat symbol gives way to the ring and the badge from the model's
+ // zoom up; below it, and whenever there is no model, the flat symbol is the marker. "Model
+ // loaded" is not "model visible": the ring and badge are symbols, drawn over any building.
  useEffect(()=>{
   const instance=map.current;
   if(!ready||!instance)return;
@@ -507,6 +629,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    instance.setLayoutProperty('lm-bus-badge','visibility',modelShown?'visible':'none');
    instance.setPaintProperty('lm-sel-marker','icon-opacity',(modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
    instance.setPaintProperty('lm-sel-marker','text-opacity',(modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
+   instance.setPaintProperty('lm-sel-ring','icon-opacity',(modelShown?SHOW_RING_WHEN_MODEL:0) as never);
   }catch{/* the flat symbol stays: the 2D map is always the fallback */}
   kick();
  },[ready,modelShown,kick]);
@@ -581,9 +704,9 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    }
   }else if(instance.getLayer('lm-buildings-3d'))instance.removeLayer('lm-buildings-3d');
   if(view==='city'){
-   move(m=>m.easeTo({...VIEW_CAMERA.city,zoom:Math.max(m.getZoom(),15.2),duration:reduce?0:900}),950);
+   move(m=>m.easeTo({...VIEW_CAMERA.city,zoom:Math.max(m.getZoom(),15.2),duration:reduce?0:900}));
   }else if(view==='2d'&&(instance.getPitch()!==0||instance.getBearing()!==0)){
-   move(m=>m.easeTo({...VIEW_CAMERA['2d'],duration:reduce?0:600}),650);
+   move(m=>m.easeTo({...VIEW_CAMERA['2d'],duration:reduce?0:600}));
   }
  },[ready,view,move]);
 
@@ -596,81 +719,125 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    pitch:heading===null?50:60,bearing:heading??instance.getBearing()};
  },[]);
 
- // Entering the ride-along: an overview of you, your stop and the bus, then the stop, then
- // the bus, each step interruptible; reduced motion goes straight to the bus. The framing is
- // set once. Leaving returns to the practical map.
+ /**
+  * "Return to bus", "Skip to the bus", and the first framing of a ride without an
+  * introduction: glide to the ride framing (a jump under reduced motion), then follow. The
+  * glide is obsolete the moment a gesture, another bus or leaving moves the camera instead.
+  */
+ const returnToBus=useCallback((fast=false)=>{
+  const instance=map.current,r=ride.current;
+  if(!instance||viewRef.current!=='ride')return;
+  const token=++r.transition;
+  instance.stop();
+  if(prefersReducedMotion()){
+   instance.jumpTo(rideFraming(instance));
+   setRide('following');kick();
+   return;
+  }
+  setRide('returning');
+  approach(instance,()=>rideFraming(instance),fast?450:900,()=>r.transition===token&&r.state==='returning').then(still=>{
+   if(!still)return;
+   setRide('following');kick();
+  });
+ },[rideFraming,setRide,kick]);
+ useEffect(()=>{returnRef.current=returnToBus},[returnToBus]);
+
+ // Entering the ride-along: the first time, an introduction (you, your stop and the bus,
+ // then the stop, then the bus), each step interruptible and skippable; later entries and
+ // reduced motion go straight to the bus. Leaving cancels whatever the camera was doing and
+ // returns to the practical map.
  useEffect(()=>{
-  const instance=map.current;
+  const instance=map.current,r=ride.current;
   if(!ready||!instance)return;
   if(view!=='ride'){
    if(!wasRiding.current)return;
-   wasRiding.current=false;rideFollow.current=false;tour.current.active=false;
+   wasRiding.current=false;
+   r.transition+=1;
    // Stopping the ride's camera also stops the view's own ease, so the fit carries the tilt and
    // heading of the view being returned to.
    instance.stop();
    instance.resize();
    instance.setPadding({top:0,bottom:0,left:0,right:0});
+   setRide('off');
    userMoved.current=false;
    fitLatest.current(VIEW_CAMERA[view==='city'?'city':'2d']);
    return;
   }
   if(wasRiding.current)return;
   wasRiding.current=true;
+  rideKey.current=inputs.current.selected?.key??'';
   // A phone's ride map is taller: the camera takes the new size before anything is framed.
   instance.resize();
   instance.setPadding(ridePadding(instance.getContainer()));
-  if(!touring||prefersReducedMotion()){
-   instance.jumpTo(rideFraming(instance));
-   rideFollow.current=true;kick();
-   return;
-  }
-  tour.current.active=true;
+  const intro=r.intro&&!prefersReducedMotion();
+  r.intro=false;
+  if(!intro){returnRef.current(false);return}
+  r.introSeen=true;
+  const token=++r.transition;
+  setRide('entering');
   const {here:you,stop:board,selected:bus,walk:path}=inputs.current;
   const points:LonLat[]=journeyFocus({here:you,stop:board,bus}).map(p=>[p.lon,p.lat]);
   if(path)points.push(...path.path);
-  const steps:(()=>Record<string,unknown>&{duration:number})[]=[];
-  if(points.length>1){
-   const lons=points.map(p=>p[0]),lats=points.map(p=>p[1]);
-   // An overview that cannot fit (a small screen under the ride-along's notes) is skipped:
-   // MapLibre throws on it, and nothing here may take the page down.
-   let overview:ReturnType<MapLibreMap['cameraForBounds']>;
-   try{overview=instance.cameraForBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],
-    {padding:40})}catch{overview=undefined}
-   const fitted=overview;
-   if(fitted&&Number.isFinite(fitted.zoom??Number.NaN))steps.push(()=>({...fitted,pitch:35,duration:1200}));
-  }
-  if(board)steps.push(()=>({center:[board.lon,board.lat],zoom:17,pitch:52,duration:1100}));
-  steps.push(()=>({...rideFraming(instance),duration:1300}));
+  // A framing that cannot fit (a small screen under the ride-along's notes) is skipped:
+  // MapLibre throws on it, and nothing here may take the page down.
+  const framing=(list:LonLat[],maxZoom:number)=>{
+   const lons=list.map(p=>p[0]),lats=list.map(p=>p[1]);
+   try{
+    const fitted=instance.cameraForBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],{padding:48,maxZoom});
+    return fitted&&Number.isFinite(fitted.zoom??Number.NaN)?fitted:null;
+   }catch{return null}
+  };
+  // Two glides, the bus in the frame throughout: the whole journey (you, your stop, the bus
+  // and the walk) centred on the drawn bus, then down to the bus itself, which therefore stays
+  // in the middle while the camera zooms, tilts and turns. A middle step on the stop was tried
+  // and dropped: on a phone its tilt swung the bus out of the frame, and it said nothing new.
+  const drawn=visualRef.current??bus;
+  const overview=points.length>=2&&drawn
+   ?framing(points.flatMap(([lon,lat])=>[[lon,lat],[2*drawn.lon-lon,2*drawn.lat-lat]] as LonLat[]),17):null;
+  const still=()=>r.transition===token&&r.state==='entering';
   (async()=>{
-   for(const step of steps){
-    if(!tour.current.active)return;
-    await glide(instance,step());
+   if(overview){
+    await glide(instance,{...overview,pitch:35,duration:1200});
+    if(!still())return;
    }
-   if(!tour.current.active)return;
-   tour.current.active=false;rideFollow.current=true;
-   setTouring(false);kick();
+   if(!await approach(instance,()=>rideFraming(instance),1400,still))return;
+   setRide('following');kick();
   })();
- },[ready,view,touring,kick,rideFraming]);
+ },[ready,view,kick,rideFraming,setRide]);
+
+ // Another bus chosen mid-ride: whatever the camera was doing is obsolete; it goes to the
+ // new bus and follows that. The same key is a new report of the same bus, not a change.
+ const selectedKey=selected?.key??'';
+ useEffect(()=>{
+  if(!ready||view!=='ride'||!wasRiding.current||!selectedKey||rideKey.current===selectedKey)return;
+  rideKey.current=selectedKey;
+  returnRef.current(true);
+ },[ready,view,selectedKey]);
 
  // The clear band moves when the map is resized: a phone's taller ride map, or a rotation.
+ // setPadding is a jump, and a jump stops whatever the camera is doing. A phone's map finishes
+ // growing just after a ride starts, so applying the band at once cancelled the first glide
+ // (a second ride was left flat at the street-map zoom). While the camera moves, it waits.
  useEffect(()=>{
   const instance=map.current;
   if(!ready||!instance||view!=='ride')return;
-  const onResize=()=>instance.setPadding(ridePadding(instance.getContainer()));
+  let live=true,waiting=false;
+  const apply=()=>{waiting=false;if(live)instance.setPadding(ridePadding(instance.getContainer()))};
+  const onResize=()=>{
+   if(!instance.isMoving()){apply();return}
+   if(waiting)return;
+   waiting=true;
+   instance.once('moveend',apply);
+  };
   instance.on('resize',onResize);
-  return()=>{instance.off('resize',onResize)};
+  return()=>{live=false;instance.off('resize',onResize);instance.off('moveend',apply)};
  },[ready,view]);
 
- const skipTour=()=>{
-  const instance=map.current;
-  tour.current.active=false;setTouring(false);
-  if(!instance)return;
-  instance.stop();instance.jumpTo(rideFraming(instance));
-  rideFollow.current=true;kick();
- };
- const recentre=()=>{rideFollow.current=true;setRidePaused(false);kick()};
- const startRide=()=>{setRidePaused(false);setTouring(!prefersReducedMotion());onViewChange('ride')};
- const exitRide=()=>{setRidePaused(false);setTouring(false);onViewChange('2d')};
+ const skipIntro=()=>returnToBus(true);
+ const startRide=()=>{ride.current.intro=!ride.current.introSeen;onViewChange('ride')};
+ const exitRide=()=>onViewChange('2d');
+
+ useEffect(()=>{onRideState?.(view==='ride'?rideState:'off')},[view,rideState,onRideState]);
 
  // A ride started below the map would otherwise play off screen on a phone.
  useEffect(()=>{
@@ -697,7 +864,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  return <div ref={root} className={`vector-map theme-${theme} view-${view}`}
    data-map-state={painted?'painted':ready?'ready':'starting'}
    data-view={view} data-theme={theme} data-model={model?'ready':modelFailed?'failed':'idle'}
-   data-touring={touring?'yes':'no'} data-walk={walk?'route':'none'}>
+   data-ride={view==='ride'?rideState:'off'} data-walk={walk?'route':'none'}>
   <div ref={container} className="vector-map-canvas" aria-label={
    `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>
@@ -736,16 +903,21 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   </div>}
 
   {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along">
-   {/* One column under the exit, so the notes can never cover each other or the exit. */}
+   {/* One column under the exit, so the notes can never cover each other or the exit. The
+       mode line is short; what a ride-along is sits behind "What is this?". */}
    <div className="ride-notes">
-    <p className="ride-disclaimer"><Eye size={14}/>Map visualisation · the bus is drawn at its last
-     report, or at an estimate labelled as one; not filmed from on board</p>
+    <p className="ride-mode" data-state={rideState} role="status"><Eye size={14}/>
+     <strong>Ride-along</strong><span>· {RIDE_WORDS[rideState]||'starting'}</span></p>
+    <details className="ride-about"><summary>What is this?</summary>
+     <p>A map visualisation, not a film from on board. The bus is drawn at its last report, or at an
+      estimate labelled as one. Drag to look around; the bus goes on without the camera until you
+      return to it.</p></details>
     {selected&&selected.bearing===null&&blocked!==null&&<p className="ride-note">This bus did not report
      a direction, so it is shown from above, not from behind.</p>}
     {modelFailed&&<p className="ride-note" role="status">The 3D bus could not be loaded, so the map
      symbol is shown instead.</p>}
-    {touring&&<button className="ride-skip" onClick={skipTour}><SkipForward size={14}/>Skip to the bus</button>}
-    {ridePaused&&!touring&&<button className="ride-skip" onClick={recentre}><Crosshair size={14}/>Recentre on the bus</button>}
+    {rideState==='entering'&&<button className="ride-skip" onClick={skipIntro}><SkipForward size={14}/>Skip to the bus</button>}
+    {rideState==='exploring'&&<button className="ride-return" onClick={()=>returnToBus()}><Crosshair size={14}/>Return to bus</button>}
    </div>
    {rideOverlay}
    <button className="ride-exit" onClick={exitRide}><X size={16}/>Exit ride-along</button>

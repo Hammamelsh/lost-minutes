@@ -13,8 +13,11 @@ export const OVERLAY_SOURCES=[BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WA
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
 export const WALK_COLOUR='#2f86d6';
-/** Below this zoom a true-to-scale 12 m bus is a speck, so the readable symbol is kept. */
-export const MODEL_MIN_ZOOM=17;
+/** Below this zoom a true-to-scale 12 m bus is a speck (34 px long at 18), so the readable flat
+ *  symbol is kept and the model is not drawn at all. From here up the model is drawn inside a
+ *  ground ring, with the route number floating above it: both are symbols, which MapLibre draws
+ *  over every building, so the chosen bus stays identifiable when the model is behind one. */
+export const MODEL_MIN_ZOOM=18;
 
 /** Fills stay constant across themes (blue You, orange stop, lime chosen bus); strokes and
  *  labels change so each separates from paper by day and from ink by night. */
@@ -26,8 +29,12 @@ export const OVERLAY:Record<MapTheme,{stopRing:string;stopLabel:string;hereLabel
         other:'#e3eef2',otherStroke:'#0b1720',stale:'#7f97a5',staleStroke:'#0b1720',ink:'#0b1720'},
 };
 
-/** Once the 3D bus is drawn, the chosen bus's flat symbol steps aside; every other bus stays. */
+/** Once the 3D bus is drawn, the chosen bus's flat symbol steps aside for the ring and badge;
+ *  below the model's zoom it is the only marker, whatever the model's state. */
 export const HIDE_SELECTED_WHEN_MODEL=['step',['zoom'],1,MODEL_MIN_ZOOM,0];
+export const SHOW_RING_WHEN_MODEL=['step',['zoom'],0,MODEL_MIN_ZOOM,1];
+/** The ring image is drawn for zoom 20 (radius about 8 m); it scales with the ground. */
+export const RING_SIZE=['interpolate',['exponential',2],['zoom'],MODEL_MIN_ZOOM,2**(MODEL_MIN_ZOOM-20),20,1];
 
 export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
  const o=OVERLAY[theme];
@@ -82,13 +89,20 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
           'circle-opacity':['case',['==',['get','latest'],1],1,0.62],
           'circle-stroke-color':o.ink,'circle-stroke-width':1.4,'circle-pitch-alignment':'map'}},
   {id:'lm-bus-label',type:'symbol',source:BUS_SOURCE,minzoom:13.5,filter:['==',['get','selected'],0],
-   layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11,
+   layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11.5,
            'text-anchor':'left','text-offset':[0.95,0],'text-padding':2},
-   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.5}},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
+  // With the model drawn: a lime ring on the ground around the bus, scaled to the ground, and
+  // its route number floating above. Symbols are never hidden by buildings.
+  {id:'lm-sel-ring',type:'symbol',source:SELECTED_SOURCE,minzoom:MODEL_MIN_ZOOM,
+   layout:{'icon-image':'lm-sel-ring','icon-size':RING_SIZE,'icon-rotation-alignment':'map',
+           'icon-pitch-alignment':'map','icon-allow-overlap':true,'icon-ignore-placement':true},
+   paint:{'icon-opacity':0}},
   {id:'lm-bus-badge',type:'symbol',source:SELECTED_SOURCE,minzoom:MODEL_MIN_ZOOM,
    layout:{visibility:'none','text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':15,
-           'text-offset':[0,-2.8],'text-allow-overlap':true,'text-ignore-placement':true},
-   paint:{'text-color':'#16240c','text-halo-color':'#c6f36a','text-halo-width':4}},
+           'text-anchor':'bottom','text-offset':[0,-3.6],'text-allow-overlap':true,'text-ignore-placement':true,
+           'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
+   paint:{'text-color':'#16240c','text-halo-color':'#c6f36a','text-halo-width':3.75}},
   // The chosen bus, drawn from its own source so it can move every frame without redrawing the
   // rest: at its report in observed mode, at the displayed estimate otherwise, captioned so.
   {id:'lm-sel-marker',type:'symbol',source:SELECTED_SOURCE,
@@ -100,20 +114,21 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
            'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
    paint:{'text-color':'#16240c'}},
   {id:'lm-sel-caption',type:'symbol',source:SELECTED_SOURCE,minzoom:13,
-   layout:{'text-field':['get','caption'],'text-font':['Noto Sans Bold'],'text-size':10.5,
-           'text-offset':[0,1.9],'text-allow-overlap':true,'text-ignore-placement':true,
-           'text-letter-spacing':0.08},
-   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
+   layout:{'text-field':['get','caption'],'text-font':['Noto Sans Bold'],'text-size':11,
+           'text-anchor':'top','text-offset':['step',['zoom'],['literal',[0,1.6]],MODEL_MIN_ZOOM,['literal',[0,5.2]]],
+           'text-allow-overlap':true,'text-ignore-placement':true,'text-letter-spacing':0.08,
+           'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':2.2}},
   // Labels choose the side with room; the two reference dots draw on top of everything.
   {id:'lm-here-label',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
    layout:{'text-field':'You','text-size':12.5,'text-radial-offset':1.35,
            'text-variable-anchor':['top','bottom','left','right'],'text-justify':'auto','text-font':['Noto Sans Bold']},
    paint:{'text-color':o.hereLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
   {id:'lm-stop-label',type:'symbol',source:STOP_SOURCE,
-   layout:{'text-field':['get','label'],'text-size':13,'text-radial-offset':1.55,
+   layout:{'text-field':['get','label'],'text-size':13.5,'text-radial-offset':1.55,
            'text-variable-anchor':['top','bottom','right','left'],'text-justify':'auto',
            'text-font':['Noto Sans Bold'],'text-max-width':11},
-   paint:{'text-color':o.stopLabel,'text-halo-color':o.halo,'text-halo-width':2}},
+   paint:{'text-color':o.stopLabel,'text-halo-color':o.halo,'text-halo-width':2.4}},
   {id:'lm-here-dot',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
    layout:{'icon-image':'lm-here-dot','icon-allow-overlap':true,'icon-pitch-alignment':'map'}},
   {id:'lm-stop-dot',type:'symbol',source:STOP_SOURCE,

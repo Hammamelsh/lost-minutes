@@ -10,8 +10,9 @@ test('the motion evaluation shows held-out errors beside the baseline and replay
   await expect(section).toContainText('Scored on (held out)');
   await expect(section.locator('.motion-table tbody tr')).toHaveCount(7);
   // What a passenger sees when a report arrives: how often the estimate went back, and snapped.
-  await expect(section.locator('.motion-visible')).toContainText(/went back by more than 35 m \(\d+% at constant speed\)/);
-  await expect(section.locator('.motion-visible')).toContainText(/were over 150 m/);
+  await expect(section.locator('.motion-visible')).toContainText(/went back by more than 35 m \(\d+% at constant speed, \d+% with the earlier eased-speed model\)/);
+  await expect(section.locator('.motion-visible')).toContainText(/m on average \(\d+ m at constant speed/);
+  await expect(section.locator('.motion-visible')).toContainText(/were over 150 m \(\d+% at constant speed/);
   await expect(section.locator('.motion-notes')).toContainText('cannot check a drawn position between two of them');
   const slider = section.locator('.motion-scrub input');
   await expect(slider).toBeVisible();

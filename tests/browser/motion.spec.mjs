@@ -99,17 +99,17 @@ test.describe('riding along', () => {
   });
 });
 
-test('entering the ride-along tours overview, stop and bus, and can be skipped', async ({page}) => {
+test('entering the ride-along opens on the journey around the bus, and can be skipped', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page);
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();
-  await expect(map(page)).toHaveAttribute('data-touring', 'yes');
+  await expect(map(page)).toHaveAttribute('data-ride', 'entering');
   // While riding, nothing invites you to start riding; the card says you are, with a way out.
   await expect(page.getByRole('button', {name: 'Ride along with route 256'})).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Leave the ride-along'})).toHaveCount(1);
   await page.getByRole('button', {name: 'Skip to the bus'}).click();
-  await expect(map(page)).toHaveAttribute('data-touring', 'no');
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(1200);
   const [c, d] = [await camera(page), await display(page)];
   expect(c.zoom, 'the ride framing is close enough to see the bus').toBeCloseTo(20, 0);
@@ -124,10 +124,11 @@ test('a standing bus stays where it reported', async ({page}) => {
   const seen = await sample(page, 6, display);
   expect(Math.max(...seen.map(v => v.s)) - Math.min(...seen.map(v => v.s)), 'no drift').toBeLessThan(0.5);
   await expect(page.locator('.bus-card-motion')).toContainText('standing at its last reports');
-  // Nothing moves, so nothing is redrawn: only the page's own clock prompts an odd frame.
+  // Nothing moves, so nothing is redrawn: only the page's own clock, a publication and the
+  // card's own re-render prompt the odd frame (a continuous loop would draw about 180).
   const before = Number(await map(page).getAttribute('data-frames'));
   await page.waitForTimeout(3000);
-  expect(Number(await map(page).getAttribute('data-frames')) - before, 'no continuous rendering').toBeLessThan(4);
+  expect(Number(await map(page).getAttribute('data-frames')) - before, 'no continuous rendering').toBeLessThan(10);
 });
 
 test('an estimate is held at its bound once the report is older than it', async ({page}) => {

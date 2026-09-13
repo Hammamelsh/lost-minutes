@@ -38,7 +38,7 @@ const tracks=new Map();
 for(const [id,entry] of Object.entries(index.patterns)){
  if(entry.status!=='accepted'||!entry.file)continue;
  const shape=JSON.parse(readFileSync(join(SHAPES,entry.file)));
- tracks.set(id,makeTrack(id,decodePolyline(shape.polyline6,6)));
+ tracks.set(id,makeTrack(id,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]));
 }
 
 const quantile=(values,q)=>{
@@ -163,24 +163,38 @@ function visible(sequences,params){
   }
  }
  const size=moves.map(Math.abs),share=test=>moves.length?round(moves.filter(test).length/moves.length,3):null;
- return {n:moves.length,p50:round(quantile(size,.5)),p80:round(quantile(size,.8)),p95:round(quantile(size,.95)),
-  snapped:share(m=>Math.abs(m)>params.largeCorrection),back:share(m=>m<-params.holdBack),
-  forward:share(m=>m>params.holdBack)};
+ return {n:moves.length,meanMove:round(mean(size)),p50:round(quantile(size,.5)),p80:round(quantile(size,.8)),
+  p95:round(quantile(size,.95)),snapped:share(m=>Math.abs(m)>params.largeCorrection),
+  back:share(m=>m<-params.holdBack),forward:share(m=>m>params.holdBack)};
 }
 
-// decay: buses stop at stops and lights, so speed may be eased off with report age. Among decay
-// times no less accurate on training than constant speed (median and mean error up to a
-// minute), the one whose corrections least often draw the bus backwards.
+// The estimator's family, fitted on training by one rule set before any held-out figure was
+// looked at. Buses pause at timetabled stops, and the reports show it: a candidate may pause
+// the estimate at each stop it reaches (dwell), read speed from the stretches where the bus
+// moved (cruise), hold a bus that its reports show standing (standingHold), or ease speed off
+// with report age (decay). Each is scored on accuracy (mean error up to a minute) and on what a
+// passenger would see (the mean size of the move each arriving report causes). Within 2% of the
+// best mean error, the smallest mean visible move wins: accuracy first, then the least dragging
+// about of the drawn bus.
 const upToMinute=result=>result.rows.filter(r=>r.horizon<=60).map(r=>r.error);
 const fitParams={...DEFAULT_PARAMS,maxSpeed,speedWindow:best.speedWindow,horizon:MAX_AHEAD,stale:MAX_AHEAD+30,version:'fitting'};
-const decays=[0,120,90,60,45,30].map(decay=>{
- const params={...fitParams,decay},result=decay===0?best.result:score(training,params),errors=upToMinute(result);
- return {decay,result,p50:quantile(errors,.5),mean:mean(errors),visible:visible(training,params)};
+const family=[];
+for(const cruise of [false,true])for(const standingHold of [0,15])for(const decay of [0,45,60,90,120])
+ for(const dwell of [0,6,10,15,20])family.push({dwell,cruise,standingHold,decay});
+const candidates=family.map(setting=>{
+ const params={...fitParams,...setting},result=score(training,params),errors=upToMinute(result);
+ return {setting,result,p50:quantile(errors,.5),mean:mean(errors),visible:visible(training,params)};
 });
-const constant=decays[0];
-const chosen=decays.filter(d=>d.p50<=constant.p50&&d.mean<=constant.mean)
- .sort((a,b)=>a.visible.back-b.visible.back)[0]??constant;
-const method=`${METHOD}${chosen.decay?', eased off as the report ages':''}`;
+const constant=candidates.find(c=>!c.setting.dwell&&!c.setting.cruise&&!c.setting.standingHold&&!c.setting.decay);
+const previous=candidates.find(c=>!c.setting.dwell&&!c.setting.cruise&&!c.setting.standingHold&&c.setting.decay===45);
+const bestMean=Math.min(...candidates.map(c=>c.mean));
+const chosen=candidates.filter(c=>c.mean<=bestMean*1.02).sort((a,b)=>a.visible.meanMove-b.visible.meanMove)[0]??constant;
+const {dwell,cruise,standingHold,decay}=chosen.setting;
+const method=[METHOD,
+ dwell?`pausing ${dwell} s at each timetabled stop it reaches`:'',
+ cruise?'at the speed of the stretches where its reports show it moving':'',
+ standingHold?`holding a bus its reports show standing for ${standingHold} s`:'',
+ decay?'eased off as the report ages':''].filter(Boolean).join(', ');
 
 // horizon: the longest run of report-age bins, from the start, where the estimate's median
 // error beats the last report's on training. None: estimated movement is not supported.
@@ -191,9 +205,10 @@ for(const bin of fitting){
  else break;
 }
 const supported=horizon>0;
-const version=`motion-2 · ${new Date().toISOString().slice(0,10)} · window ${best.speedWindow}s · `
- +`${chosen.decay?`decay ${chosen.decay}s`:'constant speed'} · horizon ${horizon}s`;
-const params={...DEFAULT_PARAMS,maxSpeed,speedWindow:best.speedWindow,decay:chosen.decay,
+const version=`motion-3 · ${new Date().toISOString().slice(0,10)} · window ${best.speedWindow}s · `
+ +`${dwell?`dwell ${dwell}s`:'no dwell'} · ${cruise?'cruise speed':'window speed'} · `
+ +`${decay?`decay ${decay}s`:'no decay'} · horizon ${horizon}s`;
+const params={...DEFAULT_PARAMS,maxSpeed,speedWindow:best.speedWindow,...chosen.setting,
  horizon:supported?horizon:DEFAULT_PARAMS.horizon,version};
 
 // The uncertainty band is fitted on training (8 in 10 errors per report-age bin) and checked on
@@ -243,10 +258,12 @@ const published={
  fitted:{maxSpeed:`99th percentile of along-route speed between consecutive training reports (${speeds.length} pairs)`,
   speedWindow:'the window, of 25, 45 and 75 s, with the lowest mean training error up to a minute',
   horizon:'the longest run of report-age bins from the start in which the median training error beat the last report’s',
-  decay:'of 0 (constant speed), 120, 90, 60, 45 and 30 s, among those no less accurate on training than constant speed '
-   +'(median and mean error up to a minute), the one whose corrections least often drew the bus back by more than holdBack',
+  family:'dwell of 0, 6, 10, 15 or 20 s at each timetabled stop reached; speed from the whole window or from the moving '
+   +'stretches only (cruise); a bus shown standing held 0 or 15 s; decay of 0, 45, 60, 90 or 120 s: 200 candidates',
+  rule:'within 2% of the best mean training error up to a minute, the candidate whose arriving reports move the estimate '
+   +'least on average; chosen before any held-out figure was read',
   fixedNotFitted:['stationarySpeed','minSpan','maxGap','stale','offTrack','backwardTolerance','largeCorrection',
-   'settle','holdBack','turnSettle','catchUp']},
+   'settle','holdBack','turnSettle','catchUp','stopTolerance','standingMetres']},
  corridor:{lines:data.lines,patterns:supported?[...tracks.keys()]:[]},
  errorProfile:supported?profile:null,
  heldOut:{bins:heldSummary,abstained:held.abstained,
@@ -256,8 +273,11 @@ const published={
  training:{bins:trainSummary,abstained:trained.abstained},
  visibleCorrections:{basis:'at the moment each new report reached the page, how far the estimate moved, before any '
    +'smoothing; back means more than holdBack towards the start of the route, snapped more than largeCorrection',
-  heldOut:visible(heldOut,params),heldOutConstantSpeed:visible(heldOut,{...params,decay:0}),
-  fitting:decays.map(d=>({decay:d.decay,medianError:round(d.p50),meanError:round(d.mean),...d.visible}))},
+  heldOut:visible(heldOut,params),
+  heldOutConstantSpeed:visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:0}),
+  heldOutPrevious:{setting:'motion-2: constant speed eased off with a 45 s decay, no stops',
+   ...visible(heldOut,{...params,dwell:0,cruise:false,standingHold:0,decay:45})},
+  fitting:candidates.map(c=>({...c.setting,medianError:round(c.p50),meanError:round(c.mean),...c.visible}))},
  replay,
  notes:['Scored only against reports that arrived. Sparse reports, about 20 s apart, cannot check a drawn position between two of them.',
   'The baseline is the last report itself, which is what the page draws without estimates.',
@@ -266,9 +286,13 @@ const published={
 };
 mkdirSync(dirname(OUT),{recursive:true});
 writeFileSync(OUT,JSON.stringify(published)+'\n');
-console.log(JSON.stringify({version,supported,maxSpeed,speedWindow:best.speedWindow,decay:chosen.decay,horizon,
+console.log(JSON.stringify({version,supported,maxSpeed,speedWindow:best.speedWindow,setting:chosen.setting,horizon,
+ heldOutError:{chosen:{p50:round(quantile(upToMinute(held),.5)),mean:round(mean(upToMinute(held)))},
+  constant:constant?{trainP50:round(constant.p50),trainMean:round(constant.mean)}:null,
+  previous:previous?{trainP50:round(previous.p50),trainMean:round(previous.mean)}:null},
  visible:published.visibleCorrections.heldOut,visibleConstantSpeed:published.visibleCorrections.heldOutConstantSpeed,
- fitting:published.visibleCorrections.fitting.map(d=>`decay ${d.decay}: p50 ${d.medianError} mean ${d.meanError} back ${d.back} snapped ${d.snapped}`),
+ visiblePrevious:published.visibleCorrections.heldOutPrevious,
+ fittingTop:[...candidates].sort((a,b)=>a.mean-b.mean).slice(0,6).map(c=>`${JSON.stringify(c.setting)} p50 ${round(c.p50)} mean ${round(c.mean)} move ${c.visible.meanMove} back ${c.visible.back} snap ${c.visible.snapped}`),
  training:{sequences:training.length,rows:trained.rows.length},heldOut:{sequences:heldOut.length,rows:held.rows.length},
  headline:published.heldOut.headline,heldOutBins:heldSummary.map(b=>`${b.upTo}s n=${b.n} model ${b.model.p50} vs ${b.baseline.p50} cover ${b.bandCoverage}`),
  abstained:held.abstained.slice(0,6).map(a=>`${a.reason}: ${a.count}`)},null,1));

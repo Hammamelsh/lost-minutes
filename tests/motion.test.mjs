@@ -1,7 +1,7 @@
 // The estimated-movement core: every rule is a stated behaviour with a test.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {addFix,DEFAULT_PARAMS,decodePolyline,emptyHistory,estimate,headingAt,historyFrom,makeTrack,metres,
+import {addFix,advance,DEFAULT_PARAMS,decodePolyline,emptyHistory,estimate,headingAt,historyFrom,makeTrack,metres,
         needsFrames,observedAt,pointAt,project,shortestTurn,slice,stepVisual,tickClock,turnToward,
         uncertaintyAt} from '../lib/motion.ts';
 
@@ -246,4 +246,45 @@ test('uncertainty comes from measured errors, or is not drawn', () => {
  assert.deepEqual(uncertaintyAt(profile, 6), {metres: 18, n: 120, upTo: 10});
  assert.equal(uncertaintyAt(profile, 20), null, 'too few measured cases to say');
  assert.equal(uncertaintyAt(null, 5), null);
+});
+
+test('stops: with a dwell time the estimate pauses at each timetabled stop it reaches', () => {
+ const S = makeTrack('S', L.points, [300, 500, 900]);
+ const Q = {...P, dwell: 10, stopTolerance: 20};
+ assert.equal(advance(S, 100, 8, 10, Q), 180, 'before the first stop it is plain distance');
+ assert.equal(advance(S, 100, 8, 25, Q), 300, '25 s: reaches the stop at 300 (25 s) and is paused there');
+ assert.equal(advance(S, 100, 8, 35, Q), 300, 'still paused within the 10 s dwell');
+ assert.ok(Math.abs(advance(S, 100, 8, 45, Q) - 380) < 1e-9, 'then on: 10 s more at 8 m/s');
+ assert.ok(Math.abs(advance(S, 290, 8, 10, Q) - 370) < 1e-9, 'a report within stopTolerance of a stop is at it: no second pause');
+ assert.equal(advance(S, 100, 8, 25, {...Q, dwell: 0}), 300, 'dwell 0 ignores stops');
+ const h = historyFrom([fix(100, 0), fix(260, 20_000)]);   // 8 m/s, latest report 40 m before the stop at 300
+ const paused = estimate(h, S, 32_000, {...Q, horizon: 120});   // 12 s on: 5 s to the stop, then paused there
+ assert.ok(Math.abs(paused.s - 300) < 1e-6 && paused.reason === 'moving along its route', `paused at the stop (${paused.s})`);
+ const onward = estimate(h, S, 45_000, {...Q, horizon: 120});   // 25 s on: 5 s there, 10 s paused, 10 s more
+ assert.ok(Math.abs(onward.s - 380) < 1e-6, `moved on after the dwell (${onward.s})`);
+});
+
+test('speed: cruise reads the moving stretches only, and standing reports are seen as standing', () => {
+ // Moved 160 m in 20 s, then stood for 30 s (two reports at the same place).
+ const h = historyFrom([fix(200, 0), fix(360, 20_000), fix(362, 35_000), fix(361, 50_000)]);
+ const windowed = estimate(h, L, 60_000, {...P, speedWindow: 75});
+ const cruising = estimate(h, L, 60_000, {...P, speedWindow: 75, cruise: true});
+ assert.ok(windowed.speed > 2 && windowed.speed < 4, `the window average is dragged down by standing (${windowed.speed})`);
+ assert.ok(Math.abs(cruising.speed - 8) < 0.3, `cruise is the speed while moving (${cruising.speed})`);
+});
+
+test('standing hold: a bus its reports show standing is held, then moves on at cruise speed', () => {
+ const h = historyFrom([fix(200, 0), fix(360, 20_000), fix(362, 35_000), fix(361, 50_000)]);
+ const Q = {...P, speedWindow: 75, cruise: true, standingHold: 20, horizon: 120};
+ const held = estimate(h, L, 60_000, Q);
+ assert.equal(held.held, true);
+ assert.match(held.reason, /standing/);
+ assert.ok(Math.abs(held.s - project(L, h.fixes.at(-1)).s) < 0.01, 'held at its last report');
+ assert.equal(held.resumeAt, 70_000, 'and it says when it would move on');
+ assert.equal(needsFrames(held, stepVisual(null, held, 60_000, L, P)), false, 'nothing to draw while held');
+ const moving = estimate(h, L, 80_000, Q);
+ assert.equal(moving.held, false);
+ assert.ok(Math.abs(moving.s - (project(L, h.fixes.at(-1)).s + 8 * 10)) < 1, `10 s on at 8 m/s (${moving.s})`);
+ const off = estimate(h, L, 80_000, {...Q, standingHold: 0});
+ assert.ok(off.s > moving.s, 'without a hold it moves off from the report at once');
 });

@@ -3,7 +3,7 @@
 import {useCallback,useMemo,useState,useSyncExternalStore} from 'react';
 import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Star,WifiOff,X} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
-import CityMap,{type Here,type MapView} from '@/components/city-map';
+import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState} from '@/components/city-map';
 import Nearby from '@/components/nearby';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
@@ -65,6 +65,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const estimatedMovement=useSyncExternalStore(subscribeMotionPreference,motionPreferenceSnapshot,motionPreferenceServerSnapshot);
  const [motionInfo,setMotionInfo]=useState<MotionInfo|null>(null);
  const reportMotion=useCallback((info:MotionInfo|null)=>setMotionInfo(info),[]);
+ // The ride-along's camera state, as the map reports it, so the card says the same thing.
+ const [rideState,setRideState]=useState<RideState>('off');
  const [blocked,setBlocked]=useState(false);
  const [choice,setChoice]=useState<{route:string;direction:string}|null>(null);
  const [serviceKey,setServiceKey]=useState<string|null>(null);
@@ -269,7 +271,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}
       busLabel={relevant?'Your bus':'Selected bus'}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
-      clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion}/>}
+      clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}/>}
 
   {/* Which bus, is it coming here, how far has it got, how old is that? */}
   {cardBus&&<article className={`bus-card${gone?' gone':''}${relevant?'':' explored'}`}
@@ -319,8 +321,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>
    {!gone&&<div className="bus-card-actions">
     {riding
-     ? <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
-        aria-pressed="true"><X size={16}/><span>Riding along · exit</span></button>
+     ? <div className="ride-status" data-state={rideState}>
+        <span className="ride-status-words">Riding along · {rideState==='exploring'
+         ?'you moved the map; return to the bus on the map':RIDE_WORDS[rideState]||'starting'}</span>
+        <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
+         aria-pressed="true"><X size={16}/><span>Exit</span></button>
+       </div>
      : <button className={`follow-toggle ${follow?'on':''}`} onClick={()=>setFollow(v=>!v)}
         aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
         <Crosshair size={16}/><span>{follow?'Following on the map':'Follow on the map'}</span></button>}

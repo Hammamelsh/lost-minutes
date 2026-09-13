@@ -35,6 +35,26 @@ export function fitProjection(bounds:Bounds,width:number,height:number):Projecto
  };
 }
 
+/**
+ * A ring of [lon, lat] vertices `metres` from a centre: the reported location accuracy drawn
+ * as the ground area it describes. Because it is geometry rather than a pixel radius, it
+ * stays the right size at every zoom and lies flat in the pitched view.
+ *
+ * Equirectangular offsets are accurate to well under 1% for radii of a few kilometres at
+ * Manchester's latitude, which covers any accuracy a browser reports for a phone.
+ */
+export function accuracyRing(lat:number,lon:number,metres:number,steps=64):[number,number][]{
+ const R=6371008.8,toRad=Math.PI/180,toDeg=180/Math.PI;
+ const ring:[number,number][]=[];
+ for(let i=0;i<=steps;i++){
+  const theta=(i%steps)/steps*2*Math.PI;
+  const dLat=(metres*Math.cos(theta))/R*toDeg;
+  const dLon=(metres*Math.sin(theta))/(R*Math.cos(lat*toRad))*toDeg;
+  ring.push([lon+dLon,lat+dLat]);
+ }
+ return ring;
+}
+
 /** Metres between two coordinates. Used only for labelling map scale, never for speed. */
 export function metres(a:{lat:number;lon:number},b:{lat:number;lon:number}){
  const R=6371000,dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lon-a.lon)*Math.PI/180;

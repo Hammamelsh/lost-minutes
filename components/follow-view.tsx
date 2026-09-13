@@ -1,6 +1,6 @@
 "use client";
 
-import {useMemo,useState,useSyncExternalStore} from 'react';
+import {useCallback,useMemo,useState,useSyncExternalStore} from 'react';
 import {ChevronDown,Clock3,Crosshair,MapPin,Radio,RefreshCw,Star,WifiOff} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import CityMap,{type Here} from '@/components/city-map';
@@ -46,6 +46,10 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // my stop", but a device without WebGL or a failed tile host still gets a usable map.
  const [mapFallback,setMapFallback]=useState(false);
  const [pitched,setPitched]=useState(false);
+ // These are dependencies of CityMap's creation effect. Inline callbacks would tear
+ // down the map on every five-second clock update, before its seven-second timeout.
+ const stopFollowing=useCallback(()=>setFollow(false),[]);
+ const showMapFallback=useCallback(()=>setMapFallback(true),[]);
 
  const available=useMemo(()=>routesByRecency(buses),[buses]);
  const availableIds=useMemo(()=>available.map(r=>r.id),[available]);
@@ -116,7 +120,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
 
- function pick(next:{route:string;direction:string}){setChoice(next);setSelectedKey('');setFollow(false)}
+ // A new ask (route, direction, a bus from the list) also brings the map to it.
+ const [fitRequest,setFitRequest]=useState(0);
+ function pick(next:{route:string;direction:string}){
+  setChoice(next);setSelectedKey('');setFollow(false);setFitRequest(n=>n+1);
+ }
+ function choose(key:string){setSelectedKey(key);setFollow(false);setFitRequest(n=>n+1)}
 
  return <section className="follow">
   <div className={`follow-bar ${copy.tone}`} role="status">
@@ -195,19 +204,18 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   </div>}
   {blocked&&<p className="follow-hint warn">This device would not let us save the route. It still works for this visit.</p>}
 
-  {(buses.length>0||stop||here)&&(mapFallback
+  {mapFallback
    ? <FollowMap buses={ordered} selected={selected} follow={follow} roads={roads}
-      mode={mode} stop={stop} onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}/>
+      mode={mode} stop={stop} here={here} onSelect={setSelectedKey} onManualMove={stopFollowing}/>
    : <CityMap buses={ordered} selected={selected} stop={stop} here={here} follow={follow}
-      onSelect={setSelectedKey} onManualMove={()=>setFollow(false)}
-      onUnavailable={()=>setMapFallback(true)} pitched={pitched} onPitchedChange={setPitched}/>)}
+      onSelect={setSelectedKey} onManualMove={stopFollowing} fitRequest={fitRequest}
+      onUnavailable={showMapFallback} pitched={pitched} onPitchedChange={setPitched}/>}
 
   {/* Four different situations, told apart in plain words rather than one vague message. */}
   {mode==='unavailable'&&<div className="follow-empty">
-   <Radio size={22}/><h3>No buses are being collected</h3>
-   <p>{live?.unavailableReason==='no_credentials_configured'
-    ?'This build has no Bus Open Data credentials, so nothing is being collected right now. The recorded sample is complete and you can follow a bus through it instead.'
-    :'No live positions have been published yet.'}</p>
+   <Radio size={22}/><h3>Live bus positions are unavailable</h3>
+   <p>This page is not receiving current bus positions. You can still browse the map
+    and search the available stops. Try refreshing, or explore a dated recording.</p>
    {onUseArchive&&!usingArchive&&<button className="action" onClick={onUseArchive}>
     Follow a bus in the recording</button>}
   </div>}
@@ -320,7 +328,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    <p className="follow-list-head">{stop
     ? `Route ${routeNumber(route)} — other buses`
     : `Other buses on route ${routeNumber(route)}`}</p>
-   {ordered.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>{setSelectedKey(bus.key);setFollow(false)}}
+   {ordered.filter(bus=>bus.key!==selected?.key).map(bus=><button key={bus.key} onClick={()=>choose(bus.key)}
      className={`follow-row ${bus.key===selected?.key?'on':''}`} aria-pressed={bus.key===selected?.key}>
     <span className="route-pill">{bus.route}</span>
     <span className="follow-row-copy">
@@ -379,8 +387,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     : <li>Positions older than {expiryMinutes} minutes are withheld{live
       ?`: ${live.withheld.expiredPositions} withheld in the current state`:''}. The feed does
       carry very old positions, so this cut-off is doing real work.</li>}
-   <li>No arrival times, nearby stops or waiting times are shown. Those need a validated
-    route and stop relationship, which we have not established.</li>
+   <li>Nearby-stop distances are straight-line distances. Bus progress is shown only where
+    a service pattern is matched; it is not an arrival-time or waiting-time prediction.</li>
   </ul>
  </section>;
 }

@@ -67,3 +67,11 @@ __pycache__/
 /.venv/
 /data/warehouse/
 /data/published/
+
+# Browser test output: screenshots, traces and reports are regenerated on every run.
+/test-results/
+/playwright-report/
+/blob-report/
+
+# MapLibre's modules, copied from node_modules by scripts/vendor-maplibre.mjs at dev and build time.
+/public/vendor/

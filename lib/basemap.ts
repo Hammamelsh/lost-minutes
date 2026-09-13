@@ -4,10 +4,23 @@
  *  without a key. Attribution for OpenStreetMap and the providers is required and is shown
  *  on the map. MapLibre is the renderer; it bundles no tiles of its own.
  */
+import maplibrePackage from 'maplibre-gl/package.json';
+
 export const BASEMAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 
-export const BASEMAP_ATTRIBUTION =
- '© OpenStreetMap contributors · tiles by OpenFreeMap · OpenMapTiles';
+/** MapLibre's own ES modules, served unbundled so that its web worker resolves beside them
+ *  (scripts/vendor-maplibre.mjs). The version in the path keeps every cached copy coherent. */
+export const MAPLIBRE_MODULE_URL = `/vendor/maplibre-gl/${maplibrePackage.version}/maplibre-gl.mjs`;
+
+/** Required credits, each linked to its own terms. OpenStreetMap data is ODbL; OpenFreeMap
+ *  and OpenMapTiles ask to be named. */
+export const BASEMAP_CREDITS = [
+ {label:'© OpenStreetMap contributors',href:'https://www.openstreetmap.org/copyright'},
+ {label:'OpenFreeMap',href:'https://openfreemap.org'},
+ {label:'OpenMapTiles',href:'https://www.openmaptiles.org/'},
+] as const;
+
+export const BASEMAP_ATTRIBUTION = BASEMAP_CREDITS.map(c=>c.label).join(' · ');
 
 /** The dark style carries water and streets but no green space, which is exactly what makes
  *  a city recognisable. These are added over the same vector source. */

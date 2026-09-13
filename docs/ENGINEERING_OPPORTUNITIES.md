@@ -41,40 +41,54 @@ interface would not help; the output is read in a terminal or a diff.
 **Next cheap validation.** Install the missing system libraries and try Playwright against
 the existing static server for one flow. If it works, delete the bespoke harness.
 
-**Status:** observed.
+**Status:** mitigated, 13 September 2026. `scripts/setup-browser.sh` unpacks the three
+missing libraries without root; `playwright.config.mjs` launches the cached Chromium with
+SwiftShader, which gives a real WebGL2 context; `pnpm test:browser` runs `tests/browser/`
+against the built `out/`, and `LM_BASE_URL` points the same suite at a running `pnpm dev:live`
+for real-feed checks. The bespoke harness pages are gone.
 
 ---
 
-## 2. Headless WebGL cannot render the vector map, so the main visual change is unverifiable here
+## 2. The vector map did not render, and the first diagnosis blamed the wrong thing
 
-**Problem and evidence.** MapLibre never completes a first paint in this headless Chrome.
-Measured: a plain CDN MapLibre page reached `constructed`, `styledata` and `sourcedata` but
-never `load` or `idle`, under `--headless=new`, `--use-gl=angle --use-angle=swiftshader`,
-`--use-gl=swiftshader` and `--enable-unsafe-swiftshader`. The style, TileJSON and sprite
-requests all returned 200, so it is not a network or integration fault. The consequence is
-that the headline visual deliverable of this milestone could only be verified indirectly.
+**Problem and evidence.** The 12 September entry here said headless WebGL could not paint
+MapLibre, on the strength of Windows headless probes. That was wrong, and the owner's own
+screenshots in a normal browser showed the black map in live and replay modes. The confirmed
+causes were two defects in the application, found on 13 September:
 
-**Who hits it and the current workaround.** Anyone verifying map work without a desktop
-browser. The workaround is to verify the non-WebGL fallback, check the resource requests, and
-ask the repository owner to confirm the rendered map by eye.
+1. `FollowView` passed fresh inline `onManualMove` and `onUnavailable` callbacks to `CityMap`,
+   whose creation effect depended on them, so the page's five-second clock destroyed and
+   recreated the map on every tick and its cleanup cancelled the seven-second fallback timer
+   first. Measured on the pre-repair build: 18 map instances created in 22 seconds.
+2. webpack bundled MapLibre's ES module and rewrote `import.meta.url` to the build machine's
+   `file:///home/...` path, so MapLibre's worker URL resolved to nothing, the worker was
+   started from the page's own URL, and no vector tile ever loaded, in any browser. The same
+   rewrite shipped a private path in the public JavaScript.
 
-**Recurrence and effort.** First occurrence, but it will recur on every future map change.
+The Linux Playwright Chromium with SwiftShader paints the same map in about 1.7 seconds, so
+"headless cannot render WebGL" was never true here.
 
-**Right answer.** An integration: a browser with working GPU or software GL in the
-verification path. Either a system WebGL stack that swiftshader can drive, or running the
-check on the Windows side where a real GPU exists.
+**Who hits it and the current workaround.** Anyone changing the map. There is now no
+workaround needed: `pnpm test:browser` asserts that the map is created once across clock
+updates, that vector tiles, glyphs and visible geography were painted, that the worker starts
+from the vendored module folder, and that the built site carries no build-machine paths.
 
-**Existing tools.** Playwright's bundled Chromium, `@playwright/test` screenshot comparison,
-or a container image with mesa/llvmpipe. Not researched; no novelty claimed.
+**Recurrence and effort.** Two occurrences of "the map is black" with different causes, each
+costing a session. The wrong diagnosis cost a further session and an incorrect entry here.
 
-**Smallest reusable capability.** A single "can this environment render WebGL" probe that the
-verification script runs first, so a map check either runs properly or is reported as skipped
-rather than silently producing a black rectangle.
+**Right answer.** Already taken: a regression test for each mechanism, and a rule for this
+log — a rendering diagnosis needs a browser that is known to render (the "paints a real
+basemap" check is that probe) before the environment can be blamed.
 
-**Next cheap validation.** Try `--use-gl=egl` with mesa installed, or run the same probe page
-through the Windows browser with a real GPU and compare.
+**Existing tools.** Playwright, SwiftShader. `scripts/vendor-maplibre.mjs` serves MapLibre's
+three modules unbundled, which is the layout its worker discovery expects.
 
-**Status:** measured.
+**Smallest reusable capability.** The two tests above, plus the build-output scan, which any
+future dependency that spawns a worker or reads `import.meta.url` will also trip.
+
+**Next cheap validation.** None outstanding.
+
+**Status:** closed, 13 September 2026.
 
 ---
 
@@ -111,3 +125,34 @@ publisher adds and the parser silently strips fails the build.
 caught any of the six historical drifts.
 
 **Status:** observed.
+
+---
+
+## 4. A scripted text replacement that finds nothing succeeds silently
+
+**Problem and evidence.** The stale Follow footer ("No arrival times, nearby stops or waiting
+times are shown…") survived a milestone that had removed it, because the edit was a Python
+`str.replace` with no check that the old text was present. Found on 13 September 2026 when the
+patch review listed the footer as still incorrect. The same mechanism produced a half-applied
+CSS rename in this session: an expected three matches were four, the guarded script aborted
+correctly, but the source file had already been changed by a separate edit, so a build ran
+with an unstyled map until the mismatch was noticed.
+
+**Who hits it and the current workaround.** Whoever edits by script rather than by hand. The
+workaround, now habitual in this repository, is to count matches and abort unless the count
+is exactly what was expected, then write.
+
+**Recurrence and effort.** Two instances across two milestones; each cost a rebuild and a
+review round.
+
+**Right answer.** A small fix, already in use: assert the match count before writing. Not a
+tool.
+
+**Existing tools.** `sed -i` has the same failure mode; `git apply` and the editor's own
+replace do not. No research; no novelty claimed.
+
+**Smallest reusable capability.** The count-then-replace pattern used in this session's edits.
+
+**Next cheap validation.** None; the pattern is in use.
+
+**Status:** mitigated.

@@ -93,6 +93,8 @@ python3 -m unittest discover -s tests -v          # parser tests, no DuckDB need
 .venv/bin/python -m unittest discover -s tests -v # adds the pipeline history tests
 pnpm build
 pnpm typecheck
+scripts/setup-browser.sh                          # once: browser libraries, no root needed
+pnpm test:browser                                 # the built site in a real browser with WebGL
 ```
 
 `pnpm build` writes `out/`, which can be hosted independently as static files at the root

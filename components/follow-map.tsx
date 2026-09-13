@@ -24,9 +24,10 @@ type View={cx:number;cy:number;span:number};
 const spanOf=(b:Bounds)=>Math.max(b.north-b.south,(b.east-b.west)*0.6);
 const centreOf=(b:Bounds)=>({cx:(b.west+b.east)/2,cy:(b.south+b.north)/2});
 
-export default function FollowMap({buses,selected,follow,roads,onSelect,onManualMove,mode,stop}:{
+export default function FollowMap({buses,selected,follow,roads,onSelect,onManualMove,mode,stop,here}:{
  buses:FollowBus[];selected?:FollowBus;follow:boolean;roads:RoadMap|null;
- onSelect:(key:string)=>void;onManualMove:()=>void;mode:FeedMode;stop?:Stop|null}){
+ onSelect:(key:string)=>void;onManualMove:()=>void;mode:FeedMode;stop?:Stop|null;
+ here?:{lat:number;lon:number;accuracyMetres?:number}|null}){
  // null means "fit automatically". Any manual pan or zoom takes over, and says so.
  const [view,setView]=useState<View|null>(null);
  const drag=useRef<{x:number;y:number;cx:number;cy:number}|null>(null);
@@ -36,11 +37,12 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
  const auto=useMemo<View>(()=>{
   if(follow&&selected)return {cx:selected.lon,cy:selected.lat,span:0.012};
   // Fit what the passenger is actually looking at: their stop and the buses on screen.
-  const points=[...buses,...(stop?[{lat:stop.lat,lon:stop.lon}]:[])];
+  const points=[...buses,...(stop?[{lat:stop.lat,lon:stop.lon}]:[]),
+                ...(here?[{lat:here.lat,lon:here.lon}]:[])];
   const bounds=boundsOf(points.length?points:[{lat:53.4808,lon:-2.2426}],0.2);
   return bounds?{...centreOf(bounds),span:Math.min(MAX_SPAN,Math.max(MIN_SPAN,spanOf(bounds)))}
                :{cx:-2.2426,cy:53.4808,span:0.06};
- },[buses,selected,follow,stop]);
+ },[buses,selected,follow,stop,here]);
 
  const active=view??auto;
  const projector=useMemo(()=>{
@@ -108,6 +110,17 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
     const [x,y]=projector.project(lon,lat);
     return <text key={label} x={x} y={y} textAnchor="middle" className="place-label">{label}</text>;
    })}
+   {here&&(()=>{
+    const [x,y]=projector.project(here.lon,here.lat);
+    // Radius measured through the projection each render, so it is geographic, not fixed.
+    const edge=here.accuracyMetres
+     ?projector.project(here.lon+here.accuracyMetres/(111320*Math.cos(here.lat*Math.PI/180)),here.lat)[0]-x:0;
+    return <g className="here-marker" aria-label="You">
+     {edge>0&&<circle cx={x} cy={y} r={edge} className="here-accuracy"/>}
+     <circle cx={x} cy={y} r={7} className="here-dot"/>
+     <text x={x} y={y+22} textAnchor="middle" className="here-label">You</text>
+    </g>;
+   })()}
    {stop&&(()=>{
     const [x,y]=projector.project(stop.lon,stop.lat);
     return <g className="stop-marker" aria-label={`Your stop: ${stop.name}`}>
@@ -126,7 +139,7 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
       onClick={()=>onSelect(bus.key)}
       onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(bus.key)}}}>
      {on&&<circle cx={x} cy={y} r={22} className="bus-halo"/>}
-     <circle cx={x} cy={y} r={on?13:7} fill={on?'#c6f36a':faded?'#6f8896':'#8fd0e4'}
+     <circle cx={x} cy={y} r={on?13:7} fill={on?'#c6f36a':faded?'#6f8896':'#e3eef2'}
       stroke={on?'#f4ffe4':'#0d1b26'} strokeWidth={on?3:2}/>
      {on&&<text x={x} y={y+5} textAnchor="middle" className="bus-marker-route">{bus.route}</text>}
     </g>;

@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {parseLive,parseConfig,DEFAULT_CONFIG,observationAge,publicationAge,freshnessOf,
         ageWords,feedMode,readFavourites,writeFavourites,toggleFavourite,isFavourite,
         favouriteKey,serverReference} from '../lib/live.ts';
-import {boundsOf,fitProjection,metres} from '../lib/geo.ts';
+import {accuracyRing,boundsOf,fitProjection,metres} from '../lib/geo.ts';
 
 const published=JSON.parse(readFileSync(new URL('../public/data/live.json',import.meta.url),'utf8'));
 const config=parseConfig(JSON.parse(readFileSync(new URL('../public/data/config.json',import.meta.url),'utf8')));
@@ -157,6 +157,24 @@ test('the runtime config can repoint the live feed without a rebuild',()=>{
  assert.ok(config.pollSeconds>=10,'never poll faster than the upstream cadence');
  assert.equal(parseConfig({nonsense:true}).liveUrl,DEFAULT_CONFIG.liveUrl);
  assert.equal(parseConfig(null).pollSeconds,DEFAULT_CONFIG.pollSeconds);
+});
+
+test('reported accuracy is drawn as a ground ring of the reported radius',()=>{
+ const centre={lat:53.4487,lon:-2.3095};
+ for(const radius of [15,250,1500]){
+  const ring=accuracyRing(centre.lat,centre.lon,radius);
+  assert.equal(ring.length,65,'64 segments, closed');
+  assert.deepEqual(ring[0],ring[64],'the ring closes on itself');
+  for(const [lon,lat] of ring){
+   const d=metres(centre,{lat,lon});
+   assert.ok(Math.abs(d-radius)<=Math.max(1,radius*0.01),`${radius} m ring vertex at ${d} m`);
+  }
+ }
+ // It is geometry, so its extent in degrees follows latitude rather than a fixed pixel count.
+ const ring=accuracyRing(53.4487,-2.3095,500);
+ const lons=ring.map(p=>p[0]),lats=ring.map(p=>p[1]);
+ assert.ok(Math.max(...lons)-Math.min(...lons)>Math.max(...lats)-Math.min(...lats),
+  'a degree of longitude is shorter than a degree of latitude here');
 });
 
 test('the map fits the points it is given without distorting them',()=>{

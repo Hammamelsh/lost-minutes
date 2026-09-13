@@ -357,3 +357,103 @@ verification used real captured positions replayed on a current clock, labelled 
 MapLibre and the optional 3D city view. The map has roads, place labels, the stop marker,
 pan and zoom, but no street names or landmarks. Deferred deliberately in favour of the
 timetable matching, which was the harder and more defensible work.
+
+# Map repair — 13 September 2026
+
+The vector map was black in the owner's own browser, in live and replay modes. The 12
+September note above blamed headless WebGL; that was wrong. Two defects were confirmed, each
+with a regression check that fails on the pre-repair build (`59b6249`) and passes now.
+
+## The two defects
+
+1. **The map was destroyed and recreated every five seconds.** `FollowView` passed fresh
+   inline `onManualMove` and `onUnavailable` callbacks to `CityMap`, whose creation effect
+   depended on them, so each clock tick tore the map down; the effect cleanup cancelled the
+   seven-second fallback timer before it could fire. Measured on the pre-repair build with the
+   suite's fixture: **18 MapLibre instances created in 22 seconds** (2, 4, 10, 12, 18 at five-
+   second steps). After the repair: **1** instance, the same canvas, still attached.
+2. **No vector tile could ever load, in any browser.** webpack bundled MapLibre's ES module
+   and rewrote `import.meta.url` to `file:///home/…/node_modules/…/maplibre-gl.mjs`. MapLibre
+   derives its worker URL from that, got nothing usable, and started its worker from the
+   page's own URL (`worker started: http://127.0.0.1:4179/`), so every tile request died with
+   it while the style and sprites returned 200. The same rewrite put a private machine path in
+   the shipped JavaScript. `scripts/vendor-maplibre.mjs` now copies MapLibre's three modules
+   to `public/vendor/maplibre-gl/<version>/` at dev and build time and the page imports them
+   unbundled; the worker now starts from `/vendor/maplibre-gl/6.7.0/maplibre-gl-worker.mjs`.
+
+## The browser setup
+
+`scripts/setup-browser.sh` unpacks `libnspr4`, `libnss3` and `libasound2` under
+`~/.cache/lost-minutes/browser-libs` with `apt-get download` and `dpkg-deb -x`, no root.
+`playwright.config.mjs` launches the cached Chromium 151 with
+`--use-angle=swiftshader --enable-unsafe-swiftshader`. Renderer probe on this machine:
+SwiftShader gives WebGL2 and paints the map; `--use-angle=vulkan` (llvmpipe) never created
+the app's map; `gl-egl`, `gl` and the default give no WebGL2 at all. Real-app first settled
+frame with SwiftShader: **1.8 s, 1.6 s, 1.7 s** over three runs (states `starting` at 0.3 s,
+`ready` at 1.1–1.3 s, `painted` at 1.6–1.8 s; 6 tiles fetched).
+
+## What `pnpm test:browser` asserts, and the measured values
+
+Run against the built `out/` (desktop 1280×900 and a 390×844 phone at 2×), 19 checks run and
+11 skipped by design (the lifecycle and fallback checks do not depend on viewport; the
+real-feed check needs a live server). All 19 pass.
+
+- **Created once through clock updates and live refreshes.** 22 s of sampling: the displayed
+  age changed ≥3 times, ≥2 live payloads were served, one canvas, the same canvas, still
+  attached, state `painted`, no fallback.
+- **Camera kept where the passenger put it.** Two zoom-ins, then three clock ticks and a live
+  refresh: `data-camera` unchanged.
+- **A real basemap painted.** Style, vector tiles and glyphs fetched; the map's pixels held
+  **178 distinct quantised colours with 50.8 % of pixels off the background** (a flat rectangle
+  measures 1 colour and 0 %; the calibration threshold is >12 and >15 %).
+- **Fallback in four failure modes** — WebGL absent (immediately), the style never answered
+  (after the 7 s watchdog), the tile host refusing everything, and only the `.pbf` tiles
+  failing after a good style — and the drawn map stays usable with its markers and controls
+  through two further clock ticks.
+- **Shipped modules.** The only workers started come from `/vendor/maplibre-gl/<ver>/`; no
+  `file:///`, `/home/` or `/Users/` string anywhere in `out/`.
+- **Passenger flows, desktop and phone.** LIVE badge, painted map, stop search and "Buses
+  near me" present; no credential wording; the stale footer gone. NOT COLLECTING keeps the
+  map and the search, then "Follow a bus in the recording" reaches ARCHIVE REPLAY with the map
+  painted. OFFLINE after a refresh with the network cut. Location granted at Longford Park
+  (accuracy 40 m): "Stops near you", "accurate to about 40 m", Moss Road / Stretford Mall first
+  with "straight line"; choosing Stretford Mall and fitting puts **You (blue), Your stop
+  (orange) and the selected bus (lime)** on the map, each verified by counting its pixels.
+  Location denied: "Search for your stop instead", then the search completes by keyboard.
+
+## The real feed, no fixtures
+
+`LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs`
+against `pnpm dev:live` (bounded 20-minute collections, 12:01–12:21 BST): on desktop and
+phone the LIVE badge shows, the map paints, **two distinct publications** arrive while the
+page is open, the canvas is the same one afterwards, the latest publication carries vehicles,
+and the selected bus is drawn. Screenshots: `test-results/*/desktop-real-live.png` and
+`mobile-real-live.png` when run.
+
+## Passenger experience changes made while verifying
+
+Each came from a screenshot, not a guess: the phone map now comes first (status, pickers,
+map, your bus, then the stop finder) and is 52 vh tall; the bus card is no longer sticky, so
+it cannot cover the map; the zoom buttons are hidden on phones (pinch) so the tool column no
+longer covers a third of the map; MapLibre's attribution control, which repeated the style's
+own credit and ran to three lines, is replaced by one linked credit line; labels are drawn
+above every dot and choose the side with room; "You" is drawn under the stop marker so the
+stop stays visible when they coincide; every other bus is near-white so blue means "You"
+alone; the camera goes to what the passenger asked for (first buses, a new route, a bus from
+the list, a chosen stop, a found location) at a street scale with room to move, keeps the
+selected bus in frame until the passenger drags, pinches or zooms, and never moves on a
+clock tick. The reported location accuracy is now a geographic ring of the reported radius
+(`accuracyRing`, 64 vertices, tested at 15, 250 and 1,500 m), not a pixel radius clamped at
+8–180 px and frozen at one zoom.
+
+## Also found
+
+The SIRI-VM feed carries `<Bearing>`: 334 of 539 vehicle activities in one capture, 213
+distinct values. The collector does not store it. Direction-of-travel arrows are therefore
+available from reported data; see `docs/INSPIRATION_RESEARCH.md`.
+
+## Checks
+
+Node contract tests 52/52 (one new: `accuracyRing`); `pnpm typecheck`; `pnpm lint` (the
+vendored MapLibre copies excluded); `pnpm build`; `pnpm test:browser` 19/19 with 11 skipped
+by design; real-feed check 2/2.

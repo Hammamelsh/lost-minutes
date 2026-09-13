@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 13 September 2026 (vector map, nearby stops, and one command for local live operation).
+Last updated: 13 September 2026 (map repair: the vector map renders, and a browser suite proves it).
 
 ## Product goal
 
@@ -62,6 +62,10 @@ pnpm build                  # static export to out/
 pnpm start                  # serve out/ with Python
 pnpm test                   # Node contract tests
 pnpm typecheck && pnpm lint
+scripts/setup-browser.sh    # once: the browser's missing libraries, without root
+pnpm test:browser           # the built out/ in a real Chromium with WebGL, desktop and phone
+LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs
+                            # the same suite against a running pnpm dev:live, no fixtures
 
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pipeline.run import        # archive: fetch, load, publish
@@ -203,6 +207,9 @@ proves that run, not long-term reliability):
   own sampling), and whether route labels correspond to registered services.
 - The service worker caches published JSON for offline use. It has no background sync and
   does no background location tracking.
+- **The browser checks render with SwiftShader**, a software WebGL. They prove the map paints,
+  survives updates and falls back correctly; they say nothing about real-GPU performance or a
+  phone's battery. One look on a real phone is still worth taking.
 
 ## Two areas, deliberately different
 
@@ -216,13 +223,22 @@ and Trafford took the catalogue from 1,709 to 3,498 stops and the publishable pa
 ## Visual priority
 
 The passenger view is the deliverable, not the pipeline behind it. MapLibre renders an
-OpenFreeMap dark vector basemap with streets, water and added green space; "You", "Your stop"
-and the selected bus are three different symbols with labels; reported location accuracy is
-drawn as the circle it actually describes rather than a false point. A fit control puts those
-three on screen together. An optional pitched City view adds building extrusions and resets to
-flat in one tap. The drawn SVG map is the automatic fallback when WebGL is missing or the
-first paint does not complete within seven seconds, so nobody is left looking at a black
-rectangle.
+OpenFreeMap dark vector basemap with named streets, water and added green space; "You",
+"Your stop" and the selected bus are three colours (blue, orange, lime; every other bus is
+near-white) with labels drawn above every dot; reported location accuracy is drawn as a
+geographic ring of the reported radius (`accuracyRing` in `lib/geo.ts`), the right size at
+every zoom and never a false point. The camera goes to what the passenger asked for — the
+first buses, a new route, a bus from the list, a chosen stop, a found location — and
+otherwise stays where they put it; a fit control brings the three symbols on screen; an
+optional pitched City view adds building extrusions. On a phone the map comes first and
+pinch replaces the zoom buttons.
+
+MapLibre's own modules are served unbundled from `public/vendor/maplibre-gl/<version>/`,
+copied by `scripts/vendor-maplibre.mjs` at dev and build time, because bundling them rewrote
+the worker URL to a build-machine path and no tile ever loaded. The drawn SVG map is the
+automatic fallback when WebGL is missing, the style fails, every tile fails, or the first
+paint does not complete within seven seconds, and it keeps working through the five-second
+clock updates. All of this is asserted by `pnpm test:browser` in a real Chromium with WebGL.
 
 ## Stop and timetable coverage
 
@@ -238,9 +254,10 @@ rectangle.
 
 ## Next priorities
 
-1. **Confirm the vector map by eye.** MapLibre is integrated and its style, TileJSON and
-   sprites all return 200, but this headless environment cannot complete a WebGL first paint,
-   so the rendered basemap could not be verified here. It needs one look in a real browser.
+1. **Draw the direction of travel.** The feed reports `Bearing` for most vehicles (334 of
+   539 activities in one capture) and the collector drops it. Storing and publishing it, then
+   rotating the bus symbol, is the next visual step and needs no inference. It is ranked with
+   the rest of the God's Eye View and Bee Network research in `docs/INSPIRATION_RESEARCH.md`.
 2. **Decide on hosting** so collection runs when this machine does not. A costed proposal is
    in `docs/HOSTING.md`: one Hetzner CX22 with systemd and Cloudflare, about £3–5 a month.
    Needs your approval before anything is provisioned.
@@ -252,4 +269,6 @@ rectangle.
 
 See also: `docs/HOSTING.md` (costed hosting proposal), `docs/PIPELINE.md` (data model and recovery), `docs/BACKLOG.md` (what is not being
 built yet and why), `docs/LOCAL_VERIFICATION.md` (measured results), `docs/REVIEW.md`
-(critique and visual direction).
+(critique and visual direction), `docs/MAP_REPAIR_VERIFICATION.md` (the two map defects and
+how they were verified), `docs/INSPIRATION_RESEARCH.md` (God's Eye View and Bee Network,
+ranked for this project).

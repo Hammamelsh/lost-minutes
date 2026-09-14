@@ -38,7 +38,9 @@ export default function MotionEvidence(){
    .then(value=>{if(current)setEvaluation(value)}).catch(()=>{if(current)setEvaluation(null)});
   return()=>{current=false};
  },[]);
- const sample=evaluation?.replay[pick];
+ // Checked before use: a file without its replay (a partial or older one) must reach the "could not
+ // be read in full" answer below, not throw here and take the page down.
+ const sample=evaluation&&Array.isArray(evaluation.replay)?evaluation.replay[pick]:undefined;
  const shapeFile=sample?.shapeFile??null;
  useEffect(()=>{
   if(!shapeFile||shapes[shapeFile])return;

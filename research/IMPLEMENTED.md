@@ -44,6 +44,25 @@ deployed: the pipeline runs in one local WSL process and stops when that process
   scored on held-out captures against the last report itself. Every requirement and its
   evidence is in `docs/MILESTONE_CHECKLIST.md`.
 
+## Implemented on 14 September 2026
+- **The chosen bus.** It is pinned by every way of choosing it and never substituted.
+- **Stop activity** is worded only from the bus's own reports.
+- **The review gaps** found by an outside review were closed.
+- **The street preview.** The ride-along's front view became an optional street preview.
+- **A temporary HTTPS preview** (`scripts/preview.sh`) serves the build and the live data for a
+  phone trial.
+- **Passenger feedback (evening):**
+  - the passenger's page has no tabs;
+  - Operations, Evidence and Recorded journeys (formerly Explore) sit under "Behind the data",
+    with a short account of the pipeline and a direct address for each;
+  - the passenger's page no longer waits for the recording, and keeps its stop, bus and
+    ride-along while those views are open;
+  - saved stops and routes come first when the app is opened again;
+  - the service worker keeps every published file fresh.
+- **Researched, not built:** a native app and Metrolink.
+
+Evidence for each requirement is in `docs/MILESTONE_CHECKLIST.md`.
+
 ## Current sample
 11 snapshots from 11 September 2026, approximately 07:00–07:10 UTC, selected at roughly
 one-minute intervals. These are historic real observations, not a synthetic demo or a live
@@ -63,7 +82,11 @@ demonstration uses the real archived inputs: a second import of the same eleven 
 reported 4,236 in-area records, 0 new observations and 4,236 repeats.
 
 ## Open work
-- Schedule collection somewhere that keeps running when this machine does not.
+- Schedule collection somewhere that keeps running when this machine does not. This is costed in
+  `docs/HOSTING.md` (about £6–8 a month since Hetzner's June 2026 prices) and awaits approval.
+  That document also recommends an external freshness alert, which is not configured.
+- Metrolink: only stops and timetables are openly available, and no tram positions. It was
+  researched (`docs/LOST_MINUTES_REDESIGN_RESEARCH.md`, section 11a) and not built.
 - Match dated journey identities to the corresponding timetable snapshot and calendars.
 - Validate stop passage inference and interval uncertainty before publishing delay metrics.
 - Add durable scheduled collection, retention and freshness/coverage/calculation monitoring.

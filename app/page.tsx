@@ -1,8 +1,8 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import Link from 'next/link';
-import {ArrowDown,ArrowUpRight,BusFront,Check,Clock3,Database,ExternalLink,Focus,Info,Layers3,LoaderCircle,MapPin,Minus,Pause,Play,Plus,RotateCcw,Route,ShieldCheck,Activity,Navigation} from 'lucide-react';
+import {ArrowDown,ArrowLeft,ArrowUpRight,BusFront,Check,Clock3,Database,ExternalLink,Focus,Info,Layers3,LoaderCircle,MapPin,Minus,Pause,Play,Plus,RotateCcw,Route,ShieldCheck,Activity} from 'lucide-react';
 import {Slider} from '@/components/ui/slider';
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {Tabs,TabsContent,TabsList,TabsTrigger} from '@/components/ui/tabs';
@@ -12,6 +12,7 @@ import {Operations,parseOperations} from '@/lib/operations';
 import OperationsView from '@/components/operations-view';
 import FollowView from '@/components/follow-view';
 import MotionEvidence from '@/components/motion-evidence';
+import SectionBoundary from '@/components/section-boundary';
 import {busesFromArchive,busesFromLive,busFromVehicle} from '@/lib/follow';
 import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
 import type {LiveVehicle} from '@/lib/live';
@@ -27,6 +28,19 @@ async function fingerprint(text:string){
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 import {initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
+
+/**
+ * The passenger's page, and the views behind the data. A passenger needs one thing: their stop and
+ * their bus, so that page has no tabs. The engineering views (the pipeline's record, the evidence
+ * and a recorded morning to replay) are one link away under "Behind the data". The address's hash
+ * names the view, so a link can open one directly and Back returns to the passenger's page.
+ */
+type Section='follow'|'operations'|'evidence'|'recorded';
+const SECTION_OF:Record<string,Section>={'':'follow','#follow':'follow','#behind-the-data':'operations',
+ '#operations':'operations','#evidence':'evidence','#recorded-journeys':'recorded','#workspace':'recorded'};
+const HASH_OF:Record<Section,string>={follow:'',operations:'#operations',evidence:'#evidence',recorded:'#recorded-journeys'};
+/** A hash that names no view (a skip link's target, say) leaves the view as it is. */
+const sectionOf=(hash:string):Section|null=>SECTION_OF[hash]??null;
 
 const MAP_W=950,MAP_H=780;
 function project(lon:number,lat:number){const cos=Math.cos(53.47*Math.PI/180);const scale=Math.min(MAP_W/(.12*cos),MAP_H/.09);return [MAP_W/2+(lon+2.24)*cos*scale,MAP_H/2-(lat-53.465)*scale];}
@@ -57,6 +71,10 @@ function MapView({journeys,time,selected,choose,roads}:{journeys:Journey[];time:
  </div>
 }
 
+function RecordingLoading({error}:{error:string}){
+ return <section className="loading-card"><LoaderCircle className={error?'':'spin'} size={26}/><h2>{error||'Loading the recording…'}</h2><p>{error?'Reload the page to try again. Nothing live is shown here.':'Opening the original observations and their source record.'}</p>{error&&<button className="action" onClick={()=>location.reload()}>Try again</button>}</section>;
+}
+
 export default function Home(){
  const [data,setData]=useState<Replay|null>(null),[roads,setRoads]=useState<RoadMap|null>(null),[error,setError]=useState('');
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
@@ -79,7 +97,8 @@ export default function Home(){
  const [outsideArea,setOutsideArea]=useState(false);
  const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
- const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false),[tab,setTab]=useState('follow');
+ const [offset,setOffset]=useState(0),[playing,setPlaying]=useState(false);
+ const [section,setSection]=useState<Section>('follow');
  useEffect(()=>{const abort=new AbortController();fetch('/data/replay.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('The recorded sample could not be loaded.');return r.json()}).then(value=>{const d=parseReplay(value);setData(d);setOffset(Math.min(300,Math.floor((d.end-d.start)/1000)));if(!d.journeys.some((j:Journey)=>routeKey(j)==='BNML|142')){setRoute(routeKey(d.journeys[0]));setDirection('all')}}).catch(e=>{if(e.name!=='AbortError')setError(e.message)});fetch('/data/roads.json',{signal:abort.signal}).then(r=>r.ok?r.json():null).then(value=>setRoads(value?parseRoadMap(value):null)).catch(()=>{});fetch('/data/stops.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
  .then(value=>{
   if(!value)return;
@@ -97,7 +116,9 @@ export default function Home(){
  .then(value=>{if(value)setPatterns(parsePatterns(value))}).catch(()=>{});
  fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
  // Published state is polled; the page never contacts the data service itself.
+ const lastLoad=useRef(0);
  const loadLive=useCallback(async(target:string)=>{
+  lastLoad.current=Date.now();
   setRefreshing(true);
   try{
    const response=await fetch(`${target}${target.includes('?')?'&':'?'}t=${Date.now()}`,{cache:'no-store'});
@@ -129,9 +150,20 @@ export default function Home(){
   return()=>{cancelled=true};
  },[loadLive]);
 
+ // Polling stops while the page is out of sight (a locked screen, another app), which spares the
+ // battery and the data allowance; coming back, or back online, asks at once instead of waiting
+ // for the next poll, so the ages shown are never left over from before.
  useEffect(()=>{
-  const id=setInterval(()=>loadLive(config.liveUrl),Math.max(10,config.pollSeconds)*1000);
-  return()=>clearInterval(id);
+  const id=setInterval(()=>{if(!document.hidden)loadLive(config.liveUrl)},Math.max(10,config.pollSeconds)*1000);
+  const resume=()=>{
+   if(document.hidden)return;
+   setNowMs(Date.now());
+   if(Date.now()-lastLoad.current>3000)loadLive(config.liveUrl);
+  };
+  document.addEventListener('visibilitychange',resume);
+  addEventListener('online',resume);addEventListener('pageshow',resume);
+  return()=>{clearInterval(id);document.removeEventListener('visibilitychange',resume);
+   removeEventListener('online',resume);removeEventListener('pageshow',resume)};
  },[config,loadLive]);
 
  // Ages are recomputed from elapsed local time, so a wrong device clock cannot make a
@@ -149,6 +181,55 @@ export default function Home(){
   if(!('serviceWorker' in navigator))return;
   navigator.serviceWorker.register('/sw.js').catch(()=>{});
  },[]);
+
+ // ------------------------------------------------------------ which view
+ // The passenger's page is never taken down: it stays laid out and hidden while a view behind the
+ // data is open, so the stop, the chosen bus, a ride-along and the map come back as they were, and
+ // so does the place on the page and the control that had focus.
+ const sectionRef=useRef<Section>('follow');
+ const passengerScroll=useRef(0),returnFocus=useRef<HTMLElement|null>(null),moveFocus=useRef(false);
+ const go=useCallback((next:Section,focus:boolean)=>{
+  const was=sectionRef.current;
+  if(was===next)return;
+  if(was==='follow'){
+   passengerScroll.current=window.scrollY;
+   returnFocus.current=document.activeElement instanceof HTMLElement&&document.activeElement!==document.body?document.activeElement:null;
+  }
+  moveFocus.current=focus;
+  sectionRef.current=next;
+  setSection(next);
+  if(next!=='recorded')setPlaying(false);
+ },[]);
+ const show=useCallback((next:Section,hash:string=HASH_OF[next])=>{
+  const target=`${window.location.pathname}${window.location.search}${hash}`;
+  if(target!==`${window.location.pathname}${window.location.search}${window.location.hash}`)
+   window.history.pushState(window.history.state,'',target);
+  go(next,true);
+ },[go]);
+ // Where the address points: on arrival, and on Back or Forward.
+ useEffect(()=>{
+  let arriving=true;
+  const sync=()=>{const next=sectionOf(window.location.hash);if(next)go(next,!arriving);arriving=false};
+  sync();
+  addEventListener('hashchange',sync);addEventListener('popstate',sync);
+  return()=>{removeEventListener('hashchange',sync);removeEventListener('popstate',sync)};
+ },[go]);
+ const shownSection=useRef<Section>('follow');
+ useLayoutEffect(()=>{
+  const was=shownSection.current;
+  shownSection.current=section;
+  if(was===section)return;
+  const focus=moveFocus.current;
+  moveFocus.current=false;
+  if(section==='follow'){
+   window.scrollTo(0,passengerScroll.current);
+   const back=returnFocus.current;
+   if(focus)(back?.isConnected?back:document.getElementById('passenger-title'))?.focus({preventScroll:true});
+  }else if(was==='follow'){
+   window.scrollTo(0,0);
+   if(focus)document.getElementById('data-title')?.focus({preventScroll:true});
+  }
+ },[section]);
 
  const duration=data?Math.floor((data.end-data.start)/1000):0,time=data?data.start+offset*1000:0;
  const filtered=useMemo(()=>data?.journeys.filter(j=>(route==='all'||routeKey(j)===route)&&(direction==='all'||j.direction===direction))??[],[data,route,direction]);
@@ -203,51 +284,81 @@ export default function Home(){
  const p90=percentile(selectedGaps,.9);
  const source=data?.sources.find(s=>s.sha256===point?.sourceHash);
  useEffect(()=>{if(!playing)return;const id=setInterval(()=>setOffset(v=>{if(v>=duration){setPlaying(false);return duration}return Math.min(duration,v+10)}),250);return()=>clearInterval(id)},[playing,duration]);
- useEffect(()=>{if(!data)return;const context=(document as Document & {modelContext?:{registerTool:(tool:unknown,options:{signal:AbortSignal})=>unknown}}).modelContext;if(!context)return;const lifecycle=new AbortController();const tool={name:'inspect_recorded_bus_journey',description:'Select an archived bus journey and replay time in Lost Minutes. Returns observed data only; no inferred lateness.',inputSchema:{type:'object',properties:{journeyId:{type:'string'},secondsFromStart:{type:'number'}},required:['journeyId'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:true},execute:async(input:unknown)=>{const v=input as {journeyId?:unknown;secondsFromStart?:unknown};const j=data.journeys.find(j=>j.id===v?.journeyId);if(!j)throw Error('Unknown journey');const second=v.secondsFromStart??0;if(typeof second!=='number'||!Number.isFinite(second)||second<0||second>duration)throw Error('Replay time is outside the recording');setRoute(routeKey(j));setDirection(j.direction||'all');setSelected(j.id);setOffset(second);setPlaying(false);setTab('explore');await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {journeyId:j.id,mode:'archive',route:j.route,observations:j.points.length,position:latestVisible(j,data.start+second*1000)??null}}};try{Promise.resolve(context.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{})}catch{}return()=>lifecycle.abort()},[data,duration]);
+ useEffect(()=>{if(!data)return;const context=(document as Document & {modelContext?:{registerTool:(tool:unknown,options:{signal:AbortSignal})=>unknown}}).modelContext;if(!context)return;const lifecycle=new AbortController();const tool={name:'inspect_recorded_bus_journey',description:'Select an archived bus journey and replay time in Lost Minutes. Returns observed data only; no inferred lateness.',inputSchema:{type:'object',properties:{journeyId:{type:'string'},secondsFromStart:{type:'number'}},required:['journeyId'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:true},execute:async(input:unknown)=>{const v=input as {journeyId?:unknown;secondsFromStart?:unknown};const j=data.journeys.find(j=>j.id===v?.journeyId);if(!j)throw Error('Unknown journey');const second=v.secondsFromStart??0;if(typeof second!=='number'||!Number.isFinite(second)||second<0||second>duration)throw Error('Replay time is outside the recording');setRoute(routeKey(j));setDirection(j.direction||'all');setSelected(j.id);setOffset(second);setPlaying(false);show('recorded');await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return {journeyId:j.id,mode:'archive',route:j.route,observations:j.points.length,position:latestVisible(j,data.start+second*1000)??null}}};try{Promise.resolve(context.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{})}catch{}return()=>lifecycle.abort()},[data,duration,show]);
  function changeRoute(value:string){setRoute(value);setSelected('');setPlaying(false)}
+ const away=section!=='follow';
+ // The pipeline as it stands now, for anyone reviewing it: what the passenger's page is reading.
+ const collector=live?.collection.collector;
+ const liveNow=liveMode==='live'?`Right now: live positions${collector?.kind==='bounded_development'?' from a time-limited run on one machine':''}, published ${publishedAge===null?'moments':`${Math.round(publishedAge)} s`} ago.`
+  :liveMode==='stale'?`Right now: our publication has stopped updating${publishedAge===null?'':`; the last was ${Math.max(1,Math.round(publishedAge/60))} min ago`}, and the passenger’s page says so.`
+  :liveMode==='offline'?'Right now: this device is offline, and the passenger’s page says so.'
+  :'Right now: no live collection is running, so the passenger’s page says that rather than show old positions.';
+ const archiveNote=data?<p className="archive-note"><span className="archive-badge"><Clock3 size={14}/> ARCHIVE REPLAY</span>
+  <span>Recorded {archiveDate}, {clock(data.start)}–{clock(data.end)} BST</span><small>Historical observations · not live</small></p>:null;
  return <main className="app-shell">
-  <a className="skip-link" href="#workspace">Skip to recorded journeys</a>
-  <header className="masthead"><Link className="brand" href="/" aria-label="Lost Minutes home"><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span><a href="#evidence" onClick={()=>{setTab('evidence');setPlaying(false)}} className="header-link">Behind the numbers <ArrowUpRight size={16}/></a></header>
-  {/* The passenger view leads with the bus, not with a hero. The archive badge belongs to
-      the archive views: on Follow it would contradict the live status banner below. */}
-  {tab==='follow'
-   ?<section className="page-heading compact"><div><p className="eyebrow">MANCHESTER BUSES</p><h1>Follow your bus.</h1><p className="intro">The last position each bus reported, and how long ago it reported it.</p></div></section>
-   :<section className="page-heading"><div><p className="eyebrow">A CITY IN MOTION</p><h1>Every journey leaves a trace.</h1><p className="intro">Follow Manchester’s buses. Replay a moment. Look closer.</p></div><div className="recording-label"><span className="archive-badge"><Clock3 size={14}/> ARCHIVE REPLAY</span><span>{data?new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeZone:'Europe/London'}).format(data.start):'Recorded public data'}</span><small>Historical observations · not live</small></div></section>}
-  {!data?<section className="loading-card"><LoaderCircle className={error?'':'spin'} size={26}/><h2>{error||'Loading the Manchester recording…'}</h2><p>{error?'Reload the page to try again. No live data is being shown.':'Opening the original observations and their source record.'}</p>{error&&<button className="action" onClick={()=>location.reload()}>Try again</button>}</section>:<Tabs value={tab} onValueChange={v=>{setTab(v);if(v!=='explore')setPlaying(false)}} className="workspace-tabs">
-   <div className="workspace-toolbar"><TabsList className="view-tabs"><TabsTrigger value="follow"><Navigation size={16}/>Follow</TabsTrigger><TabsTrigger value="explore"><MapPin size={16}/>Explore</TabsTrigger><TabsTrigger value="evidence"><ShieldCheck size={16}/>Evidence</TabsTrigger><TabsTrigger value="operations"><Activity size={16}/>Operations</TabsTrigger></TabsList>{tab!=='follow'&&<div className="filters"><label htmlFor="route-select">Route</label><Select value={route} onValueChange={changeRoute}><SelectTrigger id="route-select" className="route-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All recorded routes</SelectItem>{routeChoices.map(r=><SelectItem key={r} value={r}>{r.split('|')[1]} · {r.split('|')[0]}</SelectItem>)}</SelectContent></Select><label htmlFor="direction-select" className="sr-only">Direction</label><Select value={direction} onValueChange={v=>{setDirection(v);setSelected('')}}><SelectTrigger id="direction-select" className="direction-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">Both directions</SelectItem><SelectItem value="inbound">Inbound</SelectItem><SelectItem value="outbound">Outbound</SelectItem></SelectContent></Select></div>}</div>
-   <TabsContent value="follow" id="follow">
-    <FollowView mode={followMode} live={live} buses={followBuses} roads={roads} walkingConfig={config.walking}
-     clockOffsetMs={!usingArchive&&serverRef&&liveFetchedAt?serverRef-liveFetchedAt:0}
-     onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
-     publicationAgeSeconds={publishedAge} ageBasis={ageBasis} archiveDate={archiveDate}
-     usingArchive={usingArchive}
-     stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
-     patterns={patterns} patternsById={patternsById}
-     onLocate={locate} locating={locating} locationError={locationError}
-     here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
-     onOpenEvidence={()=>{setTab('evidence');setPlaying(false)}}
-     onUseArchive={data?()=>setUsingArchive(true):undefined}
-     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}
-     initialJourney={journey}/>
-    {usingArchive&&<button className="text-action follow-leave-archive"
-     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
-   </TabsContent>
-   <TabsContent value="explore" id="workspace">
-    <div className="workspace-grid"><section className="map-card"><div className="map-card-head"><div><span className="eyebrow">{route==='all'?'THE RECORDED NETWORK':`ROUTE ${routeLabel}`}</span><h2>{chosen?cleanLabel(chosen.destination)||'Manchester journeys':'No journeys in this selection'}{chosen&&<ArrowDown size={18}/>}</h2></div><span className="time-chip">{clock(time,true)} <small>BST</small></span></div><MapView journeys={filtered} time={time} selected={chosen?.id??''} choose={setSelected} roads={roads}/><div className="map-foot"><Info size={15}/><p>Positions update only when an observation exists. Dashed trails connect samples; they are not exact road paths.</p></div></section>
-    <aside className="journey-panel"><div className="panel-top"><span className="eyebrow">IN THIS VIEW</span><span className="tiny-label">at {clock(time)}</span></div><div className="headline-number">{seen.length}<span> buses observed</span></div><p className="muted">With a position no more than 2 minutes old at the replay time.</p><div className="mini-stats"><div><strong>{count.toLocaleString()}</strong><span>unique observations<br/>up to this moment</span></div><div><strong>{filtered.length}</strong><span>recorded journey tracks<br/>across the full sample</span></div></div><div className="section-rule"/><div className="section-title"><h3>Select a journey</h3><BusFront size={18}/></div><div className="journey-list">{filtered.length===0?<p className="empty-copy">No observations match this route and direction. Try another selection.</p>:filtered.map(j=>{const p=lastObservation(j,time);const isCurrent=!!latestVisible(j,time);return <button key={j.id} className={`journey-choice ${chosen?.id===j.id?'chosen':''}`} onClick={()=>setSelected(j.id)} aria-pressed={chosen?.id===j.id}><span className="route-pill">{j.route}</span><span className="journey-choice-copy"><strong>{j.vehicle}</strong><span>{cleanLabel(j.destination)||'Destination not supplied'}</span></span><span className={isCurrent?'fresh-label':'quiet-label'}>{isCurrent?'Observed':p?'Older':'Later'}</span></button>})}</div>
-    {chosen&&<div className="selected-evidence"><div className="section-title"><h3>One bus, up close</h3><span>{chosen.vehicle}</span></div><dl><div><dt>Last observation</dt><dd>{point?clock(point.time,true):'Not yet observed'}</dd></div><div><dt>Age at replay time</dt><dd>{age===null?'—':`${age}s`}{age!==null&&age>120?' · older':''}</dd></div><div><dt>90th percentile sample gap</dt><dd>{p90===null?'Not enough points':`${Math.round(p90)}s`}</dd></div></dl><p className="microcopy">These are gaps in this sampled archive, not a measure of the operator’s full reporting frequency.</p><button className="text-action" onClick={()=>{setTab('evidence');setPlaying(false)}}>Inspect the source <ArrowUpRight size={16}/></button></div>}
-    </aside></div>
-    <section className="timeline-card" aria-label="Replay controls"><div className="playback"><button className="play-button" onClick={()=>{if(offset>=duration)setOffset(0);setPlaying(v=>!v)}} aria-label={playing?'Pause replay':'Play replay'}>{playing?<Pause size={23} fill="currentColor"/>:<Play size={23} fill="currentColor"/>}</button><div><strong>{clock(time,true)}</strong><span>Replay · 40× speed</span></div><button className="restart-button" aria-label="Restart recording" onClick={()=>{setOffset(0);setPlaying(false)}}><RotateCcw size={17}/></button></div><div className="timeline-track"><Slider min={0} max={duration} step={1} value={[offset]} onValueChange={v=>{setOffset(v[0]);setPlaying(false)}} aria-label="Replay time"/><div className="timeline-labels"><span>{clock(data.start)}</span><span>{Math.round(duration/60)}-minute recording · BST</span><span>{clock(data.end)}</span></div></div></section>
-    <div className="next-measure"><Layers3 size={21}/><div><strong>A clear view of the evidence comes first.</strong><p>Timetable matching and stop arrivals are not yet validated. This version shows recorded movement; delay and reliability figures will appear only when supported.</p></div><button onClick={()=>setTab('evidence')} className="text-action">See what’s verified <ArrowUpRight size={16}/></button></div>
-   </TabsContent>
-   <TabsContent value="evidence" id="evidence"><section className="evidence-heading"><span className="eyebrow">OBSERVATIONS, NOT ASSUMPTIONS</span><h2>What this recording can tell you.</h2><p>Real public bus data, sampled from the Open Innovations archive. Each accepted point retains its original timestamp and source fingerprint.</p></section><div className="evidence-stats"><div><Database size={21}/><strong>{data.sources.length}</strong><span>archived source snapshots</span></div><div><Check size={21}/><strong>{data.quality.uniqueObservations.toLocaleString()}</strong><span>accepted observations in the area</span></div><div><RotateCcw size={21}/><strong>{data.quality.duplicateObservations.toLocaleString()}</strong><span>repeated observations removed</span></div><div><ShieldCheck size={21}/><strong>{data.quality.conflictingObservations}</strong><span>conflicting identities suppressed</span></div></div><div className="evidence-columns"><section className="evidence-card"><h3>Reading this sample</h3><p>4,236 input observations = 3,426 retained + 740 repeats + 70 outside the capture window. A repeat has the same operator, vehicle, route, direction, journey reference, timestamp and coordinates. Identical coordinates with a new timestamp are retained. Conflicting coordinates at the same identity and time are suppressed.</p><ul>{data.limitations.map(l=><li key={l}>{l}</li>)}</ul><p><strong>Expected service coverage: unknown.</strong> We have not validated a schedule denominator. The number of observed buses is not a percentage of the expected service.</p><a href={data.sourceUrl} target="_blank" rel="noreferrer" className="text-action">Open the original archive <ExternalLink size={15}/></a></section><section className="evidence-card how-live-works"><h3>How the live view works</h3><ol><li><strong>A bus reports.</strong> Its equipment sends a position with its own timestamp, and a bearing where it has one. Operators must report every 10 to 30 seconds.</li><li><strong>We ask once, for everyone.</strong> One collector reads the feed on a fixed interval. Phones never contact the data service, and an identical response is recorded as a repeat rather than treated as news.</li><li><strong>Every report is checked.</strong> A timestamp without a time zone, an unreadable coordinate or a position dated in the future is set aside with its reason. Two sources disagreeing about one bus means neither is shown.</li><li><strong>A bus is placed on a timetable pattern only when the evidence allows.</strong> Same operator, a timetable version valid that day, journeys on that day, the reported direction, then position. When branches still compete, all of them are kept.</li><li><strong>Only checked data is published.</strong> If a publication fails its checks, the previous good one keeps serving.</li></ol><p>Nothing here is a prediction. A bus is drawn where it said it was, and when; the camera may move between reports, the bus never does.</p></section><section className="evidence-card"><h3>Selected observation</h3>{chosen&&point?<><dl><div><dt>Vehicle / operator</dt><dd>{chosen.vehicle} / {chosen.operator}</dd></div><div><dt>Journey reference</dt><dd>{chosen.journeyRef||'Not supplied'}</dd></div><div><dt>Source observation time</dt><dd>{point.recordedAt}</dd></div><div><dt>Coordinates</dt><dd>{point.lat.toFixed(6)}, {point.lon.toFixed(6)}</dd></div><div><dt>Archive capture time</dt><dd>{source?.capturedAt||'Unknown'}</dd></div></dl><p className="microcopy">SHA-256 identifies the exact downloaded source file.</p><code className="source-hash">{point.sourceHash}</code>{source&&<a href={source.url} target="_blank" rel="noreferrer" className="text-action">Original source ZIP ({(source.bytes/1e6).toFixed(1)} MB) <ExternalLink size={15}/></a>}</>:<p>Select a journey and replay time to inspect an observation.</p>}</section></div>{chosen&&<section className="evidence-card observation-table"><h3>Observation sequence · {chosen.vehicle}</h3><p>Source timestamps retain their supplied offsets; this sample is UTC, displayed in Europe/London (BST on this date). Coordinates have not been snapped to roads or stops.</p><Table><TableHeader><TableRow><TableHead>Recorded at</TableHead><TableHead>Latitude</TableHead><TableHead>Longitude</TableHead><TableHead>Gap from previous</TableHead><TableHead>At replay time</TableHead></TableRow></TableHeader><TableBody>{chosen.points.map((p,i)=><TableRow key={p.time}><TableCell>{clock(p.time,true)}</TableCell><TableCell>{p.lat.toFixed(6)}</TableCell><TableCell>{p.lon.toFixed(6)}</TableCell><TableCell>{i?`${Math.round((p.time-chosen.points[i-1].time)/1000)}s`:'First sample'}</TableCell><TableCell>{p.time>time?'Later in recording':'Available'}</TableCell></TableRow>)}</TableBody></Table></section>}<MotionEvidence/></TabsContent>
-   <TabsContent value="operations" id="operations">{ops
-    ?<OperationsView ops={ops} servedSnapshotId={data.snapshotId}/>
-    :<section className="ops-card ops-empty"><Activity size={22}/><h3>No pipeline record is published</h3>
-      <p>{opsError||'Run the pipeline to generate public/data/operations.json.'}</p>
-      <code className="source-hash">.venv/bin/python -m pipeline.run import</code></section>}
-   </TabsContent>
-  </Tabs>}
-  <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a></p></footer>
+  <a className="skip-link" href="#content-start">{away?'Skip to the content':'Skip to your stop and buses'}</a>
+  <header className="masthead"><Link className="brand" href="/" aria-label="Lost Minutes home" onClick={event=>{if(away){event.preventDefault();show('follow')}}}><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span>
+   {away
+    ?<a href="#follow" onClick={event=>{event.preventDefault();show('follow')}} className="header-link back"><ArrowLeft size={16}/>Back to buses</a>
+    :<a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}} className="header-link">Behind the data <ArrowUpRight size={16}/></a>}</header>
+  <div id="content-start" tabIndex={-1}/>
+
+  {/* The passenger's page: laid out even while hidden, never gated on the recording. */}
+  <div id="follow" className={`passenger-area${away?' away':''}`} inert={away}>
+   <section className="page-heading compact"><div><p className="eyebrow">MANCHESTER BUSES</p><h1 id="passenger-title" tabIndex={-1}>Follow your bus.</h1><p className="intro">The last position each bus reported, and how long ago it reported it.</p></div></section>
+   <FollowView mode={followMode} live={live} buses={followBuses} roads={roads} walkingConfig={config.walking}
+    clockOffsetMs={!usingArchive&&serverRef&&liveFetchedAt?serverRef-liveFetchedAt:0}
+    onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}
+    publicationAgeSeconds={publishedAge} ageBasis={ageBasis} archiveDate={archiveDate}
+    usingArchive={usingArchive}
+    stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
+    patterns={patterns} patternsById={patternsById}
+    onLocate={locate} locating={locating} locationError={locationError}
+    here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
+    onOpenEvidence={()=>show('evidence')}
+    onUseArchive={data?()=>setUsingArchive(true):undefined}
+    nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}
+    initialJourney={journey}/>
+   {usingArchive&&<button className="text-action follow-leave-archive"
+    onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
+  </div>
+
+  {away&&<section id="behind-the-data" className="data-area" aria-labelledby="data-title">
+   <div className="page-heading data-heading"><div>
+    <p className="eyebrow">BEHIND THE DATA</p>
+    <h1 id="data-title" tabIndex={-1}>How Lost Minutes is built.</h1>
+    <p className="intro">A personal data-engineering project. This is where each bus position on the passenger’s page comes from, how it is checked and how the page knows how fresh it is. Your stop and bus are kept while you are here.</p>
+    <ol className="data-steps">
+     <li><strong>Collect</strong><span>One collector reads the Department for Transport’s Bus Open Data Service every 20 seconds, for everyone. Each raw response is kept with its SHA-256 fingerprint; no phone contacts the service.</span></li>
+     <li><strong>Check</strong><span>Every report is parsed and validated. A repeat is recorded as a repeat and conflicting reports are withheld. A bus is placed on a TfGM timetable pattern only when operator, timetable version, day and direction agree.</span></li>
+     <li><strong>Publish</strong><span>A new file is checked as a whole, then swapped in at once. If a check fails, the last good file keeps serving.</span></li>
+     <li><strong>Freshness</strong><span>Every age on screen is the bus’s own report’s. Positions older than 15 minutes are withheld, and the page says when our own publication has stopped updating.</span></li>
+    </ol>
+    <p className="data-stack">Python and DuckDB for the pipeline; Next.js and MapLibre for this page. <a href="https://github.com/Hammamelsh/lost-minutes" target="_blank" rel="noreferrer">Source and documentation on GitHub <ExternalLink size={13}/></a></p>
+    <p className="data-now" role="status">{liveNow}</p>
+   </div></div>
+   <SectionBoundary resetKey={section} onBack={()=>show('follow')}>
+   <Tabs value={section} onValueChange={value=>show(value as Section)} className="workspace-tabs">
+    <div className="workspace-toolbar"><TabsList className="view-tabs" aria-label="Behind the data"><TabsTrigger value="operations"><Activity size={16}/>Operations</TabsTrigger><TabsTrigger value="evidence"><ShieldCheck size={16}/>Evidence</TabsTrigger><TabsTrigger value="recorded"><MapPin size={16}/>Recorded journeys</TabsTrigger></TabsList>{section!=='operations'&&data&&<div className="filters"><label htmlFor="route-select">Route</label><Select value={route} onValueChange={changeRoute}><SelectTrigger id="route-select" className="route-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">All recorded routes</SelectItem>{routeChoices.map(r=><SelectItem key={r} value={r}>{r.split('|')[1]} · {r.split('|')[0]}</SelectItem>)}</SelectContent></Select><label htmlFor="direction-select" className="sr-only">Direction</label><Select value={direction} onValueChange={v=>{setDirection(v);setSelected('')}}><SelectTrigger id="direction-select" className="direction-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">Both directions</SelectItem><SelectItem value="inbound">Inbound</SelectItem><SelectItem value="outbound">Outbound</SelectItem></SelectContent></Select></div>}</div>
+    <TabsContent value="recorded" id="recorded-journeys">{!data?<RecordingLoading error={error}/>:<>
+     {archiveNote}
+     <div className="workspace-grid"><section className="map-card"><div className="map-card-head"><div><span className="eyebrow">{route==='all'?'THE RECORDED NETWORK':`ROUTE ${routeLabel}`}</span><h2>{chosen?cleanLabel(chosen.destination)||'Manchester journeys':'No journeys in this selection'}{chosen&&<ArrowDown size={18}/>}</h2></div><span className="time-chip">{clock(time,true)} <small>BST</small></span></div><MapView journeys={filtered} time={time} selected={chosen?.id??''} choose={setSelected} roads={roads}/><div className="map-foot"><Info size={15}/><p>Positions update only when an observation exists. Dashed trails connect samples; they are not exact road paths.</p></div></section>
+     <aside className="journey-panel"><div className="panel-top"><span className="eyebrow">IN THIS VIEW</span><span className="tiny-label">at {clock(time)}</span></div><div className="headline-number">{seen.length}<span> buses observed</span></div><p className="muted">With a position no more than 2 minutes old at the replay time.</p><div className="mini-stats"><div><strong>{count.toLocaleString()}</strong><span>unique observations<br/>up to this moment</span></div><div><strong>{filtered.length}</strong><span>recorded journey tracks<br/>across the full sample</span></div></div><div className="section-rule"/><div className="section-title"><h3>Select a journey</h3><BusFront size={18}/></div><div className="journey-list">{filtered.length===0?<p className="empty-copy">No observations match this route and direction. Try another selection.</p>:filtered.map(j=>{const p=lastObservation(j,time);const isCurrent=!!latestVisible(j,time);return <button key={j.id} className={`journey-choice ${chosen?.id===j.id?'chosen':''}`} onClick={()=>setSelected(j.id)} aria-pressed={chosen?.id===j.id}><span className="route-pill">{j.route}</span><span className="journey-choice-copy"><strong>{j.vehicle}</strong><span>{cleanLabel(j.destination)||'Destination not supplied'}</span></span><span className={isCurrent?'fresh-label':'quiet-label'}>{isCurrent?'Observed':p?'Older':'Later'}</span></button>})}</div>
+     {chosen&&<div className="selected-evidence"><div className="section-title"><h3>One bus, up close</h3><span>{chosen.vehicle}</span></div><dl><div><dt>Last observation</dt><dd>{point?clock(point.time,true):'Not yet observed'}</dd></div><div><dt>Age at replay time</dt><dd>{age===null?'—':`${age}s`}{age!==null&&age>120?' · older':''}</dd></div><div><dt>90th percentile sample gap</dt><dd>{p90===null?'Not enough points':`${Math.round(p90)}s`}</dd></div></dl><p className="microcopy">These are gaps in this sampled archive, not a measure of the operator’s full reporting frequency.</p><button className="text-action" onClick={()=>show('evidence')}>Inspect the source <ArrowUpRight size={16}/></button></div>}
+     </aside></div>
+     <section className="timeline-card" aria-label="Replay controls"><div className="playback"><button className="play-button" onClick={()=>{if(offset>=duration)setOffset(0);setPlaying(v=>!v)}} aria-label={playing?'Pause replay':'Play replay'}>{playing?<Pause size={23} fill="currentColor"/>:<Play size={23} fill="currentColor"/>}</button><div><strong>{clock(time,true)}</strong><span>Replay · 40× speed</span></div><button className="restart-button" aria-label="Restart recording" onClick={()=>{setOffset(0);setPlaying(false)}}><RotateCcw size={17}/></button></div><div className="timeline-track"><Slider min={0} max={duration} step={1} value={[offset]} onValueChange={v=>{setOffset(v[0]);setPlaying(false)}} aria-label="Replay time"/><div className="timeline-labels"><span>{clock(data.start)}</span><span>{Math.round(duration/60)}-minute recording · BST</span><span>{clock(data.end)}</span></div></div></section>
+     <div className="next-measure"><Layers3 size={21}/><div><strong>A clear view of the evidence comes first.</strong><p>Timetable matching and stop arrivals are not yet validated. This version shows recorded movement; delay and reliability figures will appear only when supported.</p></div><button onClick={()=>show('evidence')} className="text-action">See what’s verified <ArrowUpRight size={16}/></button></div>
+    </>}</TabsContent>
+    <TabsContent value="evidence" id="evidence">{!data?<RecordingLoading error={error}/>:<>{archiveNote}<section className="evidence-heading"><span className="eyebrow">OBSERVATIONS, NOT ASSUMPTIONS</span><h2>What this recording can tell you.</h2><p>Real public bus data, sampled from the Open Innovations archive. Each accepted point retains its original timestamp and source fingerprint.</p></section><div className="evidence-stats"><div><Database size={21}/><strong>{data.sources.length}</strong><span>archived source snapshots</span></div><div><Check size={21}/><strong>{data.quality.uniqueObservations.toLocaleString()}</strong><span>accepted observations in the area</span></div><div><RotateCcw size={21}/><strong>{data.quality.duplicateObservations.toLocaleString()}</strong><span>repeated observations removed</span></div><div><ShieldCheck size={21}/><strong>{data.quality.conflictingObservations}</strong><span>conflicting identities suppressed</span></div></div><div className="evidence-columns"><section className="evidence-card"><h3>Reading this sample</h3><p>4,236 input observations = 3,426 retained + 740 repeats + 70 outside the capture window. A repeat has the same operator, vehicle, route, direction, journey reference, timestamp and coordinates. Identical coordinates with a new timestamp are retained. Conflicting coordinates at the same identity and time are suppressed.</p><ul>{data.limitations.map(l=><li key={l}>{l}</li>)}</ul><p><strong>Expected service coverage: unknown.</strong> We have not validated a schedule denominator. The number of observed buses is not a percentage of the expected service.</p><a href={data.sourceUrl} target="_blank" rel="noreferrer" className="text-action">Open the original archive <ExternalLink size={15}/></a></section><section className="evidence-card how-live-works"><h3>How the live view works</h3><ol><li><strong>A bus reports.</strong> Its equipment sends a position with its own timestamp, and a bearing where it has one. Operators must report every 10 to 30 seconds.</li><li><strong>We ask once, for everyone.</strong> One collector reads the feed on a fixed interval. Phones never contact the data service, and an identical response is recorded as a repeat rather than treated as news.</li><li><strong>Every report is checked.</strong> A timestamp without a time zone, an unreadable coordinate or a position dated in the future is set aside with its reason. Two sources disagreeing about one bus means neither is shown.</li><li><strong>A bus is placed on a timetable pattern only when the evidence allows.</strong> Same operator, a timetable version valid that day, journeys on that day, the reported direction, then position. When branches still compete, all of them are kept.</li><li><strong>Only checked data is published.</strong> If a publication fails its checks, the previous good one keeps serving.</li></ol><p>Nothing here is a prediction. A bus is drawn where it said it was, and when; the camera may move between reports, the bus never does.</p></section><section className="evidence-card"><h3>Selected observation</h3>{chosen&&point?<><dl><div><dt>Vehicle / operator</dt><dd>{chosen.vehicle} / {chosen.operator}</dd></div><div><dt>Journey reference</dt><dd>{chosen.journeyRef||'Not supplied'}</dd></div><div><dt>Source observation time</dt><dd>{point.recordedAt}</dd></div><div><dt>Coordinates</dt><dd>{point.lat.toFixed(6)}, {point.lon.toFixed(6)}</dd></div><div><dt>Archive capture time</dt><dd>{source?.capturedAt||'Unknown'}</dd></div></dl><p className="microcopy">SHA-256 identifies the exact downloaded source file.</p><code className="source-hash">{point.sourceHash}</code>{source&&<a href={source.url} target="_blank" rel="noreferrer" className="text-action">Original source ZIP ({(source.bytes/1e6).toFixed(1)} MB) <ExternalLink size={15}/></a>}</>:<p>Select a journey and replay time to inspect an observation.</p>}</section></div>{chosen&&<section className="evidence-card observation-table"><h3>Observation sequence · {chosen.vehicle}</h3><p>Source timestamps retain their supplied offsets; this sample is UTC, displayed in Europe/London (BST on this date). Coordinates have not been snapped to roads or stops.</p><Table><TableHeader><TableRow><TableHead>Recorded at</TableHead><TableHead>Latitude</TableHead><TableHead>Longitude</TableHead><TableHead>Gap from previous</TableHead><TableHead>At replay time</TableHead></TableRow></TableHeader><TableBody>{chosen.points.map((p,i)=><TableRow key={p.time}><TableCell>{clock(p.time,true)}</TableCell><TableCell>{p.lat.toFixed(6)}</TableCell><TableCell>{p.lon.toFixed(6)}</TableCell><TableCell>{i?`${Math.round((p.time-chosen.points[i-1].time)/1000)}s`:'First sample'}</TableCell><TableCell>{p.time>time?'Later in recording':'Available'}</TableCell></TableRow>)}</TableBody></Table></section>}<MotionEvidence/></>}</TabsContent>
+    <TabsContent value="operations" id="operations">{ops
+     ?<OperationsView ops={ops} servedSnapshotId={data?.snapshotId}/>
+     :<section className="ops-card ops-empty"><Activity size={22}/><h3>No pipeline record is published</h3>
+       <p>{opsError||'Run the pipeline to generate public/data/operations.json.'}</p>
+       <code className="source-hash">.venv/bin/python -m pipeline.run import</code></section>}
+    </TabsContent>
+   </Tabs>
+   </SectionBoundary>
+  </section>}
+  <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a>{!away&&<> · <a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}}>Behind the data: how it is built</a></>}</p></footer>
  </main>
 }

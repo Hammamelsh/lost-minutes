@@ -4,6 +4,18 @@ One tester, one real journey they make, about 30 minutes. Lost Minutes on their 
 the app they normally use (Bee Network or Google Maps). Watch; do not help unless they are stuck
 for more than a minute, and write down where they hesitate, in their words.
 
+## Feedback so far, and what answered it
+
+Reported by the owner on 14 September 2026; not independently validated.
+
+| Feedback | What changed | Where it shows |
+|---|---|---|
+| A desktop tester called it a "premium Bee Network" and liked the clean layout | The visual identity is kept, and the changes are targeted | — |
+| Explore, Evidence and Operations made no sense to that passenger | The passenger's page has no tabs. The three views moved under **Behind the data**, with a short account of how the app is built, and Explore became **Recorded journeys**, dated and labelled as a recording | the header's "Behind the data" |
+| They would use a mobile app (stated interest, not repeat use) | Saved stops and routes come first when the app is opened again. There are PNG icons for installing, fresh positions are fetched on returning to the page, and installation advice is given only on a lasting address. A repeat-use trial is below | "Repeat-use trial" |
+| Someone asked about Metrolink | Researched, not built. No official tram positions exist; real-time departures are closed to new users; timetables are open | `docs/LOST_MINUTES_REDESIGN_RESEARCH.md`, section 7 |
+| The owner enjoys the outside ride-along; the street preview stays secondary | Both are kept. The landscape overlap is fixed, and a pinch now zooms the outside view | — |
+
 ## Short trial (about 10 minutes)
 
 For a first look before the full session below. One tester, one stop they know, a real bus.
@@ -61,6 +73,27 @@ the simple map**.
 Listen for a misreading. Counted as a misreading: an arrival time where none is given; "at the stop"
 for "near"; "the doors are open" for "appears stopped"; an estimate taken for a report; the front
 view taken for the view from on board, or for the lane the bus is in.
+
+## Repeat-use trial: one week of real journeys
+
+"I would use a mobile app" is interest; this measures use. Run it only on a lasting address, not
+on a temporary tunnel, whose address disappears.
+
+- **Set-up, with the tester:** open the address on their phone, find their usual stop and save it.
+  Add the page to the home screen only if the address will last.
+- **For a week, on each of their journeys:** did they open it without being asked? Did the saved
+  stop come up at once? Did it show their bus? Did it help them decide when to leave? Did anything
+  look wrong? One line each, in their words.
+- **Record:**
+  - journeys made;
+  - times opened unprompted;
+  - times it helped;
+  - times it failed, and why (no live data, the wrong stop, a slow map);
+  - what they used instead.
+- **What counts as repeat use:** opened unprompted on at least half of their journeys that week.
+  Anything less is interest.
+- **Collection must run all week.** That needs hosting; otherwise the trial measures this
+  machine's downtime, not the app.
 
 ## Before the session
 

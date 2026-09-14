@@ -351,6 +351,76 @@ Save this report as `docs/LOST_MINUTES_REDESIGN_RESEARCH.md` in the existing rep
 
 Sending this instruction gives Claude a concrete implementation task and permission to back up verified work to the existing remote within those boundaries. It does not require another generic “shall I continue?” between the implementation stages.
 
+## 11a. Future options researched on 14 September 2026 (not implemented)
+
+Two requests arrived with the first passenger feedback. One tester would "use a mobile app"; that
+is stated interest, not repeat use. Another person asked about Metrolink. Both were researched,
+not built.
+
+### A native app (React Native)
+
+- **What it would solve that the web app cannot:** alerts while the app is closed ("your bus is two
+  stops away"), lock-screen live updates, and reliable background refresh. All three need a push
+  service and hosting that do not exist yet, and nothing in the product today depends on them. What
+  the tester asked for, opening it again from the phone, the installable web app already covers
+  once it has a lasting address: manifest, service worker, PNG icons for iOS and Android, and saved
+  stops first.
+- **What could be reused:**
+  - the published data contract (`live.json`, stops, patterns, road shapes, the motion evaluation);
+  - the framework-free logic in `lib/`: selection, motion, journey, stop activity, patterns and
+    walking;
+  - the map style, which is a MapLibre style usable by MapLibre Native.
+- **What would have to be rebuilt:**
+  - every DOM and CSS view;
+  - the ride-along's per-frame camera, its gesture handling and the generated 3D bus (a GeoJSON
+    fill-extrusion);
+  - storage (`localStorage` would become native storage).
+
+  The service worker has no role there.
+- **MapLibre React Native, from its official documentation**
+  ([maplibre.org/maplibre-react-native](https://maplibre.org/maplibre-react-native/), checked 14
+  September 2026):
+  - the package is `@maplibre/maplibre-react-native`;
+  - React Native 0.80 or newer is required, and "from v11 onwards only the new architecture is
+    supported";
+  - Android needs API level 23 or newer;
+  - with Expo, "this package can't be used with 'Expo Go'": it needs a development build and its
+    config plugin;
+  - for production, you supply your own style and tiles.
+
+  The pages read do not state parity for the features the ride-along uses (fill-extrusion, pitch
+  and camera control each frame), so that is unverified.
+- **Recommendation: not now.** There is no measured repeat use. The limitations a native app would
+  remove need hosting and a push service first. A second frontend would double the interface work
+  for a portfolio project. Revisit only if all three hold: a lasting address exists, a trial shows
+  repeat use, and a feature that needs native (alerts) is chosen.
+
+### Metrolink
+
+What is officially available, checked 14 September 2026:
+
+| Kind of data | Official source and status | Can it place a tram? |
+|---|---|---|
+| Stops | Not in the NaPTAN extract held here (ATCO area 180 has no Metrolink rows); Metrolink stops are expected in NaPTAN's national tram area, not downloaded or checked here. The GTFS below also carries stops | No: stops only |
+| Timetables | TfGM, "GM Public Transport Schedules – GTFS and TXC datasets" ([data.gov.uk](https://www.data.gov.uk/dataset/c3ca6469-7955-4a57-8bfc-58ef2361b797/gm-public-transport-schedules-gtfs)): "all bus and Metrolink tram services within the Greater Manchester boundary", ODbL, "Data updated nightly". The GTFS file answered a HEAD request (41.8 MB, last modified 14 September 2026, 11:01 GMT); it was not downloaded or parsed here, so its tram fields are unverified | No: scheduled times only |
+| Real-time departures | TfGM's open data page: the portal "providing real time data feeds is no longer in operation … the creation of new subscriptions or new keys is not possible" (existing keys continue) | No: predicted departures at a platform, not positions, and not available to new users |
+| Service alerts | No official open feed found; the dataset page mentions none | No |
+| Vehicle coordinates | None found in any official open source; the Bus Open Data Service carries buses only | — |
+
+**No source measures where a tram is.** A tram's position inferred from departures or a timetable
+would be the kind of claim this project's evidence rule forbids, so no tram can be drawn on the map.
+
+**Smallest useful first feature:** Metrolink stops beside bus stops in "near me" and in search, each
+with today's timetabled departures from the TfGM GTFS, labelled as the timetable and never as live,
+and a link to TfGM's own live departure information.
+
+**Unresolved:**
+- the GTFS tram routes, stops and calendar need to be parsed and checked;
+- the ODbL's attribution and share-alike terms, for anything published from it;
+- whether any live departure access can be obtained outside the closed portal.
+
+No tram tab or tram data has been added.
+
 ## 12. Sources and evidence notes
 
 All web sources below were consulted for this review on 12 September 2026. First-party documentation establishes available patterns and capabilities; it does not certify this implementation. Source titles and publication dates are given where available. Recommendations, thresholds and product judgments in this report are the reviewer’s proposals unless explicitly attributed.

@@ -77,6 +77,26 @@ test('a navigation offline falls back to the cached shell',async()=>{
  assert.match(await response.text(),/cached shell/);
 });
 
+test('published data at any depth is network-first: a road shape is not kept for ever',async()=>{
+ const {listeners}=load({networkBody:'{"id":"new"}',cached:{'/data/shapes/FX.json':'{"id":"old"}'}});
+ const response=await handle(listeners,dataRequest('/data/shapes/FX.json'));
+ assert.equal(await response.text(),'{"id":"new"}');
+});
+
+test('content-hashed build files are served from the cache once there',async()=>{
+ const {listeners}=load({networkBody:'from the network',cached:{'/_next/static/chunks/page-1a2b.js':'cached'}});
+ const response=await handle(listeners,new Request(ORIGIN+'/_next/static/chunks/page-1a2b.js'));
+ assert.equal(await response.text(),'cached');
+});
+
+test('any other file is served from the cache and refreshed behind it, so a new release arrives',async()=>{
+ const {listeners,store}=load({networkBody:'new model',cached:{'/models/lm-bus.json':'old model'}});
+ const response=await handle(listeners,new Request(ORIGIN+'/models/lm-bus.json'));
+ assert.equal(await response.text(),'old model','the copy at hand is used at once');
+ for(let i=0;i<20&&store.get('/models/lm-bus.json')!=='new model';i++)await new Promise(r=>setImmediate(r));
+ assert.equal(store.get('/models/lm-bus.json'),'new model','and the fresh one is kept for next time');
+});
+
 test('the worker never touches other origins or non-GET requests',async()=>{
  const {listeners}=load();
  assert.equal(await handle(listeners,new Request('https://elsewhere.test/data/live.json')),undefined);

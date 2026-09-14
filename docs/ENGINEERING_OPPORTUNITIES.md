@@ -762,3 +762,43 @@ the camera to rest, bring it clear of controls, and tap with the input the devic
 on another bus during a ride-along.
 
 **Status:** mitigated (this repository's checks tap the drawn markers; the helper is not shared).
+
+## 21. A test fixture drifted from the component it feeds, and the component took the page down
+
+**Problem and evidence.**
+- `FIXTURE_MOTION` in `tests/browser/fixtures.mjs` has none of the `replay`, `heldOut` or `data`
+  fields that `components/motion-evidence.tsx` reads.
+- The component read `evaluation.replay[pick]` before its own check for those fields. With the
+  fixture served, the Evidence view threw, and Next replaced the whole page with "This page
+  couldn't load", the passenger's view included (frames in
+  `outputs/probes/passenger-layouts/before/*-engineering.png`, 14 September 2026).
+- The published file has those fields, so no passenger saw it. `evidence-motion.spec` reads the
+  real file, so no browser check had opened Evidence with the fixture served. A malformed or older
+  published file would have done the same.
+
+**Who hits it, and the current workaround.** Anyone changing a published file's shape, a
+component's reading of it, or a fixture. Until a probe happened to combine the two, nothing caught
+it. Fixed on 14 September in two ways: the component reads `replay` only after its check, and the
+engineering views sit inside `SectionBoundary`.
+
+**Recurrence and effort.** One instance observed, found in about 30 minutes with the frame. Whether
+there are others is unknown: the fixtures for `live.json`, the patterns and the road shapes have not
+been checked against their readers.
+
+**Right answer.** A small reusable piece in this repository: one schema per published file (zod is
+already a dependency). The page would parse each file with it, and a Node test would parse every
+fixture, and the committed copy of each published file, with the same schema. The Python
+pipeline's checks could later be generated from it (JSON Schema), but that is not needed yet.
+
+**Existing tools.** zod, already used in `lib/journey-context.ts`. A contract shared with Python
+through JSON Schema (`zod-to-json-schema`, then Python's `jsonschema`) was not researched further.
+
+**Smallest reusable capability.** `lib/contracts/<file>.ts`, exporting one zod schema per published
+file, and `tests/contracts.test.mjs`, parsing the fixtures and `public/data/*.json` with them. No
+visual interface is needed.
+
+**Next cheap validation.** Write the schema for `motion-evaluation.json` alone, run it over the
+published file and `FIXTURE_MOTION`, and count the mismatches. Then decide whether the other files
+merit the same.
+
+**Status:** open. The crash is fixed; the contract check is not built.

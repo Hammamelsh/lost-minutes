@@ -66,22 +66,52 @@ protecting the origin, not about correctness.
 
 ## Itemised estimate
 
-Checked again on 13 September 2026: Hetzner's cost-optimised range now names this size **CX23**
-(2 vCPU, 4 GB RAM, 40 GB NVMe, 20 TB traffic, "price incl. IPv4"; the Arm CAX11 is the same size),
-but its pricing page renders the figures in the browser and they could not be read here. The
-figures below are the ones recorded earlier; **confirm the price in the Hetzner console before
-ordering**. UK consumers are charged 20% VAT on top of Hetzner's net prices.
+**Checked again on 14 September 2026, and the price has gone up.** Hetzner's documentation records
+a price adjustment for new orders from 15 June 2026: the **CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe,
+20 TB traffic) went from €3.99 to **€5.49 a month net (€0.0088 an hour), excluding IPv4**. The Arm
+CAX11 went from €4.49 to €5.99. Hetzner's IP pricing page lists a cloud Primary IPv4 at **€0.50 a
+month**.
+- Backups: the price is shown only on the product page, which renders its figures in the browser
+  and could not be read here. They are listed as 20% of the server's price, as recorded earlier.
+- VAT: UK consumers are charged 20% on top of the net prices, as recorded earlier.
+- Sterling: the figures below use about £0.85 to the euro, an assumption.
+
+**Confirm the total in the Hetzner console before ordering.**
 
 | Item | Monthly |
 | --- | --- |
-| Hetzner CX23 (2 vCPU, 4 GB, 40 GB NVMe), IPv4 included | about €3.79 net as last recorded (~£3.30); ~£4 with VAT |
-| Hetzner automated backups (20%, optional) | about €0.76 (~£0.66) |
+| Hetzner CX23 (2 vCPU, 4 GB, 40 GB NVMe) | €5.49 net |
+| Primary IPv4 | €0.50 net |
+| Server with IPv4, with 20% VAT | about €7.19 (~£6.10) |
+| Hetzner automated backups (20% of the server, optional) | about €1.10 net, €1.32 with VAT (~£1.10) |
 | Cloudflare free plan (optional) | £0.00 |
-| Object storage | £0.00 — not needed; 40 GB covers 14-day retention with room to spare |
-| Domain (amortised) | ~£0.85 (~£10/year); needed for HTTPS unless an existing domain is used |
-| **Total** | **~£5–6 per month with VAT, backups and a domain** |
+| Object storage | £0.00: not needed, since 40 GB covers the retention below with room to spare |
+| Domain (amortised) | ~£0.85 (~£10 a year); needed for HTTPS unless an existing domain is used |
+| **Total** | **~£7 a month without backups, ~£8 with backups, both with a domain** |
 
-First year, with backups and a domain: roughly **£65–75**.
+First year, with backups and a domain: roughly **£95**.
+
+**Storage, measured on this machine on 14 September 2026.** After about two days of intermittent
+bounded runs, the DuckDB warehouse is 124 MB and the raw live captures 153 MB, with 32 MB of
+archive downloads. At the measured 0.13 GB a day of raw captures, 14 days of retention is about
+1.9 GB, well inside the 40 GB local NVMe disk. That disk is persistent across restarts, which is
+what the collector's checkpointing needs.
+
+## Supervision and freshness monitoring
+
+- **Collector supervision:** `lost-minutes-collector.service` runs under systemd with
+  `Restart=always`. Every 5 minutes the watchdog (`lost-minutes-health.timer`, `check-health.sh`)
+  restarts a collector that has not published for 10 minutes. It leaves the nightly timetable
+  rebuild alone.
+- **What is missing is a person being told.** The watchdog restarts; it tells nobody. If the
+  server itself stops, or restarts do not help, the public feed goes stale unnoticed.
+- **Recommended: an external dead man's switch.** Healthchecks.io's free "Hobbyist" plan (checked
+  14 September 2026: $0 a month, 20 checks, email alerts) gives each check a ping address.
+  - The watchdog pings it only when the publication is fresh.
+  - When the pings stop, for any reason (collector, server or network), an email follows after the
+    grace period.
+  - Not configured: it needs an account, and the ping address kept on the server in
+    `/etc/lost-minutes/`, never in Git.
 
 ## Deployment configuration (ready, not provisioned)
 
@@ -93,11 +123,22 @@ the Caddyfile locally. The steps are in `deploy/README.md`.
 
 ## What I would do
 
-Take the CX23 without backups to start (about **£4/month with VAT**), because the warehouse is
-reproducible from the raw captures and the raw captures are reproducible from nothing —
-losing a fortnight of collection is an annoyance, not a disaster. Add backups later if the
-accumulated history starts to matter. Point a subdomain at it through Cloudflare.
+Take the CX23 with its IPv4 and without backups to start (about **£6 a month with VAT**, ~£7 with
+a domain). Backups can wait for three reasons:
+- the warehouse is reproducible from the raw captures;
+- the raw captures cannot be re-collected, but losing a fortnight of collection is an annoyance,
+  not a disaster;
+- backups can be added later if the accumulated history starts to matter.
 
-**The decision I need from you:** approval of about £4 a month with VAT (£5–6 with backups and
-a domain), the domain or subdomain to use, and whether the site should be publicly reachable at
-that point. I will not provision anything until you say so.
+Point a subdomain at it through Cloudflare, and add the Healthchecks.io ping to the watchdog.
+
+This is also what makes returning practical. A home-screen icon and saved stops are tied to the
+address. The trial link is a temporary Quick Tunnel, so the page itself advises against installing
+it.
+
+**The decision I need from you:**
+1. approval of about **£6–8 a month** with VAT (CX23 with IPv4; optional backups; a domain);
+2. the domain or subdomain to use;
+3. whether to create the free Healthchecks.io account for alerts.
+
+I will not provision anything until you say so. The steps after that are in `deploy/README.md`.

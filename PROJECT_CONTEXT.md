@@ -4,7 +4,29 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 14 September 2026, afternoon (a temporary HTTPS preview for the phone trial). Changes:
+Last updated: 14 September 2026, evening (passenger feedback: navigation, phones, returning).
+Changes, each answering reported feedback (listed in `docs/PASSENGER_TEST.md`):
+- the passenger's page is the whole page, with no tabs. Explore (the archive replay), Evidence and
+  Operations moved under **Behind the data**, a secondary area with a short account of the pipeline
+  and direct addresses (`/#operations`, `/#evidence`, `/#recorded-journeys`). Explore is now
+  **Recorded journeys**, dated and labelled as a recording;
+- the passenger's page stays mounted while those views are open, so the stop, the chosen bus, a
+  ride-along and the map come back unchanged. It no longer waits for the 1.6 MB recording, whose
+  failure had blocked it;
+- one malformed engineering file no longer takes the whole page down; the Operations view no
+  longer claims that no live collection is configured;
+- on a phone: the "your bus" strip is above the map, so the answer shares the first screen with
+  the stop; the walk guide asks for a location in one quiet line; search matches stay above the
+  keyboard; in landscape the ride card no longer covers "Front view"; safe-area gutters; 44 px
+  header and chip targets;
+- returning: saved stops and routes come first, PNG icons exist for installing, fresh positions
+  are fetched on coming back to the page or back online (polling pauses while it is hidden), the
+  service worker keeps road shapes and other files fresh, and install advice is given only on a
+  lasting address;
+- a native app and Metrolink researched, not built (`docs/LOST_MINUTES_REDESIGN_RESEARCH.md`,
+  section 11a); the hosting cost corrected for Hetzner's June 2026 price rise (`docs/HOSTING.md`).
+
+Afternoon, a temporary HTTPS preview for the phone trial:
 - `scripts/preview.sh` serves the latest build and the live data through Caddy on 127.0.0.1 and a
   free Cloudflare Quick Tunnel. It reuses a running collector or starts a bounded one, and stops only
   what it started;
@@ -155,6 +177,12 @@ scripts/preview.sh start|status|stop       # a temporary HTTPS link for a phone:
                             # /data through Caddy on 127.0.0.1, and a Cloudflare Quick Tunnel
 node scripts/probes/public-preview.mjs --base https://….trycloudflare.com
                             # that link checked as a phone reaches it (emulation), and 360/390 px layouts
+node scripts/probes/passenger-layouts.mjs --base http://127.0.0.1:8098/ [--label name]
+                            # the passenger's flow at 360/390 px portrait, landscape and desktop: frames,
+                            # touch targets, covered controls, and a round trip behind the data
+node scripts/probes/camera-switch.mjs --base http://127.0.0.1:8098/ [--real]
+                            # outside and street preview in turn: no restart, reset, jump or frozen camera
+node scripts/make-icons.mjs # the PNG icons (Apple 180 px, 192, 512, maskable 512) from the SVGs
 .venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching on a frozen moment
 ```
 
@@ -307,6 +335,9 @@ servedFileSha256 = recordedPublicationSha256
 - **The map is created once.** Themes repaint it in place; views change its camera; its
   creation depends only on stable callbacks. `pnpm test:browser` checks the canvas identity
   through clock ticks, publications and a theme switch.
+- **The passenger's page has no engineering in it.** A passenger said Explore, Evidence and
+  Operations made no sense, so they sit behind one secondary link. The evidence is kept, not
+  hidden: every figure is there, one step away, with its own address for reviewers.
 - **Runtime config over rebuilds**, and **a 10 s polling floor** (operators publish every
   10–30 s).
 
@@ -315,7 +346,33 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **A temporary HTTPS preview for the phone trial (14 September 2026, afternoon, latest):** the
+- **Passenger feedback: navigation, phones and returning (14 September 2026, evening,
+  latest):** checked in Chromium, not on a physical phone; FIXTURE unless marked REAL.
+  - **Navigation.** The passenger's page has no tabs and does not wait for the recording. Behind
+    the data holds Operations, Evidence and Recorded journeys at their own addresses. A round trip
+    there keeps the stop, the chosen bus, the ride-along and the very map (`navigation.spec` at
+    both sizes; the layout probe at five sizes).
+  - **The old build's problems, reproduced first by the new layout probe:**
+    - the recording gated the page;
+    - search matches were hidden behind the keyboard;
+    - the answer was below the fold;
+    - in landscape the ride card covered "Front view";
+    - a malformed file took the page down.
+
+    Each is gone on the final build. A sticky strip covering the ride's controls, introduced on the
+    way, was found by a new covered-control check and fixed.
+  - **Camera switching,** FIXTURE and REAL (route 15, MF74NPD): no restart, reset, change of bus or
+    jump, and the street preview's camera was never still while the bus moved. The reported freeze
+    was not reproduced.
+  - **REAL, through the public link:** publications arrived through the service worker from the
+    network, the chosen bus was kept, and a pinch zoomed the outside ride-along.
+
+  Typecheck, lint, the build and 137 Node tests pass. The full browser suite: 182 passed, 24
+  skipped by design and 2 failed.
+  - One was a wrong test locator; corrected, `navigation.spec` then passed 18.
+  - The other was a check that failed identically on the previous build; its helper now brings the
+    bus into view, and `selection.spec` then passed 23.
+- **A temporary HTTPS preview for the phone trial (14 September 2026, afternoon):** the
   build and the live data served through Caddy on 127.0.0.1 and a Cloudflare Quick Tunnel. It was
   checked through the public address, with REAL data, in Chromium's emulation, not on a physical
   phone:
@@ -539,6 +596,23 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   guarantee. Its usage-policy page, in German, was behind a bot check and could not be read in
   full here; the limits followed are the ones its own pages state (attribution, a "fix the map"
   link, at most one request a second, no heavy use, requests logged).
+- **Returning depends on a lasting address.** Saved stops, routes and the journey are kept in this
+  browser for this address. A home-screen icon for the temporary trial tunnel would stop working
+  when the tunnel ends, and the page says so there. No physical iPhone or Android installation, no
+  real screen lock or backgrounding, and no real connectivity change has been tried: those were
+  exercised in Chromium only.
+- **"Moves outside, freezes in the street preview" was not reproduced.** It was reported, then
+  checked on FIXTURE and REAL data in Chromium: the camera moved in every sample where the bus did,
+  across every switch. The cases where the street preview holds still by design:
+  - after any gesture on it, until **Return to bus**;
+  - under reduced motion, where it steps every 3 s;
+  - when the drawn bus itself has stopped.
+
+  A low frame rate on a real phone's GPU (the view is pitched to 77°, with extruded buildings)
+  could also look like a freeze and is untested. A missed finger lift would have held the camera
+  still; the count is now ignored after 8 s without change.
+- **No Metrolink.** The app covers buses only. No official source gives tram positions, and
+  TfGM's real-time portal is closed to new users (section 11a of the redesign research).
 - **The browser checks render with SwiftShader**, a software WebGL. They prove the map paints,
   survives updates, switches views and falls back correctly; they say nothing about real-GPU
   performance or battery. A check on a real phone is still outstanding.
@@ -550,6 +624,17 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 Longford Park and Stretford are inside it.
 
 ## The passenger view
+
+**The passenger's page is the whole page.** It has no tabs: the header's one link, **Behind the
+data**, opens the engineering area. That area holds a four-step account of the pipeline (collect,
+check, publish, freshness), a "right now" line from the live publication, and three views:
+Operations, Evidence and Recorded journeys (the archive replay, dated and badged, never live). Each
+view has an address: `#behind-the-data`, `#operations`, `#evidence`, `#recorded-journeys`. The
+browser's Back returns to the buses, as does **Back to buses** in the header. While the area is
+open, the passenger's page stays mounted, hidden and `inert`, so its state is kept and restored
+exactly: the stop, the chosen bus, a ride-along, the map instance, the scroll position and the
+focused control. A view there that throws is contained in place (`SectionBoundary`). The
+passenger's page never waits for the recording.
 
 Stop-first. **Buses near me** and **search** find a boarding point; each nearby stop shows
 its side of the road (NaPTAN bearing), its street, and the timetabled services leaving it
@@ -668,8 +753,10 @@ build-machine path and no tile ever loaded.
    on a weekday (`.venv/bin/python -m pipeline.patterns build`, with no collector running) and
    check again.
 1. **Decide on hosting** so collection runs when this machine does not. The costed proposal is
-   in `docs/HOSTING.md` (one Hetzner CX23 with systemd, about £5–6 a month with VAT, backups and
-   a domain; confirm the price in Hetzner's console), and the whole server configuration is
+   in `docs/HOSTING.md`: one Hetzner CX23 with systemd. Since Hetzner's 15 June 2026 price rise,
+   that is €5.49 net plus €0.50 for IPv4, about £6 a month with VAT, and £7–8 with backups and a
+   domain. Confirm the price in Hetzner's console. A free Healthchecks.io check would tell a person
+   when publication stops, and the whole server configuration is
    ready in `deploy/` (Caddy with HTTPS, the collector under systemd, a nightly timetable rebuild,
    a watchdog) and checked on this machine by `deploy/validate.sh`. Needs your approval, and a
    domain, before anything is provisioned. It is also what a phone trial needs: a phone lets a

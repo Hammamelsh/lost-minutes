@@ -8,6 +8,7 @@ import Nearby from '@/components/nearby';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
 import WalkGuide from '@/components/walk-guide';
+import InstallHint from '@/components/install-hint';
 import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {association,busOnService,distanceLines,progress,schematic,servicesAtStop,standing,standingWords,
         stopBoard,type BoardRow} from '@/lib/journey';
@@ -115,6 +116,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // The day a timetable is judged against: today in Manchester, or the recording's day.
  const day=londonDate(mode==='archive'?(buses[0]?.observedAtMs??nowMs):nowMs);
  const stopById=useMemo(()=>new Map(stops.map(s=>[s.id,s])),[stops]);
+ const savedStops=savedStopIds.map(id=>stopById.get(id)).filter((s):s is Stop=>Boolean(s));
  const name=useCallback((atco:string)=>stopById.get(atco)?.name??'a stop outside our area',[stopById]);
  const stopLabel=stop?`${stop.name}${stop.indicator?` (${stop.indicator})`:''}`:'';
 
@@ -392,7 +394,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   :board.old.some(item=>item.standing==='coming')?'The buses on services calling here have only old reports.'
   :'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.';
 
- return <section className={`follow${stop?' has-stop':''}`}>
+ return <section className={`follow${stop?' has-stop':''}${riding?' riding':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
    <span className="follow-badge">{mode==='offline'?<WifiOff size={13}/>:<Radio size={13}/>}{copy.label}</span>
    <span className="follow-bar-when">
@@ -437,17 +439,27 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
        locationError={locationError}/>}
      </div>
    : <div className="your-stop unset">
+      {/* A returning passenger's own stops and routes come first, above finding a new one. */}
+      {(savedStops.length>0||favourites.length>0)&&<section className="saved" aria-label="Saved on this phone">
+       <h3 className="saved-head">Saved on this phone<small>{savedStops.length&&favourites.length?'stops and routes'
+        :savedStops.length?'stops':'routes'}</small></h3>
+       <div className="stop-chips">
+        {savedStops.map(saved=><button key={saved.id} className="stop-chip" onClick={()=>selectStop(saved)}>
+         <MapPin size={14}/><span>{saved.name}{saved.indicator?` · ${saved.indicator}`:''}</span></button>)}
+        {favourites.map(f=>{
+         const id=`${f.operator}|${f.route}`,running=availableIds.includes(id);
+         const way=f.direction==='all'?'both ways':directionLabel(f.direction).toLowerCase();
+         return <button key={favouriteKey(f)} className={`stop-chip route${route===id?' on':''}`}
+          aria-pressed={route===id} aria-label={`Route ${f.route}, ${way}${running?'':', no buses reporting now'}`}
+          onClick={()=>{pick({route:id,direction:f.direction});scrollTo('.route-browse')}}>
+          <span className="route-pill">{f.route}</span><span>{way}{running?'':' · none now'}</span></button>;
+        })}
+       </div>
+       <InstallHint/>
+      </section>}
       <Nearby stops={stops} patterns={patterns} here={here} outsideArea={outsideArea} day={day}
        onSelect={selectStop} onLocate={onLocate??(()=>{})} locating={!!locating}
        locationError={locationError} onClearHere={onClearHere} areaLabel="Manchester"/>
-      {savedStopIds.length>0&&<div className="stop-chips">
-       {savedStopIds.map(id=>{
-        const saved=stopById.get(id);
-        return saved?<button key={id} className="stop-chip" onClick={()=>selectStop(saved)}>
-         <MapPin size={14}/><span>{saved.name}{saved.indicator?` · ${saved.indicator}`:''}</span>
-        </button>:null;
-       })}
-      </div>}
      </div>)}
   {blocked&&<p className="follow-hint warn">This device would not let us save that. It still works for this visit.</p>}
   {shareState==='copied'&&<p className="follow-hint">Link copied. It names this stop{pin?' and the bus you chose':''}, never
@@ -455,6 +467,20 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   {shareState==='failed'&&<p className="follow-hint warn">This browser would not share or copy the link.</p>}
   {restoreNotes.length>0&&<div className="restore-notice" role="status">
    {restoreNotes.map(note=><p key={note}>{note}</p>)}
+  </div>}
+
+  {/* The bus being followed, one glance away. It comes before the map, so that on a phone the
+      answer shares the first screen with the stop; on a wide screen the map has a column of its
+      own, so the order there is unchanged. */}
+  {identity&&<div className={`active-bus ${selectionKind??'none'}`} role="status" aria-label="The bus shown on the map"
+    data-vehicle={identity.vehicle}>
+   <span className="route-pill">{identity.route||'?'}</span>
+   <span className="active-bus-copy">
+    <strong>{selectionKind==='suggested'?'Suggested':busNoun}: {identity.route
+     ?`${identity.route} to ${destinationLabel(identity.destination)}`:`vehicle ${identity.vehicle}`}</strong>
+    <small>{stripStatus}{!inList?' · not in the list below':''}</small>
+   </span>
+   <button className="text-action" onClick={showCard}>Details</button>
   </div>}
 
   {mapFallback
@@ -476,17 +502,6 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}
       stopsAhead={stopsAhead} onSimpleMap={chooseSimpleMap}/>}
 
-  {/* The bus being followed stays one glance away while the alternatives are browsed below. */}
-  {identity&&<div className={`active-bus ${selectionKind??'none'}`} role="status" aria-label="The bus shown on the map"
-    data-vehicle={identity.vehicle}>
-   <span className="route-pill">{identity.route||'?'}</span>
-   <span className="active-bus-copy">
-    <strong>{selectionKind==='suggested'?'Suggested':busNoun}: {identity.route
-     ?`${identity.route} to ${destinationLabel(identity.destination)}`:`vehicle ${identity.vehicle}`}</strong>
-    <small>{stripStatus}{!inList?' · not in the list below':''}</small>
-   </span>
-   <button className="text-action" onClick={showCard}>Details</button>
-  </div>}
 
   {/* The stop first: what leaves from here, then the buses coming to it with how far each has got
       and how old its report is, then everything else listed apart with what it is. The card for
@@ -678,14 +693,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      onClick={()=>{if(current)setBlocked(!saveFavourites(toggleFavourite(favourites,current)))}}>
      <Star size={18} fill={savedRoute?'currentColor':'none'}/></button>
    </div>
-   {favourites.length>0&&<div className="follow-chips">
-    {favourites.map(f=>{
-     const id=`${f.operator}|${f.route}`;
-     return <button key={favouriteKey(f)} className={`follow-chip ${route===id?'on':''}`}
-      onClick={()=>pick({route:id,direction:f.direction})}>
-      {f.route}{!availableIds.includes(id)&&<em>no buses</em>}</button>;
-    })}
-   </div>}
+   {/* Saved routes are listed once, with the saved stops at the top of the page. */}
    {onRoute.length>1&&<div className="follow-list">
     {onRoute.filter(bus=>bus.key!==shown?.key).slice(0,10).map(bus=><button key={bus.key}
       onClick={()=>chooseBus(bus)} className="follow-row">

@@ -354,8 +354,10 @@ type Inputs={ready:boolean;selected?:FollowBus;selectionKind?:SelectionKind;hist
 /** The ride-along's camera state, kept in a ref for the frame loop and mirrored to React. */
 type Ride={state:RideState;camera:'outside'|'front';transition:number;
  pointer:{down:boolean;moved:boolean};settling:boolean;
- /** Fingers on the map now; while there are any, the frame loop leaves the camera to them. */
- touches:number};
+ /** Fingers on the map now, and when a finger last moved or lifted (performance.now()); while there
+  *  are any, and not for longer than a still finger could mean a lift the page never heard, the
+  *  frame loop leaves the camera to them. */
+ touches:number;touchAt:number};
 
 /**
  * The map. Reports are drawn where they were made. The chosen bus may also be drawn at a
@@ -393,7 +395,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
  const viewRef=useRef(view);
  const visualRef=useRef<Visual|null>(null);
  const estimateRef=useRef<Estimate|null>(null);
- const ride=useRef<Ride>({state:'off',camera:'outside',transition:0,pointer:{down:false,moved:false},settling:false,touches:0});
+ const ride=useRef<Ride>({state:'off',camera:'outside',transition:0,pointer:{down:false,moved:false},settling:false,touches:0,touchAt:0});
  const wasRiding=useRef(false);
  // The bus being ridden, so a change of bus mid-ride re-frames rather than being mistaken for a move.
  const rideKey=useRef('');
@@ -603,8 +605,8 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    canvasBox.addEventListener('touchstart',(event:TouchEvent)=>{if(event.touches.length>1)takeOver()},{passive:true});
    // How many fingers are on the map, so the frame loop leaves the camera to them. A touch's events
    // all go to the element it began on, so these see every finger lift.
-   const fingers=(event:TouchEvent)=>{ride.current.touches=event.touches.length};
-   for(const type of ['touchstart','touchend','touchcancel'] as const)canvasBox.addEventListener(type,fingers,{passive:true});
+   const fingers=(event:TouchEvent)=>{ride.current.touches=event.touches.length;ride.current.touchAt=performance.now()};
+   for(const type of ['touchstart','touchmove','touchend','touchcancel'] as const)canvasBox.addEventListener(type,fingers,{passive:true});
    map.current=instance;
   })().catch(()=>{if(!cancelled)onUnavailable('module_failed')});
   return()=>{cancelled=true;clearTimeout(firstFrame);clearTimeout(noTiles);clearTimeout(tileWait);
@@ -837,8 +839,11 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   // Nor while fingers are on the map: between a touch and MapLibre's taking it as a pinch or a drag
   // the map counts as still, and placing the camera then stops its touch handlers, so the gesture
   // was lost before it began (a pinch in the outside ride-along did nothing). Once they lift, a
-  // camera left off the bus glides back, at the passenger's zoom.
-  if(following&&!instance.isMoving()&&!r.touches){
+  // camera left off the bus glides back, at the passenger's zoom. A count unchanged for 8 s is not
+  // trusted: a lift the page never heard would otherwise hold the camera still for good, and in
+  // the street preview, where the bus itself is hidden, that would look like a frozen picture.
+  const touching=r.touches>0&&t-r.touchAt<8000;
+  if(following&&!instance.isMoving()&&!touching){
    if(input.view==='ride'&&r.camera==='front'){
     // Inside the bus: the eye is set from the displayed state every frame (every few seconds
     // under reduced motion), so it holds, eases and corrects exactly as the bus is drawn. It

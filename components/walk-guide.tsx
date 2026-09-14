@@ -37,7 +37,7 @@ export default function WalkGuide({state,config,here,stop,consent,onConsent,onRe
 
   {state.status==='loading'&&<p className="walk-status">Asking {config.name} for a walking route…</p>}
 
-  {state.status==='problem'&&<div className="walk-problem" role="status">
+  {state.status==='problem'&&<div className={`walk-problem walk-${state.problem.code}`} role="status">
    <p>{state.problem.message}</p>
    <div className="walk-problem-actions">
     {(state.problem.code==='no_location'||state.problem.code==='inaccurate')&&onLocate&&

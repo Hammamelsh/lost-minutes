@@ -384,8 +384,20 @@ async function settledMap(page) {
   }, {intervals: [500], timeout: 15_000, message: 'the camera comes to rest'}).toBe(true);
   await page.waitForTimeout(400);
 }
-/** A bus's drawn spot, with the map first dragged to bring it clear if a control covers it. */
+/** Whether the map reports the bus as drawn on its canvas right now. */
+const drawnNow = (page, vehicle) => map(page).evaluate((el, v) => {
+  const raw = el.getAttribute('data-bus-points');
+  return Boolean(raw && JSON.parse(raw).some(p => p.key.endsWith(`|${v}`)));
+}, vehicle);
+/** A bus's drawn spot. The first framing fits your stop and the bus shown, and another bus can sit
+ *  just beyond its edge (on 14 September FX-BRAVO did, on the build before as well as after that
+ *  day's changes, at an identical framing), so the map is first zoomed out a step at a time until the
+ *  bus is on the canvas; then dragged to bring it clear if a control covers it. */
 async function reachable(page, vehicle) {
+  for (let step = 0; step < 3 && !(await drawnNow(page, vehicle)); step++) {
+    await page.getByRole('button', {name: 'Zoom out'}).click();
+    await settledMap(page);
+  }
   let point = await busPoint(page, vehicle);
   const box = await page.locator('.vector-map-canvas').boundingBox();
   if (await covered(page, box.x + point.x, box.y + point.y)) {

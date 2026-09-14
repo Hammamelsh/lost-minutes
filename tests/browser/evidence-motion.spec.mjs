@@ -4,6 +4,8 @@ import {test, expect} from '@playwright/test';
 
 test('the motion evaluation shows held-out errors beside the baseline and replays real journeys', async ({page}) => {
   await page.goto('/');
+  // Found the way a visitor finds it: behind the data, not among the passenger's controls.
+  await page.getByRole('link', {name: /^Behind the data/}).first().click();
   await page.getByRole('tab', {name: 'Evidence'}).click();
   const section = page.locator('.motion-evidence');
   await expect(section).toContainText('checked against the reports that followed', {timeout: 20_000});

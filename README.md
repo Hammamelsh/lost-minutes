@@ -33,6 +33,22 @@ Innovations / National Data Library archive (Open Government Licence v3.0), with
 geometry from OpenStreetMap (ODbL). Attribution and licensing are in full at the end of
 this file.
 
+## For reviewers: behind the data
+
+The passenger's page has no engineering in it. The header's **Behind the data** link opens a short
+account of the pipeline (collect, check, publish, freshness) and three views, each with its own
+address on the site:
+
+- **Operations** (`/#operations`): what the archive pipeline did, run by run, with every total
+  reconciled against the history it came from.
+- **Evidence** (`/#evidence`): what the recorded sample can and cannot show, how the live view
+  works, and the motion model's held-out evaluation.
+- **Recorded journeys** (`/#recorded-journeys`): a replay of the 11 September 2026 archive sample,
+  labelled as a recording and never as live.
+
+The code and its measurements are described in `docs/PIPELINE.md`, `PROJECT_CONTEXT.md` and
+`docs/LOCAL_VERIFICATION.md`.
+
 ## Working now
 
 - A responsive React/TypeScript map and replay interface, with real OpenStreetMap roads.
@@ -63,7 +79,7 @@ this file.
   geometry checked against the buses' own reports, at the speed of the bus's recent reports,
   eased off as the report ages, for a bounded time. Each new report corrects it smoothly. It
   is labelled "Estimated position" with the real report age and scored on held-out captures
-  against the last report itself (Evidence tab). Showing reported positions only is one tap
+  against the last report itself (Behind the data, Evidence). Showing reported positions only is one tap
   away.
 - Timetable matching against TfGM TransXChange stop patterns: operator, timetable version,
   operating day and direction are checked before position, and branches the position cannot

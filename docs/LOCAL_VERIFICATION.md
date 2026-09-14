@@ -1815,3 +1815,117 @@ The whole suite was not rerun. Since its last full pass, the only change is that
 while fingers are on the map. Only the ride-along and the follow camera reach that, and the checks
 above cover them at both sizes, including the new phone check. Python was not rerun, because no
 Python changed.
+
+# Passenger feedback: navigation, phones and returning — 14 September 2026, evening
+
+The owner reported the feedback; it was not independently validated.
+- A desktop tester called the app a "premium Bee Network".
+- Explore, Evidence and Operations made no sense to that passenger.
+- They would use a mobile app (stated interest).
+- Someone asked about Metrolink.
+
+Evidence below is FIXTURE unless marked REAL. All browser evidence is Chromium emulation on this
+machine, not a physical phone.
+
+## What inspection found first (the build of 1bb5320)
+
+`scripts/probes/passenger-layouts.mjs` (new) ran the passenger's own flow, on FIXTURE data with the
+recording held back 5 s, at five sizes: 360 × 800 and 390 × 844 portrait, 800 × 360 and 844 × 390
+landscape, and 1280 × 900. It found:
+- **The passenger's page waited for the recording.** The whole app, the passenger's page included,
+  waited for the 1.6 MB archive recording. For 5 s a passenger saw only "Loading the Manchester
+  recording…". A recording that failed to load would have left no passenger page at all.
+- **Labels and tabs.** The skip link said "Skip to recorded journeys", and on a phone the tab bar
+  took a row of the first screen.
+- **Search with the keyboard up.** A shortened viewport stood in for the on-screen keyboard. Of
+  nine matches, one was partly visible above it.
+- **The answer was below the fold.** After a stop was chosen, the walk guide's amber location prompt
+  and the map pushed the answer ("3 stops before yours · 11 s ago") off the first screen.
+- **Landscape ride-along.** The ride card covered "What is this?" and "Front view", so the street
+  preview could not be opened.
+- **The footer.** At 360 px its caption ran past the edge.
+- **An engineering view took the page down.** Opening Evidence replaced the whole page with the
+  framework's "This page couldn't load". The motion evidence read `replay[pick]` before its own
+  check, and the FIXTURE evaluation has no replay. The real file renders, but one malformed file
+  could take the passenger's page down with it.
+- **A false label.** The Operations view said "NO LIVE COLLECTION CONFIGURED".
+- **In the code, not reproduced:**
+  - the tabs unmounted the passenger's view, and on return it was rebuilt from the journey read at
+    page load, so a bus chosen since then was lost;
+  - the round trip could not be run on that build, because Evidence crashed first with the fixture;
+  - the service worker served `/data/shapes/*.json` and other non-hashed files from its cache
+    forever, and iOS was given an SVG home-screen icon, which it does not use.
+
+## After, on the new build
+
+The same probe, on the same FIXTURE data:
+- **Every step completed at all five sizes**, including the street preview in landscape.
+- **A slow network.** The passenger's page appears at once; the recording no longer gates it.
+- **Search with the keyboard up.** The first three matches are in view at 360 and 390 px.
+- **After choosing a stop,** the answer is on the first screen.
+- **A return visit** restores the stop and the bus.
+- **Behind the data and back.** At every size the stop, the chosen bus (`active`), the ride-along
+  (`following`) and the map canvas itself were the same afterwards.
+- **Found and fixed on the way:**
+  - The "your bus" strip, once above the map, was sticky and covered the ride's controls at the top
+    of the map, in portrait and landscape. Below the two-column width it is now static, and hidden
+    during a phone ride-along. The probe's audit now also checks what is drawn at the centre of each
+    map control; its pairwise check had missed this.
+  - The header link was 18 px tall; it is now a 44 px target.
+
+**Camera switching** (`scripts/probes/camera-switch.mjs`, new) went outside, then street preview,
+then outside, then street preview, at 8 s each, sampled every 100 ms, on a 390 × 844 phone:
+
+| Run | Bus | Drawn bus at each switch | Report age across switches | Camera still while the bus moved |
+|---|---|---|---|---|
+| FIXTURE, old build | FX-MOVING | 1.5–1.7 m (about one sample's travel) | continuous (e.g. 9.2 → 9.4 s) | 0–1 of 30 samples in each phase |
+| FIXTURE, new build | FX-MOVING | 0–1.5 m | continuous; once 15.9 → 6.2 s, when a new report arrived at that moment | 0–1 of 30 |
+| **REAL**, new build, through the public link | route 15, MF74NPD, heading for Marston Road (nr) | 0.7–2.1 m | continuous (45.3 → 45.5 s, 30.5 → 30.7 s, 38.7 → 38.9 s) | 0 of 29–31 in the street preview (27.2 m of bus movement, 28.6 m of camera; then 22.8 m and 22.9 m) |
+
+No restart of the estimate, no reset of the report age, no change of bus and no jump. The reported
+"moves outside, freezes in the street preview" was not reproduced.
+
+**The public link, REAL** (the public-preview probe, 390 px, service worker allowed):
+- the page returned 200, and after a reload the service worker controlled it;
+- `Permissions-Policy` allowed location;
+- at Marston Road (nr) two route 15 buses were coming (2 and 15 stops before, 31–32 s old);
+- MF74NPD stayed chosen through the publications of 17:20:28 and 17:21:08 BST, both through the
+  service worker from the network;
+- a pinch outside zoomed 20 → 20.87 and kept following, and a pinch in the street preview paused
+  it;
+- 71 tiles arrived with none failed, and there were no page errors.
+
+**Research checks, 14 September.** Details are in section 11a of the redesign research and in
+`docs/HOSTING.md`:
+- the MapLibre React Native documentation;
+- TfGM's open data page (the real-time portal is closed to new keys);
+- the TfGM schedules dataset, and a HEAD request for its GTFS (41.8 MB, modified that day);
+- Hetzner's June 2026 prices (CX23 €5.49 net plus €0.50 for IPv4);
+- Healthchecks.io's free tier.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 137 passed (3 new service-worker cases)
+    pnpm test:browser                               # 208 checks: 182 passed, 24 skipped by design,
+                                                    # 2 failed (31.0 min, desktop and phone); both below
+    pnpm test:browser tests/browser/navigation.spec.mjs   # then 18 passed, 2 skipped by design
+    pnpm test:browser tests/browser/selection.spec.mjs    # then 23 passed, 1 skipped by design
+
+The two failures in the full run:
+- **`navigation.spec`, phone, "within reach": the test was wrong.**
+  - It looked for "What is this?" as a button; it is a disclosure's summary.
+  - Once corrected, the spec passed at both sizes. That run also included two checks added after
+    the full run began: a saved route first on return, and a fetch within 3 s of reconnecting.
+- **`selection.spec`, desktop, "a bus clicked where it is drawn": not caused by this milestone.**
+  - The check waits for a second bus, FX-BRAVO, to be drawn on the canvas, and it was not. The first
+    framing fits you, your stop and the bus shown, and FX-BRAVO sits one stop beyond that edge.
+  - The previous build, 1bb5320, was built in a temporary worktree. It failed identically in the
+    same hour, at a byte-identical framing (camera `15.458,53.4481881,-2.3136453`), although it had
+    passed the same check at about 15:10.
+  - What changed between those hours was not found.
+  - The check now zooms out until the bus is drawn before clicking it, as it already dragged a bus
+    clear of a covering control. The spec then passed at both sizes.
+
+Python was not rerun, because no Python changed. No physical phone was used: installing, GPS, a
+real screen lock, sunlight, battery and a screen reader remain unchecked.

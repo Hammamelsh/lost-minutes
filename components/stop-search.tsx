@@ -30,6 +30,15 @@ export default function StopSearch({stops,onSelect,onLocate,locating,locationErr
   setQuery('');setOpen(false);setActive(0);
  }
 
+ // With a phone's keyboard up only the top of the screen is left, and the matches opened below the
+ // field behind it (one visible of nine at 360 px). The field goes to the top, once the keyboard
+ // has had time to open, so the matches have the room between it and the keyboard.
+ function roomForMatches(){
+  if(!window.matchMedia?.('(pointer: coarse)').matches)return;
+  const field=inputRef.current?.closest('.stop-search-field');
+  window.setTimeout(()=>field?.scrollIntoView({block:'start',behavior:'smooth'}),250);
+ }
+
  function keys(event:React.KeyboardEvent<HTMLInputElement>){
   if(event.key==='ArrowDown'||event.key==='ArrowUp'){
    event.preventDefault();
@@ -55,7 +64,7 @@ export default function StopSearch({stops,onSelect,onLocate,locating,locationErr
     aria-activedescendant={expanded&&matches[active]?`${listId}-${active}`:undefined}
     aria-describedby={statusId} placeholder={placeholder} aria-label={placeholder}
     onChange={event=>{setQuery(event.target.value);setOpen(true);setActive(0)}}
-    onKeyDown={keys} onFocus={()=>setOpen(true)}/>
+    onKeyDown={keys} onFocus={()=>{setOpen(true);roomForMatches()}}/>
    {query&&<button className="stop-search-clear" aria-label="Clear the search"
      onClick={()=>{setQuery('');setOpen(false);inputRef.current?.focus()}}><X size={16}/></button>}
    {onLocate&&<button className="stop-search-locate" onClick={onLocate} disabled={locating}

@@ -424,3 +424,66 @@ not a physical phone.
 | Exercise pinch and zoom where the tooling allows; tell emulation from a phone | The camera is left to the fingers while they are on the map | A synthesized pinch: the outside ride-along went 20 → 20.9 and kept following (before, it did nothing); the street preview pauses; a one-finger drag pauses. New phone check in `ride.spec` | Implemented and verified in emulation; a real finger not tried |
 | Marston Road (nr), route 15 towards Roedean Gardens; report honestly if no bus is current | — | The outbound pattern calls there, with an accepted road shape and estimates. The page listed 1, then 2, buses coming | Verified; the "no current bus" case did not arise |
 | Focused checks, not the full suite, unless a material change requires it | The touch fix is a camera change, so every check that reaches the camera was run, at both sizes | Typecheck, lint, the build, 134 Node tests. Ride, access, selection and journey specs, and the two ride-entering motion checks: 104 passed, 4 skipped by design, none failing (15.1 min) | Verified; the full suite not rerun |
+
+# Passenger feedback: navigation, phones and returning
+
+14 September 2026, evening. The owner reported the feedback; it was not independently validated.
+Measurements are in `docs/LOCAL_VERIFICATION.md` under the same heading.
+- Browser evidence is Chromium emulation on this machine: FIXTURE unless marked REAL.
+- Nothing was tried on a physical phone.
+
+**Inspection and passenger navigation**
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Inspect first; choose the smallest effective change | The layout and camera probes captured the old build at five sizes before anything changed | The `before/` frames; the findings in the verification notes | Done |
+| Passenger navigation: nearby or search, a boarding point and service, a bus to follow, saved stops and routes, an existing selection | The passenger's page is the whole page, with no tabs. Saved stops and routes come first. The journey (stop, service, bus) is restored for 12 hours, as before | `navigation.spec`: no tabs; saved stop and saved route first on return. The layout probe's return visit restored stop and bus at all five sizes | Implemented and verified |
+| Evidence and Operations out of the primary navigation, under a named secondary area; an engineering entry for portfolio visitors, discoverable from the README | **Behind the data**: a four-step account (collect, check, publish, freshness), a "right now" line, and Operations, Evidence and Recorded journeys, each at its own address. The README's "For reviewers" section | `navigation.spec`: entry, focus, three views, direct addresses, Back. `evidence-motion.spec` reaches Evidence through the new entry | Implemented and verified |
+| Explore renamed if it is archive replay; its date and replay mode visible; archive never shown as live, and no silent switch to replay | Explore was the 11 September archive replay. It is now **Recorded journeys**, with "ARCHIVE REPLAY · Recorded 11 September 2026, 08:00–08:10 BST · historical observations, not live". The passenger's archive mode stays an explicit, badged choice | `navigation.spec`: the note and its date. `passenger.spec`: the Follow view's archive badge | Implemented and verified |
+| Switching between the passenger and engineering views never replaces the bus, stop or journey | The passenger's page stays mounted, hidden and `inert`; its scroll position and focus are restored | `navigation.spec` round trip, after 12 s away: the same stop, the same bus still chosen, still riding, the same map canvas. The layout probe's round trip at all five sizes | Implemented and verified |
+
+**Phone usability**
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| A useful first screen with a clear primary action | The page no longer waits for the recording, and there is no tab row. On phones the "your bus" strip is above the map, the walk guide asks for a location in one quiet line, and the heading stands down on short screens | `navigation.spec`: the search is there before a recording held back 10 s, and the page works with no recording at all. The frames at 360 and 390 px and in landscape | Implemented and verified in emulation |
+| Readable stop names, destinations, report ages and service relationships | The wording is unchanged; the answer ("N stops before yours · age") is on the first screen | The frames | Verified by eye on FIXTURE and REAL frames |
+| Comfortable touch targets and visible keyboard focus | The header link and saved chips are 44 px targets. Focus moves to the engineering title, and back to the control that had it | The layout probe's audit: no target under 24 px apart from links inside a sentence. `access.spec` keyboard journey. `navigation.spec`: the title takes focus | Implemented and verified in emulation; a screen reader not tried |
+| Search usable with the on-screen keyboard | On a touch screen the field rises to the top when it takes focus | `navigation.spec`: the first three matches above a keyboard-sized cut. The probe at 360 and 390 px | Implemented and verified in emulation; a real keyboard not tried |
+| Controls reachable around browser bars and safe areas | Side gutters at least the safe-area inset (`viewport-fit=cover`); the footer clears the home bar | CSS only | Implemented; unverified: Chromium here cannot emulate a notch or home bar |
+| Entering and leaving the expanded map without losing the selection | Unchanged, now checked | The layout probe: the same bus after bigger and smaller, at all sizes. `access.spec`: the same canvas | Verified |
+| Clear loading, unavailable, stale and offline states | The recording no longer blocks the passenger's page. Polling pauses while the page is hidden, and fetches at once on return or reconnection | `navigation.spec`: reconnecting fetches within 3 s. `access.spec`: slow live data and slow tiles. `passenger.spec`: the states | Implemented and verified (suite count below) |
+| Saved choices easy to find | "Saved on this phone" at the top of the start panel, for stops and routes | `navigation.spec` | Implemented and verified |
+| Fewer redundant panels, repeated explanations or controls | Saved routes are listed once, not twice. The walk guide's second sentence is gone. A malformed file is contained in place instead of crashing the page | The frames. `navigation.spec`: the malformed evaluation | Implemented and verified |
+| Landscape layouts: fix clear overlap or clipping | On short screens the ride notes sit in a row and the card is compact; the card had covered "Front view". On phones the "your bus" strip no longer sticks over the map | `navigation.spec`: the ride's controls uncovered, upright and on its side. The probe's centre check at all sizes | Implemented and verified in emulation |
+
+**Ride-along and data honesty**
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| The outside ride-along the default, the street preview optional; one vehicle and one motion state in both; no restart, reset or jump when switching | Unchanged; now checked | Camera-switch probe, FIXTURE before and after, and REAL (MF74NPD): at each switch the drawn bus moved within one sample's travel, the report age carried on, and the bus stayed the same | Verified in emulation |
+| Reproduce and fix "moves outside, freezes only in the street preview" | Not reproduced. A missed finger lift can no longer hold the camera still: the count is ignored after 8 s | Camera-switch probe: the street preview's camera was still in 0 of 29–31 moving samples, REAL and FIXTURE | Not reproduced in emulation; a physical phone is needed |
+| Observed, estimated and recorded kept apart; report age visible; new-journey confirmation; no automatic replacement; gestures and reduced motion respected; the three distances | Unchanged | `selection.spec`, `ride.spec`, `motion.spec` and `journey.spec` in the full run | Verified (suite count below) |
+
+**Returning on a phone**
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Manifest, app name, icons, launch address and display mode | `id`, PNG icons at 192 and 512 px plus a maskable 512 px, and a 180 px Apple icon (iOS ignores SVG). Start address `/`, standalone, portrait | The built files; the icon looked at | Implemented; installation on a phone not tried |
+| Installation advice suited to the browser, never for an address that will disappear | Beside saved stops: Safari's Share, then Add to Home Screen; or the browser's menu; or an Install button where the browser offers one. On a temporary address, a note that it is not worth installing | `navigation.spec`: the temporary-address note on 127.0.0.1 | Implemented; the stable-address wording and the Install button not exercised, since no stable address exists |
+| Service-worker updates and network freshness | Everything under `/data/` is network-first at any depth. Hashed files come from the cache; other files are served from it and refreshed. The cache version was bumped, so the old cache is cleared | `tests/sw.test.mjs`: 3 new cases. The public probe: publications came through the worker from the network, none from the device cache | Implemented and verified |
+| Recovery after backgrounding, screen lock and connectivity changes | Fetches on becoming visible, on `pageshow` and on `online`; polling paused while hidden | `navigation.spec`: reconnection | Reconnection verified in emulation; backgrounding and screen lock on a phone not tried |
+
+**Hosting, the preview and research**
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| One concrete hosting recommendation with verified recurring costs, persistent storage, collector supervision and public-feed freshness monitoring; the exact remaining decision | `docs/HOSTING.md`: a CX23 at €5.49 plus IPv4 at €0.50 net, at Hetzner's June 2026 prices. Storage measured. systemd and the watchdog. A Healthchecks.io dead man's switch | Official pages read on 14 September; the backup price could not be read | Done. The decision: approve £6–8 a month, a domain, and the alert account |
+| Keep the preview usable; leave other processes and the collector lock alone | The same link throughout; one bounded collector, started through the script, running until about 18:14 | `scripts/preview.sh status` | Done |
+| Research React Native and Metrolink without implementing either | Section 11a of the redesign research | The official MapLibre React Native docs; TfGM's open data page and data.gov.uk record | Done; not implemented |
+
+**Verification**
+
+| Requirement | Evidence | Status |
+|---|---|---|
+| Typecheck, lint and build; targeted checks; broader checks where the change risks regressions | Typecheck, lint, the build and 137 Node tests pass. The whole browser suite (208 checks) ran on the final build: 182 passed, 24 skipped by design, 2 failed. One failure was a wrong test locator; corrected, `navigation.spec` then passed 18. The other failed identically on the previous build, so it predates this milestone; its helper now brings the bus into view, and `selection.spec` then passed 23 | Verified. No physical phone, GPS, screen reader or battery check was done |

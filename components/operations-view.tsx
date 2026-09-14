@@ -39,7 +39,9 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
    command exited.</p>
    <div className="ops-mode-labels">
     <span className="ops-mode archive"><FileClock size={14}/> HISTORICAL ARCHIVE REPLAY</span>
-    <span className="ops-mode idle">NO LIVE COLLECTION CONFIGURED</span>
+    {/* This record is the archive import's; live collection runs are kept in the warehouse and
+        summarised in the live publication, not here. */}
+    <span className="ops-mode idle">LIVE RUNS ARE NOT IN THIS RECORD</span>
    </div>
   </header>
 

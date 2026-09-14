@@ -896,3 +896,75 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ride-hud:focus-visible{outline:2px solid var(--primary);outline-offset:-3px}
 /* A bigger map on request: most of the screen, for following a bus closely. */
 .vector-map.expanded{height:calc(100dvh - 20px);max-height:none;min-height:420px}
+
+/* =====================================================================================
+   14 September 2026, evening: the passenger's page first, the engineering views behind it.
+   ===================================================================================== */
+/* The passenger's page is kept, laid out at its own size, while a view behind the data is open,
+   so the stop, the chosen bus, a ride-along and the map come back exactly as they were. */
+.passenger-area.away{height:0;overflow:hidden;visibility:hidden}
+/* The "your bus" strip now comes before the map. Stuck to the top of a phone's screen it covered
+   the map's own controls, the ride's way out among them, so below the two-column width it stays in
+   its place, and during a ride-along, where the ride card says the same, it stands down. On a wide
+   screen it has a column of its own and stays in view as before. */
+@media(max-width:1023px){
+ .follow>.active-bus{position:relative;top:auto}
+ .follow.riding>.active-bus{display:none}
+}
+/* The way to the engineering views and back is a real target, not an 18 px line of text. */
+.header-link{min-height:44px;padding:0 2px}
+.bus-card-motion>.text-action{min-height:32px;display:inline-flex;align-items:center}
+.header-link.back{color:#e8ffc8;font-weight:650}
+.header-link.back svg{order:-1}
+.data-heading{display:block;padding-bottom:18px}
+.data-heading .intro{max-width:70ch}
+.data-steps{list-style:none;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+ gap:12px;counter-reset:step}
+.data-steps li{background:#142430;border:1px solid #2b4250;border-radius:14px;padding:13px 15px;counter-increment:step}
+.data-steps strong{display:block;font-size:15px;color:#e8ffc8;margin-bottom:5px}
+.data-steps strong::before{content:counter(step) '  ';color:#8fbf4f;font-variant-numeric:tabular-nums}
+.data-steps span{display:block;font-size:13px;line-height:1.55;color:#bcd0da}
+.data-stack,.data-now{margin:14px 0 0;font-size:13px;line-height:1.6;color:#94aab8}
+.data-stack a{color:#c6f36a}
+.data-now{color:#d6e4ea}
+.archive-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 14px;font-size:13px;color:#cfdce3}
+.archive-note small{color:#91a4b3}
+.archive-note .archive-badge{display:inline-flex}
+@media(max-width:900px){.data-steps{grid-template-columns:1fr 1fr}}
+@media(max-width:540px){.data-steps{grid-template-columns:1fr}.footer>span{white-space:normal}}
+/* Saved on this phone: the first thing a returning passenger sees, above finding a new stop. */
+.saved{margin:0 0 14px}
+.saved-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:11.5px;
+ font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#cfe8a8}
+.saved-head small{font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;color:#8fa6b3}
+.stop-chip{min-height:44px}
+.stop-chip.route .route-pill{min-width:0;padding:1px 7px;font-size:12px}
+.saved-note{margin:8px 2px 0;font-size:12px;line-height:1.5;color:#8fa6b3}
+.saved-note .text-action{font-size:12px}
+/* Walking with no location yet is not a problem: one quiet line and the button. */
+.walk-problem.walk-no_location{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.walk-problem.walk-no_location p{color:#a9c2d2;margin:0}
+.walk-problem.walk-no_location .walk-problem-actions{margin:0}
+.stop-search-field{scroll-margin-top:12px}
+/* A short screen (a phone on its side): the passenger's heading stands down, the ride fills the
+   height, its notes go in one row and its card drops the stop list, so none covers another (the
+   card had covered "Front view", which could not be pressed). */
+@media(max-height:520px){
+ .page-heading.compact{display:none}
+ .masthead{height:58px}
+ .vector-map.view-ride{height:calc(100dvh - 16px);min-height:300px}
+ .vector-map.expanded{min-height:0}
+ .ride-notes{flex-direction:row;flex-wrap:wrap;align-items:center;max-width:calc(100% - 86px)}
+ .ride-card{bottom:26px;padding:8px 10px;width:min(340px,calc(100% - 86px))}
+ .ride-card .stop-progress{display:none}
+ .ride-progress{margin-top:5px;font-size:12.5px}
+}
+/* Around a phone's notch and home bar (the page runs to the screen's edges: viewport-fit=cover),
+   the gutters never shrink below the safe area. */
+@supports(padding:max(0px)){
+ .app-shell{padding-left:max(42px,env(safe-area-inset-left));padding-right:max(42px,env(safe-area-inset-right))}
+ @media(max-width:1100px){.app-shell{padding-left:max(24px,env(safe-area-inset-left));padding-right:max(24px,env(safe-area-inset-right))}}
+ @media(max-width:800px){.app-shell{padding-left:max(18px,env(safe-area-inset-left));padding-right:max(18px,env(safe-area-inset-right))}}
+ @media(max-width:540px){.app-shell{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}}
+ .footer{padding-bottom:max(34px,calc(env(safe-area-inset-bottom) + 16px))}
+}

@@ -80,7 +80,7 @@ export function preflight(here: (LatLon & {accuracyMetres?: number}) | null, sto
                           config: WalkingConfig): WalkingProblem | null {
  if (config.provider === 'none' || !config.baseUrl)
   return problem('disabled', 'Walking directions are switched off for this site.');
- if (!here) return problem('no_location', 'Walking directions start from your location. Use Locate me, or find the stop on the map.');
+ if (!here) return problem('no_location', 'Walking directions start from your location.');
  if ((here.accuracyMetres ?? 0) > config.inaccurateMetres)
   return problem('inaccurate', `Your location is only known to about ${distanceWords(here.accuracyMetres!)}, too rough to plan a walk from. Try Locate me again.`, true);
  const straight = straightMetres(here, stop);

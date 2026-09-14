@@ -620,6 +620,20 @@ arrive and up to 25 s for a late one before the map counts as painted. On the fi
 loads all painted (median 1.5 s, slowest 2.6 s), and 40 more tilted to the City view with its
 buildings (median 1.5 s, slowest 2.9 s).
 
+**Update, 14 September, late morning.** That fix was incomplete. A check that held every tile
+back 6 s still ended in the fallback, and so did the probe with every tile 9 s late. The check's
+network trace showed all six tile requests answered after 6.07 s. The cause:
+- a vector tile counts as loaded only once its labels are laid out;
+- the glyphs those labels need are asked for only after the tile arrives, from the same host;
+- so on a slow network the first whole tile takes two slow round trips.
+
+The allowance now waits 12 s for the tile service to answer at all (its TileJSON), restarted when
+the camera comes to rest, and 40 s for a first whole tile once it has. On the final build:
+- one tile 9 s late: painted at 10.6–11.6 s;
+- every tile 9 s late: painted at 21.3–26.0 s, 4 of 4, where all had fallen back;
+- every tile 60 s late after the TileJSON answered: the fallback at 40.8–41.3 s;
+- `map.spec`'s three failure cases still fall back.
+
 **Right answer.** A small fix in the product, done, and one in the suite: the shared
 `waitForPaint(page)` in `tests/browser/fixtures.mjs` fails at once with the page's own reason
 instead of waiting out 45 s, so a fallback is told from a slow map at a glance. No retries were
@@ -702,3 +716,39 @@ failed on the build before the fix). The helper is still local to `selection.spe
 playback probe, which repeats it.
 
 **Status:** mitigated (the checks exist; the helper is not yet shared).
+
+## 20. What the map draws into its canvas cannot be clicked by the checks
+
+**Problem and evidence.** The vector map draws buses into a WebGL canvas, so a browser check has no
+element to click. Until 14 September the only check of choosing a bus on the map used the drawn SVG
+fallback, whose markers are elements; it could not see MapLibre's hit-testing at all. When the map
+began writing where it draws each bus (`data-bus-points`) and the checks tapped those spots:
+- on the build without the fix, a bus 14 px from the chosen one could not be tapped on either size,
+  because the chosen bus's layer handler, registered last, always won;
+- the first phone checks also failed for reasons of their own: they read positions before the
+  camera came to rest, and did not make sure no control covered the spot. A probe showed touch
+  itself was fine (pointer, touch, mouse and click events, none cancelled).
+
+**Who hits it and the current workaround.** Anyone checking an interaction on the map, or on any
+canvas. The workaround before was to test the fallback instead and assume the same code path.
+
+**Recurrence and effort.** Once, found by an outside review; about an hour to build the diagnostic
+and the helpers, and another to tell the checks' faults from the product's.
+
+**Right answer.** A fix in this repository, done: the diagnostic, written when the map settles, plus
+`busPoint`, `settledMap`, `reachable` and `tapAt` in `tests/browser/selection.spec.mjs`. The general
+need (a page publishing where it drew each interactive thing, so checks can target the drawing
+itself) could be a small reusable helper for map applications; that is not claimed, and no product
+is started on it.
+
+**Existing tools.** Playwright has no locators for canvas content. Map libraries answer "what is
+here" from inside the page (MapLibre's `queryRenderedFeatures`, `project`), which needs the map
+exposed to the check. Pixel matching finds drawings but is brittle. Not researched further.
+
+**Smallest reusable capability.** `canvasTarget(page, key)`: read the published position, wait for
+the camera to rest, bring it clear of controls, and tap with the input the device uses.
+
+**Next cheap validation.** Move the helpers into `tests/browser/fixtures.mjs` and use them for a tap
+on another bus during a ride-along.
+
+**Status:** mitigated (this repository's checks tap the drawn markers; the helper is not shared).

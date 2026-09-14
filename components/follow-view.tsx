@@ -201,6 +201,9 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   :selection.kind==='absent'?selection.last??undefined:pin||loading?undefined:suggestion;
  const selectionKind:SelectionKind|undefined=selection.kind==='none'?(shown?'suggested':undefined):selection.kind;
  const absent=selection.kind==='absent';
+ // The chosen vehicle now reports another journey. It stays chosen, but that journey is neither
+ // predicted nor followed until the passenger says to go on with it: it is drawn at its reports.
+ const pausedJourney=selection.kind==='new_journey';
  const identity=shown??pin?.bus;
  const cardRelation=shown&&stop?(relations.get(shown.key)??relateToStop(shown,stop.id,patternsById)):undefined;
  const cardStanding=cardRelation?standing(cardRelation):null;
@@ -243,7 +246,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    window.history.replaceState(window.history.state,'',next);
  },[initialJourney,mode,pin,serviceChoice,stop]);
 
- const copy=MODE[mode];
+ // Before the first publication arrives nothing is known either way: not "not collecting".
+ const copy=loading?{label:'CHECKING',tone:'idle'}:MODE[mode];
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
  const collector=live?.collection.collector;
@@ -302,10 +306,13 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
  const activityLine=activity?activityWords(activity,name):null;
 
- // Estimates are for live data you are watching now: never a recording, never offline, and never
- // for a bus with no current report, which is shown where it last reported and not moved on.
- const motion={enabled:estimatedMovement&&!absent&&mode!=='archive'&&mode!=='offline'&&mode!=='unavailable',
-  reason:absent?'there is no current report from this bus':!estimatedMovement?'you chose reported positions only'
+ // Estimates are for live data you are watching now: never a recording, never offline, never for a
+ // bus with no current report, which is shown where it last reported and not moved on, and never
+ // for a journey the passenger has not chosen to go on with.
+ const motion={enabled:estimatedMovement&&!absent&&!pausedJourney&&mode!=='archive'&&mode!=='offline'&&mode!=='unavailable',
+  reason:absent?'there is no current report from this bus'
+   :pausedJourney?'this bus is now on another journey, until you choose to keep following it'
+   :!estimatedMovement?'you chose reported positions only'
    :mode==='archive'?'a recording is shown at its reported positions':'the feed is not live'};
  // The age is the page's, the one the card's age chip shows, so the card never gives two.
  const motionWords=mode!=='archive'&&motionInfo&&shown&&!absent?describeMotion({...motionInfo,
@@ -323,9 +330,10 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   :`Vehicle ${selection.bus.vehicle}, chosen as the ${selection.pin.bus.route} to ${destinationLabel(selection.pin.bus.destination)}, `
    +`now reports route ${selection.bus.route}${selection.bus.direction?` ${directionLabel(selection.bus.direction).toLowerCase()}`:''} `
    +`to ${destinationLabel(selection.bus.destination)}${selection.bus.journeyRef?` (journey ${selection.bus.journeyRef})`:''}. `
-   +'Its earlier reports belong to the other journey, so its movement is drawn afresh.';
+   +'It is shown at each report it makes, not estimated, and the map has stopped following it. '
+   +'Keep following it to go on with this journey.';
  const stripStatus=selection.kind==='absent'?'No current report'
-  :selection.kind==='new_journey'?'Now on another journey'
+  :selection.kind==='new_journey'?`Now on another journey · ${ageChip(selection.bus)}`
   :shown?[stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null,
           activityLine?.text,ageChip(shown)].filter(Boolean).join(' · '):'';
  const inList=!pin||(stop?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key);
@@ -337,7 +345,11 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     <strong>to {destinationLabel(shown.destination)}</strong>{!motionWords&&<small>{ageText(shown)}</small>}</div>
   </div>
   {absent&&<p className="ride-status-line warn">No current report · shown at its last report, not moved on</p>}
-  {selection.kind==='new_journey'&&<p className="ride-status-line warn">Now reporting another journey · see the card</p>}
+  {pausedJourney&&<div className="ride-journey">
+   <p className="ride-status-line warn">Now on another journey{shown.route?`: ${shown.route} to ${destinationLabel(shown.destination)}`:''}.
+    Not estimated, and the camera has stopped following it.</p>
+   <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
+  </div>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
   {activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${relevant?prog.tone:'bad'}`}>
@@ -361,6 +373,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  };
  // One message when nothing is coming, with what can be done next, instead of the same news three times.
  const emptyTitle=!board||board.coming.length>0?null
+  :loading?'Checking for live positions: the buses coming to this stop appear here once they arrive.'
   :services.length===0?'No timetable coverage for this stop yet, so no bus can be confirmed as coming here.'
   :board.old.some(item=>item.standing==='coming')?'The buses on services calling here have only old reports.'
   :'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.';
@@ -370,6 +383,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    <span className="follow-badge">{mode==='offline'?<WifiOff size={13}/>:<Radio size={13}/>}{copy.label}</span>
    <span className="follow-bar-when">
     {mode==='archive'?archiveDate
+     :loading?'waiting for the first positions'
      :publicationAgeSeconds===null?'not published yet'
      :`updated ${ageBasis==='device'?'about ':''}${Math.round(publicationAgeSeconds)}s ago`}</span>
    {mode!=='archive'&&collector?.kind==='bounded_development'&&<span className="follow-bar-run"
@@ -432,10 +446,10 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    ? <div className="map-fallback-wrap" data-map-fallback={mapFallback}>
       <p className="map-fallback-note" role="status">The detailed map could not be used here
        ({FALLBACK[mapFallback]??mapFallback}), so this simpler map is shown.</p>
-      <FollowMap buses={mapBuses} selected={shown} follow={follow} roads={roads}
+      <FollowMap buses={mapBuses} selected={shown} follow={follow&&!pausedJourney} roads={roads}
        mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
      </div>
-   : <CityMap buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow}
+   : <CityMap buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       view={effectiveView} onViewChange={changeView} theme={theme} onThemeChange={saveTheme}
       fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}
@@ -583,7 +597,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    {shown&&!absent&&<ul className="distance-lines">{distanceLines({here,stop,bus:shown,relation:cardRelation,
      walk:walkRoute?{metres:walkRoute.metres,seconds:walkRoute.seconds,provider:walkRoute.provider}:null}).map(line=>
     <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>}
-   {shown&&!absent&&<div className="bus-card-actions">
+   {shown&&!absent&&(riding||!pausedJourney)&&<div className="bus-card-actions">
     {riding
      ? <div className="ride-status" data-state={rideState}>
         <span className="ride-status-words">Riding along · {rideState==='exploring'

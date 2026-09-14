@@ -4,6 +4,31 @@ One tester, one real journey they make, about 30 minutes. Lost Minutes on their 
 the app they normally use (Bee Network or Google Maps). Watch; do not help unless they are stuck
 for more than a minute, and write down where they hesitate, in their words.
 
+## Short trial (about 10 minutes)
+
+For a first look before the full session below. One tester, one stop they know, a real bus.
+
+**First, the route.** On the day, check the tester's route and stop:
+`.venv/bin/python -m pipeline.route_coverage --line <line> --stop <ATCO code>`. If it has no
+timetable pattern for that day (route 256 inbound had none on Monday 14 September), the page cannot
+say whether a bus calls there. Pick another route for the trial, or rebuild the patterns first.
+
+**Running it.** On this machine: `pnpm dev:live -- --minutes 60`, then open http://localhost:3000.
+On a laptop's own browser that is enough: `localhost` counts as secure, so "Buses near me" can ask
+for location. A phone needs an HTTPS address for location. Until the hosted link exists (see
+`docs/HOSTING.md`), a phone on the same Wi-Fi can only search for the stop by name, and only once
+Windows forwards the WSL port.
+
+| # | Task | Done without help? | What they said, in their words |
+|---|------|--------------------|--------------------------------|
+| A | Find the stop you would board at. Say which side of the road it is and which way the buses go. | | |
+| B | Pick a bus that will call there. Say how many stops away its last report was, and how old that report is. | | |
+| C | Follow that bus (and ride along if you like) for three to five minutes of reports. Is it the same bus throughout, on the card, in the strip under the map and on the map? If the page says "No current report" or "another journey", what do you do? | | |
+| D | Explain its status: "Last reported near …" or "Appears stopped near …", and "Estimated position" or "Last reported position". What does each mean, and what does it not tell you? | | |
+
+Listen for a misreading. Counted as a misreading: an arrival time where none is given; "at the stop"
+for "near"; "the doors are open" for "appears stopped"; an estimate taken for a report.
+
 ## Before the session
 
 - **Version and address:** the commit and URL under test (`git rev-parse --short HEAD`; the

@@ -11,7 +11,7 @@
 // filter to another service and a drag of the map on the way, and asserts after every publication
 // which vehicle the card describes and where the camera is.
 import {test, expect} from '@playwright/test';
-import {FX, journeyLive, servePatterns, serveLive, unavailableState, waitForPaint} from './fixtures.mjs';
+import {FX, journeyLive, movingLive, servePatterns, serveLive, serveMotion, unavailableState, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -219,6 +219,99 @@ test('following a bus picked from a route, with no stop chosen, survives the rou
   }
 });
 
+// A moving chosen bus that starts another journey. FX-MOVING runs along the recorded road at 7 m/s,
+// with estimated movement on; once `feed.journey` is 'J2' its reports carry another journey
+// reference and destination, and it keeps moving. Until the passenger continues, the page keeps the
+// vehicle but neither predicts nor follows the new journey, and draws it at each new report.
+async function openMoving(page) {
+  const feed = {journey: 'J1', latest: null};
+  const startMs = Date.now() - 90_000;
+  await servePatterns(page);
+  await serveMotion(page);
+  await serveLive(page, [() => {
+    const live = movingLive({startMs, startS: 150, speed: 7});
+    const bus = live.vehicles.find(v => v.vehicle === 'FX-MOVING');
+    if (feed.journey === 'J2') { bus.journeyRef = 'FX-MOVING-J2'; bus.destination = 'Stretford_Mall'; }
+    feed.latest = {lat: bus.lat, lon: bus.lon};
+    return live;
+  }]);
+  await page.goto('/');
+  await waitForPaint(page);
+  await page.getByRole('button', {name: 'Buses near me'}).click();
+  await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING', {timeout: 15_000});
+  return feed;
+}
+async function refresh(page) {
+  const response = page.waitForResponse(r => r.url().includes('/data/live.json'));
+  await page.getByRole('button', {name: 'Check for newer positions'}).click();
+  await response;
+  await page.waitForTimeout(900);
+}
+const atLatest = async (page, feed, what) => expect.poll(async () => metres(await drawn(page), feed.latest),
+  {timeout: 5000, message: `${what}: drawn at the latest report`}).toBeLessThan(5);
+
+test('a ridden bus that starts another journey while moving: kept, drawn at its reports, neither predicted nor followed until continued', async ({page}) => {
+  test.setTimeout(180_000);
+  const feed = await openMoving(page);
+  await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+  await page.getByRole('button', {name: 'Ride along with route 256'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  feed.journey = 'J2';
+  await refresh(page);
+  await expect(card(page)).toHaveAttribute('data-selection', 'new_journey');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
+  await expect(map(page)).toHaveAttribute('data-selected-key', /FX-MOVING/);
+  await expect(map(page), 'the new journey is not predicted').toHaveAttribute('data-motion', 'observed');
+  await expect(map(page)).toHaveAttribute('data-motion-reason', /another journey/);
+  await expect(map(page), 'the ride waits for the passenger').toHaveAttribute('data-ride', 'paused');
+  const rideCard = page.locator('.ride-card');
+  await expect(rideCard).toContainText('another journey');
+  await atLatest(page, feed, 'after the change');
+  await page.waitForTimeout(1200);
+  const held = await camera(page), before = await drawn(page);
+  await page.waitForTimeout(5000);
+  await refresh(page);
+  await atLatest(page, feed, 'after the next report');
+  expect(metres(await drawn(page), before), 'the marker moved on with the new report, not frozen').toBeGreaterThan(20);
+  expect(metres(await camera(page), held), 'the camera did not follow the new journey').toBeLessThan(3);
+  // Continued: the same vehicle, predicted and followed again.
+  await rideCard.getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await expect(card(page)).toHaveAttribute('data-selection', 'active');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  await expect.poll(async () => metres(await camera(page), await drawn(page)), {timeout: 8000,
+    message: 'following it again'}).toBeLessThan(40);
+});
+
+test('a followed bus that starts another journey: the map stops following it and draws it at its reports until continued', async ({page}) => {
+  test.setTimeout(150_000);
+  const feed = await openMoving(page);
+  await page.locator('.follow-toggle').click();
+  await expect(page.locator('.follow-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  feed.journey = 'J2';
+  await refresh(page);
+  await expect(card(page)).toHaveAttribute('data-selection', 'new_journey');
+  await expect(map(page), 'the new journey is not predicted').toHaveAttribute('data-motion', 'observed');
+  await expect(card(page)).toContainText('another journey');
+  await atLatest(page, feed, 'after the change');
+  await page.waitForTimeout(1500);
+  const held = await camera(page), before = await drawn(page);
+  await page.waitForTimeout(5000);
+  await refresh(page);
+  await atLatest(page, feed, 'after the next report');
+  expect(metres(await drawn(page), before), 'the marker moved on with the new report, not frozen').toBeGreaterThan(20);
+  expect(metres(await camera(page), held), 'the map did not follow the new journey').toBeLessThan(3);
+  await card(page).getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await expect(card(page)).toHaveAttribute('data-selection', 'active');
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  await expect.poll(async () => metres(await camera(page), await drawn(page)), {timeout: 8000,
+    message: 'followed again'}).toBeLessThan(40);
+});
+
 test('the bus is kept from the keyboard, or with a tap on the phone, and Details takes focus to its card', async ({page}) => {
   test.setTimeout(120_000);
   const phone = test.info().project.name === 'mobile';
@@ -245,6 +338,132 @@ test('a followed bus when live positions stop: said so, with nothing chosen in i
   await expect(card(page)).toContainText('Live positions are not available, so this bus cannot be checked');
   await expect(card(page)).toContainText('Nothing else has been chosen in its place');
   await expect(card(page).locator('.bus-card-title')).not.toContainText(BRAVO.shown);
+});
+
+// The vector map draws its buses into a canvas. These checks read where each is drawn (the map's
+// own diagnostic) and click, or on the phone tap, that spot, so MapLibre's hit-testing decides what
+// is chosen.
+async function busPoint(page, vehicle) {
+  const handle = await page.waitForFunction(v => {
+    const raw = document.querySelector('.vector-map')?.getAttribute('data-bus-points');
+    return (raw ? JSON.parse(raw).find(p => p.key.endsWith(`|${v}`)) : null) ?? false;
+  }, vehicle, {timeout: 15_000});
+  return handle.jsonValue();
+}
+async function selectedPoint(page) {
+  const [x, y] = ((await map(page).getAttribute('data-bus-screen')) || ',').split(',').map(Number);
+  return {x, y};
+}
+/** What is on top at a spot of the page: null for the map itself, otherwise the control over it. */
+const covered = (page, x, y) => page.evaluate(([px, py]) => {
+  const el = document.elementFromPoint(px, py);
+  return el?.classList.contains('maplibregl-canvas') ? null : (el?.className?.toString() || el?.tagName || 'nothing');
+}, [x, y]);
+async function tapAt(page, point, dx = 0, dy = 0) {
+  const box = await page.locator('.vector-map-canvas').boundingBox();
+  const x = box.x + point.x + dx, y = box.y + point.y + dy;
+  expect(await covered(page, x, y), `the spot tapped (${Math.round(x)}, ${Math.round(y)}) is the map, not a control over it`).toBeNull();
+  // What the map showed at the moment of the tap, and where the tap went, kept with the result.
+  test.info().annotations.push({type: 'tap', description: JSON.stringify({x: Math.round(x), y: Math.round(y), point,
+    points: await map(page).getAttribute('data-bus-points'), camera: await map(page).getAttribute('data-camera')})});
+  await map(page).screenshot({path: test.info().outputPath(`tap-${Math.round(point.x + dx)}-${Math.round(point.y + dy)}.png`)});
+  if (test.info().project.name === 'mobile') await page.touchscreen.tap(x, y);
+  else await page.mouse.click(x, y);
+}
+/** The map in view and its camera at rest, so the drawn positions it reports are current. At rest
+ *  means neither the camera (written when a move ends) nor where the chosen bus is drawn on the
+ *  screen (written on every move) changes between two looks: the first alone stays put mid-glide. */
+async function settledMap(page) {
+  await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+  let last;
+  await expect.poll(async () => {
+    const now = await map(page).evaluate(el => `${el.getAttribute('data-camera')}|${el.getAttribute('data-bus-screen')}`);
+    const still = now === last;
+    last = now;
+    return still;
+  }, {intervals: [500], timeout: 15_000, message: 'the camera comes to rest'}).toBe(true);
+  await page.waitForTimeout(400);
+}
+/** A bus's drawn spot, with the map first dragged to bring it clear if a control covers it. */
+async function reachable(page, vehicle) {
+  let point = await busPoint(page, vehicle);
+  const box = await page.locator('.vector-map-canvas').boundingBox();
+  if (await covered(page, box.x + point.x, box.y + point.y)) {
+    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const dx = cx - (box.x + point.x), dy = cy - (box.y + point.y);
+    await page.mouse.move(cx, cy); await page.mouse.down();
+    for (let i = 1; i <= 10; i++) { await page.mouse.move(cx + dx * i / 10, cy + dy * i / 10); await page.waitForTimeout(25); }
+    await page.mouse.up();
+    await settledMap(page);
+    point = await busPoint(page, vehicle);
+  }
+  return point;
+}
+
+test('a bus drawn on the vector map, clicked or tapped where it is drawn, is chosen and kept', async ({page}) => {
+  test.setTimeout(120_000);
+  const feed = await openStopA(page, PHASES);
+  await expect.poll(() => cardVehicle(page), {timeout: 15_000}).toBe(ALPHA.id);
+  await settledMap(page);
+  await tapAt(page, await reachable(page, BRAVO.id));
+  await expect(card(page)).toHaveAttribute('data-vehicle', BRAVO.id);
+  await expect(card(page)).toHaveAttribute('data-selection', 'active');
+  await expect(map(page)).toHaveAttribute('data-selected-key', /FX-BRAVO/);
+  for (const phase of [2, 3]) {
+    await publish(page, feed, phase);
+    expect(await cardVehicle(page), `publication ${phase}: still the bus chosen on the map`).toBe(BRAVO.id);
+  }
+});
+
+test('on the phone, a finger a little off a small bus marker still chooses it, and empty map chooses nothing', async ({page}) => {
+  test.skip(test.info().project.name !== 'mobile', 'finger targeting');
+  test.setTimeout(120_000);
+  await openStopA(page, PHASES);
+  await expect.poll(() => cardVehicle(page), {timeout: 15_000}).toBe(ALPHA.id);
+  await settledMap(page);
+  const bravo = await reachable(page, BRAVO.id);
+  const box = await page.locator('.vector-map-canvas').boundingBox();
+  const drawnAt = [...JSON.parse(await map(page).getAttribute('data-bus-points')), await selectedPoint(page)];
+  let empty = null;
+  for (let y = 90; y < box.height - 90 && !empty; y += 20)
+    for (let x = 70; x < box.width - 70 && !empty; x += 20)
+      if (drawnAt.every(p => Math.hypot(p.x - x, p.y - y) > 70)) empty = {x, y};
+  expect(empty, 'a patch of map with no bus near it').not.toBeNull();
+  await tapAt(page, empty);
+  await page.waitForTimeout(600);
+  await expect(card(page), 'a tap on empty map chooses nothing').toHaveAttribute('data-selection', 'suggested');
+  // 20 px beside the marker's centre: off its 13 px disc, inside a finger's 44 px target.
+  await tapAt(page, bravo, 20, 0);
+  await expect(card(page)).toHaveAttribute('data-vehicle', BRAVO.id);
+  await expect(card(page)).toHaveAttribute('data-selection', 'active');
+});
+
+test('a bus beside the chosen one, tapped where it shows, is chosen rather than the chosen bus drawn over it', async ({page}) => {
+  test.setTimeout(120_000);
+  const place = {metres: 0};
+  const phases = [() => pair({newer: 'ALPHA'}), () => {
+    const live = pair({newer: 'ALPHA'});
+    const bravo = live.vehicles.find(v => v.vehicle === 'FX-BRAVO');
+    bravo.lat = ALPHA.lat;
+    bravo.lon = ALPHA.lon + place.metres / (111195 * Math.cos(ALPHA.lat * Math.PI / 180));
+    return live;
+  }];
+  const feed = await openStopA(page, phases);
+  await expect.poll(() => cardVehicle(page), {timeout: 15_000}).toBe(ALPHA.id);
+  await settledMap(page);
+  // As buses bunch at a stop: the other bus about 14 px from the chosen one at the zoom shown.
+  const {zoom} = await camera(page);
+  place.metres = 14 * 40075016.686 * Math.cos(ALPHA.lat * Math.PI / 180) / (512 * 2 ** zoom);
+  await publish(page, feed, 1);
+  await settledMap(page);
+  const bravo = await reachable(page, BRAVO.id), alpha = await selectedPoint(page);
+  const d = Math.hypot(bravo.x - alpha.x, bravo.y - alpha.y);
+  expect(d, `the two markers overlap on screen (${d.toFixed(1)} px apart)`).toBeGreaterThan(8);
+  expect(d).toBeLessThan(22);
+  // Its far side, where it shows beyond the chosen bus drawn over it.
+  await tapAt(page, bravo, (bravo.x - alpha.x) / d * 6, (bravo.y - alpha.y) / d * 6);
+  await expect(card(page)).toHaveAttribute('data-vehicle', BRAVO.id);
+  await expect(card(page)).toHaveAttribute('data-selection', 'active');
 });
 
 test('tapping another bus on the map chooses it, and it stays chosen', async ({page}) => {

@@ -4,7 +4,16 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 14 September 2026, morning (one bus, kept: a chosen bus is pinned by every way of
+Last updated: 14 September 2026, late morning (before the first passenger test). Changes:
+- a chosen bus that starts another journey is kept, drawn at its reports, and neither predicted
+  nor followed until the passenger continues;
+- a bus is chosen by tapping its drawn map marker, overlaps and phone taps included;
+- a keyboard-only journey works;
+- slow tiles and slow live data get honest status, and a slow network no longer forces the
+  fallback map;
+- Monday's captures were scored, and route 256 was found unmatched on weekdays.
+
+Earlier that morning: one bus, kept (a chosen bus is pinned by every way of
 choosing it and never substituted, through new reports, reordering, filters, gestures, theme
 changes, absence and a new journey; stop activity worded only from the bus's own reports; the
 drawn bus waits at a crawl rather than standing, and is scored against held-out reports; a map
@@ -176,8 +185,10 @@ re-taken each time the lists reorder; with no stop chosen, the route it comes fr
 way, while that route still has buses. A pin is never replaced by another bus. New reports, list
 order, filters, gestures and theme changes leave it alone. Missing from the latest publication, it
 is drawn hollow at its last report, never moved on, with "No current report" and other buses
-offered, never chosen. The same vehicle reporting another journey is said so, drawn afresh, and
-followed on that journey only when the passenger asks.
+offered, never chosen. The same vehicle reporting another journey stays the chosen bus and is said so
+on the card, the strip, the ride card and the map (ANOTHER JOURNEY). Until the passenger chooses
+to go on with that journey it is drawn at each report it makes, never estimated. It is neither
+followed nor ridden with: the ride-along waits, paused, with the camera still.
 
 **Stop activity** — what a bus's own reports say about it and a stop, in `lib/stop-activity.ts`.
 *Last reported near X*: its latest report is no more than 150 s old and within 50 m of X, a stop
@@ -279,7 +290,31 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **One bus, kept (14 September 2026, morning, latest):** 134 Node tests (among them the pin and
+- **Before the first passenger test (14 September 2026, late morning, latest):** four gaps from an
+  outside review. Each was reproduced on a build without its fix, then fixed and checked on the
+  final build (FIXTURE):
+  - **a moving chosen bus that starts another journey** is kept and drawn at each report, never
+    estimated; the map stops following it and the ride pauses until Continue (`selection.spec`,
+    ridden and followed, desktop and phone). Before the fix, the new journey was estimated and
+    followed;
+  - **choosing a bus on the map:** clicking or tapping its drawn MapLibre marker chooses it,
+    including a phone tap 20 px off centre and a bus 14 px from the chosen one. Before, the
+    chosen bus's layer always won the tap;
+  - **a keyboard-only journey** from stop search to leaving the ride works. Before, focus fell to
+    nothing when the ride began;
+  - **slow live data** says CHECKING instead of NOT COLLECTING;
+  - **slow tiles** no longer force the fallback map. The first whole tile needs two slow round
+    trips, the tile and then its glyphs. With every tile 9 s late the map now paints at 21–26 s,
+    where it fell back at 12.5–13.9 s.
+
+  Monday's own captures (86 journeys, 00:00–11:49 BST) were scored, nothing refitted, where they
+  could be. On routes 15 and 250 the frozen model's median error up to a minute was 62.7 m (the
+  last report 118.3 m), and the drawn bus's 60.7 m. Route 256 could not be scored (see Known
+  limitations). Typecheck, lint, the build and 134 Node tests pass. `selection.spec` passed 23, with 1 skipped
+  by design; `access.spec` 5 of 5; `map.spec` every desktop check. On the build before the final
+  one (differing only in the tile allowance), the ride, motion, journey, journey-context and replay
+  specs all passed.
+- **One bus, kept (14 September 2026, morning):** 134 Node tests (among them the pin and
   the suggestion, stop activity case by case, and the drawing's crawl, which stops when the
   estimate does), 92 Python tests, typecheck, lint and the static build. On the final build the
   full browser suite passed 142, with 18 skipped by design and none failing. It includes
@@ -390,6 +425,12 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   20 s apart: a bus standing at lights within 40 m of a stop reads the same as one at it, and a
   short call between two reports is missed. The thresholds (50 m, 40 m, 15 m, 20 s) are reasoned
   from GPS noise and report spacing; they have not been measured against observed calls.
+- **Route 256 on a weekday is not matched.** Every 256 inbound pattern held here runs only at
+  weekends, and the one weekday outbound variant (school days) has no accepted road shape. On
+  Monday 14 September all 965 reports of 12 inbound journeys were placed on no pattern. So such a
+  bus cannot be said to call at a stop; the page says it is not placed rather than guessing. The
+  patterns were built on a Sunday. A rebuild on a weekday, with `pipeline.route_coverage` for the
+  tester's route, is the next check.
 - **No bus is tied to one timetabled journey.** The feed's journey references matched none of
   the timetable's journey codes in the 10 checked, so branches are settled only by the
   reported destination, and no scheduled time at a stop is shown.
@@ -402,9 +443,10 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
   shown from above as a round token.
 - **Estimated movement covers 6 patterns on 3 routes** (15, 250 and 256). The model is frozen
-  (`docs/MOTION_MODEL.md`); it was fitted on one Sunday's captures and has been scored on fresh
-  captures from the same Sunday evening only (median error up to a minute 65 m, against 143 m
-  for the last report), so weekday traffic is untested. Real corrections remain: about 1
+  (`docs/MOTION_MODEL.md`). It was fitted on one Sunday's captures, and scored on fresh captures
+  from that Sunday evening (median error up to a minute 65 m, against 143 m for the last report)
+  and from one Monday morning on routes 15 and 250 (62.7 m against 118.3 m, with no peak hour and no
+  afternoon). Weekday traffic is barely tested. Real corrections remain: about 1
   arriving report in 4 finds the estimate more than 35 m ahead of the bus, 2 in 5 more than
   35 m behind, and 1 in 10 over 150 m away, which snaps with the card saying so. The cause is
   measured, not guessed: buses stand at stops and lights while any estimate rolls on, and the
@@ -449,7 +491,9 @@ it or tapping any bus chooses it (see *Chosen bus*). A bus chosen from the other
 **Selected bus**, says it does not serve the stop, and offers the way back. A strip under the map
 keeps the chosen bus and its status in view while the lists below are browsed. When no bus is
 coming, one message says so, with what can be done next (the buses that may call, those nearby,
-another stop), instead of the same news in three places.
+another stop), instead of the same news in three places. Before the first publication arrives, the
+page says CHECKING, waiting for the first positions, and a chosen stop says its buses will appear
+once they arrive, not that none has a current report.
 
 The answer card: which bus and destination; the answer first (its progress in stops from its
 last report); whether it is drawn at an estimate or at its last report, with the report's
@@ -494,8 +538,17 @@ building, so a model behind one is still found. The HUD carries a short mode lin
 reports are drawn as small dots, and an estimate as a dashed line from its report to the drawn
 bus, captioned ESTIMATE. The walking route is dotted blue. If the model cannot load the flat
 symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over, and says why. A slow
-tile is not a failure: the start (the module, the map and its first frame) has 7 s, and then the
-tiles have their own allowance, 12 s for the first to arrive and up to 25 s for a late one.
+tile is not a failure: the start (the module, the map and its first frame) has 7 s. The tiles
+then have their own allowance:
+- 12 s for the tile service to answer at all, counted from the camera last coming to rest (each
+  move asks for new tiles);
+- once it has answered, 40 s for a first whole tile. On a slow network that takes round trips in
+  turn: the tile, then the glyphs for its labels;
+- with some tiles in, a late one is waited for up to 25 s. A tap chooses the bus drawn nearest
+to it within a finger's reach (14 px beyond its marker), so a bus beside the chosen one can be
+tapped. Keyboard focus is never dropped by the ride's controls coming and going: the ride's region
+takes it when the ride begins, and Ride along gets it back afterwards. Details under the map moves
+focus to the card.
 
 **No embedded film.** An embedded "window-seat journey" (an independent creator's upper-deck
 video of a 142, played through YouTube's embed on the Explore tab) was added on 13 September and
@@ -527,12 +580,19 @@ build-machine path and no tile ever loaded.
 
 ## Next priorities
 
+0. **Before the passenger trial:** check the tester's own route on a weekday with
+   `.venv/bin/python -m pipeline.route_coverage --line <line> --stop <ATCO code>`. Route 256
+   inbound had no weekday timetable pattern here. If the route is not covered, rebuild the patterns
+   on a weekday (`.venv/bin/python -m pipeline.patterns build`, with no collector running) and
+   check again.
 1. **Decide on hosting** so collection runs when this machine does not. The costed proposal is
    in `docs/HOSTING.md` (one Hetzner CX23 with systemd, about £5–6 a month with VAT, backups and
    a domain; confirm the price in Hetzner's console), and the whole server configuration is
    ready in `deploy/` (Caddy with HTTPS, the collector under systemd, a nightly timetable rebuild,
    a watchdog) and checked on this machine by `deploy/validate.sh`. Needs your approval, and a
-   domain, before anything is provisioned.
+   domain, before anything is provisioned. It is also what a phone trial needs: a phone lets a
+   page use its location only over HTTPS. Over a plain address on the same Wi-Fi, "Buses near me"
+   and walking directions cannot work, though searching for a stop by name does.
 2. **Identify the timetabled journey**, not just the pattern: match the operator's reported
    origin departure time against journeys on the same line, direction and day, and measure
    the hit rate before any scheduled time is shown (opportunity log, entry 7).

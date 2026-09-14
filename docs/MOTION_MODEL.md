@@ -76,6 +76,57 @@ constant speed, on the same journeys:
 It holds up on journeys it has not seen, and much like the development figures (median 62.6 m).
 It is the same Sunday, so this is not the weekday, held-out-by-day test the rule below asks for.
 
+### Second fresh window: Monday 14 September, the first weekday
+
+Exported once the collector had stopped, with `--since 2026-09-13T23:00:00Z` (Monday 00:00 BST),
+and scored with nothing refitted. The outputs, `data/evaluation/frozen-monday-2026-09-14.json`
+and `drawing-monday-2026-09-14.json`, are not in Git.
+
+**What the capture holds.** 86 journeys and 6,745 reports on routes 15, 250 and 256, from three
+bounded collection runs: 00:00–00:22, 08:57–09:27 and 09:45–11:49 BST. There is almost nothing
+from the morning peak (only from 08:57) and nothing after midday.
+
+**What could be scored.** Only routes 15 and 250. Their four patterns with accepted road shapes
+carry 4,937 of the reports. Route 256 gave nothing to score:
+- its 12 inbound journeys (965 reports) were placed on no timetable pattern;
+- its outbound reports were placed on a variant whose road shape had been rejected for lack of
+  Sunday reports (628), or on no pattern at all (182).
+
+| Up to a minute old (11,668 cases) | Median error | Mean |
+|---|---|---|
+| **Frozen motion-3** | **62.7 m** | 87.7 m |
+| Constant speed | 71.4 m | 95.5 m |
+| The last report itself (no estimate) | 118.3 m | 148.5 m |
+
+- **By report age:** the model's median beat the last report in every bin. It beat constant speed
+  in all but the youngest (≤10 s: 33.5 m against 34.0 m, from 98 cases, the only bin under 100).
+- **Band coverage:** the published band held 79.2–81.1% of errors, bin by bin (nominally 80%).
+- **Corrections** (4,546 arriving reports): mean 67.9 m, 95th percentile 181 m. 25.2% pulled the
+  estimate back more than 35 m, 36.5% forward, 10.3% snapped. Constant speed: mean 73.4 m, 33.2%
+  back, 11.5% snapped.
+- **Abstention:** 30.5% of moments, against 3.2% on Sunday evening, nearly all on route 256:
+  - not placed on a timetable pattern: 6,065;
+  - no accepted road shape: 3,369;
+  - off the road geometry: 859;
+  - only one report so far: 302;
+  - reports going backwards: 84.
+
+**The drawing** (`scripts/evaluate-drawing.mjs`, 62 journeys, 4,853 held-out reports):
+
+| At the median, from where the bus next reported | Distance | Near a stop | Between stops | Display lag |
+|---|---|---|---|---|
+| The drawn bus | 60.7 m (80th percentile 141.7, 95th 232.9) | 42.8 m | 79.4 m | −0.1 s (80th percentile 16.1 s) |
+| The estimate | 59.8 m | 45.9 m | — | — |
+| The last report | 98.3 m | 74.3 m | — | — |
+
+Stands the reports contradict: 3.1 an hour, against 12.9 had the drawn bus stood still while
+waiting.
+
+**What this is and is not.** It is one weekday morning, on two of the three routes, with no peak
+and no afternoon. It agrees with the Sunday evening window (median 65.0 m then). It is not the
+held-out-by-day test on two weekdays that the rule below asks for, and not an evaluation of weekday
+performance: route 256 was not scored at all, and the busiest hours were not captured.
+
 ## Drawing is not part of the model
 
 How the drawn bus follows the estimate is separate from where the estimate is, and changing it

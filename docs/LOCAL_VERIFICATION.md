@@ -1385,3 +1385,164 @@ be shown to be this case, though their evidence fits it.
 - The stop-activity thresholds against observed calls: there is no record of when a bus called.
 - Weekday traffic, for the drawing as for the model.
 - Whether full browser runs stop needing reruns: one clean run is not a trend.
+
+# Before the first passenger test — 14 September 2026, late morning
+
+Four gaps named in an outside review. Each was first reproduced on a build without the fixes: the
+code of commit 5d13674, plus one diagnostic, `data-bus-points`, which records where the map draws
+each other bus. Then each was fixed. Evidence is FIXTURE unless marked otherwise.
+
+## 1. A chosen bus that starts another journey
+
+**Reproduced.** FX-MOVING runs at 7 m/s along the fixture road with estimated movement on. It was
+ridden, or followed on the map, and then its reports carried another journey reference while it
+kept moving. Before the fix, on desktop and phone, riding and following alike, the new journey was
+predicted: `data-motion` read `estimated` where `observed` was required. The camera went on
+following it, and the ride card said only "see the card".
+
+**Now.**
+- The vehicle stays the chosen bus. The card, the strip (with the report's age), the ride card
+  and the map's caption ANOTHER JOURNEY all say it is on another journey.
+- It is drawn at each report it makes, never estimated. The checks require it within 5 m of the
+  latest report, and more than 20 m on after the next one: moving, not frozen.
+- The map stops following it: the camera stays within 3 m across a report.
+- The ride-along pauses (`data-ride` = `paused`), and a drag cannot turn the pause into "Return to
+  bus".
+- "Keep following it on this journey", in the ride card or on the card, resumes estimated movement
+  and following, gliding back to the bus.
+
+Both checks, ridden and followed, passed on desktop and phone on the final build. They passed on
+the build before it too, which differed only in the tile allowance. The ride, motion, journey,
+journey-context, map and replay specs all passed with the new paused state (120 of the 136 checks
+run on that build; the others were the slow-tile checks and two phone checks discussed below).
+
+## 2. A real, rendered MapLibre marker
+
+The checks now click or tap the spot where the map draws a bus, and MapLibre's own hit-testing
+decides what that spot meets.
+- **A click on a drawn marker (desktop)** chose it, before the fix and after.
+- **A bus about 14 px from the chosen one** (as buses bunch at a stop), tapped where it shows. Before
+  the fix the chosen bus won, on desktop and phone. Each marker layer had its own click handler, so
+  every layer under the pointer fired, and the chosen bus's layer, registered last, won; its marker
+  is 59 px across. Now one handler takes the bus drawn nearest the tap, within 14 px of it.
+- **Phone:** a tap on a drawn marker, one 20 px off its centre (outside the 13 px disc, inside a
+  44 px finger target), and one on empty map. Before the fix all three phone checks failed.
+
+  A probe of the same build showed that a touch tap produces pointer, touch, mouse and click events,
+  none cancelled, and chooses the bus tapped. So touch reaches the map, and the checks were at
+  fault: they had not waited for the camera to come to rest, nor made sure no control covered the
+  spot. They now do both, and drag a covered bus into the clear first.
+
+  On the rebuild the two phone taps still missed, though nothing covered the spot. The helper's
+  "at rest" was wrong: `data-camera` is written only when a move ends, so it stays put mid-glide,
+  for instance while the page re-centres its bus after a publication. The tap then landed where the
+  bus had been. "At rest" now also needs the chosen bus's position on screen (written on every
+  move) to stay put. With that, all three phone marker checks passed. The screenshot saved at each
+  tap shows it on target:
+  - the exact tap on the other bus's dark marker, at (182, 230) CSS px;
+  - the finger tap 20 px to its right, on the marker's "256" label, which still chose that bus;
+  - the chosen bus's lime marker well away, at about (235, 302).
+
+On the final build, `selection.spec` passed 23, with 1 skipped by design (the finger check runs on
+the phone only), and none failed, in 3.1 min. That includes every marker check at both sizes and
+the earlier tap on the fallback map.
+
+## 3. Keyboard only, slow tiles, slow live positions
+
+- **Keyboard only (desktop):** search for the stop, pick Stretford Mall (Stop A) with the arrow
+  keys, choose the bus from the list, Follow, Ride along, Details, leave.
+
+  Before the fix, focus fell to nothing when the ride began, because Ride along is removed then.
+  Now the ride's region takes focus, and Ride along gets it back when the ride ends. Details moves
+  focus to the card, and a focus ring shows on each control reached.
+- **Slow live positions** (the first publication held back 9 s): before the fix, the bar read "NOT
+  COLLECTING · not published yet". Now it reads "CHECKING · waiting for the first positions", with
+  no unavailable message, and a chosen stop says its buses will appear, not that none has a current
+  report. Search and "Buses near me" work meanwhile.
+- **Slow tiles** (every vector tile held back 6 s): before this fix, the page drew its fallback map
+  (`tiles_failed`) on both sizes, even with the previous watchdog fix. The 12 s allowance for the
+  first tile ran from the first frame, and each camera move during startup asked for new tiles:
+  fitting the buses, going to the passenger, going to the stop. Now the allowance restarts each
+  time the camera comes to rest. The tile host that never answers still falls back.
+
+  That was not enough. On the build with it, the check still fell back on desktop, and the probe
+  with every tile 9 s late still did so at 12.5–13.9 s. The check's own network trace showed all
+  six tile requests answered after 6.07 s. A tile counts as loaded only once its labels are laid
+  out, and the glyphs they need are fetched after the tile, from the same host: on a slow network,
+  two slow round trips in turn. The allowance is now 12 s for the tile service to answer at all
+  (its TileJSON), restarted when the camera comes to rest, and 40 s for a first whole tile once it
+  has answered. Under `next dev` (the owner's running server, only read): the check passed on
+  desktop and phone, and with every tile 9 s late all 4 loads painted, at 26.2–27.5 s.
+
+On the final build, `access.spec` passed all five checks:
+- the keyboard-only journey (desktop);
+- slow live positions, desktop and phone;
+- slow tiles, desktop and phone.
+
+`map.spec` passed every desktop check (its phone copies are skipped by design). That includes the
+three failures that must still fall back:
+- the tile service never answering;
+- the tile service refusing every request;
+- every tile failing after the style loads.
+
+The probe on the final build (`scripts/probes/webgl-paint.mjs`) held back every `.pbf` from the
+tile host, tiles and glyphs alike, as a slow network would:
+
+| Held back | Loads | Outcome |
+|---|---|---|
+| One tile, 9 s | 4 | All painted, at 10.6–11.6 s |
+| Every tile, 9 s | 4 | All painted, at 21.3–26.0 s. On the build before, all had fallen back, at 12.5–13.9 s |
+| Every tile, 60 s, after the tile service had answered | 2 | Fell back at 40.8–41.3 s (`tiles_failed`): the allowance ran out, as intended |
+
+## 4. Monday captures
+
+Exported once the owner's collection had ended, since the collector is the warehouse's only writer.
+Scored with nothing refitted; details in `docs/MOTION_MODEL.md`.
+- **The capture:** 86 journeys and 6,745 reports on routes 15, 250 and 256, from three bounded
+  runs: 00:00–00:22, 08:57–09:27 and 09:45–11:49 BST. There is almost nothing from the morning peak
+  and nothing after midday.
+- **Eligible:** routes 15 and 250, on their four patterns with accepted road shapes (4,937
+  reports), gave 11,668 cases up to a minute old. Six of the seven report-age bins have 100 or more;
+  the youngest (≤10 s) has 98. Route 256 gave none:
+  - all 965 reports of its 12 inbound journeys were placed on no timetable pattern. Every 256
+    inbound pattern held here runs only at weekends (Saturday, or Saturday and Sunday), and no
+    weekday one is published. Why is not established: the patterns were built on Sunday
+    13 September, and a rebuild on a weekday is the next check;
+  - its outbound reports were on a school-day variant whose road shape had been rejected for lack
+    of Sunday reports (628), or on no pattern (182).
+- **The frozen model:** median error up to a minute 62.7 m, against 118.3 m for the last report
+  and 71.4 m at constant speed.
+  - It beat the last report in every age bin, and constant speed in all but the youngest (33.5
+    against 34.0 m, from 98 cases).
+  - The band held 79.2–81.1% (nominally 80%).
+  - It abstained on 30.5% of moments, nearly all on route 256.
+- **The final drawing** (62 journeys, 4,853 held-out reports), at the median from where the bus next
+  reported:
+  - the drawn bus 60.7 m (42.8 m near a stop), the estimate 59.8 m, the last report 98.3 m;
+  - display lag −0.1 s;
+  - stands the reports contradict: 3.1 an hour.
+
+This is one weekday morning on two routes. It agrees with the Sunday evening window, but it is not
+an evaluation of weekday performance:
+- route 256 could not be scored;
+- the peak and the afternoon were not captured;
+- the model's replacement rule asks for two whole weekdays.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 134 passed (no library code changed)
+    pnpm test:browser tests/browser/selection.spec.mjs
+                                                    # 23 passed, 1 skipped by design (3.1 min)
+    pnpm test:browser tests/browser/access.spec.mjs tests/browser/map.spec.mjs
+                                                    # access 5 of 5; map all desktop checks,
+                                                    # the phone copies skipped by design
+
+Python was not rerun: no Python changed. The build before the final one differed only in the tile
+allowance. On it, `selection`, `access`, `journey-context`, `journey`, `map`, `motion`, `ride` and
+`replay` gave 120 passed, 12 skipped by design and 4 failed:
+- the slow-tile check at both sizes, fixed since (above);
+- two phone marker checks, whose own helper was at fault (above).
+
+Every check the camera change could reach passed on it: the ride-along, motion, journey and
+replay specs.

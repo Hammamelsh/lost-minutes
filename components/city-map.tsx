@@ -98,14 +98,18 @@ const SELECTED_TRAIL=['lm-trail-band','lm-trail-estimate','lm-trail-report'];
  *   following   the camera is on the drawn bus every frame
  *   exploring   the passenger moved the map; the bus goes on without the camera
  *   returning   "Return to bus", another bus or another viewpoint: gliding there, then following
+ *   paused      the chosen vehicle started another journey: the camera waits, still, until the
+ *               passenger goes on with that journey, and then glides back and follows
  * A gesture during a transition ends it; a transition made obsolete (another bus chosen, the
  * ride left) is cancelled by its token before it can finish. The viewpoint is separate: outside
  * (above and behind the bus) or front (a passenger's eye at the front of the upper deck, offered
  * only where the bus's road has been checked against its own reports).
  */
-export type RideState='off'|'entering'|'following'|'exploring'|'returning';
+export type RideState='off'|'entering'|'following'|'exploring'|'returning'|'paused';
 export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'going to the bus',following:'following the bus',
- exploring:'exploring the map',returning:'returning to the bus'};
+ exploring:'exploring the map',returning:'returning to the bus',paused:'paused: this bus started another journey'};
+/** Around a tap, how far a bus marker may be and still be the one meant: a finger's reach. */
+const TAP_MARGIN=14;
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
  *  drawn pointing north and turned by MapLibre to the bearing. */
@@ -354,6 +358,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
                                  clockOffsetMs=0,motion,onMotion,onRideState}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
+ const hudRef=useRef<HTMLDivElement>(null),launchRef=useRef<HTMLButtonElement>(null),lastView=useRef(view);
  const map=useRef<MapLibreMap|null>(null);
  const [ready,setReady]=useState(false);
  const [painted,setPainted]=useState(false);
@@ -403,6 +408,24 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
      icon:`lm-${stale?'stale':'bus'}-${nose?'arrow':'dot'}`,rotate:bus.bearing??0}};
   })}),[buses,selected]);
 
+ // Diagnostic, not a feature: where every other bus is drawn on the canvas, written when the map
+ // settles and when the buses change, so a check can tap the rendered marker itself and leave
+ // MapLibre's own hit-testing to decide what it meets.
+ const busPoints=useRef<()=>void>(()=>{});
+ useEffect(()=>{
+  busPoints.current=()=>{
+   const instance=map.current,el=root.current;
+   if(!instance||!el)return;
+   const {clientWidth:width,clientHeight:height}=instance.getContainer();
+   const points=busCollection().features.map(feature=>{
+    const [lon,lat]=feature.geometry.coordinates,at=instance.project([lon,lat]);
+    return {key:feature.properties.key,x:Math.round(at.x),y:Math.round(at.y)};
+   }).filter(p=>p.x>=0&&p.y>=0&&p.x<=width&&p.y<=height).slice(0,80);
+   el.setAttribute('data-bus-points',JSON.stringify(points));
+  };
+  busPoints.current();
+ },[busCollection]);
+
  // --- create once -----------------------------------------------------------------
  useEffect(()=>{
   if(!container.current||map.current)return;
@@ -438,11 +461,25 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    instance.on('load',()=>{
     if(cancelled)return;
     addOverlay(instance,themeRef.current);
+    // One handler for every bus drawn: the one nearest the tap, among those within a finger's
+    // reach of it. A handler per layer fired for each layer under the tap, and the chosen bus's
+    // layer, registered last, always won, so a bus beside the chosen one could not be tapped; and
+    // a marker's 13 px disc was a small target for a finger.
+    instance.on('click',(event:MapMouseEvent)=>{
+     const layers=['lm-bus-marker','lm-sel-marker'].filter(id=>instance.getLayer(id));
+     if(!layers.length)return;
+     const {x,y}=event.point,m=TAP_MARGIN;
+     let best:string|null=null,nearest=Infinity;
+     for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers})){
+      const key=feature.properties?.key;
+      if(typeof key!=='string'||feature.geometry.type!=='Point')continue;
+      const at=instance.project(feature.geometry.coordinates as [number,number]);
+      const d=Math.hypot(at.x-x,at.y-y);
+      if(d<nearest){nearest=d;best=key}
+     }
+     if(best)onSelect(best);
+    });
     for(const layer of ['lm-bus-marker','lm-sel-marker']){
-     instance.on('click',layer,(event:MapMouseEvent&{features?:{properties?:Record<string,unknown>}[]})=>{
-      const key=event.features?.[0]?.properties?.key;
-      if(typeof key==='string')onSelect(key);
-     });
      instance.on('mouseenter',layer,()=>{instance.getCanvas().style.cursor='pointer'});
      instance.on('mouseleave',layer,()=>{instance.getCanvas().style.cursor=''});
     }
@@ -451,21 +488,31 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    // Every vector tile failing leaves markers floating on an empty background, which is not
    // a usable map. At the first settled frame, if tiles were requested and none arrived,
    // fall back like any other failed start. Individual tile failures are tolerated, and so is a
-   // slow one: once the map draws, no tile within 12 s means the tile host is not answering, but
-   // with some in, a late one is waited for, up to 25 s, before the map counts as painted anyway.
-   let tileErrors=0,tilesLoaded=0,shown=false;
+   // slow network. Until the tile service has answered at all (its TileJSON), 12 s from the camera
+   // last coming to rest; once it has, 40 s for a first whole tile. On a slow network that takes
+   // round trips in turn: the tile, then the glyphs its labels need, and a tile counts as loaded
+   // only once its labels are laid out. With some tiles in, a late one is waited for up to 25 s
+   // before the map counts as painted anyway.
+   let tileErrors=0,tilesLoaded=0,shown=false,answered=false;
    const paint=()=>{if(shown||cancelled)return;shown=true;clearTimeout(noTiles);clearTimeout(tileWait);setPainted(true)};
+   const armNoTiles=()=>{
+    clearTimeout(noTiles);
+    noTiles=setTimeout(()=>{if(!cancelled&&!shown&&tilesLoaded===0)onUnavailable('tiles_failed')},answered?40000:12000);
+   };
    instance.on('error',(event:{error?:unknown;sourceId?:string;tile?:unknown})=>{
     if(event?.sourceId==='openmaptiles'||(!event?.sourceId&&event?.tile))tileErrors+=1;
    });
-   instance.on('sourcedata',(event:{sourceId?:string;tile?:unknown})=>{
-    if(event?.tile&&event.sourceId==='openmaptiles')tilesLoaded+=1;
+   instance.on('sourcedata',(event:{sourceId?:string;tile?:unknown;sourceDataType?:string})=>{
+    if(event?.sourceId!=='openmaptiles')return;
+    if(event.tile)tilesLoaded+=1;
+    if(!answered&&event.sourceDataType==='metadata'){answered=true;if(noTiles!==undefined)armNoTiles()}
    });
    instance.once('render',()=>{
     clearTimeout(firstFrame);
-    noTiles=setTimeout(()=>{if(!cancelled&&!shown&&tilesLoaded===0)onUnavailable('tiles_failed')},12000);
+    armNoTiles();
     tileWait=setTimeout(()=>{if(!cancelled&&!shown&&tilesLoaded>0)paint()},25000);
    });
+   instance.on('moveend',()=>{if(!shown&&tilesLoaded===0&&noTiles!==undefined)armNoTiles()});
    instance.once('idle',()=>{
     clearTimeout(firstFrame);
     if(cancelled)return;
@@ -480,6 +527,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
     root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(3)},${centre.lat.toFixed(7)},`
      +`${centre.lng.toFixed(7)},${instance.getPitch().toFixed(1)},${instance.getBearing().toFixed(1)}`);
    });
+   instance.on('idle',()=>busPoints.current());
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
    // does; a standing bus draws no frames, so it is projected here too, and so is the stop.
    instance.on('move',()=>{
@@ -497,6 +545,8 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
     const r=ride.current;
     if(viewRef.current==='ride'){
      r.pointer.moved=true;
+     // Paused for a new journey, the ride waits for the passenger's choice, not for "Return to bus".
+     if(r.state==='paused')return;
      if(kind==='drag'||r.state==='entering'||r.state==='returning'){
       r.transition+=1;
       if(r.state!=='exploring')setRide('exploring');
@@ -561,9 +611,10 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   if(!ready||!map.current)return;
   const instance=map.current;
   (instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData(busCollection());
+  busPoints.current();
   // Until the passenger has taken the camera, a new report that lands outside the frame
-  // brings the frame to it.
-  if(!selected||follow||view==='ride'||userMoved.current)return;
+  // brings the frame to it; a journey the passenger has not chosen to go on with is not chased.
+  if(!selected||follow||view==='ride'||userMoved.current||selectionKind==='new_journey')return;
   const point=instance.project([selected.lon,selected.lat]);
   const {clientWidth:width,clientHeight:height}=instance.getContainer();
   // Under a control counts as outside: a bus behind the Ride along button is not in view.
@@ -571,7 +622,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   if(point.x<pad.left||point.y<pad.top||point.x>width-pad.right||point.y>height-pad.bottom){
    move(m=>m.easeTo({center:[selected.lon,selected.lat],duration:prefersReducedMotion()?0:450}));
   }
- },[ready,busCollection,selected,follow,view,move]);
+ },[ready,busCollection,selected,selectionKind,follow,view,move]);
 
  useEffect(()=>{
   const instance=map.current;
@@ -705,7 +756,8 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
     geometry:{type:'Point',coordinates:[v.lon,v.lat]},
     properties:{key:input.selected.key,route:input.selected.route,
      icon:`lm-sel-${input.selectionKind==='absent'?'lost-':''}${v.bearing!==null?'arrow':'dot'}`,
-     rotate:v.bearing??0,caption:input.selectionKind==='absent'?'NO NEW REPORT':e.mode==='estimated'?'ESTIMATE':''}}]});
+     rotate:v.bearing??0,caption:input.selectionKind==='absent'?'NO NEW REPORT'
+      :input.selectionKind==='new_journey'?'ANOTHER JOURNEY':e.mode==='estimated'?'ESTIMATE':''}}]});
    const fixes=input.history.fixes,last=fixes[fixes.length-1];
    const features:object[]=fixes.map(fix=>({type:'Feature',geometry:{type:'Point',coordinates:[fix.lon,fix.lat]},
     properties:{kind:'report',latest:fix===last?1:0}}));
@@ -996,6 +1048,17 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   returnRef.current(true);
  },[ready,view,selectedKey]);
 
+ // The chosen vehicle starting another journey mid-ride: the ride waits where it is, the camera
+ // still, until the passenger chooses to go on with that journey (the ride card asks). Going on
+ // with it, or its first journey reappearing, glides back to the bus and follows it again.
+ useEffect(()=>{
+  const instance=map.current,r=ride.current;
+  if(!ready||!instance||view!=='ride'||!wasRiding.current)return;
+  if(selectionKind==='new_journey'){
+   if(r.state==='following'||r.state==='returning'||r.state==='exploring'){r.transition+=1;instance.stop();setRide('paused')}
+  }else if(r.state==='paused'&&selectionKind==='active')returnRef.current(false,'returning');
+ },[ready,view,selectionKind,rideState,setRide]);
+
  // The clear band moves when the map is resized: a phone's taller ride map, or a rotation.
  // setPadding is a jump, and a jump stops whatever the camera is doing. A phone's map finishes
  // growing just after a ride starts, so applying the band at once cancelled the first glide
@@ -1042,6 +1105,20 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   return()=>window.removeEventListener('keydown',onKey);
  },[view,onViewChange]);
 
+ // The ride's controls come and go with it: Ride along is gone once it begins, and the ride's own
+ // controls once it ends. Focus left on nothing by that goes to the ride's region, and afterwards
+ // back to Ride along, so a keyboard never has to start again from the top of the page.
+ useEffect(()=>{
+  const was=lastView.current;
+  lastView.current=view;
+  if((was==='ride')===(view==='ride'))return;
+  const frame=requestAnimationFrame(()=>{
+   if(document.activeElement&&document.activeElement!==document.body)return;
+   (view==='ride'?hudRef.current:launchRef.current)?.focus({preventScroll:true});
+  });
+  return()=>cancelAnimationFrame(frame);
+ },[view]);
+
  const zoomBy=(delta:number)=>{
   if(view!=='ride')userMoved.current=true;
   move(m=>(delta>0?m.zoomIn:m.zoomOut).call(m,{duration:prefersReducedMotion()?0:220}));
@@ -1085,12 +1162,12 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}
    </div>
-   {selected&&<button className="ride-launch" onClick={startRide}
+   {selected&&<button className="ride-launch" ref={launchRef} onClick={startRide}
      aria-label={`Ride along with route ${selected.route}`}>
     <span className="ride-launch-route">{selected.route}</span>Ride along</button>}
   </div>}
 
-  {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along">
+  {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along" ref={hudRef} tabIndex={-1}>
    {/* One column under the exit, so the notes can never cover each other or the exit. The
        mode line is short; what a ride-along is sits behind "What is this?". */}
    <div className="ride-notes">

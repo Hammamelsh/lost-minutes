@@ -80,6 +80,23 @@ export async function serveLive(page, builders) {
   return served;
 }
 
+/** Wait for the vector map to paint. If the page gives up on it and draws its fallback map instead,
+ *  fail at once with the reason the page gives (data-map-fallback: no_webgl, startup_timeout, …)
+ *  rather than waiting out the timeout as if the map were only slow. */
+export async function waitForPaint(page, {timeout = 45_000, note = ''} = {}) {
+  const fallback = page.locator('.map-fallback-wrap');
+  const outcome = await Promise.race([
+    page.locator('.vector-map[data-map-state="painted"]').waitFor({state: 'visible', timeout}).then(() => 'painted'),
+    fallback.waitFor({state: 'attached', timeout}).then(() => 'fallback'),
+  ]).catch(error => {
+    throw new Error(`The vector map did not paint within ${timeout / 1000} s${note ? ` (${note})` : ''}: ${error.message.split('\n')[0]}`);
+  });
+  if (outcome === 'fallback') {
+    const reason = await fallback.getAttribute('data-map-fallback');
+    throw new Error(`The page drew its fallback map (${reason ?? 'no reason given'}) instead of the vector map${note ? ` (${note})` : ''}`);
+  }
+}
+
 /** Count what the basemap actually fetched, by kind. The style is our own and inline, so its
  *  network half is the TileJSON that names the tile set. */
 export function watchBasemap(page) {

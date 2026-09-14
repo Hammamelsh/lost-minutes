@@ -84,7 +84,10 @@ estimate's own path averaged over ±3 s of what is already known of it, so a pau
 into and out of; a drawn speed that changes by at most 3 m/s each second and never steps; a
 correction closed no faster than 12 m/s beyond the path's speed; and, while the bus moves, a drawn
 bus found ahead of the estimate by no more than the estimate's own measured error at that report age
-(the band above) stands and waits instead of reversing. The `settle`, `catchUp` and `turnSettle`
+(the band above) slows to half the path's speed until the estimate catches up, instead of reversing,
+and instead of standing: a drawn bus standing while its estimate moves looks like a stop that never
+happened. When the estimate stops (a pause at a stop, a report too old, the end of the horizon) the
+drawn bus stops with it. The `settle`, `catchUp` and `turnSettle`
 values recorded in the frozen settings are the drawing the evaluation was published with. They are
 kept, so the settings hash still matches, but the page no longer draws with them.
 
@@ -96,6 +99,40 @@ node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evalua
   --reports data/evaluation/motion-reports-fresh.json --label fresh-2026-09-13-evening
 # add --before <file> to compare an earlier lib/motion.ts, e.g. `git show ad0c1cd:lib/motion.ts`
 ```
+
+### What the page draws, held out (14 September)
+
+Each report is held out from what came before it: at the moment the bus made it, how far along the
+road from it were the drawn bus, the estimate and the last report the page had, none of which could
+yet have known it? Display lag is how long after the bus reached a reported point each of them
+reached it (negative: before the bus reported being there). These are distances along the road from
+a later report, not GPS accuracy; the reports carry the vehicles' own GPS error in every figure alike.
+
+| | Fresh: 30 journeys, 2,063 reports | Development: 109 journeys, 11,055 reports |
+|---|---|---|
+| **Drawn now**, median; 80th; 95th percentile | 61.3; 137.4; 223.3 m | 59.0; 131.9; 216.5 m |
+| … within 50 m of a stop; between stops (median) | 43.7; 80.7 m | 40.3; 75.9 m |
+| … display lag, median; 80th percentile | 2.5; 15.6 s | −0.5; 15.0 s |
+| The estimate it follows (median; near a stop; lag) | 54.8 m; 38.6 m; 0.6 s | 52.5 m; 37.5 m; −3 s |
+| The last report (median; near a stop; lag) | 112.8 m; 97.3 m; 17.6 s | 86.0 m; 52.7 m; 15.7 s |
+| The drawing before 13 September's smoothing (ad0c1cd) | 57.7 m; 40.1 m; 2.5 s | 55.3 m; 38.7 m; −0.5 s |
+| Drawn stands the reports contradict, an hour (of all stands) | 3.2 (of 32.7) | 2.8 (of 27.0) |
+| … if it stood still while waiting, as on 13 September | 11.9 (of 64.5) | 10.9 (of 64.2) |
+| … the drawing before the smoothing | 10.6 (of 81.6) | 9.2 (of 80.3) |
+
+A stand is the drawn bus still for 3 s or more; the reports contradict it when those around it span
+30 m or more. Smoothness costs position: the drawn bus is 6–7 m further from where the bus next
+reported than the estimate it follows, and 3–4 m further than the unsmoothed drawing, most of it
+between stops; it is 27–51 m nearer than the last report. The drawn bus's distance from the
+estimate (95th percentile 88 and 91 m) is a distance between two computed positions, not an error.
+
+**Waiting at a crawl** (half the path's speed) rather than standing was adopted on 14 September:
+stands the reports contradict fell from 11.9 to 3.2 an hour on the fresh captures and from 10.9 to
+2.8 on the development ones, the median error changed by under 2 m (61.3 against 62.9; 59.0
+against 58.5) and near a stop by 1–2 m the other way (43.7 against 42.0; 40.3 against 39.2), and
+the median lag shortened (2.5 against 3.6 s; −0.5 against 1 s). A 30% crawl measured almost the
+same. The drawn bus still stops when the estimate does, so the crawl never carries travel past a
+stale report (`tests/motion.test.mjs`).
 
 ## What would replace it
 

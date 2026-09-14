@@ -76,3 +76,66 @@ test('real positions: the ride-along goes to the chosen bus, draws it and follow
   const drawn = await markerPixels(page, map);
   expect(drawn.selectedBus, 'the chosen bus is drawn in the ride-along').toBeGreaterThan(15);
 });
+
+// Real buses take turns to report last, which is what once made the page swap one bus for another.
+test('real positions: the bus followed, then ridden, stays the one chosen through real publications', async ({page}) => {
+  test.setTimeout(300_000);
+  const publications = new Set();
+  page.on('response', async response => {
+    if (!liveResponse(response)) return;
+    const body = await response.json().catch(() => null);
+    if (body?.publishedAt) publications.add(body.publishedAt);
+  });
+  await page.goto('/');
+  await expect(page.locator('.follow-badge')).toContainText('LIVE', {timeout: 30_000});
+  const map = page.locator('.vector-map');
+  await expect(map).toHaveAttribute('data-map-state', 'painted', {timeout: 45_000});
+  const card = page.locator('article.bus-card');
+  await expect(card).toHaveAttribute('data-vehicle', /\S/, {timeout: 20_000});
+  const vehicle = await card.getAttribute('data-vehicle');
+  await page.getByRole('button', {name: 'Keep this bus centred'}).click();
+  await expect(card).toHaveAttribute('data-selection', 'active');
+  const read = () => page.evaluate(() => {
+    const m = document.querySelector('.vector-map'), c = m?.querySelector('.vector-map-canvas')?.getBoundingClientRect();
+    const [x, y] = (m?.getAttribute('data-bus-screen') || '').split(',').map(Number);
+    return {card: document.querySelector('article.bus-card')?.getAttribute('data-vehicle'),
+      selection: document.querySelector('article.bus-card')?.getAttribute('data-selection'),
+      eyebrow: document.querySelector('.bus-card-eyebrow')?.textContent ?? null,
+      stripName: document.querySelector('.active-bus strong')?.textContent ?? null,
+      route: document.querySelector('#follow-route')?.value ?? null,
+      strip: document.querySelector('.active-bus')?.getAttribute('data-vehicle'),
+      rideCard: document.querySelector('.ride-card')?.getAttribute('data-vehicle') ?? null,
+      map: m?.getAttribute('data-selected-key'), ride: m?.getAttribute('data-ride'),
+      busInView: c ? x >= 0 && y >= 0 && x <= c.width && y <= c.height : null};
+  });
+  const seen = [];
+  const start = publications.size;
+  const routeOffered = (await read()).route;
+  for (let k = 1; k <= 5; k++) {
+    if (k === 3) {
+      await map.evaluate(el => el.scrollIntoView({block: 'start'}));
+      await page.getByRole('button', {name: /^Ride along with route/}).click();
+      await expect(map).toHaveAttribute('data-ride', 'following', {timeout: 10_000});
+    }
+    await expect.poll(() => publications.size, {timeout: 90_000, message: `publication ${k} since the bus was chosen`})
+      .toBeGreaterThanOrEqual(start + k);
+    await page.waitForTimeout(1000);
+    const now = await read();
+    seen.push({k, ...now});
+    expect(now.card, `publication ${k}: the card`).toBe(vehicle);
+    expect(now.strip, `publication ${k}: the strip under the map`).toBe(vehicle);
+    expect(now.selection, `publication ${k}: still the passenger's choice, never a suggestion`).not.toBe('suggested');
+    if (now.selection === 'active') {
+      expect(now.map, `publication ${k}: the map`).toContain(vehicle);
+      // Its route still has a bus, so the route offered below stays the one it was chosen from.
+      expect(now.route, `publication ${k}: the route offered`).toBe(routeOffered);
+      expect(now.stripName?.startsWith(`${now.eyebrow}:`), `publication ${k}: one name on the card (${now.eyebrow}) and the strip (${now.stripName})`).toBe(true);
+    }
+    if (k >= 3) {
+      expect(now.rideCard, `publication ${k}: the ride card`).toBe(vehicle);
+      if (now.selection === 'active') expect(now.busInView, `publication ${k}: the ridden bus is in view`).toBe(true);
+    }
+  }
+  await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-real-follow.png`)});
+  test.info().annotations.push({type: 'real follow', description: JSON.stringify({vehicle, seen})});
+});

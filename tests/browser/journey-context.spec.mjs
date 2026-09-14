@@ -3,7 +3,7 @@
 // the same vehicle on the same journey; otherwise the page says so and chooses nothing in its
 // place. Neither the address nor the device's record ever holds where the passenger is.
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive} from './fixtures.mjs';
+import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 const STOP_A = '1800SJ00811';
@@ -15,7 +15,7 @@ async function open(page, path = '/') {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto(path);
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
 }
 
 test.describe('with location', () => {
@@ -38,7 +38,7 @@ test.describe('with location', () => {
     expect(kept, 'and no coordinates at all').not.toMatch(/"lat"|"lon"|53\.4|-2\.3/);
 
     await page.reload();
-    await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+    await waitForPaint(page);
     await expect(page.locator('.your-stop')).toContainText('Stop A');
     await expect(page.locator('.service-chip[aria-pressed="true"]')).toContainText('Piccadilly Gardens');
     await expect(pressedRow(page)).toContainText('3 stops before yours', {timeout: 15_000});
@@ -51,28 +51,33 @@ test('a shared link opens its stop and service; a bus it names that has gone is 
   await open(page, `/?stop=${STOP_A}&service=${encodeURIComponent(MAIN)}&bus=${encodeURIComponent('BNML|FX-GONE')}`);
   await expect(page.locator('.your-stop')).toContainText('Stop A');
   await expect(page.locator('.service-chip[aria-pressed="true"]')).toContainText('Piccadilly Gardens');
-  const notice = page.locator('.restore-notice');
-  await expect(notice).toContainText('is not in the latest positions', {timeout: 15_000});
-  await expect(notice).toContainText('No other bus has been chosen in its place');
-  // Buses are coming, and listed; none is chosen until the passenger says so.
+  // The bus named in the link stays the one asked about: no current report, and nothing else in its place.
+  const card = page.locator('article.bus-card');
+  await expect(card).toHaveAttribute('data-selection', 'absent', {timeout: 15_000});
+  await expect(card).toHaveAttribute('data-vehicle', 'FX-GONE');
+  await expect(card).toContainText('No current report');
+  await expect(card).toContainText('Nothing else has been chosen in its place');
+  // Buses are coming, listed and offered; none is chosen until the passenger says so.
   await expect(page.locator('.waiting .follow-row')).not.toHaveCount(0);
   await expect(pressedRow(page)).toHaveCount(0);
-  await expect(page.locator('article.bus-card')).toHaveCount(0);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-journey-gone.png`), fullPage: true});
-  await page.getByRole('button', {name: 'Show the first bus coming to your stop'}).click();
+  await page.getByRole('button', {name: 'Follow 256 to Piccadilly Gardens instead'}).click();
   await expect(pressedRow(page)).toContainText('3 stops before yours');
-  await expect(notice).toHaveCount(0);
+  await expect(page.locator('.selection-note')).toHaveCount(0);
 });
 
-test('a bus this device remembers, now on another journey, is not chosen again unless the passenger asks', async ({page}) => {
+test('a bus this device remembers, now on another journey, is explained, and followed on it only when the passenger asks', async ({page}) => {
   const saved = {v: 1, stopId: STOP_A, serviceKey: null, savedAt: Date.now(),
     bus: {key: 'BNML|FX-COMING', operator: 'BNML', vehicle: 'FX-COMING', route: '256', direction: 'outbound',
       journeyRef: 'FX-EARLIER', destination: 'Stretford', observedAtMs: Date.now() - 600_000}};
   await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORE, JSON.stringify(saved)]);
   await open(page);
   await expect(page.locator('.your-stop')).toContainText('Stop A');
-  await expect(page.locator('.restore-notice')).toContainText('is now reporting another journey', {timeout: 15_000});
+  const card = page.locator('article.bus-card');
+  await expect(card).toContainText('This bus has started another journey', {timeout: 15_000});
+  await expect(card).toHaveAttribute('data-vehicle', 'FX-COMING');
   await expect(pressedRow(page)).toHaveCount(0);
-  await page.getByRole('button', {name: 'Follow it on its new journey'}).click();
+  await page.getByRole('button', {name: 'Keep following it on this journey'}).click();
   await expect(pressedRow(page)).toContainText('3 stops before yours');
+  await expect(card).not.toContainText('started another journey');
 });

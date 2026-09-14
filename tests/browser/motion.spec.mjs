@@ -4,7 +4,7 @@
 // data-camera, data-correction), sampled while the page receives several publications, so
 // continuity, zoom and turning are measured rather than assumed. Screenshots are FIXTURES.
 import {test, expect} from '@playwright/test';
-import {movingLive, servePatterns, serveLive, serveMotion} from './fixtures.mjs';
+import {movingLive, servePatterns, serveLive, serveMotion, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -35,7 +35,7 @@ async function openAtStopA(page, live = {}, motion = {}) {
   const startMs = Date.now();
   await serveLive(page, [() => movingLive({startMs, ...live})]);
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   return startMs;

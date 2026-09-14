@@ -5,7 +5,7 @@ import {Crosshair,Minus,Plus} from 'lucide-react';
 import {Bounds,boundsOf,fitProjection} from '@/lib/geo';
 import type {Stop} from '@/lib/stops';
 import {FeedMode} from '@/lib/live';
-import type {FollowBus} from '@/lib/follow';
+import {destinationLabel,type FollowBus} from '@/lib/follow';
 import {RoadMap} from '@/lib/replay';
 
 const W=760,H=760;
@@ -135,7 +135,7 @@ export default function FollowMap({buses,selected,follow,roads,onSelect,onManual
     const on=bus.key===selected?.key;
     const faded=bus.freshness==='stale';
     return <g key={bus.key} className={`bus-marker${on?' on':''}`} tabIndex={0} role="button"
-      aria-label={`Route ${bus.route} to ${bus.destination||'unknown destination'}, ${bus.ageWords}`}
+      aria-label={`Route ${bus.route} to ${bus.destination?destinationLabel(bus.destination):'unknown destination'}, ${bus.ageWords}`}
       onClick={()=>onSelect(bus.key)}
       onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onSelect(bus.key)}}}>
      {on&&<circle cx={x} cy={y} r={22} className="bus-halo"/>}

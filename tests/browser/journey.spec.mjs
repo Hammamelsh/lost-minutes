@@ -4,7 +4,7 @@
 // names are real NaPTAN records. Screenshots from these runs are captioned as fixtures.
 import {readFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
-import {FX, journeyLive, markerPixels, pixelVariety, serveLive, servePatterns} from './fixtures.mjs';
+import {FX, journeyLive, markerPixels, pixelVariety, serveLive, servePatterns, waitForPaint} from './fixtures.mjs';
 
 // A real FOSSGIS OSRM foot route, recorded once (tests/browser/recorded), for the map's legend.
 const RECORDED_WALK = JSON.parse(readFileSync(
@@ -24,7 +24,7 @@ async function openAtStopA(page, {live = [() => journeyLive()]} = {}) {
   await servePatterns(page);
   const served = await serveLive(page, live);
   await page.goto('/');
-  await expect(painted(page)).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await expect(page.getByText('Stops near you')).toBeVisible();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
@@ -75,7 +75,8 @@ test.describe('with location', () => {
     await expect(card).not.toContainText('Arrival time');
     await expect(card.locator('.stop-progress')).toContainText('your stop');
     await expect(card).not.toContainText(/\bETA\b|arrives in|\bdue\b/i);
-    await expect(card.locator('.bus-card-eyebrow')).toHaveText('Your bus');
+    // Shown for them, not chosen by them: a suggestion until they follow it or pick a bus.
+    await expect(card.locator('.bus-card-eyebrow')).toHaveText('Suggested bus');
     // The bus reported beside the stop is listed for what it is, not as "at your stop".
     await expect(page.getByText('At your stop now')).toHaveCount(0);
     const nearby = page.locator('.nearby-reports');
@@ -123,7 +124,8 @@ test.describe('with location', () => {
     const card = page.locator('.bus-card');
     await expect(card).toContainText('Sevenways');
     await expect(card).toHaveClass(/gone/, {timeout: 25_000});
-    await expect(card).toContainText('Not in the latest publication');
+    await expect(card).toContainText('No current report');
+    await expect(card).toContainText('Nothing else has been chosen in its place');
     await expect(card.locator('.route-badge')).toHaveText('256');
   });
 });
@@ -136,8 +138,12 @@ test('a stop without timetable coverage says so plainly', async ({page}) => {
   await search.fill('moss road derbyshire');
   await page.getByRole('option').first().click();
   await expect(page.locator('.your-stop-copy strong')).toContainText('Moss Road');
-  await expect(page.locator('.services')).toContainText('No timetable coverage for this stop yet');
-  await expect(page.locator('.waiting')).toContainText('no bus can be confirmed');
+  // Said once, with what can be done next, not three times over.
+  const empty = page.locator('.waiting .empty-state');
+  await expect(empty).toContainText('No timetable coverage for this stop yet');
+  await expect(empty).toContainText('no bus can be confirmed');
+  await expect(empty.getByRole('button', {name: 'Choose another stop'})).toBeVisible();
+  await expect(page.getByText('No timetable coverage for this stop yet')).toHaveCount(1);
 });
 
 test.describe('views and themes', () => {
@@ -285,7 +291,7 @@ test.describe('a publication that has stopped', () => {
     // A report inside a file published ten minutes ago is at least ten minutes old, whatever
     // age the publisher wrote beside it at the time. Old reports are not offered as your bus:
     // they are listed apart, aged from when they were made.
-    await expect(page.locator('.bus-card.empty')).toContainText('only old reports');
+    await expect(page.locator('.waiting .empty-state')).toContainText('only old reports');
     await page.locator('.exploring summary').click();
     await expect(page.locator('.exploring .board-group', {hasText: 'Old reports'})).toBeVisible();
     await expect(page.locator('.exploring .fresh-chip').first()).toContainText(/1[01] min ago/);

@@ -7,7 +7,7 @@
 // in the page, not only in the offline evaluation.
 import {readFileSync, writeFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
-import {fastConfig} from './fixtures.mjs';
+import {fastConfig, waitForPaint} from './fixtures.mjs';
 
 const RECORDED = JSON.parse(readFileSync(new URL('./recorded/reports-256-outbound-SK74BNB-3729.json', import.meta.url), 'utf8'));
 const map = page => page.locator('.vector-map');
@@ -80,7 +80,7 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]'), `page errors: ${errors.join(' | ') || 'none'}`).toBeVisible({timeout: 45_000});
+  await waitForPaint(page, {note: `page errors: ${errors.join(' | ') || 'none'}`});
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 25_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();

@@ -24,10 +24,15 @@ export type Here = {lat:number;lon:number;accuracyMetres?:number};
 /** 2D is the practical default: north up, flat. City tilts it and raises the buildings. The
  *  ride-along follows one bus from above and behind. */
 export type MapView = '2d'|'city'|'ride';
+/** How the bus drawn as the chosen one stands: the page's suggestion, the passenger's pin with a
+ *  current report, the pin now on another journey, or the pin with no current report (drawn at
+ *  its last report, hollow, and never moved on). */
+export type SelectionKind='suggested'|'active'|'new_journey'|'absent';
 
 type Props = {
- buses:FollowBus[];selected?:FollowBus;stop?:Stop|null;here?:Here|null;
- follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:()=>void;
+ buses:FollowBus[];selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
+ /** `reason` says which part of the start failed, so the simple map can say why it is shown. */
+ follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:(reason?:string)=>void;
  view:MapView;onViewChange:(view:MapView)=>void;
  theme:MapTheme;onThemeChange:(theme:MapTheme)=>void;
  /** Incremented by the parent when the passenger asks for something new (a stop, a service, a
@@ -128,26 +133,33 @@ function marker({fill,stroke,outline,radius,nose}:{fill:string;stroke:string;out
 }
 
 /** A hollow ring, drawn for zoom 20 and scaled down with the ground below it: it encircles the
- *  drawn bus (about 8 m radius) so the bus is found even when a building hides the model. */
+ *  drawn bus just beyond its 12 m length (about 6.6 m radius) so the bus is found even when a
+ *  building hides the model, without a halo twice its size around it. */
 function ring({stroke,outline,radius}:{stroke:string;outline:string;radius:number}):ImageData{
- const ratio=2,size=Math.ceil(radius*2+16);
+ const ratio=2,size=Math.ceil(radius*2+14);
  const canvas=document.createElement('canvas');
  canvas.width=size*ratio;canvas.height=size*ratio;
  const g=canvas.getContext('2d')!;
  g.scale(ratio,ratio);g.translate(size/2,size/2);
  g.beginPath();g.arc(0,0,radius,0,2*Math.PI);
- g.lineWidth=11;g.strokeStyle=outline;g.globalAlpha=0.55;g.stroke();
- g.globalAlpha=1;g.lineWidth=6;g.strokeStyle=stroke;g.stroke();
- g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.fillStyle=stroke;g.globalAlpha=0.12;g.fill();
+ g.lineWidth=8;g.strokeStyle=outline;g.globalAlpha=0.6;g.stroke();
+ g.globalAlpha=1;g.lineWidth=4;g.strokeStyle=stroke;g.stroke();
+ g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.fillStyle=stroke;g.globalAlpha=0.07;g.fill();
  return g.getImageData(0,0,size*ratio,size*ratio);
 }
 
 function markerImages(theme:MapTheme){
  const o=OVERLAY[theme];
+ // By day the chosen bus is rimmed in ink, not a pale rim that vanished against cream roads and
+ // pale buildings; by night the pale rim separates it from the ink.
+ const rim=theme==='day'?o.ink:'#f4ffe4';
  return {
-  'lm-sel-arrow':marker({fill:'#c6f36a',stroke:'#f4ffe4',outline:o.ink,radius:13,nose:true}),
-  'lm-sel-dot':marker({fill:'#c6f36a',stroke:'#f4ffe4',outline:o.ink,radius:13,nose:false}),
-  'lm-sel-ring':ring({stroke:'#c6f36a',outline:o.ink,radius:92}),
+  'lm-sel-arrow':marker({fill:'#c6f36a',stroke:rim,outline:o.ink,radius:13,nose:true}),
+  'lm-sel-dot':marker({fill:'#c6f36a',stroke:rim,outline:o.ink,radius:13,nose:false}),
+  // A chosen bus with no current report: hollow, so it cannot pass for one being tracked.
+  'lm-sel-lost-arrow':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:true}),
+  'lm-sel-lost-dot':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:false}),
+  'lm-sel-ring':ring({stroke:'#c6f36a',outline:o.ink,radius:74}),
   'lm-bus-arrow':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:true}),
   'lm-bus-dot':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:false}),
   'lm-stale-arrow':marker({fill:o.stale,stroke:o.staleStroke,outline:o.staleStroke,radius:6,nose:true}),
@@ -322,7 +334,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
 // While these are the reason, the bus is shown at its report only until they load.
 const CHECKING='checking whether its movement can be estimated',LOADING='loading its road geometry';
 
-type Inputs={ready:boolean;selected?:FollowBus;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;
+type Inputs={ready:boolean;selected?:FollowBus;selectionKind?:SelectionKind;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;
  params:MotionParams;profile:ErrorProfile|null;clockOffsetMs:number;view:MapView;follow:boolean;
  model:BusModel|null;modelShown:boolean;here?:Here|null;stop?:Stop|null;walk:Props['walk'];
  onMotion?:(info:MotionInfo|null)=>void};
@@ -336,7 +348,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * clearly labelled estimate between reports, which moves only along accepted road geometry,
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
-export default function CityMap({buses,selected,stop,here,follow,onSelect,onManualMove,
+export default function CityMap({buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,rideOverlay,busLabel='Your bus',walk=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState}:Props){
@@ -394,11 +406,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  // --- create once -----------------------------------------------------------------
  useEffect(()=>{
   if(!container.current||map.current)return;
-  if(!webglAvailable()){onUnavailable();return}
+  if(!webglAvailable()){onUnavailable('no_webgl');return}
   let cancelled=false;
-  // Bound the whole startup, including a stalled dynamic import. Parent clock updates must
-  // not restart this watchdog. Unmounting cancels it and any pending startup.
-  const firstPaint=setTimeout(()=>{if(!cancelled)onUnavailable()},7000);
+  // Bound the start itself, including a stalled dynamic import: the module, the map and its WebGL
+  // context, and a first frame drawn. The network's tiles are not part of it: timed together, one
+  // tile arriving after 7 s turned a working map into the fallback for the whole visit. Parent
+  // clock updates must not restart these watchdogs. Unmounting cancels them and any pending startup.
+  const firstFrame=setTimeout(()=>{if(!cancelled)onUnavailable('startup_timeout')},7000);
+  let noTiles:ReturnType<typeof setTimeout>|undefined,tileWait:ReturnType<typeof setTimeout>|undefined;
   (async()=>{
    // Loaded as MapLibre ships it, not bundled. Its web worker is found beside its own module
    // file; bundled, that location became a build-machine path, the worker was started from
@@ -411,14 +426,14 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
     instance=new maplibre.Map({container:container.current,style:buildStyle(themeRef.current) as never,
      center:[-2.2426,53.4808],zoom:12.2,attributionControl:false,
      pitch:0,bearing:0,maxPitch:70,dragRotate:false});
-   }catch{onUnavailable();return}
+   }catch{onUnavailable('create_failed');return}
    // North stays up unless a view deliberately turns it: no accidental two-finger rotation.
    instance.touchZoomRotate.disableRotation();
    instance.keyboard.disableRotation();
    instance.on('error',(event:{error?:{message?:string}})=>{
     // A failed tile is survivable; a failed style is not, and we fall back rather than
     // leave the passenger looking at an empty rectangle.
-    if(event?.error&&/style/i.test(String(event.error?.message??'')))onUnavailable();
+    if(event?.error&&/style/i.test(String(event.error?.message??'')))onUnavailable('style_failed');
    });
    instance.on('load',()=>{
     if(cancelled)return;
@@ -435,19 +450,27 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    });
    // Every vector tile failing leaves markers floating on an empty background, which is not
    // a usable map. At the first settled frame, if tiles were requested and none arrived,
-   // fall back like any other failed start. Individual tile failures are tolerated.
-   let tileErrors=0,tilesLoaded=0;
+   // fall back like any other failed start. Individual tile failures are tolerated, and so is a
+   // slow one: once the map draws, no tile within 12 s means the tile host is not answering, but
+   // with some in, a late one is waited for, up to 25 s, before the map counts as painted anyway.
+   let tileErrors=0,tilesLoaded=0,shown=false;
+   const paint=()=>{if(shown||cancelled)return;shown=true;clearTimeout(noTiles);clearTimeout(tileWait);setPainted(true)};
    instance.on('error',(event:{error?:unknown;sourceId?:string;tile?:unknown})=>{
     if(event?.sourceId==='openmaptiles'||(!event?.sourceId&&event?.tile))tileErrors+=1;
    });
    instance.on('sourcedata',(event:{sourceId?:string;tile?:unknown})=>{
     if(event?.tile&&event.sourceId==='openmaptiles')tilesLoaded+=1;
    });
+   instance.once('render',()=>{
+    clearTimeout(firstFrame);
+    noTiles=setTimeout(()=>{if(!cancelled&&!shown&&tilesLoaded===0)onUnavailable('tiles_failed')},12000);
+    tileWait=setTimeout(()=>{if(!cancelled&&!shown&&tilesLoaded>0)paint()},25000);
+   });
    instance.once('idle',()=>{
-    clearTimeout(firstPaint);
+    clearTimeout(firstFrame);
     if(cancelled)return;
-    if(tileErrors>0&&tilesLoaded===0){onUnavailable();return}
-    setPainted(true);
+    if(tileErrors>0&&tilesLoaded===0){onUnavailable('tiles_failed');return}
+    paint();
    });
    // Diagnostic, not a feature: the camera as text, written straight to the element so a
    // moving camera does not re-render the page on every frame.
@@ -510,8 +533,9 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
     if(r.state==='entering'||r.state==='returning'){r.transition+=1;instance.stop();setRide('exploring')}
    },{passive:true});
    map.current=instance;
-  })().catch(()=>{if(!cancelled)onUnavailable()});
-  return()=>{cancelled=true;clearTimeout(firstPaint);map.current?.remove();map.current=null};
+  })().catch(()=>{if(!cancelled)onUnavailable('module_failed')});
+  return()=>{cancelled=true;clearTimeout(firstFrame);clearTimeout(noTiles);clearTimeout(tileWait);
+   map.current?.remove();map.current=null};
  },[onSelect,onManualMove,onUnavailable,setRide]);
 
  useEffect(()=>{viewRef.current=view},[view]);
@@ -629,7 +653,8 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
   :!trackFor?LOADING
   :!trackFor.track?trackFor.reason??'no road geometry'
   :null;
- const modelShown=view!=='2d'&&model!==null&&Boolean(selected);
+ // A chosen bus with no current report is not drawn as a bus: only its hollow last-report marker.
+ const modelShown=view!=='2d'&&model!==null&&Boolean(selected)&&selectionKind!=='absent';
  const provisional=blocked===CHECKING||blocked===LOADING;
  // The front view needs the road the bus is on, checked against its own reports: an accepted
  // road shape. Without one it would be guesswork at eye level, so the ride stays outside and
@@ -660,8 +685,10 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    diagnostics(root.current,null,null,state.frames,0,null);
    return;
   }
-  // Another bus is a new drawing, never a correction of the last one.
-  if(state.key!==input.selected.key){state.key=input.selected.key;visualRef.current=null}
+  // Another bus, or the same vehicle on another journey, is a new drawing, never a correction of
+  // the last one: the other journey's reports say nothing about where this one is going.
+  const drawKey=`${input.selected.key}|${input.selected.route}|${input.selected.direction}|${input.selected.journeyRef}`;
+  if(state.key!==drawKey){state.key=drawKey;visualRef.current=null}
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
   const now=state.clock.now;
@@ -676,8 +703,9 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    state.lastDraw=t;state.drawn=true;
    selectedSource?.setData({type:'FeatureCollection',features:[{type:'Feature',
     geometry:{type:'Point',coordinates:[v.lon,v.lat]},
-    properties:{key:input.selected.key,route:input.selected.route,icon:`lm-sel-${v.bearing!==null?'arrow':'dot'}`,
-     rotate:v.bearing??0,caption:e.mode==='estimated'?'ESTIMATE':''}}]});
+    properties:{key:input.selected.key,route:input.selected.route,
+     icon:`lm-sel-${input.selectionKind==='absent'?'lost-':''}${v.bearing!==null?'arrow':'dot'}`,
+     rotate:v.bearing??0,caption:input.selectionKind==='absent'?'NO NEW REPORT':e.mode==='estimated'?'ESTIMATE':''}}]});
    const fixes=input.history.fixes,last=fixes[fixes.length-1];
    const features:object[]=fixes.map(fix=>({type:'Feature',geometry:{type:'Point',coordinates:[fix.lon,fix.lat]},
     properties:{kind:'report',latest:fix===last?1:0}}));
@@ -745,7 +773,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
  },[]);
  const kick=useCallback(()=>{if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(frame)},[frame]);
  useEffect(()=>{
-  inputs.current={ready,selected,history,track:trackFor?.track??null,blocked,provisional,
+  inputs.current={ready,selected,selectionKind,history,track:trackFor?.track??null,blocked,provisional,
    params:motionModel?.params??DEFAULT_PARAMS,profile:motionModel?.profile??null,clockOffsetMs,
    view,follow,model,modelShown,here,stop,walk,onMotion};
   kick();
@@ -1023,7 +1051,7 @@ export default function CityMap({buses,selected,stop,here,follow,onSelect,onManu
    data-map-state={painted?'painted':ready?'ready':'starting'}
    data-view={view} data-theme={theme} data-model={model?'ready':modelFailed?'failed':'idle'}
    data-ride={view==='ride'?rideState:'off'} data-ride-camera={view==='ride'?camera:'off'}
-   data-walk={walk?'route':'none'}>
+   data-walk={walk?'route':'none'} data-selected-key={selected?.key??''} data-selection={selectionKind??'none'}>
   <div ref={container} className="vector-map-canvas" aria-label={
    `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>

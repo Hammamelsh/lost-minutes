@@ -37,12 +37,15 @@ and whether their usual app did it better, the same or worse, and why.
 | 8 | Ride along with your bus; switch to the front view (if offered) and back; exit. | | | | |
 | 9 | Close the page and open it again: is your stop and bus still there? Share the link with yourself: does it open the same stop? | | | | |
 | 10 | Pick a bus that is not coming to your stop, or a service with no timetable here: is it clear what the page cannot tell you? | | | | |
+| 11 | Press "Follow this bus" on the bus shown, then browse the other buses for a few minutes while they report. Is it still the bus you chose, on the card, in the strip under the map and on the map? | | | | |
+| 12 | Read the bus's stop status ("Last reported near …" or "Appears stopped near …"). What do you take it to mean? Would you act on it? | | | | |
 
 ## Straight after
 
 - Would you use this to decide when to leave the house? Why, or why not?
 - What did your usual app tell you that this did not, and the other way round?
 - Did anything look wrong: a bus in the wrong place, a stop on the wrong side, a jumpy map?
+- Did the page ever show a different bus from the one you chose, without you asking?
 - Did the ride-along or the front view help, or was it decoration?
 - One thing to change first.
 
@@ -56,7 +59,7 @@ and whether their usual app did it better, the same or worse, and why.
 
 | | Lost Minutes | Usual app |
 |---|---|---|
-| Tasks done without help (of 10) | | |
+| Tasks done without help (of 12) | | |
 | Median time per task | | |
 | Trust (1–5, the tester's own) | | |
 | Biggest confusion | | |

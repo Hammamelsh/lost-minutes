@@ -89,8 +89,9 @@ test.describe('fallback', () => {
     test.skip(test.info().project.name !== 'desktop', 'fallback does not depend on viewport');
   });
 
+  // A tile host that never answers is given up on 12 s after the map first draws.
   async function expectFallbackThatLasts(page) {
-    await expect(fallbackMap(page)).toBeVisible({timeout: 15_000});
+    await expect(fallbackMap(page)).toBeVisible({timeout: 25_000});
     await expect(canvases(page)).toHaveCount(0);
     // It must stay usable while the clock keeps updating.
     await page.waitForTimeout(CLOCK_TICK_MS * 2 + 1000);

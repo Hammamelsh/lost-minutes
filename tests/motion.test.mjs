@@ -397,8 +397,32 @@ test('visual: within the estimate’s measured error a report ahead of the drawn
   }
   return back;
  };
- assert.ok(furthestBack(e => drawingFor(e, profile)) < 1e-9, 'within the measured error it stands and waits');
+ assert.ok(furthestBack(e => drawingFor(e, profile)) < 1e-9, 'within the measured error it slows and waits');
  assert.ok(furthestBack(() => DRAWING) > 0.1, 'with the fixed 35 m hold alone it would have reversed');
+});
+
+test('visual: waiting for a moving estimate the drawn bus crawls rather than standing, and stops when the estimate stops', () => {
+ // A bus standing still while its estimate moves looks like a stop that never happened; one still
+ // moving once its estimate has stopped (too old, or past the horizon) would be travel nobody saw.
+ const h1 = historyFrom([fix(200, 0), fix(300, 20_000)]);   // 5 m/s
+ const run = draw => {
+  let v = stepVisual(null, estimate(h1, L, 29_000, P), 29_000, L);
+  v = stepVisual(v, estimate(h1, L, 30_000, P), 30_000, L);
+  const h2 = addFix(h1, fix(v.s - 30, 30_000 - 1)).history;   // drawn 30 m ahead of where it is
+  let slowest = Infinity, held = 0, at70 = null;
+  for (let t = 30_050; t <= 75_000; t += 50) {
+   v = stepVisual(v, estimate(h2, L, t, P), t, L, draw);
+   if (v.correction === 'hold' && v.goalSpeed > 0.5) { held++; slowest = Math.min(slowest, v.velocity / v.goalSpeed); }
+   if (t === 70_000) at70 = v.s;
+  }
+  return {held, slowest, after70: Math.abs(v.s - at70), velocity: v.velocity};
+ };
+ const crawl = run(DRAWING), stand = run({...DRAWING, crawl: 0});
+ assert.ok(crawl.held > 20 && stand.held > 20, 'both wait for the estimate rather than reversing');
+ assert.ok(crawl.slowest >= DRAWING.crawl - 0.02, `never below the crawl while the estimate moves (${crawl.slowest.toFixed(2)} of its speed)`);
+ assert.ok(stand.slowest < 0.05, 'without the crawl it stands');
+ assert.ok(crawl.after70 < 0.05 && Math.abs(crawl.velocity) < 0.02,
+  `past the horizon the drawn bus has stopped too (${crawl.after70.toFixed(3)} m in the last 5 s)`);
 });
 
 test('visual: a new report that changes the speed changes the drawn speed gradually, never at once', () => {

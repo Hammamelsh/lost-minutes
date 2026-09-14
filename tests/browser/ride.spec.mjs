@@ -6,7 +6,7 @@
 // measurement is shown failing on a bus that has been left off screen (the negative control),
 // so it cannot be satisfied by stray lime elsewhere on the page.
 import {test, expect} from '@playwright/test';
-import {journeyLive, movingLive, servePatterns, serveLive, serveMotion} from './fixtures.mjs';
+import {journeyLive, movingLive, servePatterns, serveLive, serveMotion, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -66,7 +66,7 @@ async function openAtStopA(page, live = {}, motion = {}) {
   const startMs = Date.now();
   await serveLive(page, [() => movingLive({startMs, ...live})]);
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
@@ -280,7 +280,7 @@ test('a bus without a bearing is shown from above with its number, and a failed 
   await serveMotion(page, {});
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await page.locator('.nearby-reports .follow-row').first().click();

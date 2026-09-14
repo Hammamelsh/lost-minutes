@@ -421,21 +421,24 @@ export type Drawing = {
  catchUp: number;         // m/s: a correction is absorbed no faster than this, on top of the path's own speed
  settle: number;          // s: the time constant a correction ends in, so it lands softly
  holdBack: number;        // m: moving, a smaller correction backwards slows the drawn bus but never reverses it
+ crawl: number;           // share of the path's own speed kept while waiting for the estimate; 0 stands still
  largeCorrection: number; // m: a correction bigger than this snaps rather than glides, and says so
  turnSettle: number;      // s: time constant of turning the drawn bus
 };
 
 /** Gentle enough that a typical 50 m correction reads as the bus speeding up for a few seconds,
- *  not as a lurch (measured in docs/LOCAL_VERIFICATION.md). */
-export const DRAWING: Drawing = {smoothing: 3, approachAccel: 3, catchUp: 12, settle: 2, holdBack: 35,
+ *  not as a lurch (measured in docs/LOCAL_VERIFICATION.md). Waiting at half the path's speed rather
+ *  than standing cut the drawn stands its own reports contradict from 11.9 to 3.2 an hour on fresh
+ *  captures, with held-out error and display lag no worse (docs/MOTION_MODEL.md). */
+export const DRAWING: Drawing = {smoothing: 3, approachAccel: 3, catchUp: 12, settle: 2, holdBack: 35, crawl: 0.5,
  largeCorrection: 150, turnSettle: 0.35};
 
 /**
  * The drawing for one frame: the hold widened to the estimate's own measured error at this
  * report age (8 in 10 held-out cases lie within it). A report that finds the drawn bus ahead of
- * a moving estimate by no more than the estimate could itself be out stands the drawn bus and
- * lets the estimate catch up, rather than reversing it; beyond that it glides back, and past
- * largeCorrection it snaps.
+ * a moving estimate by no more than the estimate could itself be out slows the drawn bus to a
+ * crawl and lets the estimate catch up, rather than reversing it; beyond that it glides back, and
+ * past largeCorrection it snaps.
  */
 export function drawingFor(e: Estimate, profile: ErrorProfile | null | undefined, draw: Drawing = DRAWING): Drawing {
  const band = uncertaintyAt(profile, e.reportAge);
@@ -562,8 +565,11 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   const f = k / steps, h = dt / steps;
   const x = s - (from.s + (to.s - from.s) * f), goalSpeed = from.speed + (to.speed - from.speed) * f;
   let want = goalSpeed - Math.sign(x) * Math.min(draw.catchUp, Math.sqrt(c * c + 2 * A * Math.abs(x)) - c);
-  // Moving, and drawn a little ahead: slow down, and stand if need be, but never reverse.
-  if (want < 0 && moving && x <= draw.holdBack) { want = 0; held = true; }
+  // Moving, and drawn a little ahead: slow down, keeping `crawl` of the path's own speed (a drawn
+  // bus standing still while its estimate moves looks like a stop that did not happen), and
+  // never reverse.
+  const floor = draw.crawl * Math.max(0, goalSpeed);
+  if (want < floor && moving && x <= draw.holdBack) { want = floor; held = true; }
   velocity += Math.max(-A * h, Math.min(A * h, want - velocity));
   s += velocity * h;
  }

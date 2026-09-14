@@ -6,6 +6,7 @@ import type {FeedMode} from '@/lib/live';
 import {relationWords} from '@/lib/patterns';
 import type {ServicePattern,StopRelation} from '@/lib/patterns';
 import {clock} from '@/lib/replay';
+import {activityWords,STOP_ACTIVITY,type StopActivity} from '@/lib/stop-activity';
 
 type Evidence={serviceDay?:string;weekday?:string;operatorChecked?:boolean;directionReported?:boolean;
  operatingDayChecked?:boolean;plausiblePaths?:number;resolvedBy?:string;destinationAgrees?:boolean|null};
@@ -27,10 +28,12 @@ const tick=(value:boolean|undefined,yes:string,no:string)=>value===undefined?'no
  * here is read from the published files; nothing is recomputed to look tidier.
  */
 export default function BusEvidence({bus,relation,patterns,mode,publishedAt,liveFingerprint,
-                                     ageBasis,expiryMinutes,name,onOpenEvidence}:{
+                                     ageBasis,expiryMinutes,name,onOpenEvidence,activity}:{
  bus:FollowBus;relation?:StopRelation;patterns:Map<string,ServicePattern>;mode:FeedMode;
  publishedAt?:string|null;liveFingerprint?:string|null;ageBasis:'server'|'device';
- expiryMinutes:number;name:(atco:string)=>string;onOpenEvidence:()=>void}){
+ expiryMinutes:number;name:(atco:string)=>string;onOpenEvidence:()=>void;
+ /** What its reports say about it and a stop, with every report the rule read. */
+ activity?:StopActivity|null}){
  const match=bus.match as MatchShape|undefined;
  const evidence=match?.evidence;
  const pattern=match?.patternId?patterns.get(match.patternId):undefined;
@@ -76,6 +79,26 @@ export default function BusEvidence({bus,relation,patterns,mode,publishedAt,live
      :'no match attempted for this position'}</dd></div>
     {candidates.length>1&&<div><dt>Candidates kept</dt><dd>{candidates.map(p=>`${p.line} to ${p.destination??'?'} (${p.stopCount} stops, ${p.runs??'days not recorded'})`).join(' · ')}</dd></div>}
     {relation&&relation.kind!=='no_pattern_data'&&<div><dt>Against your stop</dt><dd>{relationWords(relation)}</dd></div>}
+   </dl>
+  </section>}
+
+  {activity&&<section className="activity-evidence">
+   <h4>Near a stop?</h4>
+   <dl>
+    <div><dt>Finding</dt><dd>{activityWords(activity,name)?.text??`Nothing is said: ${activity.kind==='none'?activity.reason:''}.`}</dd></div>
+    <div><dt>Rule</dt><dd>Only this journey’s own reports. “Near”: the latest report no more
+     than {STOP_ACTIVITY.currentSeconds} s old and within {STOP_ACTIVITY.nearMetres} m of a stop on its matched pattern,
+     heading the way buses travel there. “Appears stopped”: also at least two distinct reports at least
+     {' '}{STOP_ACTIVITY.standSeconds} s apart, the latest no more than {STOP_ACTIVITY.freshSeconds} s old, all within
+     {' '}{STOP_ACTIVITY.standRadius} m of the stop and {STOP_ACTIVITY.jitterMetres} m of each other.
+     <small>Never from the estimate, the drawn bus or the timetable’s assumed pause at a stop. Near a stop is not
+      at it, and says nothing about doors or boarding.</small></dd></div>
+    {activity.observations.length>0&&<div><dt>Reports read</dt><dd>
+     <ul className="activity-reports">{activity.observations.map(o=><li key={o.at} className={o.counted?'counted':''}>
+      <span>{clock(o.at,true)}</span><span>{Math.round(o.metres)} m from the stop</span>
+      <span>{o.fromLatest<0.5?'the latest':`${Math.round(o.fromLatest)} m from the latest`}</span>
+      <span className="mono">{o.source?short(o.source):'source not recorded'}</span>
+      <span>{o.counted?'counted':'not counted'}</span></li>)}</ul></dd></div>}
    </dl>
   </section>}
 

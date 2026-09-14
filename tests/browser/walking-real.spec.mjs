@@ -6,7 +6,7 @@
 // It asks the FOSSGIS service once (desktop only), within its one-request-a-second policy. The
 // bus positions on the page are FIXTURES; the walking route and the stop are real.
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive} from './fixtures.mjs';
+import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 test.skip(!process.env.LM_REAL_ROUTING, 'set LM_REAL_ROUTING=1 to ask the real walking router once');
 test.use({permissions: ['geolocation'], geolocation: {latitude: 53.448712, longitude: -2.309487, accuracy: 30}});
@@ -20,7 +20,7 @@ test('a real pedestrian route to a real boarding point, its distance and time in
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await page.getByRole('button', {name: 'Show walking route'}).click();

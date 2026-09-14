@@ -3,7 +3,7 @@
 import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Share2,Star,WifiOff,X} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
-import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState} from '@/components/city-map';
+import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState,type SelectionKind} from '@/components/city-map';
 import Nearby from '@/components/nearby';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
@@ -23,8 +23,11 @@ import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
-import {journeyQuery,restoreBus,restoreService,savedBusOf,writeJourney,
-        type BusRestore,type InitialJourney,type SavedBus} from '@/lib/journey-context';
+import {journeyQuery,restoreService,writeJourney,type InitialJourney} from '@/lib/journey-context';
+import {adoptJourney,alternativesTo,keepSuggestion,pinFromKey,pinOf,resolveSelection,
+        type Pin,type PinSource,type Selection} from '@/lib/selection';
+import {activityWords,stopActivity} from '@/lib/stop-activity';
+import {prefersReducedMotion} from '@/lib/basemap';
 
 const MODE:Record<FeedMode,{label:string;tone:string}>={
  live:{label:'LIVE',tone:'live'},
@@ -43,6 +46,13 @@ const FRESHNESS:Record<string,string>={
 const NOT_COMING:Record<string,string>={
  not_for_stop:'Does not serve your stop',passed:'Already past your stop',
  maybe:'May call at your stop',unknown:'Not confirmed for your stop',
+};
+
+// Why the detailed map gave way to the simple one, in plain words.
+const FALLBACK:Record<string,string>={
+ no_webgl:'this browser gave the page no WebGL',module_failed:'its code could not be loaded',
+ create_failed:'it could not be started',style_failed:'its style could not be loaded',
+ tiles_failed:'none of its map tiles arrived',startup_timeout:'it could not finish starting',
 };
 
 export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
@@ -76,20 +86,30 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // The passenger's own choices in this visit, undefined until they make one: until then a journey
  // restored from this device or a link stands in, checked against fresh data below.
  const [serviceChoice,setServiceChoice]=useState<string|null|undefined>(undefined);
- const [busChoice,setBusChoice]=useState<string|undefined>(undefined);
+ // The bus the passenger chose (a pin), or null once they let it go. It is never replaced by
+ // another bus: see lib/selection.ts.
+ const [pinChoice,setPinChoice]=useState<Pin|null|undefined>(undefined);
+ // The page's suggestion while nothing is pinned, kept while it stays a candidate.
+ const [suggested,setSuggested]=useState<string|null>(null);
  const [shareState,setShareState]=useState<'idle'|'copied'|'failed'>('idle');
- const chosenSnapshot=useRef<SavedBus|null>(null);
  const [follow,setFollow]=useState(false);
  const [view,setView]=useState<MapView>('2d');
  const [fitRequest,setFitRequest]=useState(0);
  const [walkAttempt,setWalkAttempt]=useState(0);
- // MapLibre when the device can render it; the drawn map when it cannot.
- const [mapFallback,setMapFallback]=useState(false);
+ // MapLibre when the device can render it; the drawn map when it cannot, and why.
+ const [mapFallback,setMapFallback]=useState<string|null>(null);
  // Dependencies of CityMap's creation effect: they must never change identity, or the page's
  // five-second clock would tear the map down on every tick (the 13 September lifecycle bug).
  const stopFollowing=useCallback(()=>setFollow(false),[]);
- const showMapFallback=useCallback(()=>setMapFallback(true),[]);
- const selectFromMap=useCallback((key:string)=>{setBusChoice(key);setFollow(false)},[]);
+ const showMapFallback=useCallback((reason?:string)=>setMapFallback(reason??'create_failed'),[]);
+ const busesRef=useRef(buses);
+ useEffect(()=>{busesRef.current=buses},[buses]);
+ // A bus tapped on the map is chosen: pinned, as a bus tapped in a list is.
+ const selectFromMap=useCallback((key:string)=>{
+  const bus=busesRef.current.find(candidate=>candidate.key===key);
+  if(bus)setPinChoice(pinOf(bus,'map'));
+  setFollow(false);
+ },[]);
 
  // The day a timetable is judged against: today in Manchester, or the recording's day.
  const day=londonDate(mode==='archive'?(buses[0]?.observedAtMs??nowMs):nowMs);
@@ -123,12 +143,17 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // ------------------------------------------------------------ browse by route (no stop)
  const available=useMemo(()=>routesByRecency(buses),[buses]);
  const availableIds=useMemo(()=>available.map(r=>r.id),[available]);
+ // With no route chosen, the route of the latest report is offered, and then kept while it still
+ // has buses: re-taken at every publication, the list and its suggested bus jumped to whichever
+ // route happened to report last.
+ const [keptRoute,setKeptRoute]=useState<string|null>(null);
  const fallbackRoute=useMemo(()=>{
   const saved=favourites.find(f=>availableIds.includes(`${f.operator}|${f.route}`));
   if(saved)return {route:`${saved.operator}|${saved.route}`,direction:saved.direction};
-  return {route:available[0]?.id??'',direction:'all'};
- },[favourites,available,availableIds]);
+  return {route:keptRoute&&availableIds.includes(keptRoute)?keptRoute:available[0]?.id??'',direction:'all'};
+ },[favourites,available,availableIds,keptRoute]);
  const {route,direction}=choice??fallbackRoute;
+ if(!choice&&route&&route!==keptRoute)setKeptRoute(route);
  const onRoute=useMemo(()=>buses.filter(b=>routeId(b)===route&&(direction==='all'||b.direction===direction))
   .sort((a,b)=>b.observedAtMs-a.observedAtMs),[buses,route,direction]);
  const directions=useMemo(()=>Array.from(new Set(buses.filter(b=>routeId(b)===route).map(b=>b.direction).filter(Boolean))),[buses,route]);
@@ -140,44 +165,58 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  const current:Favourite|null=route?{operator:route.split('|')[0],route:routeNumber(route),direction}:null;
  const savedRoute=current?isFavourite(favourites,current):false;
 
- // ------------------------------------------------------------ the selected bus
+ // ------------------------------------------------------------ the chosen bus
  const mapBuses=useMemo(()=>{
   if(!stop||!board)return onRoute;
   const keys=new Set([...board.coming,...board.maybe,...board.nearby,...board.passed,...board.old,
                       ...board.elsewhere].map(row=>row.bus.key));
   return buses.filter(b=>keys.has(b.key));
  },[stop,board,onRoute,buses]);
- // A restored bus is chosen again only as the same vehicle on the same journey. Until the latest
- // positions are in, and while it has gone or started another journey, nothing is chosen for the
- // passenger in its place: they are told, and they choose.
- const restoredKey=mode==='archive'?'':initialJourney?.bus?.key??initialJourney?.busKey??'';
- const pendingRestore=busChoice===undefined&&restoredKey!=='';
- const busRestore:BusRestore=pendingRestore&&buses.length>0?restoreBus(initialJourney??null,buses):{kind:'none'};
- const selectedKey=busChoice??(busRestore.kind==='chosen'?busRestore.key:'');
- const holdChoice=pendingRestore&&busRestore.kind!=='chosen';
- const liveSelected=selectedKey?buses.find(b=>b.key===selectedKey):undefined;
- // An explicit choice is kept when its bus leaves the feed; the card says so rather than
- // quietly switching to another bus.
- const gone=selectedKey&&!liveSelected?recall?.(selectedKey)??null:null;
- // Only a bus timetabled to call at your stop and not yet past it is chosen for you. Anything
- // else is shown only when you pick it, and is labelled as not coming to your stop.
- const selected=liveSelected??(selectedKey||holdChoice?undefined:(stop?board?.coming[0]?.bus:onRoute[0]));
- const cardBus=selected??gone??undefined;
- const cardRelation=cardBus&&stop?(relations.get(cardBus.key)??relateToStop(cardBus,stop.id,patternsById)):undefined;
+ // A journey restored from this device or a link is a pin like any other: the same vehicle on the
+ // same journey is followed again; otherwise the page says what became of it and chooses nothing
+ // in its place. A recording restores nothing.
+ const restoredPin=useMemo<Pin|null>(()=>{
+  if(mode==='archive'||!initialJourney)return null;
+  if(initialJourney.bus)return {bus:initialJourney.bus,via:initialJourney.source==='link'?'link':'device',journeyKnown:true};
+  return initialJourney.busKey?pinFromKey(initialJourney.busKey,'link'):null;
+ },[mode,initialJourney]);
+ const pin=pinChoice!==undefined?pinChoice:restoredPin;
+ // Until the first publication is in, nothing is known about any bus: a pin is neither found nor
+ // missing yet, and nothing is suggested in its place.
+ const loading=live===null&&mode!=='archive'&&mode!=='offline';
+ const selection:Selection=loading?{kind:'none'}:resolveSelection(pin,buses,recall??null);
+ // A link that named only a vehicle learns its journey when the vehicle is first seen, so a later
+ // change of journey is noticed.
+ if(selection.kind==='active'&&!selection.pin.journeyKnown)setPinChoice(adoptJourney(selection.pin,selection.bus));
+ // The suggestion: the first bus coming to your stop, or the latest report on the route, kept
+ // while it stays one of them. Only a bus timetabled to call and not yet past is suggested.
+ const candidates=useMemo(()=>stop?(board?.coming.map(row=>row.bus)??[]):onRoute,[stop,board,onRoute]);
+ const nextSuggested=keepSuggestion(suggested,candidates);
+ if(nextSuggested!==suggested)setSuggested(nextSuggested);
+ const suggestion=nextSuggested?candidates.find(bus=>bus.key===nextSuggested):undefined;
+ const pinned=selection.kind!=='none';
+ // The bus drawn and described: the pinned one (at its last report if it has gone missing), or,
+ // with nothing pinned, the suggestion.
+ const shown:FollowBus|undefined=selection.kind==='active'||selection.kind==='new_journey'?selection.bus
+  :selection.kind==='absent'?selection.last??undefined:pin||loading?undefined:suggestion;
+ const selectionKind:SelectionKind|undefined=selection.kind==='none'?(shown?'suggested':undefined):selection.kind;
+ const absent=selection.kind==='absent';
+ const identity=shown??pin?.bus;
+ const cardRelation=shown&&stop?(relations.get(shown.key)??relateToStop(shown,stop.id,patternsById)):undefined;
  const cardStanding=cardRelation?standing(cardRelation):null;
  const relevant=!stop||cardStanding==='coming';
- const effectiveView:MapView=view==='ride'&&!selected?'2d':view;
+ // One name for the bus shown, the same on the card, the strip and the map's legend: a suggestion;
+ // the bus chosen for your stop, or a chosen bus now missing or on another journey; or a bus chosen
+ // with no stop, or one not coming to it.
+ const busNoun=selectionKind==='suggested'?'Suggested bus'
+  :absent||selection.kind==='new_journey'||relevant&&stop?'Your bus':'Selected bus';
+ const effectiveView:MapView=view==='ride'&&!shown?'2d':view;
  const riding=effectiveView==='ride';
+ const alternatives=pinned&&selection.kind!=='active'?alternativesTo(pin,candidates):[];
+ const activeKey=selection.kind==='active'?selection.bus.key:selection.kind==='none'?shown?.key:undefined;
 
- // What became of a restored journey, said once fresh data is in.
+ // What became of a restored service or stop, said once fresh data is in.
  const restoreNotes:string[]=[];
- if(busRestore.kind==='gone')restoreNotes.push(busRestore.saved
-  ?`The bus you chose before, ${busRestore.saved.route} to ${destinationLabel(busRestore.saved.destination)}, is not in the latest positions (the last report we had from it was at ${clock(busRestore.saved.observedAtMs,true)}). No other bus has been chosen in its place.`
-  :`The bus in this link (vehicle ${busRestore.busKey.split('|')[1]}) is not in the latest positions. No other bus has been chosen in its place.`);
- if(busRestore.kind==='other_journey')restoreNotes.push(`The bus you chose before, ${busRestore.saved.route} to ${destinationLabel(busRestore.saved.destination)}, `
-  +`is now reporting another journey${busRestore.now.route!==busRestore.saved.route?` as route ${busRestore.now.route}`:''} to ${destinationLabel(busRestore.now.destination)}, so it has not been chosen again.`);
- if(pendingRestore&&buses.length===0&&(mode==='unavailable'||mode==='offline'))
-  restoreNotes.push('Live positions are not available, so the bus you chose before cannot be checked. Nothing has been chosen in its place.');
  if(serviceRestore.kind==='gone'&&initialJourney?.serviceKey){
   const [,line,,destination]=initialJourney.serviceKey.split('|');
   restoreNotes.push(`${line} to ${destination} is not in today’s timetable for this stop, so every service is listed.`);
@@ -186,48 +225,56 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   restoreNotes.push('The stop you had chosen is not in the current stop list. Search for your stop.');
 
  // The journey as it stands, kept on this device and in the address bar (replaced, never pushed).
- // Nothing is written until the page has read what was there, and never from a recording.
+ // A pin that has gone missing or changed journey is kept as it was chosen, so a reload asks the
+ // same question. Nothing is written until the page has read what was there, and never from a
+ // recording.
  useEffect(()=>{
   if(initialJourney===undefined||mode==='archive')return;
-  let bus:SavedBus|null=null;
-  if(busChoice===undefined)bus=busRestore.kind==='chosen'&&liveSelected?savedBusOf(liveSelected):initialJourney?.bus??null;
-  else if(busChoice!==''){
-   if(liveSelected?.key===busChoice)chosenSnapshot.current=savedBusOf(liveSelected);
-   bus=chosenSnapshot.current?.key===busChoice?chosenSnapshot.current:null;
-  }
+  const bus=pin&&pin.journeyKnown?pin.bus:null;
   // A restored service the passenger has not changed is kept, even on a day it does not run.
   const service=serviceChoice!==undefined?serviceChoice
    :initialJourney&&stop?.id===initialJourney.stopId?initialJourney.serviceKey:null;
   let storage:Storage|null=null;
   try{storage=window.localStorage}catch{/* a refused store still works for this visit */}
   writeJourney(storage,{stopId:stop?.id??null,serviceKey:service,bus});
-  const busKey=bus?.key??(busChoice===undefined?initialJourney?.busKey??null:null);
-  const query=journeyQuery({stopId:stop?.id??null,serviceKey:service,busKey});
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey:service,busKey:pin?.bus.key??null});
   const next=`${window.location.pathname}${query?`?${query}`:''}${window.location.hash}`;
   if(next!==`${window.location.pathname}${window.location.search}${window.location.hash}`)
    window.history.replaceState(window.history.state,'',next);
- },[initialJourney,mode,busChoice,busRestore.kind,liveSelected,serviceChoice,stop]);
+ },[initialJourney,mode,pin,serviceChoice,stop]);
 
  const copy=MODE[mode];
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
  const collector=live?.collection.collector;
 
- function chooseBus(key:string){setBusChoice(key);setFollow(false);setFitRequest(n=>n+1)}
- function chooseService(key:string){
-  setServiceChoice(serviceKey===key?null:key);setBusChoice('');setFollow(false);setFitRequest(n=>n+1);
+ // Every way of choosing a bus pins it. Filters, a new route or a new stop leave the pin alone:
+ // a bus the passenger chose never disappears because it falls outside the list being browsed.
+ function pinBus(bus:FollowBus,via:PinSource){setPinChoice(pinOf(bus,via))}
+ function chooseBus(bus:FollowBus){pinBus(bus,'list');setFollow(false);setFitRequest(n=>n+1)}
+ function chooseService(key:string){setServiceChoice(serviceKey===key?null:key);setFitRequest(n=>n+1)}
+ function pick(next:{route:string;direction:string}){setChoice(next);setFitRequest(n=>n+1)}
+ function selectStop(next:Stop|null){onSelectStop(next);setServiceChoice(null);setView('2d');setFitRequest(n=>n+1)}
+ function letGo(){setPinChoice(null);setFollow(false);setView('2d');setFitRequest(n=>n+1)}
+ function continueJourney(){if(selection.kind==='new_journey')pinBus(selection.bus,'continue')}
+ // Following or riding along starts on the bus shown, and so pins it.
+ function toggleFollow(){
+  if(!follow&&selection.kind==='none'&&shown)pinBus(shown,'follow');
+  setFollow(value=>!value);
  }
- function pick(next:{route:string;direction:string}){
-  setChoice(next);setBusChoice('');setFollow(false);setFitRequest(n=>n+1);
+ function changeView(next:MapView){
+  if(next==='ride'&&selection.kind==='none'&&shown)pinBus(shown,'ride');
+  setView(next);
  }
- function selectStop(next:Stop|null){
-  onSelectStop(next);setServiceChoice(null);setBusChoice('');setView('2d');setFitRequest(n=>n+1);
+ function showCard(){
+  const card=document.getElementById('lm-bus-card');
+  card?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'});
+  // Focus goes with it, so the next Tab continues from the card, not from the lists above it.
+  card?.focus({preventScroll:true});
  }
- function backToStop(){setBusChoice('');setFollow(false);setView('2d');setFitRequest(n=>n+1)}
- // A shared link names the stop, the service and a bus the passenger chose: never where they are.
+ // A shared link names the stop, the service and the bus the passenger chose: never where they are.
  async function share(){
-  const busKey=busChoice||busRestore.kind==='chosen'?selectedKey||null:null;
-  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey});
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey:pin?.bus.key??null});
   const url=`${window.location.origin}${window.location.pathname}${query?`?${query}`:''}`;
   try{
    if(navigator.share){await navigator.share({title:`Lost Minutes · ${stopLabel}`,url});setShareState('idle');return}
@@ -237,46 +284,86 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
 
  const ageText=(bus:FollowBus)=>mode==='archive'?`reported ${clock(bus.observedAtMs,true)}`:bus.ageWords;
  const ageChip=(bus:FollowBus)=>mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','');
- const assoc=cardBus&&cardRelation?association(cardRelation,cardBus):null;
+ const assoc=shown&&cardRelation?association(cardRelation,shown):null;
  const prog=cardRelation?progress(cardRelation,name):null;
  const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];
  const walked=walkRoute?walkWords(walkRoute):null;
- const notServing=stop&&cardBus&&assoc&&!relevant
+ const notServing=stop&&shown&&assoc&&!relevant
   ?cardStanding==='not_for_stop'?`It does not serve ${stopLabel}. ${assoc.detail}`
    :cardStanding==='passed'?`In the timetable’s stop order its last report is already past ${stopLabel}.`
    :`${assoc.text}. ${assoc.detail}`
   :null;
 
- // Estimates are for live data you are watching now: never a recording, never offline.
- const motion={enabled:estimatedMovement&&mode!=='archive'&&mode!=='offline'&&mode!=='unavailable',
-  reason:!estimatedMovement?'you chose reported positions only'
+ // What its own reports say about it and a stop: never the estimate, never the drawn bus.
+ const matchedPattern=(bus:FollowBus)=>{
+  const match=bus.match as {patternId?:string}|undefined;
+  return match?.patternId?patternsById.get(match.patternId):undefined;
+ };
+ const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
+ const activityLine=activity?activityWords(activity,name):null;
+
+ // Estimates are for live data you are watching now: never a recording, never offline, and never
+ // for a bus with no current report, which is shown where it last reported and not moved on.
+ const motion={enabled:estimatedMovement&&!absent&&mode!=='archive'&&mode!=='offline'&&mode!=='unavailable',
+  reason:absent?'there is no current report from this bus':!estimatedMovement?'you chose reported positions only'
    :mode==='archive'?'a recording is shown at its reported positions':'the feed is not live'};
  // The age is the page's, the one the card's age chip shows, so the card never gives two.
- // A recording is only ever shown at its reports, and says so in its own header.
- const motionWords=mode!=='archive'&&motionInfo&&selected&&cardBus?.key===selected.key?describeMotion({...motionInfo,
-  reportAge:selected.ageSeconds!==null&&Number.isFinite(selected.ageSeconds)?Math.round(selected.ageSeconds):motionInfo.reportAge})
+ const motionWords=mode!=='archive'&&motionInfo&&shown&&!absent?describeMotion({...motionInfo,
+  reportAge:shown.ageSeconds!==null&&Number.isFinite(shown.ageSeconds)?Math.round(shown.ageSeconds):motionInfo.reportAge})
   :null;
 
- const rideOverlay=selected?<div className="ride-card">
+ // What happened to a pinned bus, in the card, the strip and the ride card alike.
+ const absentWords=selection.kind!=='absent'?null
+  :mode==='unavailable'||mode==='offline'?'Live positions are not available, so this bus cannot be checked. Nothing else has been chosen in its place.'
+  :selection.last?`It is not in the latest publication. Its last report was at ${clock(selection.last.observedAtMs,true)} `
+   +`(${selection.last.ageWords.replace('reported ','')}); it is shown there, not moved on. Nothing else has been chosen in its place.`
+  :`It is not in the latest publication${selection.pin.bus.observedAtMs?`; the last report this device had from it was at ${clock(selection.pin.bus.observedAtMs,true)}`:''}. `
+   +'Nothing else has been chosen in its place.';
+ const journeyWords=selection.kind!=='new_journey'?null
+  :`Vehicle ${selection.bus.vehicle}, chosen as the ${selection.pin.bus.route} to ${destinationLabel(selection.pin.bus.destination)}, `
+   +`now reports route ${selection.bus.route}${selection.bus.direction?` ${directionLabel(selection.bus.direction).toLowerCase()}`:''} `
+   +`to ${destinationLabel(selection.bus.destination)}${selection.bus.journeyRef?` (journey ${selection.bus.journeyRef})`:''}. `
+   +'Its earlier reports belong to the other journey, so its movement is drawn afresh.';
+ const stripStatus=selection.kind==='absent'?'No current report'
+  :selection.kind==='new_journey'?'Now on another journey'
+  :shown?[stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null,
+          activityLine?.text,ageChip(shown)].filter(Boolean).join(' · '):'';
+ const inList=!pin||(stop?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key);
+
+ const rideOverlay=shown?<div className="ride-card" data-vehicle={shown.vehicle}>
   <div className="ride-card-head">
-   <span className="route-badge">{selected.route}</span>
+   <span className="route-badge">{shown.route}</span>
    <div>{!relevant&&<small className="ride-card-eyebrow">Selected bus · not coming to your stop</small>}
-    <strong>to {destinationLabel(selected.destination)}</strong>{!motionWords&&<small>{ageText(selected)}</small>}</div>
+    <strong>to {destinationLabel(shown.destination)}</strong>{!motionWords&&<small>{ageText(shown)}</small>}</div>
   </div>
+  {absent&&<p className="ride-status-line warn">No current report · shown at its last report, not moved on</p>}
+  {selection.kind==='new_journey'&&<p className="ride-status-line warn">Now reporting another journey · see the card</p>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
+  {activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${relevant?prog.tone:'bad'}`}>
    {relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
  </div>:null;
 
- const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus.key)}
-   className={`follow-row standing-${item.standing}${item.bus.key===cardBus?.key?' on':''}`}
-   aria-pressed={item.bus.key===cardBus?.key}>
+ const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus)}
+   className={`follow-row standing-${item.standing}${item.bus.key===activeKey?' on':''}`}
+   aria-pressed={item.bus.key===activeKey}>
   <span className="route-pill">{item.bus.route}</span>
   <span className="follow-row-copy"><strong>to {destinationLabel(item.bus.destination)}</strong><small>{detail}</small></span>
+  {pin?.bus.key===item.bus.key&&<em className="row-tag">{selection.kind==='new_journey'?'your bus · another journey':'your bus'}</em>}
   <span className={`fresh-chip ${mode==='archive'?'archive':item.bus.freshness??'unknown'}`}>{ageChip(item.bus)}</span>
  </button>;
  const more=board?board.passed.length+board.old.length+board.elsewhere.length:0;
+ const scrollTo=(selector:string,open=false)=>{
+  const element=document.querySelector<HTMLElement>(selector);
+  if(open&&element instanceof HTMLDetailsElement)element.open=true;
+  element?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'});
+ };
+ // One message when nothing is coming, with what can be done next, instead of the same news three times.
+ const emptyTitle=!board||board.coming.length>0?null
+  :services.length===0?'No timetable coverage for this stop yet, so no bus can be confirmed as coming here.'
+  :board.old.some(item=>item.standing==='coming')?'The buses on services calling here have only old reports.'
+  :'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.';
 
  return <section className={`follow${stop?' has-stop':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
@@ -292,7 +379,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     aria-label="Check for newer positions"><RefreshCw size={15} className={refreshing?'spin':''}/></button>
   </div>
 
-  {/* Where am I, where is my stop, and how do I walk there? */}
+  {/* Where am I, where is my stop, and how do I walk there? The stop's name has the whole width;
+      its actions sit on their own row beneath it. */}
   {stops.length>0&&(stop
    ? <div className="your-stop">
       <div className="your-stop-row">
@@ -303,16 +391,17 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
         <small>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')||'No side-of-road detail supplied'}</small>
         {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
        </span>
-       <span className="your-stop-actions">
-        {onLocate&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
-         <LocateFixed size={15} className={locating?'spin':''}/></button>}
-        <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
-         aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
-         onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
-         <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/></button>
-        <button onClick={share} aria-label="Share this stop"><Share2 size={15}/></button>
-        <button onClick={()=>selectStop(null)}>Change</button>
-       </span>
+      </div>
+      <div className="your-stop-actions">
+       {onLocate&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
+        <LocateFixed size={15} className={locating?'spin':''}/><span>Locate me</span></button>}
+       <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
+        aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
+        onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
+        <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/>
+        <span>{savedStopIds.includes(stop.id)?'Saved':'Save'}</span></button>
+       <button onClick={share} aria-label="Share this stop"><Share2 size={15}/><span>Share</span></button>
+       <button onClick={()=>selectStop(null)}>Change</button>
       </div>
       {mode!=='archive'&&<WalkGuide state={walk} config={walking} here={here} stop={stop} consent={consent}
        onConsent={setConsent} onRetry={()=>setWalkAttempt(n=>n+1)} onLocate={onLocate} locating={locating}
@@ -332,55 +421,74 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       </div>}
      </div>)}
   {blocked&&<p className="follow-hint warn">This device would not let us save that. It still works for this visit.</p>}
-  {shareState==='copied'&&<p className="follow-hint">Link copied. It names this stop{busChoice?' and the bus you chose':''}, never
+  {shareState==='copied'&&<p className="follow-hint">Link copied. It names this stop{pin?' and the bus you chose':''}, never
    your location.</p>}
   {shareState==='failed'&&<p className="follow-hint warn">This browser would not share or copy the link.</p>}
   {restoreNotes.length>0&&<div className="restore-notice" role="status">
    {restoreNotes.map(note=><p key={note}>{note}</p>)}
-   {holdChoice&&(busRestore.kind==='gone'||busRestore.kind==='other_journey')&&<div className="restore-actions">
-    {busRestore.kind==='other_journey'&&<button className="text-action" onClick={()=>chooseBus(busRestore.now.key)}>
-     Follow it on its new journey</button>}
-    <button className="text-action" onClick={()=>setBusChoice('')}>
-     {stop?'Show the first bus coming to your stop':'Show another bus'}</button>
-   </div>}
   </div>}
 
   {mapFallback
-   ? <FollowMap buses={mapBuses} selected={selected} follow={follow} roads={roads}
-      mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
-   : <CityMap buses={mapBuses} selected={selected} stop={stop} here={here} follow={follow}
+   ? <div className="map-fallback-wrap" data-map-fallback={mapFallback}>
+      <p className="map-fallback-note" role="status">The detailed map could not be used here
+       ({FALLBACK[mapFallback]??mapFallback}), so this simpler map is shown.</p>
+      <FollowMap buses={mapBuses} selected={shown} follow={follow} roads={roads}
+       mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
+     </div>
+   : <CityMap buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
-      view={effectiveView} onViewChange={setView} theme={theme} onThemeChange={saveTheme}
+      view={effectiveView} onViewChange={changeView} theme={theme} onThemeChange={saveTheme}
       fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}
-      busLabel={relevant?'Your bus':'Selected bus'}
+      busLabel={absent?'Your bus · no report':busNoun}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
       clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}/>}
+
+  {/* The bus being followed stays one glance away while the alternatives are browsed below. */}
+  {identity&&<div className={`active-bus ${selectionKind??'none'}`} role="status" aria-label="The bus shown on the map"
+    data-vehicle={identity.vehicle}>
+   <span className="route-pill">{identity.route||'?'}</span>
+   <span className="active-bus-copy">
+    <strong>{selectionKind==='suggested'?'Suggested':busNoun}: {identity.route
+     ?`${identity.route} to ${destinationLabel(identity.destination)}`:`vehicle ${identity.vehicle}`}</strong>
+    <small>{stripStatus}{!inList?' · not in the list below':''}</small>
+   </span>
+   <button className="text-action" onClick={showCard}>Details</button>
+  </div>}
 
   {/* The stop first: what leaves from here, then the buses coming to it with how far each has got
       and how old its report is, then everything else listed apart with what it is. The card for
       the chosen bus follows, so the alternatives are never below a long card. */}
-  {stop&&<section className="services" aria-label="Services from your stop">
-   <h3 className="section-head">Services from this stop{services.length?<small>timetabled · tap to filter</small>:null}</h3>
-   {services.length===0
-    ? <p className="services-empty">No timetable coverage for this stop yet. Buses near it can be shown,
-       but none can be confirmed as calling here.</p>
-    : <div className="service-chips">{services.map(service=>
-       <button key={service.key} aria-pressed={activeService?.key===service.key}
-        className={`service-chip${activeService?.key===service.key?' on':''}${service.runsToday===false?' not-today':''}`}
-        onClick={()=>chooseService(service.key)}>
-        <span className="route-pill">{service.line}</span>
-        <span className="service-chip-copy"><strong>to {service.destination}</strong>
-         <small>{service.runsToday===false?`not running today · ${service.runs}`
-          :service.reporting?`${service.reporting} coming or here`:'none reporting nearby'}</small></span>
-       </button>)}</div>}
+  {stop&&services.length>0&&<section className="services" aria-label="Services from your stop">
+   <h3 className="section-head">Services from this stop<small>timetabled · tap to filter</small></h3>
+   <div className="service-chips">{services.map(service=>
+    <button key={service.key} aria-pressed={activeService?.key===service.key}
+     className={`service-chip${activeService?.key===service.key?' on':''}${service.runsToday===false?' not-today':''}`}
+     onClick={()=>chooseService(service.key)}>
+     <span className="route-pill">{service.line}</span>
+     <span className="service-chip-copy"><strong>to {service.destination}</strong>
+      <small>{service.runsToday===false?`not running today · ${service.runs}`
+       :service.reporting?`${service.reporting} coming or here`:'none reporting nearby'}</small></span>
+    </button>)}</div>
   </section>}
   {stop&&board&&<section className="waiting" aria-label="Buses coming to your stop">
    <h3 className="section-head">{activeService?`${activeService.line} to ${activeService.destination}`:'Coming to your stop'}
     <small>by the timetable’s stop order</small></h3>
-   {board.coming.length===0
-    ? <p className="services-empty">{services.length
-       ?'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.'
-       :'Without timetable coverage for this stop, no bus can be confirmed as coming here.'}</p>
+   {emptyTitle
+    ? <div className="empty-state" role="status">
+       <strong>{emptyTitle}</strong>
+       {(board.maybe.length>0||board.nearby.length>0||more>0)&&<span>{[
+        board.maybe.length?`${board.maybe.length} may call here (branch not settled)`:'',
+        board.nearby.length?`${board.nearby.length} reported nearby, not coming here`:'',
+        more?`${more} more near your stop`:''].filter(Boolean).join(' · ')}</span>}
+       <div className="empty-actions">
+        {board.maybe.length>0&&<button className="text-action" onClick={()=>scrollTo('.maybe-coming')}>
+         See the {board.maybe.length===1?'one':board.maybe.length} that may call</button>}
+        {board.nearby.length>0&&<button className="text-action" onClick={()=>scrollTo('.nearby-reports')}>
+         Buses reported nearby</button>}
+        {more>0&&<button className="text-action" onClick={()=>scrollTo('.exploring',true)}>More near your stop</button>}
+        <button className="text-action" onClick={()=>selectStop(null)}>Choose another stop</button>
+       </div>
+      </div>
     : board.coming.map(item=>row(item,standingWords(item)))}
   </section>}
   {stop&&board&&board.maybe.length>0&&<section className="maybe-coming" aria-label="Buses that may call at your stop">
@@ -402,26 +510,51 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   </details>}
 
   {/* Which bus, is it coming here, how far has it got, how old is that? */}
-  {cardBus&&<article className={`bus-card${gone?' gone':''}${relevant?'':' explored'}`}
-    aria-label={relevant&&stop?'Your bus':'Selected bus'}>
-   <p className="bus-card-eyebrow">{relevant&&stop?'Your bus':'Selected bus'}</p>
+  {identity&&<article id="lm-bus-card" className={`bus-card${absent?' gone':''}${relevant?'':' explored'}${selectionKind==='suggested'?' suggested':''}`}
+    aria-label={absent?'Your bus, no current report':busNoun} tabIndex={-1}
+    data-vehicle={identity.vehicle} data-selection={selectionKind??'none'}>
+   <p className="bus-card-eyebrow">{absent?'Your bus · no current report'
+    :selection.kind==='new_journey'?'Your bus · another journey':busNoun}</p>
    <header className="bus-card-head">
-    <span className="route-badge">{cardBus.route}</span>
+    <span className="route-badge">{identity.route||'?'}</span>
     <div className="bus-card-title">
-     <strong>to {destinationLabel(cardBus.destination)}</strong>
-     <small>{[directionLabel(cardBus.direction),cardBus.operator].filter(Boolean).join(' · ')}</small>
+     {/* A link that named only a vehicle, never seen since: its route and destination are unknown. */}
+     <strong>{identity.route?`to ${destinationLabel(identity.destination)}`:`Vehicle ${identity.vehicle}`}</strong>
+     <small>{[directionLabel(identity.direction),identity.operator].filter(Boolean).join(' · ')}</small>
     </div>
-    <span className={`age-chip ${mode==='archive'?'archive':cardBus.freshness??'unknown'}`}>{ageChip(cardBus)}</span>
+    {shown&&!absent?<span className={`age-chip ${mode==='archive'?'archive':shown.freshness??'unknown'}`}>{ageChip(shown)}</span>
+     :<span className="age-chip stale">no current report</span>}
    </header>
-   {stop&&prog&&<div className={`bus-card-answer tone-${relevant?prog.tone:'bad'}`}>
+   {selectionKind==='suggested'&&<p className="bus-card-suggestion">Shown because it is {stop?'coming to your stop':'the latest report on this route'}.
+    It stays shown while it is; following it or riding along keeps it chosen.</p>}
+   {absentWords&&<div className="selection-note absent" role="status">
+    <p><strong>No current report.</strong> {absentWords}</p>
+    <div className="selection-actions">
+     {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
+      Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
+     <button className="text-action" onClick={letGo}>Stop following this bus</button>
+    </div>
+   </div>}
+   {journeyWords&&<div className="selection-note journey" role="status">
+    <p><strong>This bus has started another journey.</strong> {journeyWords}</p>
+    <div className="selection-actions">
+     <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
+     {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
+      Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
+     <button className="text-action" onClick={letGo}>Stop following it</button>
+    </div>
+   </div>}
+   {shown&&!absent&&stop&&prog&&<div className={`bus-card-answer tone-${relevant?prog.tone:'bad'}`}>
     <strong>{relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</strong>
     {relevant&&prog.detail&&<span>{prog.detail}</span>}</div>}
-   {notServing&&<div className="bus-card-explored" role="note">
+   {activityLine&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
+    <span>How this is known</span></summary><p>{activityLine.detail}</p></details>}
+   {notServing&&!absent&&<div className="bus-card-explored" role="note">
     <p>{notServing}</p>
-    <button className="back-to-stop" onClick={backToStop}><ArrowLeft size={15}/>Back to buses for your stop
+    <button className="back-to-stop" onClick={letGo}><ArrowLeft size={15}/>Back to buses for your stop
      {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
    </div>}
-   {motionWords&&!gone&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
+   {motionWords&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
     {/* The label is the claim; how an estimate is made is one tap away. Why a bus is not
         estimated stays in view. */}
     {motionInfo?.mode==='estimated'
@@ -432,27 +565,25 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
      onClick={()=>saveMotionPreference(!estimatedMovement)}>
      {estimatedMovement?'Show reported positions only':'Show estimated movement'}</button>
    </div>}
-   {gone&&<p className="bus-card-gone">Not in the latest publication. Its last report was at
-    {' '}{clock(gone.observedAtMs,true)}. It stays selected until you choose another bus.</p>}
    {stop&&walked&&<p className="bus-card-walk"><strong>You: {walked.time} walk</strong>
     <span>{walked.distance} to {stopLabel}</span></p>}
-   {stop&&assoc
+   {shown&&!absent&&(stop&&assoc
     ? <dl className="claims">
        <div className="claim"><dt>Boarding point</dt><dd><strong>{stopLabel}</strong>
         <span>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')}</span></dd></div>
        <div className={`claim tone-${assoc.tone}`}><dt>Calls at your stop?</dt><dd><strong>{assoc.text}</strong>
         {relevant&&assoc.detail&&<span>{assoc.detail}</span>}</dd></div>
-       <div className="claim"><dt>Report age</dt><dd><strong>{ageText(cardBus)}</strong>
+       <div className="claim"><dt>Report age</dt><dd><strong>{ageText(shown)}</strong>
         {mode==='archive'?<span>from the recording, not live</span>
-         :FRESHNESS[cardBus.freshness??'']&&<span>{FRESHNESS[cardBus.freshness??'']}</span>}</dd></div>
+         :FRESHNESS[shown.freshness??'']&&<span>{FRESHNESS[shown.freshness??'']}</span>}</dd></div>
       </dl>
-    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageChip(cardBus)}`}</strong>
-      Choose your stop to see whether this bus calls there and how far it has got.</p>}
-   <StopProgress items={items}/>
-   <ul className="distance-lines">{distanceLines({here,stop,bus:cardBus,relation:cardRelation,
+    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageChip(shown)}`}</strong>
+      Choose your stop to see whether this bus calls there and how far it has got.</p>)}
+   {shown&&!absent&&<StopProgress items={items}/>}
+   {shown&&!absent&&<ul className="distance-lines">{distanceLines({here,stop,bus:shown,relation:cardRelation,
      walk:walkRoute?{metres:walkRoute.metres,seconds:walkRoute.seconds,provider:walkRoute.provider}:null}).map(line=>
-    <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>
-   {!gone&&<div className="bus-card-actions">
+    <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>}
+   {shown&&!absent&&<div className="bus-card-actions">
     {riding
      ? <div className="ride-status" data-state={rideState}>
         <span className="ride-status-words">Riding along · {rideState==='exploring'
@@ -460,29 +591,25 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
         <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
          aria-pressed="true"><X size={16}/><span>Exit</span></button>
        </div>
-     : <button className={`follow-toggle ${follow?'on':''}`} onClick={()=>setFollow(v=>!v)}
+     : <button className={`follow-toggle ${follow?'on':''}`} onClick={toggleFollow}
         aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
-        <Crosshair size={16}/><span>{follow?'Following on the map':'Follow on the map'}</span></button>}
+        <Crosshair size={16}/><span>{follow?'Following on the map':selectionKind==='suggested'?'Follow this bus':'Follow on the map'}</span></button>}
+    {pinned&&!riding&&<button className="text-action" onClick={letGo}>Choose another bus</button>}
    </div>}
-   <details className="bus-evidence-toggle">
+   {absent&&riding&&<div className="bus-card-actions"><div className="ride-status" data-state={rideState}>
+    <span className="ride-status-words">Riding along · waiting for a new report from this bus</span>
+    <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
+     aria-pressed="true"><X size={16}/><span>Exit</span></button></div></div>}
+   {shown&&<details className="bus-evidence-toggle">
     <summary>How we know this</summary>
-    <BusEvidence bus={cardBus} relation={cardRelation} patterns={patternsById} mode={mode}
+    <BusEvidence bus={shown} relation={cardRelation} patterns={patternsById} mode={mode}
      publishedAt={live?.publishedAt} liveFingerprint={liveFingerprint} ageBasis={ageBasis}
-     expiryMinutes={expiryMinutes} name={name} onOpenEvidence={onOpenEvidence}/>
-   </details>
-  </article>}
-  {stop&&board&&!cardBus&&!holdChoice&&buses.length>0&&<article className="bus-card empty" aria-label="Your bus">
-   <p className="bus-card-eyebrow">Your bus</p>
-   <div className="bus-card-answer tone-neutral"><strong>No bus is confirmed coming to your stop yet</strong>
-    <span>{board.maybe.length?`${board.maybe.length===1?'One bus':`${board.maybe.length} buses`} may call here; the branch is not settled.`
-     :board.old.some(row=>row.standing==='coming')?'The buses on services calling here have only old reports; they are listed below as old reports.'
-     :board.nearby.length?'The buses reported nearby are not coming to this stop.'
-     :services.length?'No bus on a service calling here has a current report.'
-     :'This stop has no timetable coverage, so no bus can be confirmed as coming here.'}</span></div>
+     expiryMinutes={expiryMinutes} name={name} onOpenEvidence={onOpenEvidence} activity={activity}/>
+   </details>}
   </article>}
 
   {/* Four situations, told apart in plain words rather than one vague message. */}
-  {mode==='unavailable'&&<div className="follow-empty">
+  {mode==='unavailable'&&!loading&&<div className="follow-empty">
    <Radio size={20}/><h3>Live bus positions are unavailable</h3>
    <p>This page is not receiving current bus positions. You can still browse the map and search
     the stops. Try refreshing, or explore a dated recording.</p>
@@ -527,11 +654,12 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
     })}
    </div>}
    {onRoute.length>1&&<div className="follow-list">
-    {onRoute.filter(bus=>bus.key!==selected?.key).slice(0,10).map(bus=><button key={bus.key}
-      onClick={()=>chooseBus(bus.key)} className="follow-row">
+    {onRoute.filter(bus=>bus.key!==shown?.key).slice(0,10).map(bus=><button key={bus.key}
+      onClick={()=>chooseBus(bus)} className="follow-row">
      <span className="route-pill">{bus.route}</span>
      <span className="follow-row-copy"><strong>to {destinationLabel(bus.destination)}</strong>
       <small>{directionLabel(bus.direction)}</small></span>
+     {pin?.bus.key===bus.key&&<em className="row-tag">{selection.kind==='new_journey'?'your bus · another journey':'your bus'}</em>}
      <span className={`fresh-chip ${mode==='archive'?'archive':bus.freshness??'unknown'}`}>{ageChip(bus)}</span>
     </button>)}
    </div>}

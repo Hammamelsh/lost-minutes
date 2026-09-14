@@ -5,7 +5,7 @@
 // (tests/browser/recorded). The live service is checked separately (walking-real.spec.mjs).
 import {readFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive} from './fixtures.mjs';
+import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const RECORDED = JSON.parse(readFileSync(
   new URL('./recorded/osrm-foot-longford-park-to-stretford-mall-stop-a.json', import.meta.url), 'utf8'));
@@ -24,7 +24,7 @@ async function openAtStopA(page) {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  await expect(page.locator('.vector-map[data-map-state="painted"]')).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall (Stop A)');

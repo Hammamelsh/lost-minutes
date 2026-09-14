@@ -833,3 +833,47 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ride-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .ride-status-words{font-size:13px;font-weight:650;color:#dff5bd}
 .ride-status[data-state=exploring] .ride-status-words{color:#f1c68a}
+
+/* ---- The chosen bus kept in view: the stop's actions, the strip under the map, the card's states,
+   one empty state with next steps. */
+.follow .your-stop-row{align-items:flex-start}
+.follow .your-stop-copy strong{white-space:normal;overflow-wrap:anywhere}
+.follow .your-stop-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;order:0}
+.follow .your-stop-actions button{min-height:40px;min-width:44px;padding:0 11px}
+.follow .your-stop-actions button span{font-size:13px}
+.active-bus{position:sticky;top:8px;z-index:6;display:flex;align-items:center;gap:10px;padding:8px 10px;
+ border-radius:12px;border:1px solid #4c6b39;background:#16261c;box-shadow:0 8px 22px #060f1799}
+.active-bus.suggested{border-color:#3a5060;background:#152634}
+.active-bus.absent,.active-bus.new_journey{border-color:#7e6541;background:#2a2419}
+.active-bus .route-pill{flex-shrink:0}
+.active-bus-copy{flex:1;min-width:0}
+.active-bus-copy strong{display:block;font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
+.active-bus-copy small{display:block;font-size:12px;line-height:1.45;color:#a9bcc7;margin-top:1px}
+.active-bus.absent .active-bus-copy small,.active-bus.new_journey .active-bus-copy small{color:#f1c68a}
+.active-bus .text-action{flex-shrink:0;min-height:40px}
+.empty-state{display:grid;gap:6px;padding:12px;border-radius:12px;border:1px dashed #3d5260;background:#132330}
+.empty-state strong{font-size:14px;font-weight:650;line-height:1.5;color:#dbe7ec}
+.empty-state span{font-size:12.5px;color:#9fb3bf;line-height:1.5}
+.empty-actions,.selection-actions{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:4px}
+.empty-actions .text-action,.selection-actions .text-action{min-height:40px;text-align:left}
+.selection-note{margin:11px 0 0;padding:10px 12px;border-radius:11px;border:1px solid #7e6541;background:#2a2419}
+.selection-note p{margin:0;font-size:13px;line-height:1.6;color:#f1dcb6}
+.selection-note p strong{color:#ffd79a}
+.text-action.strong{font-weight:800;color:#c6f36a}
+.bus-card.suggested{border-style:dashed}
+.bus-card-suggestion{margin:8px 0 0;font-size:12.5px;line-height:1.55;color:#a9bcc7}
+.bus-card-activity{margin-top:10px;border:1px solid #2f4553;border-radius:10px;padding:0 11px;background:#15262f}
+.bus-card-activity summary{min-height:40px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;
+ cursor:pointer;list-style:none}
+.bus-card-activity summary::-webkit-details-marker{display:none}
+.bus-card-activity summary strong{font-size:13.5px;color:#e8f1f5}
+.bus-card-activity summary span{font-size:12px;color:#8fb0c2}
+.bus-card-activity p{margin:0 0 10px;font-size:12.5px;line-height:1.6;color:#a9bcc7}
+.row-tag{flex-shrink:0;font-style:normal;font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+ color:#c6f36a;border:1px solid #526b3b;border-radius:6px;padding:2px 6px}
+.ride-status-line{margin:6px 0 0;font-size:12.5px;font-weight:650;line-height:1.4;color:#dbe7ec}
+.ride-status-line.warn{color:#f1c68a}
+.map-fallback-note{margin:0 0 8px;font-size:12.5px;line-height:1.55;color:#f1c68a}
+.activity-reports{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:3px}
+.activity-reports li{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11.5px;color:#9fb3bf}
+.activity-reports li.counted{color:#d4f59c}

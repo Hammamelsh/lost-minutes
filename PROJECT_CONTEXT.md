@@ -4,8 +4,13 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 13 September 2026, late evening (ready for a first passenger comparison: the
-ride-along enters straight to the bus and works under `next dev`, an optional front view, smoother
+Last updated: 14 September 2026, morning (one bus, kept: a chosen bus is pinned by every way of
+choosing it and never substituted, through new reports, reordering, filters, gestures, theme
+changes, absence and a new journey; stop activity worded only from the bus's own reports; the
+drawn bus waits at a crawl rather than standing, and is scored against held-out reports; a map
+start that no longer gives up on a slow tile; a persistent passenger-review rule in
+`.claude/rules/`. Before that, 13 September, late evening: ready for a first passenger comparison, with the
+ride-along entering straight to the bus and working under `next dev`, an optional front view, smoother
 drawn movement, the selected-stop answer reordered, the journey kept across visits and shared
 without location, a route coverage check, the motion model frozen and scored on fresh captures, a
 passenger worksheet, and a deployment configuration validated but not provisioned; the embedded
@@ -106,7 +111,13 @@ node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evalua
 node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-frozen.mjs \
   --reports data/evaluation/motion-reports-fresh.json --label <name>   # the frozen model, fresh captures
 node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-drawing.mjs \
-  --reports data/evaluation/motion-reports-fresh.json --label <name>   # how smoothly it is drawn
+  --reports data/evaluation/motion-reports-fresh.json --label <name>   # how smoothly it is drawn,
+                            # and how far from later held-out reports
+node scripts/probes/webgl-paint.mjs --loads 40 [--city] [--tile-delay 9000 --slow-tiles 1]
+                            # repeated map starts on out/: painted or fallen back, and why
+node scripts/probes/selection-playback.mjs [--base http://localhost:3100/]
+                            # the selection scenario as frames, diagnostics, video, contact sheet
+                            # (probes write to outputs/probes/, which Git ignores)
 .venv/bin/python -m pipeline.route_coverage --line 15 --stop 1800SJ32231  # one route: patterns,
                             # road shapes, estimates and live buses, each reported separately
 CADDY=/path/to/caddy deploy/validate.sh    # the server configuration, checked on this machine
@@ -155,6 +166,29 @@ nearest Sevenways, 3 stops before yours". That stop may or may not have been cal
 so nearest-your-stop is never "at your stop" and a nearest stop after yours is "past your
 stop in the stop order", not a measured departure. No error bound is claimed.
 
+**Chosen bus** — the bus a passenger has chosen is a *pin*: a vehicle (operator and vehicle) and
+the journey it was on when chosen (route, direction, journey reference), in `lib/selection.ts`.
+Tapping a bus in a list, on the card or on the map pins it, and so does starting Follow or Ride
+along on the bus shown; a journey restored from this device or a link is a pin too. The page's own
+pick for someone who has not chosen, the first bus coming to their stop or the latest report on a
+route, is only a *suggestion*, labelled as one and kept while it stays a candidate rather than
+re-taken each time the lists reorder; with no stop chosen, the route it comes from is kept the same
+way, while that route still has buses. A pin is never replaced by another bus. New reports, list
+order, filters, gestures and theme changes leave it alone. Missing from the latest publication, it
+is drawn hollow at its last report, never moved on, with "No current report" and other buses
+offered, never chosen. The same vehicle reporting another journey is said so, drawn afresh, and
+followed on that journey only when the passenger asks.
+
+**Stop activity** — what a bus's own reports say about it and a stop, in `lib/stop-activity.ts`.
+*Last reported near X*: its latest report is no more than 150 s old and within 50 m of X, a stop
+on the pattern it is matched to (so the stop across the road is never named), and where both give
+a direction it agrees with the direction of travel at X. *Appears stopped near X*: in addition, at
+least two distinct reports of the journey, at least 20 s apart, the latest no more than 60 s old,
+lie within 40 m of X and within 15 m of each other. Never from the estimate, the drawn bus, the
+timetable's assumed pause, a repeated report or a single position. Near is not at, and nothing
+says doors are open or that anyone can board. The evidence (each report read, its distance from
+the stop, and whether it counted) is under "How we know this".
+
 **Estimated position** — where a selected bus has probably got to since its last report,
 computed on the device (`lib/motion.ts`) and never stored, published or treated as a report.
 Three clocks and three things are kept apart: the reports (immutable, each at its observation
@@ -163,9 +197,10 @@ available by then; a new report is reconciled at the same presentation time as t
 replaces, so the difference between them is a correction, never a mixture of times) and the
 drawn position (which follows the estimate's own path on the road with a speed that changes
 gradually; while the bus moves, a step back no larger than the estimate's measured error at
-that report age, and at least 35 m, is waited for rather than reversed; over 150 m it snaps to
-the new report and says so; `DRAWING` in `lib/motion.ts`, measured by
-`scripts/evaluate-drawing.mjs`). An estimate moves only along an accepted road shape, at the speed the bus's own recent
+that report age, and at least 35 m, is waited for at half the path's speed rather than reversed,
+and not by standing, which would look like a stop the reports never showed; when the estimate
+stops, so does the drawn bus; over 150 m it snaps to the new report and says so; `DRAWING` in
+`lib/motion.ts`, measured by `scripts/evaluate-drawing.mjs`). An estimate moves only along an accepted road shape, at the speed the bus's own recent
 reports show while moving, pausing 10 s at each timetabled stop it reaches and eased off slightly as the report
 ages (motion-3, fitted on the earlier captures by a rule set before any held-out figure was
 read), for at most the measured horizon of 120 s. Anything
@@ -215,6 +250,11 @@ servedFileSha256 = recordedPublicationSha256
   proves that a bus reached, left or served a stop, and an observed-position mode remains.
 - **A route number is not a service.** Operator, timetable version, operating day and
   direction are checked before position; a shared current stop is not a shared route.
+- **A chosen bus is never substituted.** Up to d2e8702 the page showed whichever bus was first in
+  lists ordered partly by report age, so following or riding along with the bus shown jumped to
+  another as soon as the other reported more recently (reproduced by `tests/browser/selection.spec.mjs`
+  on that build). What the page suggests and what the passenger chose are now kept apart, and every
+  way of choosing pins the vehicle.
 - **Three distances, three labels.** You to your stop (a walking route with its source when
   asked for, otherwise a straight line labelled as one), the bus to your stop (straight line,
   plus the declared stop-sequence distance where it exists), and arrival, which is not
@@ -239,7 +279,33 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **Ready for a first passenger comparison (13 September 2026, late evening, latest):** 111 Node
+- **One bus, kept (14 September 2026, morning, latest):** 134 Node tests (among them the pin and
+  the suggestion, stop activity case by case, and the drawing's crawl, which stops when the
+  estimate does), 92 Python tests, typecheck, lint and the static build. On the final build the
+  full browser suite passed 142, with 18 skipped by design and none failing. It includes
+  `selection.spec`, which failed 6 of 6 on d2e8702 and now covers:
+  - reports taking turns between two buses, and two routes taking turns;
+  - a theme change, a filter to another service and a drag of the map;
+  - the bus missing and back, and on a new journey;
+  - the keyboard and a tap;
+  - live positions stopping;
+  - a tap on another bus on the map. This check was added with the last fix, and run on the
+    rebuilt app with `map.spec`: 23 passed, 9 skipped by design.
+
+  Under `next dev` the same kind of checks passed once two stop-activity checks were corrected
+  (the faults were theirs, not the page's). LIVE, during a bounded 30-minute collection (89
+  cycles, 88 succeeded), the real-feed checks passed 6 of 6, twice: a real bus followed and then
+  ridden through five real publications without being replaced (BNML 245 and BNGN 37 on the
+  final code). RECORDED, the drawing against held-out reports:
+  - median error 61 m on fresh captures and 59 m on development ones (the estimate 55 and 52 m,
+    the last report 113 and 86 m);
+  - display lag 2.5 and −0.5 s;
+  - stands the reports contradict, down from 11.9 to 3.2 an hour.
+
+  The map start: one tile 9 s late had forced the fallback at 7.5–7.8 s; on the final build that
+  load paints at 10.6–11.3 s, and 100 ordinary loads all painted. Details are in
+  `docs/LOCAL_VERIFICATION.md` and `docs/MILESTONE_CHECKLIST.md`.
+- **Ready for a first passenger comparison (13 September 2026, late evening):** 111 Node
   tests (among them the drawing's rules: the drawn speed never steps, a pause at a stop is eased
   into and out of, a report within the estimate's measured error is waited for rather than
   reversed, a frame after a pause does not leap) and 92 Python tests (with the route coverage
@@ -251,7 +317,9 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   largest step outside a correction 3.7 m. The drawing, measured over every captured journey with the frozen estimate:
   speed steps 267 an hour to none (development, 109 journeys) and 292 to 0.1 (fresh, 30
   journeys); reversing 1,198 to 405 and 1,048 to 302 m an hour; at the cost of the drawn bus
-  straying further from the estimate (95th percentile 84–87 m, against 49–53 m). The frozen
+  straying further from the estimate (95th percentile 84–87 m, against 49–53 m; a distance
+  between two computed positions, not an error against where the bus was, and not GPS accuracy;
+  the held-out comparison came the next day, below). The frozen
   model on fresh captures from the same evening: median error up to a minute 65 m, against 143 m
   for the last report. The deployment configuration validated locally (seven systemd units; the
   Caddyfile run with 19 route and header checks). Details in `docs/LOCAL_VERIFICATION.md` and
@@ -318,6 +386,10 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 - **Along-route distance is a stop-to-stop chain, not road geometry**, and is null where the
   timetable omits a link (about 1.6% of links across the three datasets).
 - **Progress has no measured error bound.** It is counted from the nearest pattern stop.
+- **Stop activity says less than it might seem to.** "Appears stopped near" rests on reports about
+  20 s apart: a bus standing at lights within 40 m of a stop reads the same as one at it, and a
+  short call between two reports is missed. The thresholds (50 m, 40 m, 15 m, 20 s) are reasoned
+  from GPS noise and report spacing; they have not been measured against observed calls.
 - **No bus is tied to one timetabled journey.** The feed's journey references matched none of
   the timetable's journey codes in the 10 checked, so branches are settled only by the
   reported destination, and no scheduled time at a stop is shown.
@@ -336,9 +408,11 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   arriving report in 4 finds the estimate more than 35 m ahead of the bus, 2 in 5 more than
   35 m behind, and 1 in 10 over 150 m away, which snaps with the card saying so. The cause is
   measured, not guessed: buses stand at stops and lights while any estimate rolls on, and the
-  reports are 20 s apart. The drawing absorbs corrections by speeding up, slowing or standing
-  rather than jumping, so the drawn bus can trail or lead the estimate for several seconds
-  after a report.
+  reports are 20 s apart. The drawing absorbs corrections by speeding up or slowing rather than
+  jumping, so the drawn bus can trail or lead the estimate for several seconds after a report,
+  and smoothness costs position: held out against where each bus next reported, the drawn bus
+  was 59 and 61 m from it at the median (development and fresh captures), the estimate 52 and
+  55 m, the last report 86 and 113 m. Near a stop the drawn bus was 40 and 44 m from it.
 - **The front view is stylised, not a street view.** It is drawn from OpenStreetMap vector
   tiles: extruded, untextured building blocks at OSM's heights, road ribbons at typical widths, a
   flat sky; no lane markings, signals, trees, street furniture or other traffic. Where OSM has
@@ -369,10 +443,13 @@ its side of the road (NaPTAN bearing), its street, and the timetabled services l
 today. Choosing a stop shows the walk there (on request), the buses **coming to your stop** by
 the timetable's stop order, those that **may be coming** (a branch not yet settled), buses
 **last reported nearby** (within 150 m, not coming to your stop), and, folded away, **more
-buses near your stop**: already past it, not for it, and old reports. Only a bus coming to
-the stop is chosen automatically. A bus explored from the other groups is labelled
-**Selected bus**, says it does not serve the stop, and offers the way back. An explicitly
-chosen bus stays chosen if it leaves the feed, and says so.
+buses near your stop**: already past it, not for it, and old reports. With nothing chosen, the
+card shows a **Suggested bus**, only ever one coming to the stop; following it, riding along with
+it or tapping any bus chooses it (see *Chosen bus*). A bus chosen from the other groups is labelled
+**Selected bus**, says it does not serve the stop, and offers the way back. A strip under the map
+keeps the chosen bus and its status in view while the lists below are browsed. When no bus is
+coming, one message says so, with what can be done next (the buses that may call, those nearby,
+another stop), instead of the same news in three places.
 
 The answer card: which bus and destination; the answer first (its progress in stops from its
 last report); whether it is drawn at an estimate or at its last report, with the report's
@@ -408,15 +485,17 @@ Both views follow the same drawn state, and the drawn bus follows the estimate s
 the estimate's own path averaged over the few seconds of it already known, so a pause at a stop
 is eased into and out of, with a speed that changes gradually and never steps; a report that
 finds the drawn bus ahead of a moving estimate, by no more than the estimate's measured error at
-that report age, stands it until the estimate catches up rather than reversing it (`DRAWING` and
-`drawingFor` in `lib/motion.ts`). The chosen bus is identifiable at every zoom: below 18 the flat lime marker with its
+that report age, slows it to half the path's speed until the estimate catches up rather than
+reversing it or standing it still (`DRAWING` and `drawingFor` in `lib/motion.ts`). The chosen bus is identifiable at every zoom: below 18 the flat lime marker with its
 route number; from 18 the stylised 3D bus (`public/models/lm-bus.json`) inside a lime ground
 ring with the route number floating above it, both symbols, which MapLibre draws over every
 building, so a model behind one is still found. The HUD carries a short mode line ("Ride-along
 · following the bus") with the explanation behind "What is this?". The chosen bus's recent
 reports are drawn as small dots, and an estimate as a dashed line from its report to the drawn
 bus, captioned ESTIMATE. The walking route is dotted blue. If the model cannot load the flat
-symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over.
+symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over, and says why. A slow
+tile is not a failure: the start (the module, the map and its first frame) has 7 s, and then the
+tiles have their own allowance, 12 s for the first to arrive and up to 25 s for a late one.
 
 **No embedded film.** An embedded "window-seat journey" (an independent creator's upper-deck
 video of a 142, played through YouTube's embed on the Explore tab) was added on 13 September and

@@ -280,3 +280,88 @@ Wi-Fi cannot reach a WSL port until Windows forwards it; that was not set up her
 `pnpm typecheck && pnpm lint && pnpm test`, `.venv/bin/python -m unittest discover -s tests`,
 `pnpm test:browser`, and, with `pnpm dev:live` running,
 `LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3000 pnpm test:browser tests/browser/real-feed.spec.mjs`.
+
+# Milestone: one bus, kept
+
+14 September 2026, morning. The status words for this milestone are those of
+`.claude/rules/passenger-review.md`: **implemented and verified**, **implemented but unverified**,
+**blocked**. Evidence is labelled FIXTURE (test data on real stops), RECORDED (captured journeys
+replayed offline), LIVE (the real feed, with its run) or a physical phone (none yet).
+Measurements are in `docs/LOCAL_VERIFICATION.md` under the same heading.
+
+## 1. One bus, chosen and kept
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Reproduce the switching in d2e8702 | With nothing chosen the page showed `onRoute[0]` or `board.coming[0]`, lists ordered partly by report age; Follow and Ride along pinned nothing, so they followed whichever bus was first | `selection.spec` on d2e8702's build: 6 of 6 failed at the first publication, e.g. "the card still describes the bus being followed": FX-BRAVO where FX-ALPHA was followed | Implemented and verified |
+| Follow and Ride along pin the bus displayed; the same for map markers, cards, lists and restored journeys; suggestion kept apart from choice | `lib/selection.ts`: a pin is a vehicle and the journey it was on, made by every way of choosing; the page's own pick is a labelled "Suggested bus", kept while it is still a candidate | 8 Node tests; `selection.spec`, desktop and phone, including a tap on another bus on the map (on the drawn fallback map, whose markers are elements; the vector map calls the same selection); `journey-context.spec` (restored and linked journeys) | Implemented and verified |
+| Kept through new reports, reordering, camera gestures, theme changes and temporary absence; never substituted | A pin is resolved by vehicle, never by list position | `selection.spec`: reports alternating between two buses, a theme change, a filter to another service, a drag and Return to bus, the bus missing and back; card, strip, map and camera asserted after every publication (final build: all 7 selection checks, desktop and phone). FIXTURE playback frames, desktop by day and phone by night | Implemented and verified |
+| Missing reports: an honest unavailable state, alternatives for explicit selection | Drawn hollow at its last report with "NO NEW REPORT", no model, no estimated movement; "It is not in the latest publication … Nothing else has been chosen in its place"; "Follow 256 to … instead" buttons | `selection.spec`, `journey.spec`, `journey-context.spec` | Implemented and verified |
+| Journey changes during the session and after reload; vehicle apart from journey; motion and history reset; explicit continuation | Same journey: route, direction and reference where both give one. Another journey is said so on the card, the ride card, the strip and the list ("your bus · another journey"); the map's draw key includes the journey, so trail and motion start afresh; "Keep following it on this journey" | `selection.spec` (during the session); `journey-context.spec` (after reload) | Implemented and verified |
+| Filters and map visibility cannot hide a pinned bus | Choosing a service, route or stop leaves the pin alone; the map draws the chosen bus from its own source whatever the lists hold; the strip says "not in the list below", with a stop chosen or not | `selection.spec` filter phase (final build) | Implemented and verified |
+| Found on the real feed: with no route chosen, the route offered and its suggestion jumped to whichever route reported last | The route offered is kept while it still has buses; the card, the strip and the map's legend share one name for the bus (Suggested bus, Your bus, Selected bus) | `selection.spec` "with no route chosen…": failed at the first publication on the build before the fix (`BNSM|53` offered for `BNML|256`), desktop and phone; passes on the final build, which also checks that the card and the strip use one name | Implemented and verified |
+
+## 2. Stop activity from evidence
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Fresh, distinct reports matched to stop, route and direction, with observed movement; "Last reported near" first, "Appears stopped near" only with support | `lib/stop-activity.ts`: near needs one report ≤ 150 s old within 50 m of a stop on its pattern, agreeing with the stop's direction of travel; stopped needs two or more distinct reports ≥ 20 s apart, the latest ≤ 60 s old, within 40 m of the stop and 15 m of each other | 14 Node tests; `stop-activity.spec` (5 checks, desktop and phone) | Implemented and verified |
+| Never from the model's pause, the drawing, duplicates, or one point within 150 m | Reads only the journey's own reports; a report repeated with the same time counts once; the 150 m nearby group names no stop | Node tests; `stop-activity.spec` repeated-report check | Implemented and verified |
+| Opposite-side stops, passing buses, lights, GPS noise, stale data; no doors or boarding | Only stops on its own pattern; bearing against the stop's direction; reports 40 m apart are near, not stopped; 15 m of jitter tolerated; nothing from an old report; worded near, never at, and nothing about doors | One Node test for each; `stop-activity.spec` heading and old-report checks | Implemented and verified |
+| Method and limits documented; evidence shown | `PROJECT_CONTEXT.md` (definition and limitation); "Near a stop?" in "How we know this": each report read, its distance and whether it counted | Node test "the evidence lists every report read"; `stop-activity.spec` first check | Implemented and verified; the thresholds are reasoned from GPS noise and report spacing, not measured against observed calls |
+
+## 3. What the screens show
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| The bus distinguishable by day; a smaller ring | The day marker's rim is ink rather than pale; the ride-along's ground ring is smaller and fainter | Frames: FIXTURE playback, desktop by day | Implemented and verified in a software renderer; sunlight on a phone unverified |
+| Room for stop names | The stop's actions wrap onto their own row under its name, which no longer truncates | Frames at 390 px | Implemented and verified by eye on frames |
+| Repeated empty states consolidated, with next actions | One message when no bus is coming, with buttons for the buses that may call, those nearby, more near the stop, and another stop | `journey.spec` (the news appears once) | Implemented and verified |
+| The active bus and its status easy to find while browsing | A strip kept at the top while the lists scroll: suggested or yours, status or progress, report age, "Details" | `selection.spec` asserts it; frames | Implemented and verified |
+| Readable labels, unobstructed controls in 2D, City, Outside and Front, phone and desktop | The new status lines sit inside the ride card, which the overlap checks already cover | `journey.spec` and `ride.spec` overlap checks, desktop and phone, all passing on the final build | Implemented and verified |
+| Unsupported Front view keeps the same bus | The button says why; nothing about the pin changes | `ride.spec` "front view needs a road checked against the bus's own reports", desktop and phone, final build | Implemented and verified |
+
+## 4. Smooth, and faithful to the reports
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Observations, estimates and drawn positions kept distinct | Unchanged in the model; the evaluation reports the three separately | `scripts/evaluate-drawing.mjs` (schema 2) | Implemented and verified |
+| The final drawing against later held-out reports, from what was known before them; lag and error, near stops especially | Each report held out; error along the road, near a stop (≤ 50 m) and between; display lag | RECORDED: fresh 30 journeys (2,063 reports), development 109 (11,055); drawn median 61.3 and 59.0 m (near a stop 43.7 and 40.3), lag 2.5 and −0.5 s; the estimate 54.8 and 52.5 m; the last report 112.8 and 86.0 m | Implemented and verified |
+| The 84–87 m drawing-to-estimate distance not presented as GPS accuracy | Reworded wherever it appears: a distance between two computed positions | `PROJECT_CONTEXT.md`, `docs/MOTION_MODEL.md`, the evaluation's own output | Implemented and verified |
+| No misleading stop activity, no stale travel, no hidden corrections | The drawn bus waits at half the path's speed instead of standing; it stops when the estimate stops; corrections over 150 m snap and are labelled; stop activity reads reports only | Stands the reports contradict: 11.9 to 3.2 an hour (fresh), 10.9 to 2.8 (development); travelling while the estimate is halted 0.03% and 0.07% of frames; a new Node test for both rules | Implemented and verified |
+| Camera, model and motion status consistent | Missing: no model, no movement, a hollow marker, and the ride card says so; another journey: drawn afresh | `selection.spec`, `motion.spec`, `ride.spec`, all passing on the final build | Implemented and verified |
+
+## 5. The completion rule
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| A persistent rule under `.claude/rules/`, keeping existing instructions without repeating them | `.claude/rules/passenger-review.md` | Read against `AGENTS.md` and `CLAUDE.md` | Implemented and verified |
+
+## 6. The passenger review the rule asks for
+
+| Rule item | What was done | Evidence | Status |
+|---|---|---|---|
+| The main journeys, reviewed as a passenger | Find a stop, see what is coming, choose a bus, follow it, ride along, browse the others and come back, reload, open a shared link | FIXTURE playback frames (desktop by day, phone by night); the LIVE follow and ride frames, desktop and phone; `journey-context.spec` (reload, shared links) | Implemented and verified, in a software-rendered browser; not on a phone |
+| Selection continuity | Section 1 | `selection.spec`, all 7 checks at both sizes on the final build; the LIVE follow-and-ride check, 6 of 6 | Implemented and verified |
+| Clarity: one message per situation, with a next action | One empty-state message with actions; one name for the bus on the card, the strip and the legend; a missing bus or a new journey said on the card, with the alternatives as buttons | `journey.spec` (the news appears once); `selection.spec` (one name); frames | Implemented and verified |
+| Readability in 2D, City, Outside and Front, phone and desktop, day and night | Section 3 | The overlap checks in `journey.spec` and `ride.spec`, all passing on the final build; frames by day and by night | Implemented and verified in a software renderer; sunlight on a phone unverified |
+| Keyboard and touch access | Every new control is a button with its own name: Details, Follow … instead, Keep following it on this journey, Choose another bus, the empty state's actions. The review found Details left keyboard focus behind (now it moves to the card), and the fallback map named buses by the operator's raw destination code (now as the card writes it) | `selection.spec`: Enter on a focused button on the desktop and a touch tap on the phone keep the bus, and Details takes focus to the card; a tap on another bus on the fallback map, found by its corrected name. Final build and `next dev` | Implemented and verified for these controls; no keyboard-only pass of the whole page was made |
+| Camera behaviour | The ride camera stays on the chosen bus through reports, a theme change and a drag; Return to bus goes back to it; a missing bus holds the camera where it was | `selection.spec` camera assertions; playback (0 m from the ridden bus in every riding phase) | Implemented and verified |
+| Loading, empty, stale and offline states | Nothing is suggested, or said to be missing, before the first publication; one empty-state message; a chosen bus when live positions stop is said so, with nothing chosen in its place | `journey.spec`, `passenger.spec` (live, stale, offline, unavailable, replay); `selection.spec` "a followed bus when live positions stop", final build and `next dev`. The loading state has no check of its own | Implemented and verified, except the loading state: implemented but unverified |
+| Performance | The crawl adds one multiplication to each drawing step; map start measured | Map start on the final build: medians 1.5 s over 100 loads in SwiftShader. A real phone's frame rate and battery are unmeasured | Implemented but unverified on a phone |
+
+## 7. Verification
+
+| Check | Result | Build |
+|---|---|---|
+| `pnpm typecheck && pnpm lint && pnpm build` | Pass | Final |
+| `pnpm test` (Node) | 134 passed | Final |
+| Python (`.venv/bin/python -m unittest discover -s tests`) | 92 passed | Final code (no Python changed) |
+| `selection.spec` on d2e8702 | 6 of 6 failed, at the first publication | d2e8702 |
+| Full browser suite (`pnpm test:browser`) | 142 passed, 18 skipped by design (the real-feed and real-walking checks, which need a live server or a real request; the map and replay checks that run on the desktop only), none failed, 22.6 min | Final, before the fallback map's bus names were corrected |
+| After that correction: `selection.spec` and `map.spec` | 23 passed, 9 skipped by design (the map checks that run on the desktop only), 3.3 min, among them a tap on another bus on the map, found by its corrected name | Final |
+| The selection, journey-context, stop-activity and ride checks under `next dev` | 56 of 60 on the first run. The 4 failures were two stop-activity checks at both sizes, faults in the checks (an assertion too broad for the evidence's rule text; a trail entry the page's schema refuses). Corrected, the stop-activity and selection checks passed 22 of 22 | Final code |
+| Real feed (LIVE: a bounded 30-minute collection from 08:57 BST, 14 September) | 6 passed, desktop and phone: the live badge, a painted basemap and a real refresh; the ride-along on a real bus; and a real bus followed, then ridden, through five real publications with the card, strip, map and ride card on the same vehicle, the route offered unchanged and one name for it (BNML 245, BNGN 37). The same check on the code before the route fix also passed, and its frame showed the route flip | Final code under `next dev` |
+| Map start (`scripts/probes/webgl-paint.mjs`) | 120 ordinary loads painted; one tile 9 s late: fallback at 7.5–7.8 s before the fix, painted at 10.6–11.3 s after | Before and after the fix |
+| Continuous playback | FIXTURE selection playback (`scripts/probes/selection-playback.mjs`), desktop by day and phone by night, 9 phases each: the map, the card and the camera on the chosen bus in every phase (0 m while riding), no page errors; reviewed as frames, contact sheets and per-phase diagnostics beside the video, not watched in real time | Final |
+| A physical phone | Not done | — |

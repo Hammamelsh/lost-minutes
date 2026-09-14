@@ -527,7 +527,17 @@ change to the owner.
 
 **Next cheap validation.** Add the project and run it once against `pnpm dev`.
 
-**Status:** observed (the defect is fixed; the suite still only runs the build).
+**Update, 14 September.** Run by hand instead: `LM_BASE_URL=http://localhost:3100 pnpm test:browser`
+with the selection, journey-context, stop-activity and ride specs against a separate `next dev`.
+The first run passed 56 of 60. The 4 failures were two stop-activity checks at both sizes, and both
+faults were in the checks, not the page. One asserted that the whole card never contains "Appears
+stopped", although the evidence's rule text names it. The other published a trail entry at the
+same time as its report, which the page's schema refuses (a trail is earlier history), so the bus
+was dropped. Neither had been run on the build since it was changed, so the dev server was where
+they showed. Both checks were corrected, and the stop-activity and selection checks then passed
+22 of 22 under `next dev`.
+
+**Status:** mitigated (the dev-server run is a command, not yet a standing Playwright project).
 
 ## 16. Smoothness was judged by eye, and the first fix measured no better
 
@@ -591,16 +601,104 @@ to read each failure's page snapshot for "Map of …" and rerun.
 **Recurrence and effort.** Seen in two sessions; three of 88 checks in the worst run. About ten
 minutes each time to confirm and rerun.
 
-**Right answer.** A small fix in the suite: the shared "map painted" wait should fail at once with
-"no WebGL in this browser context" when the page reports the fallback, and that one condition can
-be retried in a fresh browser.
+**Cause, found on 14 September: the network, not WebGL.** The map's 7 s startup watchdog was
+cleared only by MapLibre's first `idle`, which waits for every tile in view, and the tiles come over
+the real network from tiles.openfreemap.org. `scripts/probes/webgl-paint.mjs` loaded the built page
+120 times in one Chromium, a fresh context each time as the suite does: every load painted (median
+1.6 s, slowest 2.9 s) with no WebGL or GPU message. Holding back one tile for 9 s made each of 4
+loads, desktop and phone, fall back at 7.5–7.8 s with `startup_timeout` although WebGL worked;
+holding back every tile did the same. A slow tile, which a long run meets now and then and a
+passenger on a weak phone signal meets more often, replaced a working map with the fallback for
+the rest of the visit. The failures of 13–14 September left no record (entry 18), so they cannot
+be shown to be this case; their evidence fits it: the fallback drawn, every tile request answered.
 
-**Existing tools.** Playwright's `retries` (per project or per test), a new browser per retry, and
-`testInfo.retry`, which lets a check know it is a retry. No new tool is needed.
+**Fix.** `components/city-map.tsx`: the 7 s watchdog now ends at the map's first frame (the module,
+the map and its WebGL context); the tiles then have their own allowance, 12 s for the first to
+arrive and up to 25 s for a late one before the map counts as painted. On the fixed build: one tile
+9 s late, painted at 10.6–11.3 s (4 of 4); no tile for 30 s, the fallback with `tiles_failed` at
+12.5–13.1 s; every tile 9 s late still falls back, at 12.6–13.1 s instead of 7.5–7.8 s; 60 ordinary
+loads all painted (median 1.5 s, slowest 2.6 s), and 40 more tilted to the City view with its
+buildings (median 1.5 s, slowest 2.9 s).
 
-**Smallest reusable capability.** `waitForPaint(page)` in `tests/browser/fixtures.mjs`, telling
-"fallback" from "slow" and naming the cause.
+**Right answer.** A small fix in the product, done, and one in the suite: the shared
+`waitForPaint(page)` in `tests/browser/fixtures.mjs` fails at once with the page's own reason
+instead of waiting out 45 s, so a fallback is told from a slow map at a glance. No retries were
+added; a retry would have hidden this.
 
-**Next cheap validation.** Add it, and see whether a full run still needs a manual rerun.
+**Existing tools.** Playwright's route handlers hold back tiles; no new tool is needed.
 
-**Status:** observed.
+**Smallest reusable capability.** The probe's `--tile-delay` and `--slow-tiles`, and `waitForPaint`.
+
+**Next cheap validation.** Watch the next full runs: any fallback now names which allowance ran out.
+
+**Status:** mitigated (cause reproduced and fixed; whether full runs stop needing reruns is to be
+seen over the next runs).
+
+## 18. Measurement probes lived only in the session scratchpad, and were lost
+
+**Problem and evidence.** The smoothness work of 13 September was measured with a per-frame
+camera probe, a video centroid tracker and a front-view probe, all written in the session's
+scratchpad. By the next session the scratchpad had been cleared: the fidelity comparison needed the
+earlier drawing code again (regenerated with `git show ad0c1cd:lib/motion.ts`), and the playback
+and WebGL probes had to be written afresh. The drawing evaluation survived only because it had been
+moved into `scripts/evaluate-drawing.mjs`.
+
+**Who hits it and the current workaround.** Whoever verifies a visual or motion change, and anyone
+trying to regenerate a figure in `docs/LOCAL_VERIFICATION.md`. The workaround is to rewrite the probe.
+
+**Recurrence and effort.** Twice in two days; roughly an hour each time.
+
+**Right answer.** A small repository change, not a product: keep each probe that produced recorded
+evidence under `scripts/probes/`, named in the verification notes beside its figures.
+
+**Existing tools.** Playwright's own video and trace recording; nothing else is needed.
+
+**Smallest reusable capability.** A playback probe: a scenario (publications and actions) in; frames,
+the map's diagnostics and a contact sheet out.
+
+**Next cheap validation.** Run the selection playback probe from a clean checkout.
+
+**Update, 14 September.** The two probes this milestone's evidence rests on are now in the
+repository, with no machine paths: `scripts/probes/webgl-paint.mjs` (repeated map loads, optionally
+with held-back tiles) and `scripts/probes/selection-playback.mjs` (the selection scenario as frames,
+diagnostics, video and a contact sheet). Both launch Chromium exactly as the suite does
+(`tests/browser/browser-env.mjs`, now shared with `playwright.config.mjs`) and write to
+`outputs/probes/`, which Git ignores. The earlier camera, video and front-view probes were not
+rewritten.
+
+**Status:** mitigated (two probes kept; the older ones are still lost).
+
+## 19. No check varied the feed the way the real feed varies it
+
+**Problem and evidence.** On 14 September the owner could not keep one bus followed. The page
+showed whichever bus came first in lists ordered partly by report age, so Follow and Ride along
+jumped between buses as their reports alternated. Every browser check until then served one fixed
+publication or one moving bus: none had two buses taking turns to report last, a chosen bus dropping
+out and coming back, or a vehicle starting another journey. `tests/browser/selection.spec.mjs` does
+all four, and on d2e8702 it failed at the first publication: the card described FX-BRAVO while
+FX-ALPHA was being followed, and the ride card read "to Manchester Piccadilly", BRAVO's destination.
+
+**Who hits it and the current workaround.** Anyone changing selection, the lists or the camera.
+
+**Recurrence and effort.** Once, but it reached the owner before any check.
+
+**Right answer.** A small fixture capability, not a product. The phased feed in
+`selection.spec.mjs` (the check sets a phase, then asks the page for it) belongs in
+`tests/browser/fixtures.mjs` with its two-bus builder, so other checks can use it.
+
+**Existing tools.** Playwright's route handlers are enough.
+
+**Smallest reusable capability.** `phasedFeed(page, phases)`, returning `publish(phase)`.
+
+**Next cheap validation.** Use it in a ride-along check where the ridden bus reports late.
+
+**Update, 14 September.** The phased feed now also carries a theme change, a filter to another
+service and a drag of the map, and `real-feed.spec.mjs` follows, then rides, a real bus through
+five real publications, where buses take turns to report last without any arrangement. That real
+run found a second case the fixtures had missed, because they had only one route: with no route
+chosen, the route offered was re-taken from the latest report at every publication, so the list
+and its suggestion jumped between routes. A check with two routes taking turns now covers it (it
+failed on the build before the fix). The helper is still local to `selection.spec.mjs` and the
+playback probe, which repeats it.
+
+**Status:** mitigated (the checks exist; the helper is not yet shared).

@@ -1,10 +1,9 @@
 // The passenger flows in the built site, on desktop and a 390 px phone.
 import {test, expect} from '@playwright/test';
-import {journeyLive, liveFromArchive, markerPixels, serveLive, servePatterns, unavailableState} from './fixtures.mjs';
+import {journeyLive, liveFromArchive, markerPixels, serveLive, servePatterns, unavailableState, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 // The vector map must actually settle here; the drawn fallback has its own tests in map.spec.
-const mapPainted = page => page.locator('.vector-map[data-map-state="painted"]');
 const shot = async (page, name, options = {}) =>
   page.screenshot({path: test.info().outputPath(`${test.info().project.name}-${name}.png`), ...options});
 
@@ -12,7 +11,7 @@ test('live: the map, the status and the stop search are all present', async ({pa
   await serveLive(page, [() => liveFromArchive()]);
   await page.goto('/');
   await expect(page.locator('.follow-badge')).toContainText('LIVE');
-  await expect(mapPainted(page)).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await expect(page.getByRole('combobox', {name: 'Stop name, street or area'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Buses near me'})).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/credential/i);
@@ -28,14 +27,14 @@ test('unavailable: honest copy, the map stays, and the recording is a choice', a
   await expect(page.getByRole('heading', {name: 'Live bus positions are unavailable'})).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/credential/i);
   // Geography stays available even with no vehicles at all.
-  await expect(mapPainted(page)).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await expect(page.getByRole('combobox', {name: 'Stop name, street or area'})).toBeVisible();
   await page.waitForTimeout(1000);
   await shot(page, 'unavailable');
 
   await page.getByRole('button', {name: 'Follow a bus in the recording'}).click();
   await expect(page.locator('.follow-badge')).toContainText('ARCHIVE REPLAY');
-  await expect(mapPainted(page)).toBeVisible({timeout: 45_000});
+  await waitForPaint(page);
   await page.waitForTimeout(1500);
   await shot(page, 'replay');
 });
@@ -59,7 +58,7 @@ test.describe('location granted', () => {
     await servePatterns(page);
     await serveLive(page, [() => journeyLive()]);
     await page.goto('/');
-    await expect(mapPainted(page)).toBeVisible({timeout: 45_000});
+    await waitForPaint(page);
     await page.getByRole('button', {name: 'Buses near me'}).click();
     await expect(page.getByText('Stops near you')).toBeVisible();
     await expect(page.getByText(/accurate to about 40 m/)).toBeVisible();

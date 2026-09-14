@@ -1186,3 +1186,202 @@ refresh; and the ride-along going to the chosen real bus, drawing it and followi
 - Weekday traffic: the fresh window is the same Sunday.
 - The tester's own route.
 - Anything on a server.
+
+# One bus, kept — 14 September 2026, morning
+
+Same conventions as above, with FIXTURE, RECORDED and LIVE evidence kept apart. Nothing here was
+checked on a physical phone. The final build is the commit that adds this section.
+
+## The switching, reproduced first
+
+The owner could not keep one bus followed. In d2e8702 `components/follow-view.tsx` showed the bus
+the passenger had tapped, and otherwise `onRoute[0]` (with a route chosen) or `board.coming[0]`
+(with a stop chosen). Both lists are ordered partly by report age: the route list by it, and the
+stop's "coming" list to break ties between buses the same number of stops away. Follow and Ride
+along chose nothing of their own; they followed whatever was shown. So whenever another bus
+reported more recently, the card, the lime bus on the map and the ride-along camera moved to it.
+
+`tests/browser/selection.spec.mjs` (FIXTURE) sets that up: two route-256 buses three stops before
+Stretford Mall (Stop A) taking turns to report last, then the chosen one missing from a
+publication, back, and reporting another journey. On d2e8702's build all 6 checks (3 scenarios,
+desktop and phone) failed at the first publication, for example "publication 1: the card still
+describes the bus being followed", expected FX-ALPHA, received FX-BRAVO; the ride card read "to
+Manchester Piccadilly", the other bus's destination.
+
+The real feed then showed the same fault one level up. With no route chosen, the page offered the
+route of the latest report and re-took it at every publication, so the route list and its
+suggested bus jumped to whichever route reported last. A bus followed from it stayed chosen, but
+was left under a list of another route (the LIVE check below followed a 192 and ended above a
+list of route 8), and the strip did not say the bus was not in that list. A fifth FIXTURE check
+has routes 256 and 53 take turns to report last. On the build before the fix it failed at the
+first publication on desktop and phone: the route offered became `BNSM|53` where `BNML|256` had
+been.
+
+## What changed
+
+- **A choice is a pin** (`lib/selection.ts`): the vehicle, and the journey it was on when chosen.
+  A list row, a card, a map marker, Follow or Ride along on the bus shown, a journey restored from
+  this device or a link: each pins. What the page picks for someone who has not chosen is a
+  labelled suggestion, kept while it stays a candidate. A pin is either seen on its journey, seen
+  on another journey, or missing (its last report shown if not expired, never moved on); nothing
+  replaces it.
+- **The page** (`components/follow-view.tsx`, `components/city-map.tsx`):
+  - the card and the ride card say "Suggested bus", "Your bus", "Your bus · no current report" or
+    "Your bus · another journey", and offer the alternatives as buttons;
+  - a strip under the map keeps the chosen bus, its status and Details in view while the lists
+    scroll, and says when the bus is not in the list below;
+  - a missing bus is drawn hollow with NO NEW REPORT, with no model and no estimated movement;
+  - the map's draw key includes the journey, so another journey starts a fresh trail and motion;
+  - filters no longer clear the choice;
+  - a list row reads "your bus · another journey" where that applies;
+  - with no route chosen, the route offered is kept while it still has buses;
+  - the card, the strip and the map's legend share one name for the bus: Suggested bus, Your bus
+    (chosen for your stop, or chosen and now missing or on another journey), or Selected bus;
+  - Details in the strip moves focus to the card as well as scrolling to it, so a keyboard user's
+    next Tab goes on from the card rather than from the lists above it.
+- **Stop activity** (`lib/stop-activity.ts`; on the card and the ride card, with its evidence in
+  "How we know this"). The rules and their limits are in `PROJECT_CONTEXT.md`.
+- **Screens:**
+  - the day marker has an ink rim, and the ring round the 3D bus is smaller and fainter;
+  - the stop's actions sit on their own row, so its name fits;
+  - one empty-state message with next actions replaces three;
+  - the fallback map says why it is shown, and names each bus for a screen reader with its
+    destination as the card writes it, not the operator's raw code ("Manchester_Piccadilly").
+- **Drawing:** it waits at half the path's speed instead of standing (below).
+- **Map start:** the watchdog no longer times the network's tiles (below).
+- **Checks and probes:**
+  - `waitForPaint` in the browser fixtures;
+  - `tests/browser/browser-env.mjs`, shared by the Playwright config and the probes;
+  - `scripts/probes/`;
+  - a real-feed check that follows, then rides, a real bus through five publications.
+
+## FIXTURE evidence
+
+- `selection.spec`, desktop and phone: 7 checks, all passing on the final build. Besides the
+  reports taking turns, absence, return and a new journey, it has:
+  - a theme change, a filter to another service, and a drag of the map with Return to bus;
+  - two routes taking turns with no route chosen;
+  - keeping the bus from the keyboard or with a tap on the phone;
+  - a followed bus when live positions stop;
+  - a tap on another bus on the map. This runs on the drawn fallback map, whose markers are
+    elements; the vector map calls the same selection. Under `next dev` (a separate server on port 3100, the
+  final code), the selection, journey-context, stop-activity and ride checks first passed 56 of
+  60. The 4 failures were two stop-activity checks at both sizes, faults in the checks rather
+  than the page:
+  - one asserted that the whole card never says "Appears stopped", although the evidence's rule
+    text names it;
+  - the other published a trail entry at the same time as its report, which the page's schema
+    refuses, so the bus was dropped.
+
+  Corrected, the stop-activity and selection checks passed 22 of 22 under `next dev` (2.1 min).
+- Stop activity: 14 Node tests, one per case:
+  - a single report is near, never stopped;
+  - standing 20 s or more appears stopped;
+  - a passing bus with two reports 40 m apart is near;
+  - the stop across the road is never named;
+  - a heading against the stop's direction says nothing;
+  - an old report says nothing, and an ageing one is near at most;
+  - a repeated report is one observation;
+  - a position within 150 m but beyond 50 m names nothing;
+  - jitter up to 15 m keeps a stand, and more breaks it;
+  - standing under 20 s is not yet stopped;
+  - 35 m before a stop, as at lights, is near;
+  - with no single pattern, or from a recording, nothing is said;
+  - the evidence lists every report read.
+
+  `stop-activity.spec` puts five of these through the page, desktop and phone: 10 passed on the
+  final build in the full suite, and 10 under `next dev` once two of its checks were corrected.
+- **Playback** (`scripts/probes/selection-playback.mjs`, final build): the ridden bus and another
+  taking turns, the ridden one missing, back, on another journey, then the ride left. Desktop by
+  day and phone by night, 9 frames each, reviewed as frames and contact sheets with the video's
+  per-phase diagnostics:
+  - the map drew FX-ALPHA in every phase, as suggested, active, missing or on another journey;
+  - the card described FX-ALPHA throughout;
+  - while riding, the camera was 0 m from it and 212 m from the other bus;
+  - there were no page errors.
+
+  On the phone at 390 px, the ride HUD, the ride card with its status line and the strip under
+  the map were all readable, with nothing overlapping. The missing bus's hollow marker is small on
+  the night map; its NO NEW REPORT caption and the cards carry the message.
+
+## RECORDED evidence: the drawing against held-out reports
+
+`scripts/evaluate-drawing.mjs`, the page's frame loop run offline over the captured journeys at 10
+frames a second, polling every 10 s. Each report is held out from what came before it. Distances
+are along the road from the later report, not GPS accuracy (full table in `docs/MOTION_MODEL.md`):
+
+| | Fresh: 30 journeys, 2,063 reports | Development: 109 journeys, 11,055 reports |
+|---|---|---|
+| Drawn bus, median; near a stop; display lag | 61.3 m; 43.7 m; 2.5 s | 59.0 m; 40.3 m; −0.5 s |
+| The estimate it follows | 54.8 m; 38.6 m; 0.6 s | 52.5 m; 37.5 m; −3 s |
+| The last report the page had | 112.8 m; 97.3 m; 17.6 s | 86.0 m; 52.7 m; 15.7 s |
+| Drawn stands the reports contradict, an hour: now; if standing while waiting | 3.2; 11.9 | 2.8; 10.9 |
+
+The drawn bus trails the estimate it follows by 6–7 m at the median, the price of never jumping.
+The 84–91 m 95th-percentile distance between the drawn bus and the estimate measures that lag
+between two computed positions; it is not an error against where the bus was, and not GPS accuracy.
+
+## LIVE evidence
+
+The collector ran for 30 minutes from 08:57 BST on 14 September (`pipeline.collect --minutes 30`).
+It recorded 89 cycles: 88 succeeded, and one request failed with a network error (cycle 56, a
+`URLError`), after which the next succeeded. It loaded 41,469 observations. Its first cycles held
+609–611 buses in the area, and the publication of 08:58:54 BST carried 543. On starting, it closed
+the run of 13 September begun at 23:36, left open with 11 cycles and no record of how it ended.
+`next dev` on port 3100 served the final code; the check only reads it:
+`LM_REAL_LIVE=1 LM_BASE_URL=http://localhost:3100 pnpm test:browser tests/browser/real-feed.spec.mjs`
+passed 6 of 6 on the final code (4.7 min), and 6 of 6 on the code before the route fix (4.4 min).
+In each run, with no stop chosen, the check followed the bus the page suggested, then rode along
+with it, through five real publications. After each one, the card, the strip, the map and the ride
+card named the same vehicle, with the ridden bus in view. On the final code the route offered also
+stayed the one the bus was chosen from, and the card and the strip gave the bus one name.
+
+The buses were the page's own suggestions, each shown at its reported position (movement on their
+services has not been evaluated):
+- before the fix: BNSM 192 to Stepping Hill Hospital (desktop) and BNDB 79 to Salford Shopping
+  Centre (phone);
+- on the final code: BNML 245 to The Trafford Centre Bus Station (desktop) and BNGN 37 to Bolton
+  Interchange (phone).
+
+The first run's desktop frame exposed the route flip described above: the 192 was still followed,
+but above a list of route 8.
+
+## The map that fell back: investigated, not rerun
+
+A few browser checks had failed in earlier runs because the page drew its fallback map (entry 17
+of the opportunity log). `scripts/probes/webgl-paint.mjs` loads the built page repeatedly in one
+Chromium, a fresh context each time, as the suite does:
+
+| Build | Loads | Outcome |
+|---|---|---|
+| Before the fix | 120 ordinary | all painted; median 1.6 s, slowest 2.9 s; no WebGL or GPU message |
+| Before the fix | 4, one tile held back 9 s | all fell back at 7.5–7.8 s with `startup_timeout`, although WebGL worked |
+| Before the fix | 4, every tile held back 9 s | all fell back at 7.6–7.7 s, `startup_timeout` |
+| Final | 4, one tile held back 9 s | all painted, at 10.6–11.3 s |
+| Final | 4, every tile held back 9 s | all fell back at 12.6–13.1 s, `tiles_failed` |
+| Final | 2, no tile for 30 s | fell back at 12.5–13.1 s, `tiles_failed` |
+| Final | 60 ordinary; 40 tilted to City | all painted; medians 1.5 s, slowest 2.6 and 2.9 s |
+
+The cause: the 7 s watchdog was cleared only by MapLibre's first `idle`, which waits for every tile
+in view from the real tile server, so one slow tile replaced a working map with the fallback for the
+rest of the visit, in the checks and for a passenger on a weak signal. The watchdog now ends at the
+first frame; the tiles have their own allowance. Earlier failures left no record, so they cannot
+be shown to be this case, though their evidence fits it.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 134 passed
+    .venv/bin/python -m unittest discover -s tests  # 92 passed (no Python changed)
+    pnpm test:browser                               # 142 passed, 18 skipped by design (22.6 min),
+                                                    # before the fallback map's bus names were fixed
+    pnpm test:browser tests/browser/selection.spec.mjs tests/browser/map.spec.mjs
+                                                    # after it: 23 passed, 9 skipped by design (3.3 min)
+
+## Not verified here
+
+- A physical phone: sunlight, frame rate, battery, and whether a passenger reads "Appears stopped
+  near" as intended.
+- The stop-activity thresholds against observed calls: there is no record of when a bus called.
+- Weekday traffic, for the drawing as for the model.
+- Whether full browser runs stop needing reruns: one clean run is not a trend.

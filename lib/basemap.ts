@@ -21,11 +21,16 @@ export const BASEMAP_CREDITS = [
 
 export const BASEMAP_ATTRIBUTION = BASEMAP_CREDITS.map(c=>c.label).join(' · ');
 
+/** Whether this device gives a WebGL context at all. The probe's own context is released at once:
+ *  left for the garbage collector, one was kept alive for every page load, on top of the map's. */
 export function webglAvailable(){
  if(typeof document==='undefined')return false;
  try{
   const canvas=document.createElement('canvas');
-  return !!(canvas.getContext('webgl2')||canvas.getContext('webgl'));
+  const gl=(canvas.getContext('webgl2')||canvas.getContext('webgl')) as WebGLRenderingContext|null;
+  if(!gl)return false;
+  gl.getExtension('WEBGL_lose_context')?.loseContext();
+  return true;
  }catch{return false}
 }
 

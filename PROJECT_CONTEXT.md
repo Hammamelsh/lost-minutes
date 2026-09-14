@@ -4,8 +4,16 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 14 September 2026, early afternoon (one visual refinement before the passenger
-trial). Changes:
+Last updated: 14 September 2026, afternoon (a temporary HTTPS preview for the phone trial). Changes:
+- `scripts/preview.sh` serves the latest build and the live data through Caddy on 127.0.0.1 and a
+  free Cloudflare Quick Tunnel. It reuses a running collector or starts a bounded one, and stops only
+  what it started;
+- a pinch in the outside ride-along now zooms and keeps following (on touch it did nothing before),
+  and a one-finger drag pauses following;
+- the street preview's mode line no longer splits "Ride-along";
+- `scripts/probes/public-preview.mjs` checks such a link as a phone reaches it (emulation).
+
+Early afternoon, one visual refinement before the passenger trial:
 - the optional front view is a raised, stylised street preview: lighter buildings and kerbs, a
   night sky graded to a horizon, upright street names from the map's own data, and up to three
   stops of the bus's pattern named; the outside ride-along stays the default;
@@ -143,6 +151,10 @@ node scripts/probes/selection-playback.mjs [--base http://localhost:3100/]
 .venv/bin/python -m pipeline.route_coverage --line 15 --stop 1800SJ32231  # one route: patterns,
                             # road shapes, estimates and live buses, each reported separately
 CADDY=/path/to/caddy deploy/validate.sh    # the server configuration, checked on this machine
+scripts/preview.sh start|status|stop       # a temporary HTTPS link for a phone: out/ and the live
+                            # /data through Caddy on 127.0.0.1, and a Cloudflare Quick Tunnel
+node scripts/probes/public-preview.mjs --base https://….trycloudflare.com
+                            # that link checked as a phone reaches it (emulation), and 360/390 px layouts
 .venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching on a frozen moment
 ```
 
@@ -303,8 +315,26 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **Front view as a street preview, and a slow map (14 September 2026, early afternoon,
-  latest):** one visual refinement, checked on FIXTURE data.
+- **A temporary HTTPS preview for the phone trial (14 September 2026, afternoon, latest):** the
+  build and the live data served through Caddy on 127.0.0.1 and a Cloudflare Quick Tunnel. It was
+  checked through the public address, with REAL data, in Chromium's emulation, not on a physical
+  phone:
+  - the page, MapLibre's worker, 81 tiles and the runtime configuration load; the service worker
+    controls the page; `Permissions-Policy: geolocation=(self)` permits location;
+  - a chosen bus (SK74BMZ, route 15) stayed chosen through two further real publications, with no
+    rebuild;
+  - 15 private paths return 404, and the BODS key is in nothing served;
+  - at Marston Road (nr), route 15's outbound pattern to Roedean Gardens calls there, with an
+    accepted road shape and estimates, and the page listed the buses coming;
+  - at 360 and 390 px no control overlapped another or was clipped;
+  - a pinch in the outside ride-along did nothing on touch. It now zooms and keeps following, with a
+    new phone check in `ride.spec`.
+
+  Typecheck, lint, the build and 134 Node tests pass. The focused browser run (ride, access,
+  selection, journey and the ride-entering motion checks) passed 104, with 4 skipped by design and
+  none failing.
+- **Front view as a street preview, and a slow map (14 September 2026, early
+  afternoon):** one visual refinement, checked on FIXTURE data.
   - **Before and after, on the same road.** The same 40 s were recorded on each build
     (`scripts/probes/front-view.mjs`): a straight, a turn and a 40 m correction, at night, on
     desktop and phone.
@@ -449,7 +479,10 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 - **Local only.** One WSL process, no scheduler, no hosted worker. When the machine stops,
   collection stops. Nothing is labelled continuously live. A server configuration is written
   and checked locally (`deploy/`), but nothing is provisioned: the certificate, the collector
-  under systemd and the nightly rebuild have only been validated, not run.
+  under systemd and the nightly rebuild have only been validated, not run. A temporary public
+  preview (`scripts/preview.sh`) serves this machine's build and data through a Cloudflare Quick
+  Tunnel. It lasts only while this machine and WSL stay up, gets a new address at each start, and
+  has no uptime guarantee.
 - **Along-route distance is a stop-to-stop chain, not road geometry**, and is null where the
   timetable omits a link (about 1.6% of links across the three datasets).
 - **Progress has no measured error bound.** It is counted from the nearest pattern stop.
@@ -550,8 +583,8 @@ widen it. Buses with a reported bearing carry a nose pointing where they are hea
 passenger card (`data-ride`): *entering* (straight to the bus, with no introduction: the camera
 first brings the drawn bus to the middle at the zoom shown, then zooms, tilts and turns around it,
 so the bus never swings out of the frame), *following* (the camera is put on the drawn bus every
-frame, but never while the map is already moving, so an animated zoom, a wheel or a pinch runs to
-its end and the camera glides back), *exploring* (a drag pauses following; the bus goes on without
+frame, but never while the map is already moving or fingers are on it, so an animated zoom, a wheel
+or a pinch runs to its end and the camera glides back, at the passenger's zoom), *exploring* (a drag pauses following; the bus goes on without
 the camera and one button, **Return to bus**, glides back to the ride framing) and *returning*.
 A gesture during entry or a return ends it; a transition made obsolete by another bus or by
 leaving is cancelled by its token. The framing is zoom 20, above and behind the drawn heading.
@@ -641,7 +674,8 @@ build-machine path and no tile ever loaded.
    a watchdog) and checked on this machine by `deploy/validate.sh`. Needs your approval, and a
    domain, before anything is provisioned. It is also what a phone trial needs: a phone lets a
    page use its location only over HTTPS. Over a plain address on the same Wi-Fi, "Buses near me"
-   and walking directions cannot work, though searching for a stop by name does.
+   and walking directions cannot work, though searching for a stop by name does. Until then,
+   `scripts/preview.sh` gives a temporary HTTPS link (`docs/PASSENGER_TEST.md`).
 2. **Identify the timetabled journey**, not just the pattern: match the operator's reported
    origin departure time against journeys on the same line, direction and day, and measure
    the hit rate before any scheduled time is shown (opportunity log, entry 7).

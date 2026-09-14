@@ -437,6 +437,11 @@ frame, so a passenger's zoom could not last. Pausing on MapLibre's `zoomstart` d
 `ride.spec` found the ride still following after a wheel, because no zoom was reported. Where
 inside MapLibre the zoom was lost was not isolated. The fix pauses on the raw `wheel` and a
 two-finger `touchstart`, the approach this entry already records for transitions. About an hour.
+A fifth instance came the same afternoon, on a phone, found through the public preview with a
+synthesized pinch. In the outside ride-along a pinch did nothing. Between the fingers landing and
+MapLibre taking them as a pinch, the map counts as still, and the frame loop placed the camera in
+that gap. No check had used touch. The fix leaves the camera alone while fingers are on the map. The
+follow controller this entry proposes would have to own touch as well as the mouse.
 
 **Right answer.** A small reusable piece, not a product: a "follow" controller for MapLibre
 that owns the camera while following, yields to gestures and animations, and exposes the state.

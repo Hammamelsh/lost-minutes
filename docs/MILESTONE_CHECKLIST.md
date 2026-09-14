@@ -400,3 +400,27 @@ tried on a physical phone.
 | Slow loading: useful bus information and a simple-map option while tiles load | "Drawing the map…"; after 3 s, **Use the simple map**, whole on the first screen. The stop, walk guide, bus card and lists work meanwhile, and the detailed map can come back | `access.spec` with every tile 8 s late, desktop and phone, with screenshots | Implemented and verified |
 | Compare before and after on the same segment, theme and viewport, through a straight, a turn and a correction | `scripts/probes/front-view.mjs` | Night, desktop and phone, before and after; day, after only | Done. Playback reviewed as measured samples and frames; the video was not watched |
 | Say whether the front view still adds little | — | The frames | It is better, but adds only a little. Kept secondary: outside is the default, and it is not a trial task |
+
+# A temporary HTTPS preview for the phone trial
+
+14 September 2026, afternoon. Authorised by the owner: a free Cloudflare Quick Tunnel, with no paid
+hosting and no domain. Measurements are in `docs/LOCAL_VERIFICATION.md` under "A temporary HTTPS
+link for a phone". The evidence comes from the public address in this machine's Chromium: emulation,
+not a physical phone.
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Commit and push the completed fixes, without `public/data/live.json`, credentials or unrelated files | 424de5c: 13 named files | Pushed to `main` (25a4a72..424de5c); only `live.json` left modified | Done |
+| A free Quick Tunnel from WSL, from the official distribution | cloudflared 2026.9.1, the binary Cloudflare's downloads page links, SHA-256 checked, in `~/.local/bin` | Registered over QUIC through London | Done |
+| The latest production build through the existing Caddy arrangement: `out/`, and `/data/*` from `public/data`; neither the repository nor `next dev` exposed | `scripts/preview.sh`: `deploy/Caddyfile` unchanged, bound to 127.0.0.1:8098. `pnpm start` rejected, because it would serve the data copied at build time | `deploy/validate.sh` passed with Caddy 2.11.4. Listening on 127.0.0.1 only. 15 private paths return 404 through the tunnel, traversal spellings included | Implemented and verified |
+| Reuse a healthy collector, or start one bounded 60-minute run; keep the single writer | Checks the writer lock first; none was held, so one run was started | Started 14:49:29 BST; every cycle succeeded. A second instance reused it rather than starting another | Implemented and verified |
+| Leave other processes alone; record how to stop only the preview's | Each process is recorded in `outputs/preview/` and checked to be the same program before any signal. The collector gets SIGINT, so it records its stop | A throwaway second instance: `stop` ended only its own two processes, and the trial preview kept its PIDs and link | Implemented and verified |
+| The page, MapLibre's worker, map tiles and runtime configuration load through the public address | — | The probe: page 200, worker 200, 81 tiles with no failures, configuration read, no page errors | Verified |
+| Two distinct real publications through the address, without rebuilding; the chosen bus kept | — | SK74BMZ kept through 15:05:52 and 15:06:12 BST, and through 14:56:31 and 14:56:52 on the first run | Verified |
+| Location permitted by the page's security headers | `Permissions-Policy: geolocation=(self)` from the Caddyfile | The header arrives through Cloudflare. A secure context whose policy allows geolocation; emulated permission gave a position | Verified in emulation; a real phone's prompt not seen |
+| No credentials or private files served | — | The key is in none of the 76 servable files, nor in the 21 addresses fetched through the tunnel; no `/home/` path | Verified |
+| Normal service-worker behaviour | Registered unconditionally; data network-first | Activated, and controlling after a reload; the live publications came through it from the network | Verified |
+| 360 and 390 px portrait: first screen, bigger map, outside ride-along, street preview; fix clear overlap or clipping | "Ride-along" no longer splits across lines | The frames, REAL and FIXTURE: no overlap, clipping or sideways scroll listed, and the frames looked at | Implemented and verified in emulation |
+| Exercise pinch and zoom where the tooling allows; tell emulation from a phone | The camera is left to the fingers while they are on the map | A synthesized pinch: the outside ride-along went 20 → 20.9 and kept following (before, it did nothing); the street preview pauses; a one-finger drag pauses. New phone check in `ride.spec` | Implemented and verified in emulation; a real finger not tried |
+| Marston Road (nr), route 15 towards Roedean Gardens; report honestly if no bus is current | — | The outbound pattern calls there, with an accepted road shape and estimates. The page listed 1, then 2, buses coming | Verified; the "no current bus" case did not arise |
+| Focused checks, not the full suite, unless a material change requires it | The touch fix is a camera change, so every check that reaches the camera was run, at both sizes | Typecheck, lint, the build, 134 Node tests. Ride, access, selection and journey specs, and the two ride-entering motion checks: 104 passed, 4 skipped by design, none failing (15.1 min) | Verified; the full suite not rerun |

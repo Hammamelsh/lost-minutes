@@ -1670,3 +1670,148 @@ Not verified here:
 - a real phone: its GPU, frame rate, battery, sunlight, and a real finger's pinch in the front
   view;
 - a screen reader.
+
+# A temporary HTTPS link for a phone — 14 September 2026, afternoon
+
+The owner authorised a temporary public preview for a phone trial, through a free Cloudflare Quick
+Tunnel: no paid hosting and no domain. Evidence is REAL unless marked FIXTURE: through the public
+address, with live collection running. All of it is emulation in this machine's Chromium, not a
+physical phone.
+
+## What serves it
+
+- **Not `pnpm start`.** It serves `out/` with Python, so `/data/live.json` would be the copy taken at
+  build time, and the phone would never see a new publication.
+- **Caddy, as deployed.** `scripts/preview.sh start` runs `deploy/Caddyfile` unchanged, through a
+  generated wrapper:
+  - `admin off` and `default_bind 127.0.0.1`, with the site address `http://:8098`, so it answers
+    only on this machine, and to the tunnel's host name;
+  - `/data/*` comes from `public/data` and everything else from `out/`. No other part of the
+    repository is reachable.
+- **The tunnel.** It then opens a Quick Tunnel: `cloudflared tunnel --url http://127.0.0.1:8098`.
+- **The collector.** It reuses a collector holding the writer lock, or starts one bounded run.
+  `stop` signals only the processes it recorded.
+- **The binaries.** Caddy 2.11.4 and cloudflared 2026.9.1 come from their official GitHub releases;
+  cloudflared's is the binary Cloudflare's downloads page links. Each was checked against its
+  published SHA-256, and Caddy's tarball also against the SHA-512 in its release's checksum file.
+  Both are in `~/.local/bin`.
+- **`CADDY=~/.local/bin/caddy deploy/validate.sh`.** Every check passed: shell syntax, 7 units, and
+  19 routes and headers, including `/data/../.env` and `../pipeline` returning 404 and `/data/`
+  listing nothing. The deploy scripts had been tracked without the executable bit, so running
+  `deploy/validate.sh` as documented failed; that is fixed.
+- **The collection run.** No other collector held the lock, so one was started at 14:49:29 BST for 60
+  minutes. Its first 22 cycles all succeeded, with about 640 buses in the area and a publication every
+  20 s. The tunnel connected over QUIC, through London (lhr16).
+
+## Through the public address
+
+- **Loading.** The page returned 200 over HTTP/2. So did `sw.js`, the manifest, `/data/config.json`,
+  `/data/live.json`, the MapLibre module and its worker, and the bus model.
+- **Headers on `/`.**
+  - `Permissions-Policy: geolocation=(self), camera=(), microphone=(), payment=()`;
+  - HSTS, `nosniff`, `strict-origin-when-cross-origin` and `no-cache`;
+  - `/data/live.json` passes through Cloudflare uncached (`cf-cache-status: DYNAMIC`), with the
+    Caddyfile's `max-age=10`;
+  - Cloudflare adds its own `Server: cloudflare` header where Caddy removes its one.
+- **Private paths.** All 15 returned 404, including traversal spellings: `/.env`, `/data/../.env`,
+  `/data/%2e%2e/.env`, `/.git/config`, `/package.json`, `/pipeline/collect.py`,
+  `/data/warehouse/collector.lock`, `/scripts/preview.sh`, `/outputs/preview/url`, `/deploy/Caddyfile`,
+  `/public/data/live.json`, `/node_modules/…`, `/.venv/…`, `/data/live-capture/` and `/data/`.
+- **Credentials.** The BODS key was read inside the check and never printed. It appears nowhere:
+  - not in the 76 files the server can serve;
+  - not in the page, its 10 scripts and stylesheets, `sw.js`, the manifest or the 8 `/data/*.json`
+    files, each fetched through the tunnel.
+
+  None of them contains a `/home/` path either.
+
+`node scripts/probes/public-preview.mjs --base <link>` then ran at 390 × 844, with touch and the
+service worker allowed:
+- **The map.** It painted. The MapLibre worker returned 200, 78 tiles came from OpenFreeMap with
+  none failing, the runtime configuration was read, and there were no page errors.
+- **The service worker.** It activated and, after a reload, controlled the page. The live
+  publications then came through it from the network, and none came from the device's cache.
+- **Location.** The page is a secure context whose policy allows geolocation, and with permission
+  granted (emulated) a position was obtained. Emulation does not show a real phone's permission
+  prompt.
+- **A chosen bus kept across real publications, with no rebuild.** SK74BMZ, route 15 to Roedean
+  Gardens, was chosen from the stop's list at the publication of 14:56:11 BST. It was still the
+  chosen bus (`data-selection="active"`) through the publications of 14:56:31 and 14:56:52.
+
+## Marston Road (nr), route 15 towards Roedean Gardens
+
+`pipeline.route_coverage --line 15 --stop 1800SJ32231` ran before the collector started:
+- **Patterns.** 1 of route 15's 3 patterns calls there: BNML outbound to Roedean Gardens, 57 stops,
+  Monday to Sunday, 141 journeys, valid to July 2031. The two inbound patterns do not.
+- **Road shape.** Accepted (752 reports, 95% within 13.8 m), and estimated movement is evaluated on
+  it.
+
+**Live, in the publication of 14:52:51 BST,** three buses were on that pattern:
+- BU25YWF, 3 stops before Marston Road (nr);
+- SK74BMZ, 20 stops before it;
+- MF74NPE, past it.
+
+**The page's check, 4 minutes later.** BU25YWF had gone past. The page said "15 to Roedean Gardens ·
+1 coming or here", and that one was SK74BMZ, "17 stops before yours · 35s ago". A current bus was
+reported, so the "no current bus" case did not arise at the time. On the rerun at 15:05 BST, the
+page listed two: 11 and 24 stops before the stop.
+
+## Portrait layouts, 360 and 390 px, and gestures
+
+The probe took frames at 360 × 800 and 390 × 844, with touch and a device pixel ratio of 2:
+- the first screen: REAL at Marston Road (nr) at both widths, and FIXTURE at Stretford Mall;
+- the map made bigger;
+- the outside ride-along and the street preview: REAL with SK74BMZ at 390 px, and FIXTURE at both
+  widths.
+
+No control over the map overlapped another, left the map or cut its own text off, and no page
+scrolled sideways. The frames were also looked at by eye.
+
+Two things were found and fixed:
+- **A pinch in the outside ride-along did nothing.**
+  - A two-finger pinch, synthesized by Chromium's own input pipeline (`Input.synthesizePinchGesture`,
+    touch), left the zoom at 20. That held on REAL and FIXTURE data, at both widths. The same pinch
+    zoomed the street preview.
+  - The cause: the frame loop placed the camera whenever the map counted as still, and it counts as
+    still between the fingers landing and MapLibre taking them as a pinch. Placing the camera
+    stopped MapLibre's touch handlers, so the gesture was lost.
+  - No check had used touch: the ride checks drag with the mouse, and zoom with buttons and a wheel.
+    A new phone check reproduced the fault on the previous build, where the pinch changed the zoom
+    by 0.
+  - Now the camera is left alone while fingers are on the map. The pinch zooms (20 → 20.9, REAL and
+    FIXTURE), the ride keeps following at the passenger's zoom, and a one-finger drag pauses
+    following, as a mouse drag does.
+  - How a one-finger drag behaved before the fix was not measured, because the check stopped at the
+    pinch. All of this is emulated touch; a real finger on a real phone is still to be tried.
+- **The street preview's mode line split "Ride-along" across two lines** ("Ride-" / "along") at
+  both widths. It no longer breaks, although the rest of the line still wraps onto a second line
+  there.
+
+Left as they were: in the street preview the ride's buttons cover the upper part of the view, and a
+street name can sit behind "Outside view", as before.
+
+## The stop command, exercised without ending the trial link
+
+A second instance ran with its own record folder and port 8097.
+- It reused the running collector, because that collector held the writer lock, and started only
+  Caddy and a tunnel.
+- `scripts/preview.sh stop` for that instance stopped those two.
+- The trial preview's three processes kept their PIDs, and its link kept answering 200.
+- The second link had not answered within 25 s of being created: a new Quick Tunnel name can take a
+  minute to resolve.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 134 passed
+    pnpm test:browser tests/browser/ride.spec.mjs tests/browser/access.spec.mjs \
+      tests/browser/selection.spec.mjs tests/browser/journey.spec.mjs \
+      tests/browser/motion.spec.mjs:79 tests/browser/motion.spec.mjs:102
+                                                    # 104 passed, 4 skipped by design (checks for
+                                                    # one size only), none failing (15.1 min)
+    node scripts/probes/public-preview.mjs --base <link>   # through the tunnel, above
+    CADDY=~/.local/bin/caddy deploy/validate.sh    # all passed
+
+The whole suite was not rerun. Since its last full pass, the only change is that the camera waits
+while fingers are on the map. Only the ride-along and the follow camera reach that, and the checks
+above cover them at both sizes, including the new phone check. Python was not rerun, because no
+Python changed.

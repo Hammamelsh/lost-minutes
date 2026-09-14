@@ -426,6 +426,51 @@ test('in the front view a zoom is the passenger taking over: following pauses ra
   await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
 });
 
+test('on a phone, fingers on the map are the passenger’s: a pinch zooms the outside ride-along and it keeps following; a drag, or a pinch in the front view, pauses it', async ({page, context}) => {
+  test.skip(test.info().project.name !== 'mobile', 'touch gestures are a phone’s');
+  test.setTimeout(120_000);
+  // Chromium's own input pipeline, as a finger's would be: touch events, not mouse ones.
+  const cdp = await context.newCDPSession(page);
+  const centre = async () => {
+    const box = await page.locator('.vector-map-canvas').boundingBox();
+    return {x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height * 0.45)};
+  };
+  const pinch = async scaleFactor => cdp.send('Input.synthesizePinchGesture',
+    {...await centre(), scaleFactor, relativeSpeed: 600, gestureSourceType: 'touch'});
+  await openAtStopA(page, underWay());
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 8000});
+  await page.waitForTimeout(800);
+
+  const before = (await camera(page)).zoom;
+  await pinch(1.6);
+  await page.waitForTimeout(600);
+  const pinched = (await camera(page)).zoom;
+  expect(pinched - before, 'the pinch zoomed the map').toBeGreaterThan(0.3);
+  await page.waitForTimeout(2500);
+  expect((await camera(page)).zoom, 'the pinched zoom is kept while following').toBeCloseTo(pinched, 1);
+  await expect(map(page)).toHaveAttribute('data-ride', 'following');
+
+  const {x, y} = await centre();
+  await cdp.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{x, y}]});
+  for (let i = 1; i <= 10; i++) {
+    await page.waitForTimeout(30);
+    await cdp.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{x: x + i * 8, y: y + i * 5}]});
+  }
+  await cdp.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+  await expect(map(page), 'a one-finger drag pauses following').toHaveAttribute('data-ride', 'exploring', {timeout: 5000});
+  await page.getByRole('button', {name: 'Return to bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 10_000});
+
+  await frontView(page);
+  await page.waitForTimeout(600);
+  await pinch(1.6);
+  await expect(map(page), 'a pinch in the front view pauses following').toHaveAttribute('data-ride', 'exploring', {timeout: 5000});
+  await page.getByRole('button', {name: 'Return to bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 10_000});
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
+});
+
 test('front view needs a road checked against the bus’s own reports: without one it says why, and the bus stays the same', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page);

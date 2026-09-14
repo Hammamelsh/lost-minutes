@@ -4,7 +4,20 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 14 September 2026, late morning (before the first passenger test). Changes:
+Last updated: 14 September 2026, early afternoon (one visual refinement before the passenger
+trial). Changes:
+- the optional front view is a raised, stylised street preview: lighter buildings and kerbs, a
+  night sky graded to a horizon, upright street names from the map's own data, and up to three
+  stops of the bus's pattern named; the outside ride-along stays the default;
+- in the front view a wheel or a pinch pauses following, as a drag does, instead of being undone;
+- while the detailed map is slow, the simple map is offered beside the bus information, and the
+  detailed map can be brought back;
+- the map can be made bigger, as the same map;
+- one Locate me at a time: the walk guide's while it asks for your location, otherwise the map's
+  own, or the stop's beside the simple map;
+- leaving the ride by keyboard no longer leaves focus on the page itself for a moment.
+
+Late morning, before the first passenger test:
 - a chosen bus that starts another journey is kept, drawn at its reports, and neither predicted
   nor followed until the passenger continues;
 - a bus is chosen by tapping its drawn map marker, overlaps and phone taps included;
@@ -290,7 +303,26 @@ servedFileSha256 = recordedPublicationSha256
 Executed, with the check in the repository. Numbers from earlier milestones are in
 `docs/LOCAL_VERIFICATION.md`.
 
-- **Before the first passenger test (14 September 2026, late morning, latest):** four gaps from an
+- **Front view as a street preview, and a slow map (14 September 2026, early afternoon,
+  latest):** one visual refinement, checked on FIXTURE data.
+  - **Before and after, on the same road.** The same 40 s were recorded on each build
+    (`scripts/probes/front-view.mjs`): a straight, a turn and a 40 m correction, at night, on
+    desktop and phone.
+    - The eye moves by the same median step, 0.74–0.75 m per 100 ms, and turns through the corner
+      at the same rate (p95 17.5°/s, against 17.7–18.1°/s).
+    - The ride stays following throughout.
+    - The pitch falls from 83° to 77°.
+    - At the turn, the frames gain street names, a named stop, lighter buildings and kerbs, and a
+      graded sky.
+  - **A slow map.** With every tile 8 s late, the stop, the walk guide, the bus card and the lists
+    all work, and **Use the simple map** is offered whole on the first screen at both sizes.
+  - **Found and fixed on the way:**
+    - a wheel in the front view neither zoomed nor paused following;
+    - leaving the ride by keyboard left focus on the page itself for a moment;
+    - a stop found by name showed two Locate me buttons.
+  - **Checks.** Typecheck, lint, the build and 134 Node tests pass. On the final build the whole
+    browser suite passed 169, with 21 skipped by design and none failing.
+- **Before the first passenger test (14 September 2026, late morning):** four gaps from an
   outside review. Each was reproduced on a build without its fix, then fixed and checked on the
   final build (FIXTURE):
   - **a moving chosen bus that starts another journey** is kept and drawn at each report, never
@@ -455,12 +487,18 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   and smoothness costs position: held out against where each bus next reported, the drawn bus
   was 59 and 61 m from it at the median (development and fresh captures), the estimate 52 and
   55 m, the last report 86 and 113 m. Near a stop the drawn bus was 40 and 44 m from it.
-- **The front view is stylised, not a street view.** It is drawn from OpenStreetMap vector
-  tiles: extruded, untextured building blocks at OSM's heights, road ribbons at typical widths, a
-  flat sky; no lane markings, signals, trees, street furniture or other traffic. Where OSM has
-  few buildings mapped it is sparse. It shows the estimated position from eye height, so it can
-  look more certain than it is; the HUD keeps the report age and "estimated position" in view.
-  Offered on the 6 patterns with accepted road shapes only; judged in a software renderer.
+- **The front view is a stylised preview, not a street view or the view from on board.** It is
+  drawn from OpenStreetMap vector tiles: extruded, untextured building blocks at OSM's heights,
+  road ribbons at typical widths, a plain graded sky; no lane markings, signals, trees, street
+  furniture or other traffic. The eye is 7.5 m above the road shape, higher than a passenger's,
+  and on the shape, not in any lane. Where OSM has few buildings mapped it is sparse, and a street
+  with no name in OSM gets none. It shows the estimated position, so it can look more certain than
+  it is; the HUD keeps the report age and "estimated position" in view. Its value is modest: after
+  the refinement it reads as the street ahead, with names and the next stops, but it adds little
+  the outside view does not, so it stays secondary and outside is the default. Offered on the 6
+  patterns with accepted road shapes only; judged in a software renderer, not on a phone. On a
+  phone the ride's buttons and the map's tools cover the view's upper part, and the ride card its
+  lower part, so a street name can be hidden. That was so before the refinement too.
 - **The ride-along's identifiability was judged in a software-rendered browser** on a 1280 px
   desktop and a 390 px phone, by projection and pixel measurement and by eye on the frames;
   a real phone, a real GPU and sunlight are still unchecked.
@@ -518,13 +556,18 @@ the camera and one button, **Return to bus**, glides back to the ride framing) a
 A gesture during entry or a return ends it; a transition made obsolete by another bus or by
 leaving is cancelled by its token. The framing is zoom 20, above and behind the drawn heading.
 The map's padding changes only while the camera is still: setting it is a jump, which would
-cancel a glide. The passenger's own zoom is kept through updates. **Front view** puts the eye
-3.5 m above the road at the front of the drawn bus, looking 30 m ahead, with the bus's own
-outside hidden and the route, destination, report age and estimated-or-reported status kept in
-the HUD beside an **Outside view** button. It is offered only for a bus on an accepted road shape
-(one checked against that service's own reports); otherwise the button says why and the bus is
-left as it is. In it the heading is eased, so each corner of the road shape turns the view
-smoothly, and street names laid along the road are hidden (from eye height they stand on end).
+cancel a glide. The passenger's own zoom is kept through updates. **Front view**, optional and
+secondary, is a raised stylised preview of the street ahead: the eye 7.5 m above the road shape
+where the bus is drawn, looking 32 m ahead (a pitch of about 77°), with the bus's own outside
+hidden and the route, destination, report age and estimated-or-reported status kept in the HUD
+(mode line "street preview · following the bus") beside an **Outside view** button. It is offered
+only for a bus on an accepted road shape (one checked against that service's own reports);
+otherwise the button says why and the bus is left as it is. In it the heading is eased, so each
+corner of the road shape turns the view smoothly. Buildings and kerbs are lightened against the
+road, and the night sky is graded to a horizon. Street names laid along the road give way to
+upright names from the map's own `transportation_name` data. Up to three stops of the bus's
+pattern are labelled with their NaPTAN names. Because the camera sets its own height every
+frame, a wheel or a pinch there pauses following, as a drag does, and Return to bus resumes it.
 Both views follow the same drawn state, and the drawn bus follows the estimate smoothly: along
 the estimate's own path averaged over the few seconds of it already known, so a pause at a stop
 is eased into and out of, with a speed that changes gradually and never steps; a report that
@@ -544,11 +587,17 @@ then have their own allowance:
   move asks for new tiles);
 - once it has answered, 40 s for a first whole tile. On a slow network that takes round trips in
   turn: the tile, then the glyphs for its labels;
-- with some tiles in, a late one is waited for up to 25 s. A tap chooses the bus drawn nearest
-to it within a finger's reach (14 px beyond its marker), so a bus beside the chosen one can be
-tapped. Keyboard focus is never dropped by the ride's controls coming and going: the ride's region
-takes it when the ride begins, and Ride along gets it back afterwards. Details under the map moves
-focus to the card.
+- with some tiles in, a late one is waited for up to 25 s.
+
+While it waits, the map says "Drawing the map…". After 3 s it offers **Use the simple map**,
+because the bus information is already there. The simple map then says it was chosen and offers
+the detailed map back. There is one **Locate me** at a time: the walk guide's while it asks for
+the passenger's location, otherwise the map's own, or the stop panel's beside the simple map. **Make the map bigger** gives the same map most of the screen.
+
+A tap chooses the bus drawn nearest to it within a finger's reach (14 px beyond its marker), so a
+bus beside the chosen one can be tapped. Keyboard focus is never dropped by the ride's controls
+coming and going: the ride's region takes it when the ride begins, and Ride along gets it back
+afterwards. Details under the map moves focus to the card.
 
 **No embedded film.** An embedded "window-seat journey" (an independent creator's upper-deck
 video of a 142, played through YouTube's embed on the Explore tab) was added on 13 September and

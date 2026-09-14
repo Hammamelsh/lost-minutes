@@ -1,14 +1,14 @@
 "use client";
 
-import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
-import {Armchair,Bus,Crosshair,Eye,LocateFixed,Minus,Moon,Plus,Scan,Sun,X} from 'lucide-react';
+import {Armchair,Bus,Crosshair,Eye,LocateFixed,Maximize2,Minimize2,Minus,Moon,Plus,Scan,Sun,X} from 'lucide-react';
 import {BASEMAP_CREDITS,MAPLIBRE_MODULE_URL,prefersReducedMotion,webglAvailable} from '@/lib/basemap';
-import {applyTheme,buildingExtrusion,buildStyle,type MapTheme} from '@/lib/map-style';
+import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,type MapTheme} from '@/lib/map-style';
 import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
-        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
+        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
         type PresentationClock,uncertaintyAt,
@@ -33,6 +33,10 @@ type Props = {
  buses:FollowBus[];selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
  /** `reason` says which part of the start failed, so the simple map can say why it is shown. */
  follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:(reason?:string)=>void;
+ /** The next few stops on the chosen bus's pattern, labelled in the front view: real stops only. */
+ stopsAhead?:{id:string;lat:number;lon:number;label:string}[];
+ /** Offered while the detailed map is slow to arrive: the simple map in its place. */
+ onSimpleMap?:()=>void;
  view:MapView;onViewChange:(view:MapView)=>void;
  theme:MapTheme;onThemeChange:(theme:MapTheme)=>void;
  /** Incremented by the parent when the passenger asks for something new (a stop, a service, a
@@ -65,20 +69,18 @@ const VIEW_CAMERA={'2d':{pitch:0,bearing:0},city:{pitch:58,bearing:-17}};
 // While following, the camera is re-centred on the drawn bus every frame; after a gesture or
 // an animated zoom has moved it further than this (px), it glides back rather than jumping.
 const SETTLE_PX=40;
-// The front view: a passenger's eye at the front of the upper deck of a double-decker, looking
-// down the road ahead along the bus's own road shape (never the raw GPS heading, which jitters).
-const EYE_HEIGHT=3.5;          // m above the road
+// The front view: a stylised preview of the street ahead, from a raised point above the drawn
+// position on the bus's own checked road shape (never the raw GPS heading, which jitters). It is
+// not a seat on board and not the bus's lane: it is the map's street, seen from above the road.
+// Raised so that the road ahead, both sides of the street and the skyline share the frame, where
+// from 3.5 m a road filled the foot of the screen under an empty sky. Its paint is FRONT's.
+const EYE_HEIGHT=7.5;          // m above the road, above a double-decker's roof
 const EYE_FORWARD=4;           // m ahead of the drawn position, the middle of a 12 m bus
-const LOOK_AHEAD=30;           // m further along the road, where the eye rests: turns sweep smoothly
-const FRONT_MAX_PITCH=85;      // the view looks about 7° below the horizon; MapLibre allows 180
+const LOOK_AHEAD=32;           // m further along the road, where the eye rests: turns sweep smoothly
+const FRONT_MAX_PITCH=85;      // MapLibre allows 180; the view looks about 13° below the horizon
 const OUTSIDE_MAX_PITCH=70;    // the map's own limit everywhere else
 const NO_PADDING={top:0,bottom:0,left:0,right:0};
-// Above the horizon a sky, and towards it a haze, so the map's far edge fades rather than ends.
-const FRONT_SKY:Record<MapTheme,NonNullable<Parameters<MapLibreMap['setSky']>[0]>>={
- day:{'sky-color':'#a9cbe3','horizon-color':'#e9e3d3','fog-color':'#efe7d6','sky-horizon-blend':0.5,
-  'horizon-fog-blend':0.6,'fog-ground-blend':0.35,'atmosphere-blend':0},
- night:{'sky-color':'#07111a','horizon-color':'#1b2b37','fog-color':'#13212c','sky-horizon-blend':0.5,
-  'horizon-fog-blend':0.6,'fog-ground-blend':0.35,'atmosphere-blend':0}};
+const NO_STOPS:{id:string;lat:number;lon:number;label:string}[]=[];
 // No sky: what MapLibre itself uses when a style sets none.
 const SKY_OFF:NonNullable<Parameters<MapLibreMap['setSky']>[0]>={'sky-color':'transparent','horizon-color':'transparent',
  'fog-color':'transparent','fog-ground-blend':1,'atmosphere-blend':0};
@@ -190,6 +192,12 @@ function restyleOverlay(instance:MapLibreMap,theme:MapTheme){
  instance.setPaintProperty('lm-stop-label','text-color',o.stopLabel);
  instance.setPaintProperty('lm-here-label','text-color',o.hereLabel);
  instance.setPaintProperty('lm-bus-label','text-color',o.busLabel);
+ if(instance.getLayer('lm-stops-ahead-label')){
+  instance.setPaintProperty('lm-stops-ahead-label','text-color',o.busLabel);
+  instance.setPaintProperty('lm-stops-ahead-label','text-halo-color',o.halo);
+  instance.setPaintProperty('lm-stops-ahead-dot','circle-color',o.halo);
+  instance.setPaintProperty('lm-stops-ahead-dot','circle-stroke-color',o.busLabel);
+ }
  instance.setPaintProperty('lm-sel-caption','text-color',o.busLabel);
  instance.setPaintProperty('lm-trail-estimate','line-color',o.ink);
  instance.setPaintProperty('lm-trail-report','circle-stroke-color',o.ink);
@@ -355,7 +363,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
 export default function CityMap({buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,rideOverlay,busLabel='Your bus',walk=null,
-                                 clockOffsetMs=0,motion,onMotion,onRideState}:Props){
+                                 clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
  const hudRef=useRef<HTMLDivElement>(null),launchRef=useRef<HTMLButtonElement>(null),lastView=useRef(view);
@@ -547,7 +555,9 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
      r.pointer.moved=true;
      // Paused for a new journey, the ride waits for the passenger's choice, not for "Return to bus".
      if(r.state==='paused')return;
-     if(kind==='drag'||r.state==='entering'||r.state==='returning'){
+     // In the front view the camera sets its own height every frame, so a zoom would be undone at
+     // once: like a drag, it pauses following, and "Return to bus" resumes it.
+     if(kind==='drag'||r.camera==='front'||r.state==='entering'||r.state==='returning'){
       r.transition+=1;
       if(r.state!=='exploring')setRide('exploring');
      }
@@ -577,11 +587,18 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    canvasBox.addEventListener('pointerdown',pointerDown);
    canvasBox.addEventListener('pointerup',pointerUp);
    canvasBox.addEventListener('pointercancel',pointerUp);
-   canvasBox.addEventListener('wheel',()=>{
+   // A wheel or a pinch in the front view is the passenger taking over, as a drag is. It must pause
+   // following before the next frame places the camera, since placing it stops MapLibre's own
+   // handlers: otherwise the zoom is cancelled before it begins and the wheel does nothing.
+   const takeOver=()=>{
     const r=ride.current;
     if(viewRef.current!=='ride')return;
     if(r.state==='entering'||r.state==='returning'){r.transition+=1;instance.stop();setRide('exploring')}
-   },{passive:true});
+    // Nothing of ours is moving here, and stopping would reset MapLibre's own zoom as it begins.
+    else if(r.camera==='front'&&r.state==='following'){r.transition+=1;setRide('exploring')}
+   };
+   canvasBox.addEventListener('wheel',takeOver,{passive:true});
+   canvasBox.addEventListener('touchstart',(event:TouchEvent)=>{if(event.touches.length>1)takeOver()},{passive:true});
    map.current=instance;
   })().catch(()=>{if(!cancelled)onUnavailable('module_failed')});
   return()=>{cancelled=true;clearTimeout(firstFrame);clearTimeout(noTiles);clearTimeout(tileWait);
@@ -636,6 +653,39 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   const at=instance.project([stop.lon,stop.lat]);
   root.current?.setAttribute('data-stop-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
  },[ready,stop]);
+
+ // The next stops on the chosen bus's pattern, labelled in the front view (hidden elsewhere). The
+ // list is compared as text, so it is redrawn only when the stops themselves change.
+ const aheadData=JSON.stringify(stopsAhead);
+ useEffect(()=>{
+  const instance=map.current;
+  if(!ready||!instance)return;
+  const list=JSON.parse(aheadData) as typeof NO_STOPS;
+  (instance.getSource(STOPS_AHEAD_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',
+   features:list.map(s=>({type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[s.lon,s.lat]},
+    properties:{label:s.label}}))});
+  root.current?.setAttribute('data-stops-ahead',String(list.length));
+ },[ready,aheadData]);
+
+ // The detailed map slow to arrive: after a few seconds the simple map is offered in its place,
+ // while the bus information beside the map is already there.
+ const [slow,setSlow]=useState(false);
+ useEffect(()=>{
+  if(painted)return;
+  const timer=setTimeout(()=>setSlow(true),3000);
+  return()=>clearTimeout(timer);
+ },[painted]);
+
+ // A bigger map, most of the screen, for following a bus closely; the page scrolls to it.
+ const [expanded,setExpanded]=useState(false);
+ useEffect(()=>{
+  if(!ready)return;
+  const frame=requestAnimationFrame(()=>{
+   map.current?.resize();
+   if(expanded)root.current?.scrollIntoView({block:'start',behavior:prefersReducedMotion()?'auto':'smooth'});
+  });
+  return()=>cancelAnimationFrame(frame);
+ },[ready,expanded]);
 
  useEffect(()=>{
   if(!ready||!map.current)return;
@@ -857,9 +907,16 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    instance.setPaintProperty('lm-sel-ring','icon-opacity',(inside?0:modelShown?SHOW_RING_WHEN_MODEL:0) as never);
    instance.setLayoutProperty('lm-sel-caption','visibility',inside?'none':'visible');
    for(const id of SELECTED_TRAIL)instance.setLayoutProperty(id,'visibility',inside?'none':'visible');
-   if(instance.getLayer('lm-buildings-3d'))instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',
-    inside?1:(buildingExtrusion(theme) as unknown as {paint:Record<string,number>}).paint['fill-extrusion-opacity']);
-   instance.setSky(inside?FRONT_SKY[theme]:SKY_OFF);
+   const extrusion=(buildingExtrusion(theme) as unknown as {paint:Record<string,unknown>}).paint;
+   if(instance.getLayer('lm-buildings-3d')){
+    instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',(inside?1:extrusion['fill-extrusion-opacity']) as never);
+    instance.setPaintProperty('lm-buildings-3d','fill-extrusion-color',
+     (inside?FRONT[theme].extrusion:extrusion['fill-extrusion-color']) as never);
+   }
+   // Low and to one side in the front view, so walls and roofs differ; elsewhere the map's own.
+   instance.setLight((inside?FRONT[theme].light:buildStyle(theme).light) as never);
+   instance.setSky((inside?FRONT[theme].sky:SKY_OFF) as never);
+   const own=(id:string)=>(baseLayers(theme).find(l=>l.id===id) as {paint?:Record<string,unknown>}|undefined)?.paint;
    for(const [id,metres] of Object.entries(ROAD_METRES))for(const [layer,extra] of [[id,0],[`${id}-casing`,1.5]] as const){
     if(!instance.getLayer(layer))continue;
     if(inside){
@@ -869,7 +926,14 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
      instance.setPaintProperty(layer,'line-width',savedWidths.current.get(layer) as never);
      savedWidths.current.delete(layer);
     }
+    // A road's casing reads as its kerb in the front view, lighter than the road so the street's
+    // edge shows; elsewhere it takes the current theme's own colour back.
+    const kerb=inside?FRONT[theme].kerb:own(layer)?.['line-color'];
+    if(extra>0&&kerb)instance.setPaintProperty(layer,'line-color',kerb as never);
    }
+   // The front view's own labels: upright street names, and the next stops on the bus's pattern.
+   for(const id of ['lm-front-street-name','lm-stops-ahead-dot','lm-stops-ahead-label'])
+    if(instance.getLayer(id))instance.setLayoutProperty(id,'visibility',inside?'visible':'none');
    // Street and river names are laid along their lines. From eye height the name of the road
    // ahead stands on end and overlaps itself, so the front view leaves them out.
    for(const layer of instance.getStyle().layers??[])
@@ -1107,15 +1171,20 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
 
  // The ride's controls come and go with it: Ride along is gone once it begins, and the ride's own
  // controls once it ends. Focus left on nothing by that goes to the ride's region, and afterwards
- // back to Ride along, so a keyboard never has to start again from the top of the page.
- useEffect(()=>{
+ // back to Ride along, so a keyboard never has to start again from the top of the page. It moves in
+ // the same commit that removed the focused control, before anything is painted or announced (a
+ // frame later, the page's own effects had already run and focus had sat on the page itself), and
+ // once more on the next frame if the target was not ready.
+ useLayoutEffect(()=>{
   const was=lastView.current;
   lastView.current=view;
   if((was==='ride')===(view==='ride'))return;
-  const frame=requestAnimationFrame(()=>{
+  const place=()=>{
    if(document.activeElement&&document.activeElement!==document.body)return;
    (view==='ride'?hudRef.current:launchRef.current)?.focus({preventScroll:true});
-  });
+  };
+  place();
+  const frame=requestAnimationFrame(place);
   return()=>cancelAnimationFrame(frame);
  },[view]);
 
@@ -1124,7 +1193,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   move(m=>(delta>0?m.zoomIn:m.zoomOut).call(m,{duration:prefersReducedMotion()?0:220}));
  };
 
- return <div ref={root} className={`vector-map theme-${theme} view-${view}`}
+ return <div ref={root} className={`vector-map theme-${theme} view-${view}${expanded?' expanded':''}`}
    data-map-state={painted?'painted':ready?'ready':'starting'}
    data-view={view} data-theme={theme} data-model={model?'ready':modelFailed?'failed':'idle'}
    data-ride={view==='ride'?rideState:'off'} data-ride-camera={view==='ride'?camera:'off'}
@@ -1132,7 +1201,13 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   <div ref={container} className="vector-map-canvas" aria-label={
    `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>
-  {!painted&&<p className="map-loading" role="status">Drawing the map…</p>}
+  {!painted&&<div className="map-loading" role="status">
+   <p>Drawing the map…</p>
+   {slow&&onSimpleMap&&<>
+    <p className="map-loading-slow">The detailed map is slow to arrive. The bus information is ready, and the
+     simple map can show it now.</p>
+    <button className="map-loading-simple" onClick={onSimpleMap}>Use the simple map</button></>}
+  </div>}
 
   {view!=='ride'&&<div className="map-views">
    <div className="view-switch" role="group" aria-label="Map view">
@@ -1149,6 +1224,9 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    <button onClick={()=>zoomBy(-1)} aria-label="Zoom out" disabled={camera==='front'}><Minus size={18}/></button>
    {onLocate&&<button onClick={onLocate} disabled={locating} aria-label="Locate me">
     <LocateFixed size={17} className={locating?'spin':''}/></button>}
+   <button onClick={()=>setExpanded(value=>!value)} aria-pressed={expanded}
+    aria-label={expanded?'Make the map smaller':'Make the map bigger'}>
+    {expanded?<Minimize2 size={17}/>:<Maximize2 size={17}/>}</button>
    <button onClick={()=>onThemeChange(theme==='day'?'night':'day')}
     aria-label={theme==='day'?'Switch to the night map':'Switch to the daylight map'}>
     {theme==='day'?<Moon size={17}/>:<Sun size={17}/>}</button>
@@ -1172,13 +1250,14 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
        mode line is short; what a ride-along is sits behind "What is this?". */}
    <div className="ride-notes">
     <p className="ride-mode" data-state={rideState} role="status"><Eye size={14}/>
-     <strong>Ride-along</strong><span>· {camera==='front'?'front view · ':''}{RIDE_WORDS[rideState]||'starting'}</span></p>
+     <strong>Ride-along</strong><span>· {camera==='front'?'street preview · ':''}{RIDE_WORDS[rideState]||'starting'}</span></p>
     <details className="ride-about"><summary>What is this?</summary>
      <p>A map visualisation, not a film from on board. The bus is drawn at its last report, or at an
       estimate labelled as one. Drag to look around; the bus goes on without the camera until you
-      return to it. The front view puts you at the front of the upper deck, 3.5 m above the road,
-      looking along the road ahead; the streets and buildings are the map’s own, not photographs,
-      and it moves only as the bus is drawn.</p></details>
+      return to it. Front view is a stylised preview of the street ahead, from a point above the road
+      where the bus is drawn: the map’s own streets, buildings and names, not photographs. It is not
+      the view from on board and does not show the lane the bus is in, and it moves only as the bus
+      is drawn.</p></details>
     {camera==='front'
      ? <button className="ride-camera on" onClick={chooseOutside}><Bus size={14}/>Outside view</button>
      : <button className="ride-camera" aria-disabled={frontReason!==null} onClick={chooseFront}>

@@ -1546,3 +1546,127 @@ allowance. On it, `selection`, `access`, `journey-context`, `journey`, `map`, `m
 
 Every check the camera change could reach passed on it: the ride-along, motion, journey and
 replay specs.
+
+# Front view as a street preview, and what a slow map shows — 14 September 2026, early afternoon
+
+The owner asked for one focused visual refinement before the passenger trial. The outside
+ride-along, its camera and the chosen-bus behaviour were left as they were. Evidence is FIXTURE
+unless marked otherwise: the fixture journey on route 256's real accepted road shape, over real
+OpenFreeMap tiles.
+
+## Before and after, on the same stretch of road
+
+`scripts/probes/front-view.mjs` records the same 40 s on each build:
+- the fixture's moving bus (estimated, 7 m/s), from about 120 m before the first clear turn in its
+  road shape, 960 m along it;
+- a report 24 s in that corrects the estimate by 40 m;
+- the night theme, at desktop (1280 × 900) and phone (390 × 844) size;
+- a frame each second, the camera every 100 ms, a video and a contact sheet.
+
+The outputs are in `outputs/probes/front-view/{before,after}/{desktop,phone}-night/`, not in Git.
+
+| Night | Pitch | Zoom | Eye step per 100 ms, p50 / p95 / max | Turn rate p95 | Turn acceleration p95 / max | Ride state | Corrections |
+|---|---|---|---|---|---|---|---|
+| Desktop, before | 83.3° | 20.52 | 0.75 / 1.63 / 2.47 m | 18.1°/s | 28.3 / 58.7°/s² | following throughout | 1 |
+| Desktop, after | 76.8° | 20.39 | 0.74 / 1.70 / 2.40 m | 17.5°/s | 28.4 / 57.2°/s² | following throughout | 1 |
+| Phone, before | 83.3° | 20.46 | 0.75 / 2.30 / 2.96 m | 17.7°/s | 26.5 / 96.2°/s² | following throughout | 1 |
+| Phone, after | 76.8° | 20.34 | 0.74 / 2.37 / 3.79 m | 17.5°/s | 20.0 / 58.8°/s² | following throughout | 1 |
+
+**Movement is as smooth as before.** The straight, the turn and the correction all move the eye
+by the same median step, and the heading turns through the corner at the same rate. On the phone
+the largest single step grew from 3.0 to 3.8 m, and the hardest heading change fell from 96 to
+59°/s². The ride stayed "following" in every sample, and the one correction was absorbed without
+a snap. No run showed an automatic bus change, a repeated entry or a camera move against a gesture.
+
+**The camera changed only in height and aim.** The eye is now 7.5 m above the road shape (it was
+3.5 m) and looks 32 m ahead (it was 30 m). So the pitch falls from 83° to 77°, and the view holds
+more street and less sky.
+
+**At the turn (18 s), same theme and viewport:**
+- before: dark blocks against a near-black sky, the road a broad plain ribbon, and no names;
+- after: lighter slate buildings and kerbs that separate the road from the blocks, and a sky
+  graded to a horizon;
+- after: upright "Barton Road" and "School Road", from the tiles' own names, and the stop label
+  "Moss Park Road (adj)" at its NaPTAN position;
+- after: the mode line reads "street preview · following the bus", and the ride card keeps
+  "Estimated position · last report N s ago".
+
+**By day, after only.** No day run was made on the earlier build.
+- **Movement, desktop and phone:** following in every sample, pitch 76.8°, median eye step
+  0.74–0.75 m, turn rate p95 16.5 and 17.9°/s. The 46 m correction was absorbed smoothly.
+- **The hardest single heading change** was 88°/s² on the desktop, above its night run's 57°/s²,
+  while its p95 was lower (22.5 against 28.4°/s²). The camera's code does not depend on the theme;
+  the frame timing does.
+- **At the turn:** tan blocks against a pale sky, the road cream with dark kerbs, and "Barton Road"
+  and "School Road" upright.
+- **On the phone the HUD covers much of the view.** The ride's controls (the exit, the mode line
+  on two lines, "What is this?" and Outside view) and the map's tools cover the view's upper part,
+  and the ride card its lower part. "School Road" sits partly behind Outside view. This holds by
+  day and by night, and it was the same before: the mode line wrapped the same way with "front
+  view" in it.
+
+**Verdict: better, and still secondary.** It now reads as a street, with names and the stops
+ahead. But it tells a passenger little that the outside view does not, and its height and
+position are nobody's real view. The outside view stays the default. Front view stays one button
+away and is not among the passenger trial's tasks.
+
+## What a slow map shows
+
+In `access.spec` every tile was held 8 s, with a stop chosen, at desktop and phone size:
+- first, "Drawing the map…" appears over a blank map, and the stop, the walk guide, the bus card
+  and the lists work meanwhile;
+- after 3 s it says "The detailed map is slow to arrive. The bus information is ready, and the
+  simple map can show it now.", with **Use the simple map**;
+- chosen, the simple map shows the same bus and says "The simple map, as you chose.";
+- **Use the detailed map** brings the detailed map back, and it then paints.
+
+**The phone's offer had been cut off.** At first **Use the simple map** sat at the bottom edge of
+the phone's first screen. The box was centred in a map that starts partway down the page, and
+`left:50%` gave it only half the map's width to wrap in, so it grew to five lines. It now sits
+under the view buttons, at a width that keeps clear of the map's tools. The check requires it to
+be whole on the first screen (`toBeInViewport({ratio: 1})`). On a phone the bus's strip is below
+the map, as it always is; the stop and the walk guide are above it.
+
+## Location, the bigger map, and two defects found on the way
+
+- **One Locate me at a time.** Up to three could appear: the map's, the stop panel's and, with no
+  location yet, the walk guide's.
+  - The rule now: the walk guide's while it asks for the location; otherwise the map's; or the
+    stop panel's when the simple map stands in.
+  - The first check took the "Buses near me" path, which never shows the walk guide's button. It
+    passed while the search path still showed two. It now takes both paths.
+- **Make the map bigger** gives the same map, with the canvas kept, most of the screen, and back.
+- **A wheel in the front view.** The camera there sets its own height every frame, so a
+  passenger's zoom could not last. Pausing on MapLibre's `zoomstart` was tried first. `ride.spec`
+  found the ride still following after a wheel. Now the raw wheel or a two-finger touch pauses
+  following, and Return to bus resumes it.
+- **Keyboard focus on leaving the ride.** Leaving the ride by keyboard left focus on the page
+  itself for a moment. It was restored on the next animation frame, after the map's own effects
+  had run, and `access.spec` found it on `<body>`. It is now restored in the same commit.
+
+## Checks on the final build
+
+    pnpm typecheck && pnpm lint && pnpm build        # pass
+    pnpm test                                       # 134 passed
+    pnpm test:browser                               # 169 passed, 21 skipped by design, none
+                                                    # failing (27.0 min, desktop and phone)
+    node scripts/probes/front-view.mjs --label before|after --theme night --viewport both
+
+The 21 skipped checks:
+- 8 need a live run or a real request: the real-feed and real-walking checks;
+- 9 are map checks that run only on desktop;
+- 4 run at one size only: on the phone, the keyboard journey, the front-view wheel and one replay
+  check; on desktop, one selection check.
+
+The build before the final one ran the ride and access specs: 49 passed, 2 skipped by design and
+1 failed. That build lacked three fixes: the focus restore, the walk guide's Locate me rule and
+the loading box's new place. The failure was the keyboard journey on leaving the ride, described
+above. Python was not rerun, because no Python changed.
+
+The frames were looked at, not only counted. That covers the turn at 18 s in each run, and the
+phone and desktop screenshots of the slow-map offer before and after it moved.
+
+Not verified here:
+- a real phone: its GPU, frame rate, battery, sunlight, and a real finger's pinch in the front
+  view;
+- a screen reader.

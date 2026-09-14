@@ -7,9 +7,9 @@
 import type {MapTheme} from '@/lib/map-style';
 
 export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',MODEL_SOURCE='lm-model',
- WALK_SOURCE='lm-walk',SELECTED_SOURCE='lm-selected',TRAIL_SOURCE='lm-trail';
+ WALK_SOURCE='lm-walk',SELECTED_SOURCE='lm-selected',TRAIL_SOURCE='lm-trail',STOPS_AHEAD_SOURCE='lm-stops-ahead';
 export const OVERLAY_SOURCES=[BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
- TRAIL_SOURCE] as const;
+ TRAIL_SOURCE,STOPS_AHEAD_SOURCE] as const;
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
 export const WALK_COLOUR='#2f86d6';
@@ -118,6 +118,16 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
            'text-anchor':'top','text-offset':['step',['zoom'],['literal',[0,1.6]],MODEL_MIN_ZOOM,['literal',[0,5.2]]],
            'text-allow-overlap':true,'text-ignore-placement':true,'text-letter-spacing':0.08,
            'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':2.2}},
+  // The next few stops on the chosen bus's own timetable pattern, named where they stand: shown in
+  // the front view only, so the street ahead carries its real stops and nothing invented.
+  {id:'lm-stops-ahead-dot',type:'circle',source:STOPS_AHEAD_SOURCE,layout:{visibility:'none'},
+   paint:{'circle-radius':5.5,'circle-color':o.halo,'circle-stroke-color':o.busLabel,'circle-stroke-width':2,
+          'circle-pitch-alignment':'viewport'}},
+  {id:'lm-stops-ahead-label',type:'symbol',source:STOPS_AHEAD_SOURCE,
+   layout:{visibility:'none','text-field':['get','label'],'text-font':['Noto Sans Bold'],'text-size':13,
+           'text-anchor':'bottom','text-offset':[0,-0.8],'text-rotation-alignment':'viewport',
+           'text-pitch-alignment':'viewport','text-padding':6},
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':2.2}},
   // Labels choose the side with room; the two reference dots draw on top of everything.
   {id:'lm-here-label',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],

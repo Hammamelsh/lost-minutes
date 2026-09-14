@@ -431,7 +431,12 @@ an obsolete one cannot finish; user intent during a transition is read from the 
 (`entering`, `following`, `exploring`, `returning`) is shared by the loop, the HUD and the card.
 
 **Recurrence and effort.** Two milestones of the ride-along shipped with the first defect and
-one with the second; about half a day to reproduce, isolate and repair.
+one with the second; about half a day to reproduce, isolate and repair. A fourth instance came on
+14 September, in the front view. There the camera sets its height as well as its centre every
+frame, so a passenger's zoom could not last. Pausing on MapLibre's `zoomstart` did not help:
+`ride.spec` found the ride still following after a wheel, because no zoom was reported. Where
+inside MapLibre the zoom was lost was not isolated. The fix pauses on the raw `wheel` and a
+two-finger `touchstart`, the approach this entry already records for transitions. About an hour.
 
 **Right answer.** A small reusable piece, not a product: a "follow" controller for MapLibre
 that owns the camera while following, yields to gestures and animations, and exposes the state.

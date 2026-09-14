@@ -102,6 +102,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
  // five-second clock would tear the map down on every tick (the 13 September lifecycle bug).
  const stopFollowing=useCallback(()=>setFollow(false),[]);
  const showMapFallback=useCallback((reason?:string)=>setMapFallback(reason??'create_failed'),[]);
+ const chooseSimpleMap=useCallback(()=>setMapFallback('chosen'),[]);
  const busesRef=useRef(buses);
  useEffect(()=>{busesRef.current=buses},[buses]);
  // A bus tapped on the map is chosen: pinned, as a bus tapped in a list is.
@@ -304,7 +305,20 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
   return match?.patternId?patternsById.get(match.patternId):undefined;
  };
  const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
+ // The next few stops on the chosen bus's own pattern, for the front view's labels: real stops, at
+ // most three, and your own stop left to its own label.
+ const aheadMatch=shown?.match as {patternId?:string;patternIndex?:number}|undefined;
+ const aheadPattern=aheadMatch?.patternId?patternsById.get(aheadMatch.patternId):undefined;
+ const stopsAhead=aheadPattern&&typeof aheadMatch?.patternIndex==='number'
+  ?aheadPattern.stops.slice(aheadMatch.patternIndex,aheadMatch.patternIndex+4).filter(id=>id!==stop?.id)
+    .map(id=>stopById.get(id)).filter((s):s is Stop=>Boolean(s)).slice(0,3)
+    .map(s=>({id:s.id,lat:s.lat,lon:s.lon,label:s.indicator?`${s.name} (${s.indicator})`:s.name}))
+  :[];
  const activityLine=activity?activityWords(activity,name):null;
+ // One Locate me on screen: the walk guide's while it is asking for the location, otherwise the
+ // detailed map's own, or the stop's beside the simple map, which has none.
+ const guideLocates=Boolean(stop&&onLocate)&&mode!=='archive'&&walk.status==='problem'
+  &&(walk.problem.code==='no_location'||walk.problem.code==='inaccurate');
 
  // Estimates are for live data you are watching now: never a recording, never offline, never for a
  // bus with no current report, which is shown where it last reported and not moved on, and never
@@ -407,7 +421,8 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
        </span>
       </div>
       <div className="your-stop-actions">
-       {onLocate&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
+       {/* The detailed map has its own Locate me; the simple map does not, so here only with it. */}
+       {onLocate&&mapFallback&&!guideLocates&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
         <LocateFixed size={15} className={locating?'spin':''}/><span>Locate me</span></button>}
        <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
         aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
@@ -444,18 +459,22 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
 
   {mapFallback
    ? <div className="map-fallback-wrap" data-map-fallback={mapFallback}>
-      <p className="map-fallback-note" role="status">The detailed map could not be used here
-       ({FALLBACK[mapFallback]??mapFallback}), so this simpler map is shown.</p>
+      <p className="map-fallback-note" role="status">{mapFallback==='chosen'
+       ?'The simple map, as you chose.'
+       :`The detailed map could not be used here (${FALLBACK[mapFallback]??mapFallback}), so this simpler map is shown.`}
+       {mapFallback!=='no_webgl'&&<> <button className="text-action" onClick={()=>setMapFallback(null)}>
+        {mapFallback==='chosen'?'Use the detailed map':'Try the detailed map again'}</button></>}</p>
       <FollowMap buses={mapBuses} selected={shown} follow={follow&&!pausedJourney} roads={roads}
        mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
      </div>
    : <CityMap buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       view={effectiveView} onViewChange={changeView} theme={theme} onThemeChange={saveTheme}
-      fitRequest={fitRequest} onLocate={onLocate} locating={locating} rideOverlay={rideOverlay}
+      fitRequest={fitRequest} onLocate={guideLocates?undefined:onLocate} locating={locating} rideOverlay={rideOverlay}
       busLabel={absent?'Your bus · no report':busNoun}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
-      clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}/>}
+      clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}
+      stopsAhead={stopsAhead} onSimpleMap={chooseSimpleMap}/>}
 
   {/* The bus being followed stays one glance away while the alternatives are browsed below. */}
   {identity&&<div className={`active-bus ${selectionKind??'none'}`} role="status" aria-label="The bus shown on the map"

@@ -373,7 +373,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
    legend and the ride button stack above it instead of on top of it. */
 @media(max-width:640px){
  .map-credit-line{font-size:9.5px;padding:2px 6px;bottom:6px;white-space:nowrap;text-overflow:clip}
- .follow .your-stop-mark,.follow .your-stop-locate{display:none}
+ .follow .your-stop-mark{display:none}
  .follow .your-stop{padding:10px 11px}
  .follow .your-stop-copy strong{font-size:16px}
 }
@@ -718,8 +718,17 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .how-live-works ol{padding-left:20px;margin:0 0 14px}
 .how-live-works li{font-size:14px;color:#aebfc9;line-height:1.75;margin-bottom:6px}
 
-.map-loading{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2;margin:0;
- font-size:13px;font-weight:650;letter-spacing:.3px;padding:8px 14px;border-radius:999px;pointer-events:none}
+/* Under the view buttons rather than in the middle: on a phone the map starts partway down the page,
+   and a box in its middle put "Use the simple map" below the first screen. Centred by its margins,
+   not by left:50%, which would give it only half the map's width to wrap in; kept clear of the
+   tools on the right, and so of the same width on the left. */
+.map-loading{position:absolute;left:0;right:0;top:72px;margin:0 auto;width:fit-content;z-index:2;
+ font-size:13px;font-weight:650;letter-spacing:.3px;padding:8px 14px;border-radius:14px;pointer-events:none;
+ text-align:center;max-width:min(330px,calc(100% - 132px))}
+.map-loading p{margin:0}
+.map-loading .map-loading-slow{margin-top:6px;font-weight:500;font-size:12.5px;line-height:1.45;letter-spacing:0}
+.map-loading .map-loading-simple{pointer-events:auto;margin-top:8px;min-height:40px;padding:0 14px;border-radius:10px;
+ border:1px solid #c6f36a;background:#16240c;color:#e8ffc8;font-size:13.5px;font-weight:750}
 .theme-day .map-loading{background:#fbf6eadd;color:#5a4a35;border:1px solid #c9b48f}
 .theme-night .map-loading{background:#0f1b24dd;color:#c9d7de;border:1px solid #3f5462}
 .bus-card-hint strong{display:block;font-size:13.5px;color:#e8f1f5;margin-bottom:2px}
@@ -885,3 +894,5 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 #lm-bus-card:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
 /* Keyboard focus lands on the ride-along's region when the ride begins: shown inside the map. */
 .ride-hud:focus-visible{outline:2px solid var(--primary);outline-offset:-3px}
+/* A bigger map on request: most of the screen, for following a bus closely. */
+.vector-map.expanded{height:calc(100dvh - 20px);max-height:none;min-height:420px}

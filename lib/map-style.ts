@@ -144,6 +144,15 @@ export function baseLayers(theme:MapTheme):Layer[]{
            'symbol-placement':'line','text-max-angle':30,'symbol-spacing':360,
            'text-transform':'uppercase','text-letter-spacing':0.06,'text-pitch-alignment':'viewport'},
    paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':2.2}},
+  // The front view's street names: stood upright at the middle of each named street, facing the
+  // eye, because a name laid along the road stands on end from street level. Only there, and
+  // spaced out so a few read rather than many crowd.
+  {id:'lm-front-street-name',type:'symbol',source:'openmaptiles','source-layer':'transportation_name',
+   minzoom:15,filter:byClass('motorway','trunk','primary','secondary','tertiary','minor'),
+   layout:{visibility:'none','text-field':['get','name'],'text-font':BOLD,'text-size':14,
+           'symbol-placement':'line-center','text-rotation-alignment':'viewport','text-pitch-alignment':'viewport',
+           'text-padding':18},
+   paint:{'text-color':p.roadText,'text-halo-color':p.halo,'text-halo-width':2.2}},
   {id:'lm-landmark-dot',type:'circle',source:'openmaptiles','source-layer':'poi',minzoom:14,
    filter:['all',byClass('stadium','railway','attraction','museum','university','college','hospital',
                            'theatre','castle','monument','town_hall','library'),['<=',['get','rank'],24]],
@@ -199,6 +208,26 @@ export function buildingExtrusion(theme:MapTheme):Layer{
    'fill-extrusion-base':['coalesce',['get','render_min_height'],0],
    'fill-extrusion-opacity':theme==='night'?0.78:0.88,'fill-extrusion-vertical-gradient':true}};
 }
+
+/**
+ * The front view's own paint: a raised, stylised preview of the street ahead, lit so that the
+ * road, the buildings and the sky separate, most of all at night. Buildings take a lighter face
+ * and a low light from one side, so walls and roofs differ. A road's casing reads as a kerb. The
+ * sky carries a horizon lit by the streets, and a haze fades distant blocks instead of ending them
+ * in black. Nothing here adds a feature the map does not have; the outside view keeps the map's
+ * own paint.
+ */
+export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;sky:Record<string,unknown>;
+ light:{anchor:'map';color:string;intensity:number;position:[number,number,number]}}>={
+ day:{extrusion:'#e4d6bc',kerb:'#a88a60',
+  sky:{'sky-color':'#b9cfd9','horizon-color':'#efe7d6','fog-color':'#efe7d6','sky-horizon-blend':0.55,
+   'horizon-fog-blend':0.6,'fog-ground-blend':0.25,'atmosphere-blend':0},
+  light:{anchor:'map',color:'#fff4dc',intensity:0.45,position:[1.15,225,55]}},
+ night:{extrusion:'#415a6a',kerb:'#6f8796',
+  sky:{'sky-color':'#0d1d2a','horizon-color':'#4d6879','fog-color':'#22394a','sky-horizon-blend':0.8,
+   'horizon-fog-blend':0.55,'fog-ground-blend':0.2,'atmosphere-blend':0},
+  light:{anchor:'map',color:'#e8edf2',intensity:0.6,position:[1.15,245,62]}},
+};
 
 /** The small part of MapLibre's Map this module needs, so it stays testable without WebGL. */
 export type Themeable={

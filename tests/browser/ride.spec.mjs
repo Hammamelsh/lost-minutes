@@ -364,7 +364,7 @@ test('before riding, a fitted map keeps your stop, its name and your bus clear o
 // at its speed (a bus that has just set off is read as standing until its trail shows otherwise).
 const underWay = (extra = {}) => ({startMs: Date.now() - 90_000, startS: 150, speed: 7, ...extra});
 
-test('front view: a passenger’s eye along the checked road, the bus’s outside hidden, and Outside view brings it back', async ({page}) => {
+test('front view: a raised preview along the checked road, the bus’s outside hidden, and Outside view brings it back', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page, underWay({wobble: 3}));
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
@@ -373,8 +373,11 @@ test('front view: a passenger’s eye along the checked road, the bus’s outsid
   await frontView(page);
   await page.waitForTimeout(600);
   const c = await camera(page), d = await drawn(page);
-  expect(c.pitch, 'looking along the road, just below the horizon').toBeGreaterThan(78);
-  expect(c.zoom, 'close to the road, at eye height').toBeGreaterThan(19.8);
+  // From above the road rather than a seat: the street, not the sky, fills most of the frame.
+  expect(c.pitch, 'looking along the road ahead from above it').toBeGreaterThan(70);
+  expect(c.pitch, 'with the street filling most of the frame').toBeLessThan(82);
+  expect(c.zoom, 'close to the road').toBeGreaterThan(19.8);
+  expect(Number(await map(page).getAttribute('data-stops-ahead')), 'the next stops on its pattern, named').toBeGreaterThan(0);
   const ahead = metresApart(c, d);
   expect(ahead, `the eye rests on the road ahead of the drawn bus (${ahead.toFixed(1)} m)`).toBeGreaterThan(15);
   expect(ahead).toBeLessThan(45);
@@ -383,7 +386,7 @@ test('front view: a passenger’s eye along the checked road, the bus’s outsid
   await expect(page.locator('.ride-card')).toContainText('256');
   await expect(page.locator('.ride-card')).toContainText('Piccadilly Gardens');
   await expect(page.locator('.ride-card .ride-motion')).toContainText(/Estimated position · last report \d+ s ago/);
-  await expect(page.locator('.ride-mode')).toContainText('front view');
+  await expect(page.locator('.ride-mode')).toContainText('street preview');
   await expect(page.getByRole('button', {name: 'Zoom in'})).toBeDisabled();
   await shot(page, 'front-view');
   // Over time the eye moves with the drawn bus, and only as far as it does.
@@ -399,6 +402,28 @@ test('front view: a passenger’s eye along the checked road, the bus’s outsid
   await page.waitForTimeout(700);
   expect((await camera(page)).zoom).toBeCloseTo(20, 0);
   await expectIdentifiable(page, 'outside again: the bus is back');
+});
+
+test('in the front view a zoom is the passenger taking over: following pauses rather than undoing it, and Return to bus resumes', async ({page}) => {
+  test.skip(test.info().project.name !== 'desktop', 'a wheel is a desktop gesture');
+  test.setTimeout(90_000);
+  await openAtStopA(page, underWay());
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  await page.waitForTimeout(600);
+  const box = await page.locator('.vector-map-canvas').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6);
+  await page.mouse.wheel(0, -400);
+  await expect(map(page), 'a zoom in the front view pauses following').toHaveAttribute('data-ride', 'exploring', {timeout: 5000});
+  await page.waitForTimeout(800);
+  const zoomed = (await camera(page)).zoom;
+  await page.waitForTimeout(1500);
+  expect((await camera(page)).zoom, 'the passenger’s zoom is left alone, not undone').toBeCloseTo(zoomed, 1);
+  await page.getByRole('button', {name: 'Return to bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 10_000});
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
 });
 
 test('front view needs a road checked against the bus’s own reports: without one it says why, and the bus stays the same', async ({page}) => {

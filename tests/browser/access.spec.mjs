@@ -93,6 +93,98 @@ test('slow map tiles: the map says it is drawing, the rest of the page works mea
   await expect(page.locator('.map-loading')).toHaveCount(0);
 });
 
+test('while the detailed map is slow, the simple map is offered and works, and the detailed map can come back', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.route(/tiles\.openfreemap\.org\/.*\.pbf/, async route => {
+    await new Promise(resolve => setTimeout(resolve, 8000));
+    await route.continue().catch(() => {});
+  });
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Buses near me'}).click();
+  await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
+  const card = page.locator('article.bus-card');
+  await expect(card, 'the bus information is there before the map').toHaveAttribute('data-vehicle', 'FX-COMING');
+  const simple = page.getByRole('button', {name: 'Use the simple map'});
+  await expect(simple, 'offered while the detailed map is slow').toBeVisible({timeout: 8000});
+  await expect(simple, 'seen whole on the first screen, not found by scrolling').toBeInViewport({ratio: 1});
+  await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-slow-map-offer.png`)});
+  await simple.click();
+  await expect(page.locator('.map-fallback-wrap')).toHaveAttribute('data-map-fallback', 'chosen');
+  await expect(page.locator('.follow-map svg[role="img"]')).toBeVisible();
+  await expect(card).toHaveAttribute('data-vehicle', 'FX-COMING');
+  await page.getByRole('button', {name: 'Use the detailed map'}).click();
+  await expect(page.locator('.map-fallback-wrap')).toHaveCount(0);
+  await waitForPaint(page, {timeout: 60_000});
+});
+
+test('one Locate me at a time: the walk guide\'s while it asks for the location, then the detailed map\'s own', async ({page}) => {
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  const locate = page.getByRole('button', {name: 'Locate me'});
+  // Found by name before any location: the walk guide asks for one, and has the only Locate me.
+  await page.getByRole('combobox', {name: 'Stop name, street or area'}).fill('stretford mall');
+  await page.getByRole('option', {name: /Stop A/}).first().click();
+  await expect(page.locator('.walk-guide')).toContainText('Walking directions start from your location');
+  await expect(locate).toHaveCount(1);
+  await expect(page.locator('.walk-guide').getByRole('button', {name: 'Locate me'})).toBeVisible();
+  await locate.click();
+  // Located: the walk guide stops asking, and the map's own is the one.
+  await expect(page.locator('.walk-guide')).not.toContainText('Walking directions start from your location');
+  await expect(locate).toHaveCount(1);
+  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toBeVisible();
+});
+
+test('one Locate me when the stop is found near you: the detailed map\'s own', async ({page}) => {
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  await page.getByRole('button', {name: 'Buses near me'}).click();
+  await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
+  await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall (Stop A)');
+  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(1);
+  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toBeVisible();
+});
+
+test('with the simple map in place of the detailed one, Locate me is beside the stop instead', async ({page}) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type, ...rest) {
+      return /webgl/i.test(String(type)) ? null : original.call(this, type, ...rest);
+    };
+  });
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await expect(page.locator('.map-fallback-wrap')).toHaveAttribute('data-map-fallback', 'no_webgl');
+  await page.getByRole('button', {name: 'Buses near me'}).click();
+  await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
+  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(1);
+  await expect(page.locator('.your-stop-actions').getByRole('button', {name: 'Locate me'})).toBeVisible();
+});
+
+test('the map can be made bigger for following a bus, and smaller again, as the same map', async ({page}) => {
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  const map = page.locator('.vector-map'), viewport = page.viewportSize();
+  const before = (await map.boundingBox()).height;
+  await page.evaluate(() => { window.__lmCanvas = document.querySelector('.maplibregl-canvas'); });
+  await page.getByRole('button', {name: 'Make the map bigger'}).click();
+  await expect.poll(async () => (await map.boundingBox()).height, {message: 'most of the screen'}).toBeGreaterThan(viewport.height * 0.9);
+  await expect.poll(async () => Math.abs((await page.locator('.maplibregl-canvas').boundingBox()).height - (await map.boundingBox()).height),
+    {message: 'the map drawn at its new size'}).toBeLessThan(3);
+  await expect(page.getByRole('button', {name: 'Make the map smaller'})).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.querySelector('.maplibregl-canvas') === window.__lmCanvas), 'the same map').toBe(true);
+  await page.getByRole('button', {name: 'Make the map smaller'}).click();
+  await expect.poll(async () => Math.round((await map.boundingBox()).height)).toBe(Math.round(before));
+});
+
 test('slow live positions: said to be on their way, never "not collecting" or "no bus", and the page stays usable', async ({page}) => {
   test.setTimeout(90_000);
   await servePatterns(page);

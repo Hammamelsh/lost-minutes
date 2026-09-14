@@ -26,8 +26,14 @@ Windows forwards the WSL port.
 | C | Follow that bus (and ride along if you like) for three to five minutes of reports. Is it the same bus throughout, on the card, in the strip under the map and on the map? If the page says "No current report" or "another journey", what do you do? | | |
 | D | Explain its status: "Last reported near …" or "Appears stopped near …", and "Estimated position" or "Last reported position". What does each mean, and what does it not tell you? | | |
 
+**Riding along** means the outside view, which is the default. Front view is optional: a stylised
+street preview from above the road where the bus is drawn. Do not steer the tester to it. If they
+open it, note what they take it to show. If the map is slow to draw, note whether they find **Use
+the simple map**.
+
 Listen for a misreading. Counted as a misreading: an arrival time where none is given; "at the stop"
-for "near"; "the doors are open" for "appears stopped"; an estimate taken for a report.
+for "near"; "the doors are open" for "appears stopped"; an estimate taken for a report; the front
+view taken for the view from on board, or for the lane the bus is in.
 
 ## Before the session
 

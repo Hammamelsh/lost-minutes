@@ -102,6 +102,48 @@ archive downloads. At the measured 0.13 GB a day of raw captures, 14 days of ret
 1.9 GB, well inside the 40 GB local NVMe disk. That disk is persistent across restarts, which is
 what the collector's checkpointing needs.
 
+## What the collector actually needs, measured
+
+Taken from a running bounded collection on this machine, 17 September 2026, publishing 630 vehicles
+every 20 seconds:
+
+| | |
+|---|---|
+| Resident memory | **~1.55 GB, steady** over repeated samples — it is not growing, so 24/7 operation is not a leak risk |
+| Why that much | DuckDB has **no `memory_limit` set**, so it takes what the machine offers. It would adapt downward on a smaller box; what is untested is the nightly pattern build, which parses 19,344 patterns from 575 files and takes 3.5 minutes here |
+| Warehouse on disk | 172 MB after a few days of intermittent runs |
+| Raw captures on disk | 220 MB so far, growing at a measured 0.13 GB a day |
+
+**This is the number that decides a host.** A platform selling 512 MB is not obviously enough, and
+nobody has tested the nightly rebuild under that ceiling.
+
+## Platforms that host a static site, and why they do not host this
+
+Raised on 17 September 2026: could Render or Netlify carry the beta "for now"?
+
+**Netlify: no.** It serves static files and serverless functions. There is no long-running process
+and no persistent disk, so `live.json` would be frozen at whatever the build produced. That is the
+one file the whole app exists to keep fresh.
+
+**Render: possible, and more expensive than it looks.** Read from Render's own documentation the
+same day:
+- a persistent disk attaches to **one service instance only**, and **cron jobs cannot mount one at
+  all**. So the collector and the file serving must be the *same* service, and the nightly timetable
+  rebuild has to run inside that process rather than as a scheduled job;
+- **free instances spin down after 15 minutes without traffic and cannot have disks**, so a free
+  service cannot collect;
+- the **Starter web service is $7 a month with 512 MB of RAM and 0.5 CPU**; disks are **$0.25 per GB
+  a month**. Against the 1.55 GB measured above, the honest tier is the next one up at $25.
+- Sources: <https://render.com/docs/disks>, <https://render.com/docs/free>, and Render's pricing as
+  reported in September 2026.
+
+Render *is* the right home for a static page over an exported file — it already serves Energy
+Reconciliation's front door. It is the collector that does not fit.
+
+**For comparison, the Hetzner CX23 is 2 vCPU and 4 GB for about £6.10 a month with VAT**, and
+everything in `deploy/` — the systemd units, the Caddyfile, the watchdog, the nightly rebuild, the
+rollback — is written for it and validated on this machine. None of that transfers to Render.
+
 ## Can the beta run on a provider hostname, without buying a domain?
 
 Not reliably, and it is worth being precise about why, because "it has a hostname" is not the same
@@ -143,6 +185,14 @@ two rows that matter. The alternative, a nightly `rsync` of `data/live-capture/`
 
 **Recommendation: turn backups on.** £1.10 a month to keep the one dataset that cannot be
 collected twice is the easiest decision in this document.
+
+**Decided on 17 September 2026: no paid backups.** The free substitute is `deploy/backup.sh`, which
+pulls `data/live-capture/` — the raw captures and every preserved timetable version — from the
+server to this machine over SSH. It copies only what is not already held, because those files are
+content-addressed and never rewritten, and it deliberately does not mirror the server's 14-day
+deletions: outliving them is the point. What it is not: a bare-metal restore. Losing the server
+still means provisioning a new one and running `publish.sh` and `install.sh`; this protects the data
+behind those commands, and it runs only when this machine is on.
 
 ## Deploying and rolling back
 

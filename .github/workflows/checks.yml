@@ -45,10 +45,19 @@ jobs:
       - name: no secret reached the built site
         run: |
           set -eu
-          if grep -rIl --exclude-dir=_next -e 'BODS_API_KEY' -e 'api_key=' out/ ; then
-            echo "a credential-looking string is in out/"; exit 1
+          # A credential is a value, not a name. The published "no credentials configured" state
+          # legitimately explains that BODS_API_KEY is unset, and the first version of this check
+          # failed on that sentence. What must never be served is an assignment or a query
+          # parameter carrying a key, a .env file, or a path from the machine that built it.
+          if grep -rIn -E "BODS_API_KEY=[^\"',[:space:]]|api_?key=[A-Za-z0-9._-]{12,}|access[_-]?token=[A-Za-z0-9._-]{12,}" out/ ; then
+            echo "a credential value is in out/"; exit 1
+          fi
+          test ! -e out/.env
+          if grep -rIn -e '/home/' -e '/Users/' --include='*.js' --include='*.mjs' out/_next out/vendor ; then
+            echo "a build-machine path is in the shipped JavaScript"; exit 1
           fi
           test -s out/fonts/inter-variable.woff2
+          test -s out/fonts/space-grotesk-variable.woff2
           test -s out/vendor/maplibre-gl/*/maplibre-gl-worker.mjs
 
   pipeline:

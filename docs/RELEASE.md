@@ -37,6 +37,7 @@ real feed or a physical device, it says so. **No physical phone has been used at
 | Timetable currency: newest snapshot only, a forward validity window, a refusal to shrink | implemented, verified | `tests/test_timetable_catalogue.py` (4); the 17 September rebuild |
 | The whole browser suite on this build | verified | **188 passed, 24 skipped by design, 0 failed** (30.2 min, SwiftShader, desktop and 390 px phone) |
 | The final build through its public HTTPS address | verified, REAL feed | two further publications from the network, the chosen bus kept, pinch and Return to bus, 0 tile or page errors |
+| Ageing data, through the public address | verified, REAL feed | with collection stopped the page read "NOT UPDATING · updated 201s ago" in the warning tone, though the file still called itself live; buses stayed at their last reports and none was estimated forward |
 | Chosen bus never substituted | implemented, verified | `selection.spec` (FIXTURE), and REAL through the public link |
 | Estimated movement, drawn smoothly, scored against held-out reports | implemented, verified | `docs/MOTION_MODEL.md`, `docs/LOCAL_VERIFICATION.md` (RECORDED) |
 | Immersive phone ride-along, and the journey surviving a round trip behind the data | implemented, verified | `navigation.spec`, the layout probe at five sizes (FIXTURE, emulated touch) |

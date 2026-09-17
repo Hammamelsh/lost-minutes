@@ -2058,3 +2058,12 @@ vendored MapLibre modules (immutable) and the typefaces (`max-age=86400`, `font/
 - a pinch zoomed the outside ride-along from 20 to 20.9 and it went on following; in the street
   preview it zoomed 20.77 to 21.7 and paused following, and Return to bus resumed it;
 - 71 tiles, 0 tile errors, 0 page errors; no layout problem at 360 or 390 px.
+
+**Ageing data, through the same public address.** When the bounded collection run ended at
+17:45:49 BST, the published file still carried `"state": "live"` and 627 vehicles whose newest
+report was 21.7 s old. Three minutes later the page did **not** repeat that label: it read
+**"NOT UPDATING · updated 201s ago"** in the warning tone, because it judges our own publication's
+age (stale after 120 s) rather than trusting what the file calls itself. The buses stayed drawn at
+their last reports with honest ages — a four-minute-old report is inside the 15-minute expiry — and
+none was estimated forward. Starting collection again returned it to **"LIVE · updated 15s ago"**
+with 626 vehicles. Frames: `outputs/probes/public-state/ageing.png` and `live-again.png`.

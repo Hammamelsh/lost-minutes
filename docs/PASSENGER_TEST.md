@@ -16,6 +16,45 @@ Reported by the owner on 14 September 2026; not independently validated.
 | Someone asked about Metrolink | Researched, not built. No official tram positions exist; real-time departures are closed to new users; timetables are open | `docs/LOST_MINUTES_REDESIGN_RESEARCH.md`, section 7 |
 | The owner enjoys the outside ride-along; the street preview stays secondary | Both are kept. The landscape overlap is fixed, and a pinch now zooms the outside view | — |
 
+## Beta phone check (about 12 minutes, your own phone)
+
+**This is the one piece of evidence nobody here can produce.** Everything below has been exercised
+in Chromium on this machine — emulated touch, an emulated 390 px screen, a software renderer. None
+of it is a phone. A real GPU, a real screen lock, a real cell handover and real sunlight are
+untested, and the beta should not claim otherwise until this is done.
+
+Open the HTTPS link on the phone, in the normal browser, not from a home screen.
+Write one line per step: what you expected, what happened.
+
+1. **Location and search.** Press **Buses near me** and allow. Do the nearby stops look right, and
+   is the nearest actually nearest? Then refuse it on a second visit (Settings → clear this site's
+   permission) and check you can still find a stop by typing. *Untested on a phone: the accuracy
+   ring, and whether the stop list is usable one-handed.*
+2. **Choose a bus and follow it.** Pick a **route 15** bus at a stop you know. Is it the bus you can
+   see? Does the age beside it match your sense of the traffic?
+3. **The ride-along.** Tap **Ride along**. It should take the whole screen. Check: **Exit** is
+   obvious; a one-finger drag looks around and **Return to bus** brings it back; a **pinch zooms**
+   and the camera keeps following afterwards. Ride for a full minute and say whether the movement
+   is smooth, steppy, or stops.
+4. **Street preview.** Tap **Front view**, ride for a minute. **This is the open question**: a
+   freeze here was reported once and has never been reproduced in emulation. Say which of these it
+   is — smooth / juddery / completely still while the bus is moving — and whether the phone gets
+   warm. Then tap **Outside view**.
+5. **Lock and resume.** With the ride running, lock the phone. Wait a minute. Unlock. Are the
+   positions fresh within a few seconds, is the same bus still chosen, and is the ride still there?
+6. **Connectivity.** Turn on flight mode for 30 seconds, then off. The page should say it is
+   offline rather than showing stale positions as live, and should fetch fresh ones on coming back.
+7. **Readability.** Outdoors if you can. Is the map readable in daylight? Try the night map (the
+   moon button). Any text too small or too low-contrast?
+8. **Accessibility.** Turn on the system's larger text (or Reduce Motion) and reopen. Does anything
+   overlap or get cut off? With Reduce Motion the ride's camera should step rather than glide.
+9. **Heat and battery.** After the twelve minutes, is the phone noticeably warm, and how much
+   battery went?
+
+**Then press "Send feedback" at the foot of the page and copy the report.** It carries the build,
+the feed state and **the map's measured drawing rate in milliseconds a frame** — the one number
+that decides whether step 4 was a freeze or a slow GPU, and the one you cannot judge by eye.
+
 ## Short trial (about 10 minutes)
 
 For a first look before the full session below. One tester, one stop they know, a real bus.

@@ -31,7 +31,7 @@ async function identify(page, radius = 70) {
     const [x, y] = raw.split(',').map(Number);
     const inside = x >= 0 && y >= 0 && x <= canvas.width && y <= canvas.height;
     const px = canvas.left + x, py = canvas.top + y;
-    const covering = [...el.querySelectorAll('.ride-exit,.ride-notes,.ride-card,.map-tools,.map-views,.vector-map-foot')]
+    const covering = [...el.querySelectorAll('.ride-bar,.ride-exit,.ride-notes,.ride-actions,.ride-card,.map-tools,.map-views,.vector-map-foot')]
       .map(node => ({name: node.className.split(' ')[0], r: node.getBoundingClientRect()}))
       .filter(({r}) => r.width && r.height && px >= r.left - 4 && px <= r.right + 4 && py >= r.top - 4 && py <= r.bottom + 4)
       .map(({name}) => name);
@@ -92,7 +92,7 @@ async function limeInMiddle(page) {
   const area = await map(page).evaluate(el => {
     const canvas = el.querySelector('.vector-map-canvas').getBoundingClientRect();
     const edge = (selector, side) => { const r = el.querySelector(selector)?.getBoundingClientRect(); return r && r.height ? r[side] : null; };
-    const top = Math.max(canvas.top + canvas.height * 0.3, (edge('.ride-notes', 'bottom') ?? 0) + 8);
+    const top = Math.max(canvas.top + canvas.height * 0.3, (edge('.ride-bar', 'bottom') ?? 0) + 8);
     const bottom = Math.min(canvas.top + canvas.height * 0.62, (edge('.ride-card', 'top') ?? Infinity) - 8);
     return {x: canvas.left + canvas.width * 0.25, y: top, width: canvas.width * 0.5, height: Math.max(20, bottom - top),
       scale: window.devicePixelRatio};
@@ -327,9 +327,22 @@ test('choosing another bus mid-ride re-frames on it; nothing is said to have mov
   await ride(page).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  // On a phone the ride-along is the whole screen, so the list behind it is deliberately out of
+  // reach: choosing another bus there means leaving the ride, as a passenger would. What is being
+  // checked is the same either way — the new bus is framed, and neither bus is said to have moved
+  // between the two.
+  const onAPhone = test.info().project.name === 'mobile';
+  if (onAPhone) {
+    await page.getByRole('button', {name: 'Exit ride-along'}).click();
+    await expect(map(page)).toHaveAttribute('data-ride', 'off');
+  }
   await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
+  if (onAPhone) {
+    await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+    await ride(page).click();
+  }
   await expect(map(page)).toHaveAttribute('data-ride', /returning|following/);
-  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 8000});
   await page.waitForTimeout(700);
   await expect(map(page)).toHaveAttribute('data-correction', 'none');
   await expectIdentifiable(page, 'the other bus');

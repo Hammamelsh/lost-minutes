@@ -176,9 +176,24 @@ export const boardableAt=(pattern:ServicePattern,stopId:string)=>{
  return index>=0&&index<pattern.stops.length-1;
 };
 
-/** Patterns that call at a stop and can be boarded there, optionally only those running on a
- *  given day (YYYY-MM-DD). A pattern whose days are not recorded is kept, as unknown. */
+/**
+ * Whether the timetable version a pattern came from is in force on a day (YYYY-MM-DD).
+ *
+ * The catalogue is built ahead of the days it is used on, and since September 2026 it also
+ * carries registrations that start within the next fortnight, so that a timetable change does
+ * not depend on a rebuild happening that morning. A pattern is therefore only usable on a day
+ * its own declared validity covers. ISO dates compare correctly as strings.
+ */
+export const validOn=(pattern:ServicePattern,day:string)=>{
+ const {validFrom,validTo}=pattern.timetable;
+ return (!validFrom||validFrom<=day)&&(!validTo||day<=validTo);
+};
+
+/** Patterns that call at a stop and can be boarded there, optionally only those whose timetable
+ *  is in force and whose journeys run on a given day (YYYY-MM-DD). A pattern whose days are not
+ *  recorded is kept, as unknown. */
 export function patternsCallingAt(catalogue:PatternCatalogue|null,stopId:string,day?:string):ServicePattern[]{
  return (catalogue?.patterns??[]).filter(pattern=>boardableAt(pattern,stopId)
+  &&(!day||validOn(pattern,day))
   &&(!day||runsOn(pattern.operatingRules as OperatingRule[]|null|undefined,day)!==false));
 }

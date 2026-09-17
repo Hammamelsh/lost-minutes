@@ -16,8 +16,8 @@ const state=vehicles=>({publishedAtMs:NOW,vehicles,freshness:{policy:POLICY}});
 
 test('supplied destinations and directions are shown in readable words',()=>{
  assert.equal(destinationLabel('Manchester_Piccadilly'),'Manchester Piccadilly');
- assert.equal(destinationLabel(''),'Destination not supplied');
- assert.equal(destinationLabel('  '),'Destination not supplied');
+ assert.equal(destinationLabel(''),'an unnamed destination');
+ assert.equal(destinationLabel('  '),'an unnamed destination');
  assert.equal(directionLabel('inbound'),'Inbound');
  assert.equal(directionLabel('outbound'),'Outbound');
  assert.equal(directionLabel('anticlockwise'),'Anticlockwise');

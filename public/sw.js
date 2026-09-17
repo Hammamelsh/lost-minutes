@@ -16,13 +16,19 @@
  * There is no background sync and no background location tracking. The app updates only
  * while it is open in front of you.
  */
-const VERSION = 'lost-minutes-v2';
+const VERSION = 'lost-minutes-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-maskable.svg'];
+// The two typefaces, taken at install so a returning phone has them before the page asks and an
+// offline visit is still set in them. Failures here are tolerated: a font that cannot be fetched
+// must never stop the worker installing, which `addAll` would do.
+const OPTIONAL = ['/fonts/inter-variable.woff2', '/fonts/space-grotesk-variable.woff2'];
 const DATA = /^\/data\//;
 const IMMUTABLE = /^\/_next\/static\//;
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(VERSION)
+    .then(cache => cache.addAll(SHELL).then(() => Promise.allSettled(OPTIONAL.map(url => cache.add(url)))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {

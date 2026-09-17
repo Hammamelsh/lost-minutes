@@ -47,7 +47,9 @@ export function directionLabel(direction:string):string{
 
 export function destinationLabel(destination:string):string{
  const value=cleanLabel(destination);
- return value||'Destination not supplied';
+ // Every use reads "to <this>", so the absence has to be a phrase, not a status: "to Destination
+ // not supplied" read as a place called Destination.
+ return value||'an unnamed destination';
 }
 
 /** One published vehicle as the passenger view needs it, aged against the server's clock. */

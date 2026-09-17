@@ -85,6 +85,15 @@ test('going behind the data and back keeps the stop, the chosen bus, the ride-al
   await page.getByRole('button', {name: /^Ride along with route/}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
   await page.evaluate(() => { window.__lmCanvas = document.querySelector('.maplibregl-canvas'); });
+  // On a phone the ride-along is the whole screen, so it is a mode you leave: the header is
+  // deliberately out of reach while it runs. Leaving it must put the passenger back at their
+  // stop, with the same bus, ready to ride again.
+  const onAPhone = test.info().project.name === 'mobile';
+  if (onAPhone) {
+    await page.getByRole('button', {name: 'Exit ride-along'}).click();
+    await expect(map(page)).toHaveAttribute('data-ride', 'off');
+    await expect(card).toHaveAttribute('data-vehicle', vehicle);
+  }
   await page.getByRole('link', {name: /^Behind the data/}).first().click();
   await expect(dataTitle(page)).toBeVisible();
   await expect(page.locator('#follow')).toHaveAttribute('inert', '');
@@ -93,7 +102,12 @@ test('going behind the data and back keeps the stop, the chosen bus, the ride-al
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall (Stop A)');
   await expect(card).toHaveAttribute('data-vehicle', vehicle);
   await expect(card).toHaveAttribute('data-selection', 'active');
-  await expect(map(page)).toHaveAttribute('data-ride', 'following');
+  if (onAPhone) {
+    await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+    await page.getByRole('button', {name: /^Ride along with route/}).click();
+  }
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await expect(card).toHaveAttribute('data-vehicle', vehicle);
   expect(await page.evaluate(() => document.querySelector('.maplibregl-canvas') === window.__lmCanvas),
     'the same map, not a new one').toBe(true);
 });

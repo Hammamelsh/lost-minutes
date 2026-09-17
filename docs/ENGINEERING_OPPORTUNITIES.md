@@ -802,3 +802,162 @@ published file and `FIXTURE_MOTION`, and count the mismatches. Then decide wheth
 merit the same.
 
 **Status:** open. The crash is fixed; the contract check is not built.
+
+## 22. A content-addressed snapshot store has no idea which snapshot is current
+
+**Problem and evidence.**
+- The collector re-downloads each TransXChange dataset while it runs and stores it under its
+  content hash in `data/live-capture/timetables/` (`pipeline/collect.py`, `collect_timetables`).
+  Nothing in that directory says which file supersedes which.
+- `pipeline/patterns.py` read every `*.bin.gz` it found. On 17 September 2026, with a second BNML
+  snapshot on disk from that morning, every service file was parsed twice and the journey counts
+  summed: route 15 inbound was published with **280 journeys before the second snapshot arrived and
+  560 after**, without a single new journey existing. Route 256 inbound went 75 → 150.
+- The same reading would have kept alive a registration the operator had withdrawn, because the
+  older snapshot still contains its file. That is the more dangerous half: it would have shown
+  passengers a service that no longer runs, with the evidence rule apparently satisfied.
+- Not caught by any test, because the fixtures used one snapshot per operator.
+
+**Who hits it, and the current workaround.** Anyone running the pattern build after collection has
+been running for a while — which is the normal case, and would have been the nightly case on the
+server. Fixed on 17 September by `newest_snapshots()`: the dataset is identified by the operator
+whose files dominate it, and only the newest file is read, chosen by modification time.
+
+**Recurrence and effort.** One instance, found in about 20 minutes because the published journey
+counts were being read by eye during an unrelated check. It would have recurred every day the
+server ran, silently.
+
+**Right answer.** A small fix here, done. The wider point is real though: **modification time is a
+weak stand-in for "which came last"**. The warehouse already records each timetable's `source_url`
+and retrieval time (`record_timetable`), so the build could ask the warehouse rather than the
+filesystem, and a copied or restored file could not mislead it.
+
+**Existing tools.** Nothing bought. This is the same shape as a content-addressed store with no
+head pointer — Git's refs, DVC's `.dvc` files, LakeFS's branches all exist to solve it. None is
+worth adding for five files.
+
+**Smallest reusable capability.** `newest_snapshots()` reading `(source_url, retrieved_at)` from
+the warehouse, with the filesystem as the fallback for a checkout with no warehouse.
+
+**Next cheap validation.** Run the build with two snapshots of the same dataset whose mtimes are
+in the wrong order, and check the published journey counts. `tests/test_timetable_catalogue.py`
+covers the mtime path today; the warehouse path is not built.
+
+**Status:** the double count is fixed and tested. The warehouse-backed version is open.
+
+## 23. A published artefact can shrink to almost nothing and nobody is told
+
+**Problem and evidence.**
+- `pipeline.patterns build` wrote `public/data/patterns.json` with `atomic_json` whatever it
+  produced. A timetable download that failed, returned a truncated zip, or matched no services
+  would have published a catalogue with few or no patterns, atomically and successfully.
+- The page believes it. With no pattern for a service, the passenger is told the timetable has
+  nothing for their bus — which is exactly what a real withdrawal looks like. A failed download
+  and a withdrawn service are indistinguishable from inside.
+- Near miss on 17 September: the first rebuild of the day published 533 patterns; a build against
+  a partial dataset would have been accepted just as readily.
+
+**Who hits it, and the current workaround.** The nightly rebuild on the server, unattended, at
+03:40. Fixed on 17 September: a build that would publish less than half of what is already
+published is refused, exits non-zero, leaves the last good file in place and names the floor;
+`--allow-shrink` is the deliberate override.
+
+**Recurrence and effort.** No instance in production, because there is no production. The class is
+common enough to have a name in data engineering — volume anomaly — and the fix took 30 minutes.
+
+**Right answer.** This one generalises, and is the strongest candidate for a separate small tool:
+**does what is being served match what the checks validated, and can a drop be explained?** The
+same question applies to `live.json` (vehicle count), `stops.json`, the road shapes and the motion
+evaluation, and to any other project publishing artefacts from a pipeline.
+
+**Existing tools.** dbt's `source freshness` and generic tests, Elementary's anomaly monitors,
+Great Expectations' volume expectations, Datafold's diffs. All assume a warehouse and a dbt-shaped
+project; none of them watch a static JSON file that a web page fetches. Researched no further than
+their documentation.
+
+**Smallest reusable capability.** A `publish_guard(target, candidate, floors)` helper in this
+repository, used by every publisher, that refuses a candidate whose headline counts fall outside a
+recorded band and records the refusal as a run. One function, one table.
+
+**Next cheap validation.** Apply the same guard to `live.json`'s vehicle count against a rolling
+median of the last 24 hours of publications, and count how often it would have fired during a day
+of real collection. If it never fires, the band is too wide; if it fires on a Sunday morning, it
+is measuring the city, not the pipeline.
+
+**Status:** done for the pattern catalogue, open for every other published file.
+
+## 24. A check was adjusted to pass, and nothing recorded whether that was honest
+
+**Problem and evidence.**
+- `tests/browser/selection.spec.mjs` failed on 14 September because the bus it wanted to tap,
+  FX-BRAVO, was not drawn on the canvas. The helper was changed to zoom out until the bus appeared.
+- That was very probably right — the opening framing deliberately fits you, your stop and the bus
+  being shown, and refuses to let a distant bus widen it — and it was checked against the previous
+  build at a byte-identical camera, so it was not a regression.
+- But the file recorded a *belief*, in a comment. Nothing distinguished "the bus is legitimately
+  off-screen by design" from "the framing is a few pixels too tight and the test was taught to
+  look away".
+
+**Who hits it, and the current workaround.** Anyone repairing a failing browser check under time
+pressure, which is everyone. On 17 September the helper was changed to measure instead: each
+zoom-out step halves the scale, so the bus's distance from the centre after the steps gives its
+position before them, and the test now asserts it was more than 24 px clear of the canvas and
+annotates by how much.
+
+**Recurrence and effort.** One instance recorded; the pattern is universal. Turning the comment
+into a measurement took about 20 minutes.
+
+**Right answer.** A habit rather than a tool: **when a check's setup is relaxed, the relaxation
+becomes an assertion.** If the reason cannot be asserted, the check was weakened and should say so.
+
+**Existing tools.** None needed. Playwright's `test.info().annotations` carries the measurement into
+the report.
+
+**Smallest reusable capability.** None beyond the habit. A lint rule that flags new `waitForTimeout`
+or retry loops in specs would be a cruder version of the same idea.
+
+**Next cheap validation.** Read the annotation the next time the suite runs on a changed camera: if
+the margin collapses towards 24 px, the framing has drifted and the test will say so before a
+passenger does.
+
+**Status:** done for this check. No other relaxed check has been audited.
+
+## 25. The live publication is one file, and a phone downloads all of it every twenty seconds
+
+**Problem and evidence.**
+- `public/data/live.json` on 17 September 2026 carried 587 vehicles at **807 KB raw, 119 KB
+  gzipped**, measured through the public link. The page polls it every 20 seconds, so a passenger
+  watching one bus for ten minutes downloads about **3.5 MB**, and about **21 MB an hour**.
+- Per vehicle it is about 1,250 bytes, most of it the 64-character source hash and the match
+  evidence — both of which exist so that any single bus can be traced, and both of which the page
+  needs for exactly one bus at a time: the chosen one.
+- The catalogue is a second cost, though a one-off: `patterns.json` is 2.0 MB, 149 KB gzipped,
+  after the 17 September rebuild widened coverage from 89 to 157 services.
+
+**Who hits it, and the current workaround.** Every phone on mobile data, which is the intended
+audience. No workaround: the file is what it is, and the polling floor of 10 s exists because
+operators publish every 10–30 s. Nothing is broken; it is simply more data than the job needs.
+
+**Recurrence and effort.** Measured once, on one publication. It grows with coverage: the same file
+was 66 KB for 155 vehicles in the earlier measurement recorded in `docs/HOSTING.md`, so it has
+roughly doubled per vehicle as match evidence was added.
+
+**Right answer.** A small change to the published contract, not a tool: **split the publication**.
+A compact `live.json` with position, age, freshness and the pattern id — enough to draw every bus
+and to say what is coming — and the full evidence for one vehicle fetched on demand when a
+passenger opens "How we know this". The evidence rule is not weakened: every claim still has its
+source, it is simply fetched when it is read.
+
+**Existing tools.** None to buy. This is the ordinary list-and-detail split, and it is what the
+Operations and Evidence views already do for the archive.
+
+**Smallest reusable capability.** None beyond this repository. `pipeline/live.py` would publish
+`live.json` and `live-evidence/<vehicle>.json`; `lib/live.ts` would parse the compact shape and
+`components/bus-evidence.tsx` would fetch the detail.
+
+**Next cheap validation.** Serialise one real publication with the evidence stripped and gzip it. If
+the compact file is under about 30 KB, the split is worth doing before the beta is advertised
+widely; if it is 90 KB, the evidence is not where the weight is and the measurement should say what
+is.
+
+**Status:** open, and stated in `docs/RELEASE.md` as a known cost rather than fixed on beta eve.

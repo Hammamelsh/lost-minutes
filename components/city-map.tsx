@@ -4,7 +4,7 @@ import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'rea
 import type {ReactNode} from 'react';
 import {Armchair,Bus,Crosshair,Eye,LocateFixed,Maximize2,Minimize2,Minus,Moon,Plus,Scan,Sun,X} from 'lucide-react';
 import {BASEMAP_CREDITS,MAPLIBRE_MODULE_URL,prefersReducedMotion,webglAvailable} from '@/lib/basemap';
-import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,type MapTheme} from '@/lib/map-style';
+import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,PALETTES,type MapTheme} from '@/lib/map-style';
 import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
@@ -31,6 +31,11 @@ export type SelectionKind='suggested'|'active'|'new_journey'|'absent';
 
 type Props = {
  buses:FollowBus[];selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
+ /** True while the passenger's page is behind the engineering area. The page stays mounted so the
+  *  stop, the bus, the ride and this very map come back unchanged — but a map nobody can see must
+  *  not go on drawing. Measured on 17 September 2026: hidden, it drew 27.6 frames a second, more
+  *  than the 17.2 it drew in front of the passenger, because the view over it is lighter. */
+ paused?:boolean;
  /** `reason` says which part of the start failed, so the simple map can say why it is shown. */
  follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:(reason?:string)=>void;
  /** The next few stops on the chosen bus's pattern, labelled in the front view: real stops only. */
@@ -204,8 +209,8 @@ function restyleOverlay(instance:MapLibreMap,theme:MapTheme){
 }
 
 /**
- * Camera padding that keeps the ridden bus in the clear band between the ride-along's notes
- * at the top and its progress card at the bottom, whatever their size on this screen.
+ * Camera padding that keeps the ridden bus in the clear band between the ride-along's bar at
+ * the top and its actions and progress card at the bottom, whatever their size on this screen.
  */
 function ridePadding(canvas:HTMLElement){
  const box=canvas.getBoundingClientRect();
@@ -214,9 +219,9 @@ function ridePadding(canvas:HTMLElement){
   const found=hud?.querySelector(selector)?.getBoundingClientRect();
   return found?found[side]-box.top:null;
  };
- const top=Math.max(0,...['.ride-exit','.ride-notes'].map(s=>edge(s,'bottom')??0));
- const cardTop=edge('.ride-card','top');
- const bottom=cardTop===null?0:Math.max(0,box.height-cardTop);
+ const top=Math.max(0,...['.ride-bar','.ride-notes'].map(s=>edge(s,'bottom')??0));
+ const cardTop=Math.min(...['.ride-actions','.ride-card'].map(s=>edge(s,'top')??Infinity));
+ const bottom=Number.isFinite(cardTop)?Math.max(0,box.height-cardTop):0;
  if(box.height-top-bottom<90)return {top:Math.round(box.height*0.1),bottom:0,left:0,right:0};
  return {top:Math.round(top+8),bottom:Math.round(bottom+8),left:0,right:0};
 }
@@ -227,7 +232,14 @@ function ridePadding(canvas:HTMLElement){
  * room). On a phone the legend and the Ride along button take about 110 px at the foot; the fixed
  * 88 px allowed before put a stop fitted near the bottom under the button.
  */
-const NAME_ROOM=40;
+/** Below this width the ride-along takes the whole screen (see the effect in CityMap). It is the
+ *  same breakpoint the stylesheet uses for the immersive ride, and the two must agree. */
+const IMMERSIVE_RIDE='(max-width: 860px)';
+
+// A stop's name sits up to about this far from its dot, on whichever side has room. It was 40,
+// which left a fitted stop clearing the Ride along button by about four pixels — a margin that
+// survived only by luck, and that the type change of 17 September 2026 used up.
+const NAME_ROOM=60;
 function fitPadding(container:HTMLElement){
  const box=container.getBoundingClientRect();
  const within=container.closest('.vector-map');
@@ -315,7 +327,16 @@ const lineFeature=(coordinates:LonLat[],kind:string)=>({type:'Feature' as const,
 
 /** Diagnostic, not a feature: the drawn state as text, so the browser suite can check that it
  *  moves continuously, keeps its zoom, turns the short way and falls back when it should. */
-function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,wall=0,screen:{x:number;y:number}|null=null){
+/** How many frame intervals are kept, and the middle one of them. A median ignores the single
+ *  long frame a tile upload or a garbage collection causes; a mean would not. */
+const FRAME_SAMPLES=90;
+export function medianGap(gaps:number[]){
+ if(gaps.length<12)return null;
+ const sorted=[...gaps].sort((a,b)=>a-b);
+ return sorted[Math.floor(sorted.length/2)];
+}
+
+function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,wall=0,screen:{x:number;y:number}|null=null,frameMs:number|null=null){
  if(!el)return;
  // Frames drawn so far: it stops rising when nothing moves, which is the point.
  el.setAttribute('data-frames',String(frames));
@@ -329,6 +350,9 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
   ?`${v.lastCorrection.kind}:${Math.round(v.lastCorrection.metres)}:${Math.round(v.lastCorrection.at)}`:'none');
  // Where the drawn bus is on the canvas, in CSS pixels from its top-left corner.
  el.setAttribute('data-bus-screen',screen?`${Math.round(screen.x)},${Math.round(screen.y)}`:'');
+ // The middle frame interval of the last 90, in milliseconds: how fast this device is actually
+ // drawing. Empty until enough consecutive frames have been drawn to mean anything.
+ el.setAttribute('data-frame-ms',frameMs===null?'':frameMs.toFixed(1));
 }
 
 function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number):MotionInfo{
@@ -346,7 +370,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
 // While these are the reason, the bus is shown at its report only until they load.
 const CHECKING='checking whether its movement can be estimated',LOADING='loading its road geometry';
 
-type Inputs={ready:boolean;selected?:FollowBus;selectionKind?:SelectionKind;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;
+type Inputs={ready:boolean;paused:boolean;selected?:FollowBus;selectionKind?:SelectionKind;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;
  params:MotionParams;profile:ErrorProfile|null;clockOffsetMs:number;view:MapView;follow:boolean;
  model:BusModel|null;modelShown:boolean;here?:Here|null;stop?:Stop|null;walk:Props['walk'];
  onMotion?:(info:MotionInfo|null)=>void};
@@ -364,7 +388,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * clearly labelled estimate between reports, which moves only along accepted road geometry,
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
-export default function CityMap({buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
+export default function CityMap({paused=false,buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,rideOverlay,busLabel='Your bus',walk=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
@@ -403,6 +427,9 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
  const loop=useRef({raf:null as number|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
   frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,
+  // How long the last few frames took, so a view that has become a slideshow can say so rather
+  // than look frozen. Written to data-frame-ms; read by the front view's own guard.
+  gaps:[] as number[],lastTick:0,
   key:null as string|null,clock:null as PresentationClock|null});
  // One place changes the ride state, so the frame loop, the HUD and the card never disagree.
  const setRide=useCallback((next:RideState)=>{
@@ -776,7 +803,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
  const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
 
  // --- the presentation clock -------------------------------------------------------------
- const inputs=useRef<Inputs>({ready:false,history:null,track:null,blocked:null,provisional:false,params:DEFAULT_PARAMS,
+ const inputs=useRef<Inputs>({ready:false,paused:false,history:null,track:null,blocked:null,provisional:false,params:DEFAULT_PARAMS,
   profile:null,clockOffsetMs:0,view:'2d',follow:false,model:null,modelShown:false,walk:null});
  const frame=useCallback(function tick(){
   const state=loop.current;
@@ -784,6 +811,10 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   state.frames+=1;
   const input=inputs.current,instance=map.current;
   if(!instance||!input.ready)return;
+  // Behind the data: draw nothing and schedule nothing. The loop is started again on the way back,
+  // with the drawing reset, so the bus reappears where the estimate says it is now rather than
+  // crawling to catch up across the minutes nobody was watching.
+  if(input.paused){state.gaps.length=0;state.lastTick=0;return}
   const selectedSource=instance.getSource(SELECTED_SOURCE) as GeoJSONSource|undefined;
   const trailSource=instance.getSource(TRAIL_SOURCE) as GeoJSONSource|undefined;
   const modelSource=instance.getSource(MODEL_SOURCE) as GeoJSONSource|undefined;
@@ -806,6 +837,13 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile));
   visualRef.current=v;estimateRef.current=e;
   const t=performance.now();
+  // Frame intervals, over about the last second and a half of continuous animation. A gap longer
+  // than a second is the loop having rested (a standing bus costs no frames) and starts a fresh
+  // measurement rather than counting the rest as a slow frame.
+  if(state.lastTick&&t-state.lastTick<1000)state.gaps.push(t-state.lastTick);
+  else state.gaps.length=0;
+  state.lastTick=t;
+  if(state.gaps.length>FRAME_SAMPLES)state.gaps.splice(0,state.gaps.length-FRAME_SAMPLES);
   // In the ride-along the camera moves every frame, so the bus is drawn every frame too: drawn
   // at half the camera's rate it shimmied against the street. Elsewhere 30 a second is plenty.
   if(!state.drawn||t-state.lastDraw>=(input.view==='ride'?0:32)){
@@ -872,7 +910,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   const more=needsFrames(e,v);
   if(!more||t-state.lastDiag>=200){
    state.lastDiag=t;
-   diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]));
+   diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]),medianGap(state.gaps));
   }
   const info=motionInfo(e,v,input.profile,input.params,now);
   const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}`;
@@ -889,8 +927,12 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   }
  },[]);
  const kick=useCallback(()=>{if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(frame)},[frame]);
+ // Coming back from the engineering area, the drawing starts again from where the estimate is now.
+ // Keeping the old drawn position would make the bus creep across everything it "missed" while
+ // nobody was looking, which is a correction of a gap rather than of a report.
+ useEffect(()=>{if(!paused)visualRef.current=null},[paused]);
  useEffect(()=>{
-  inputs.current={ready,selected,selectionKind,history,track:trackFor?.track??null,blocked,provisional,
+  inputs.current={ready,paused,selected,selectionKind,history,track:trackFor?.track??null,blocked,provisional,
    params:motionModel?.params??DEFAULT_PARAMS,profile:motionModel?.profile??null,clockOffsetMs,
    view,follow,model,modelShown,here,stop,walk,onMotion};
   kick();
@@ -916,6 +958,7 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   const inside=camera==='front';
   try{
    instance.setLayoutProperty('lm-bus-model','visibility',modelShown&&!inside?'visible':'none');
+   instance.setLayoutProperty('lm-bus-shadow','visibility',modelShown&&!inside?'visible':'none');
    instance.setLayoutProperty('lm-bus-badge','visibility',modelShown&&!inside?'visible':'none');
    instance.setPaintProperty('lm-sel-marker','icon-opacity',(inside?0:modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
    instance.setPaintProperty('lm-sel-marker','text-opacity',(inside?0:modelShown?HIDE_SELECTED_WHEN_MODEL:1) as never);
@@ -931,6 +974,11 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
    // Low and to one side in the front view, so walls and roofs differ; elsewhere the map's own.
    instance.setLight((inside?FRONT[theme].light:buildStyle(theme).light) as never);
    instance.setSky((inside?FRONT[theme].sky:SKY_OFF) as never);
+   // The ground drops away from the road surface in the front view, so the street reads as
+   // something raised to travel on rather than as one flat wash. The map's own ground comes back
+   // the moment the camera leaves.
+   if(instance.getLayer('lm-ground'))instance.setPaintProperty('lm-ground','background-color',
+    (inside?FRONT[theme].ground:PALETTES[theme].ground) as never);
    const own=(id:string)=>(baseLayers(theme).find(l=>l.id===id) as {paint?:Record<string,unknown>}|undefined)?.paint;
    for(const [id,metres] of Object.entries(ROAD_METRES))for(const [layer,extra] of [[id,0],[`${id}-casing`,1.5]] as const){
     if(!instance.getLayer(layer))continue;
@@ -1167,9 +1215,22 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
 
  useEffect(()=>{onRideState?.(view==='ride'?rideState:'off')},[view,rideState,onRideState]);
 
- // A ride started below the map would otherwise play off screen on a phone.
+ // On a phone the ride-along is the screen, not a card in a list: the map is fixed to the
+ // viewport, the page behind it stops scrolling, and the HUD sits inside the safe area. Taking
+ // the map out of the flow shortens the document underneath, so the scroll position is recorded
+ // on the way in and put back on the way out, and the passenger returns to the stop they left.
+ useLayoutEffect(()=>{
+  if(view!=='ride'||typeof matchMedia!=='function'||!matchMedia(IMMERSIVE_RIDE).matches)return;
+  const y=window.scrollY;
+  document.body.classList.add('riding');
+  return()=>{document.body.classList.remove('riding');window.scrollTo(0,y)};
+ },[view]);
+
+ // Where the ride is a panel rather than the screen, it is still brought into view: one started
+ // from below the fold would otherwise play off screen.
  useEffect(()=>{
   if(view!=='ride')return;
+  if(typeof matchMedia==='function'&&matchMedia(IMMERSIVE_RIDE).matches)return;
   const box=container.current?.parentElement;
   if(!box)return;
   const rect=box.getBoundingClientRect();
@@ -1261,31 +1322,40 @@ export default function CityMap({buses,selected,selectionKind,stop,here,follow,o
   </div>}
 
   {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along" ref={hudRef} tabIndex={-1}>
-   {/* One column under the exit, so the notes can never cover each other or the exit. The
-       mode line is short; what a ride-along is sits behind "What is this?". */}
-   <div className="ride-notes">
+   {/* Three bands, so a phone keeps the street between them: the bar (leaving, what the camera
+       is doing, what this is), any note that has to be read, and the two actions above the card.
+       Leaving and returning to the bus are never further than one reach from a thumb. */}
+   <div className="ride-bar">
+    {/* One text node, so the flex gap does not fall between "Exit" and the rest of its own label. */}
+    <button className="ride-exit" onClick={exitRide}><X size={16}/><span>Exit<span className="ride-exit-long"> ride-along</span></span></button>
+    {/* The label that never changes stands down on a narrow screen, so the state that does —
+        following, exploring, street preview — is the part that is always readable. */}
     <p className="ride-mode" data-state={rideState} role="status"><Eye size={14}/>
-     <strong>Ride-along</strong><span>· {camera==='front'?'street preview · ':''}{RIDE_WORDS[rideState]||'starting'}</span></p>
-    <details className="ride-about"><summary>What is this?</summary>
+     <strong>Ride-along</strong><span className="ride-mode-sep"> · </span>
+     <span className="ride-mode-state">{camera==='front'?'street preview · ':''}{RIDE_WORDS[rideState]||'starting'}</span></p>
+    <details className="ride-about"><summary><span>What is this?</span></summary>
      <p>A map visualisation, not a film from on board. The bus is drawn at its last report, or at an
       estimate labelled as one. Drag to look around; the bus goes on without the camera until you
       return to it. Front view is a stylised preview of the street ahead, from a point above the road
       where the bus is drawn: the map’s own streets, buildings and names, not photographs. It is not
       the view from on board and does not show the lane the bus is in, and it moves only as the bus
       is drawn.</p></details>
-    {camera==='front'
-     ? <button className="ride-camera on" onClick={chooseOutside}><Bus size={14}/>Outside view</button>
-     : <button className="ride-camera" aria-disabled={frontReason!==null} onClick={chooseFront}>
-        <Armchair size={14}/>Front view</button>}
+   </div>
+   <div className="ride-notes">
     {(frontNote??frontFallback)&&<p className="ride-note" role="status">{frontNote??frontFallback}</p>}
     {selected&&selected.bearing===null&&blocked!==null&&<p className="ride-note">This bus did not report
      a direction, so it is shown from above, not from behind.</p>}
     {modelFailed&&<p className="ride-note" role="status">The 3D bus could not be loaded, so the map
      symbol is shown instead.</p>}
-    {rideState==='exploring'&&<button className="ride-return" onClick={()=>returnToBus()}><Crosshair size={14}/>Return to bus</button>}
    </div>
    {rideOverlay}
-   <button className="ride-exit" onClick={exitRide}><X size={16}/>Exit ride-along</button>
+   <div className="ride-actions">
+    {rideState==='exploring'&&<button className="ride-return" onClick={()=>returnToBus()}><Crosshair size={14}/>Return to bus</button>}
+    {camera==='front'
+     ? <button className="ride-camera on" onClick={chooseOutside}><Bus size={14}/>Outside view</button>
+     : <button className="ride-camera" aria-disabled={frontReason!==null} onClick={chooseFront}>
+        <Armchair size={14}/>Front view</button>}
+   </div>
   </div>}
 
   {view==='city'&&modelFailed&&<p className="map-notice" role="status">The 3D bus could not be loaded,

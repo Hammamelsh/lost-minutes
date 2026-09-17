@@ -22,6 +22,7 @@ unknown rather than becoming zero, and a pattern no journey runs is not a path a
 from __future__ import annotations
 
 import argparse
+import collections
 import gzip
 import hashlib
 import io
@@ -29,13 +30,22 @@ import json
 import re
 import sys
 import zipfile
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from .core import atomic_json, utc_now
 from .service_days import LONDON, describe
 from .warehouse import DEFAULT_DB, connect, finish_run, start_run
+
+class PatternBuildRefused(RuntimeError):
+    """Raised when a build would replace the published catalogue with far less than it holds."""
+
+    def __init__(self, would_publish, already_published, floor):
+        super().__init__(f'refusing to publish {would_publish} patterns over {already_published} '
+                         f'already published (floor {floor})')
+        self.would_publish, self.already_published, self.floor = would_publish, already_published, floor
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PATTERNS_TARGET = Path('public/data/patterns.json')
@@ -54,6 +64,17 @@ FILENAME = re.compile(r'^(?P<operator>[A-Z0-9]+)_(?P<line>[^_]+)_.*_(?P<start>\d
 # journeys run a longer path: Sunday's 219 is 45% inside, so every Sunday 219 was refused.
 MIN_STOPS_IN_AREA = 1
 MIN_STOPS = 5
+
+# A pattern set built today has to still be right tomorrow. Selecting only the files valid on the
+# build day left two holes: a registration starting in the next few days was invisible until a
+# rebuild happened to run after it began, and a day the timetable changes (a new registration, a
+# weekday service replacing a weekend one) depended on the nightly rebuild having succeeded. Every
+# file whose validity touches the window from the build day to HORIZON_DAYS ahead is parsed
+# instead. Nothing is asserted early: each published pattern carries its own validFrom/validTo,
+# and the matcher and the page both ask whether it is valid on the day in question before using
+# it. Files that expired before the build day are not parsed; they describe a service that has
+# been withdrawn or replaced.
+HORIZON_DAYS = 14
 
 WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 DAY_GROUPS = {name: [index] for index, name in enumerate(WEEKDAYS)}
@@ -117,11 +138,55 @@ def _iso(value):
     return value.isoformat() if isinstance(value, date) else (str(value) if value else None)
 
 
-def survey_datasets(directory=TIMETABLE_DIR, today=None):
-    """What each preserved dataset offers on `today`, from the member names alone."""
-    today = today or datetime.now(LONDON).date()
-    entries, unrecognised, not_valid = [], [], 0
+def newest_snapshots(directory=TIMETABLE_DIR):
+    """One snapshot per preserved dataset: the newest copy of each.
+
+    The collector re-downloads the timetable datasets while it runs, so this directory
+    accumulates content-addressed snapshots of the same dataset. Reading all of them counted the
+    same service twice: on 17 September 2026, with a second BNML snapshot on disk, route 15's
+    published journey count doubled from 280 to 560 without a single new journey existing. It
+    would also have resurrected a registration the operator had since withdrawn, because the
+    older snapshot still contained its file.
+
+    A dataset is identified by the operator whose files dominate it (BNML, BNSM, BNFM), which is
+    how TfGM publishes them, and only its newest file is read. "Newest" is the file's
+    modification time: these are written once, when the collector stores them.
+    """
+    newest, skipped = {}, []
     for archive_path in sorted(Path(directory).glob('*.bin.gz')):
+        body = gzip.decompress(archive_path.read_bytes())
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            operators = collections.Counter()
+            for member in archive.infolist():
+                match = FILENAME.match(Path(member.filename).name)
+                if match:
+                    operators[match['operator']] += 1
+        if not operators:
+            skipped.append(archive_path.name)
+            continue
+        group = operators.most_common(1)[0][0]
+        stamp = archive_path.stat().st_mtime
+        held = newest.get(group)
+        if held is None or stamp > held[0]:
+            if held is not None:
+                skipped.append(held[1].name)
+            newest[group] = (stamp, archive_path)
+        else:
+            skipped.append(archive_path.name)
+    return {'datasets': {group: path for group, (_, path) in sorted(newest.items())},
+            'supersededOrUnreadable': sorted(skipped)}
+
+
+def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DAYS):
+    """What each preserved dataset offers from `today` to `today` + `horizon_days`, from the
+    member names alone. A file is taken when its declared validity touches that window, so a
+    registration that begins in a few days is parsed now and marked as not yet in force."""
+    today = today or datetime.now(LONDON).date()
+    horizon = today + timedelta(days=max(0, horizon_days))
+    entries, unrecognised = [], []
+    expired = beyond = 0
+    snapshots = newest_snapshots(directory)
+    for archive_path in snapshots['datasets'].values():
         sha = archive_path.stem.split('.')[0]
         body = gzip.decompress(archive_path.read_bytes())
         with zipfile.ZipFile(io.BytesIO(body)) as archive:
@@ -134,19 +199,28 @@ def survey_datasets(directory=TIMETABLE_DIR, today=None):
                     unrecognised.append(name)
                     continue
                 start, end = _parse_date(match['start']), _parse_date(match['end'])
-                if not (start <= today <= end):
-                    not_valid += 1
+                if end < today:
+                    expired += 1
+                    continue
+                if start > horizon:
+                    beyond += 1
                     continue
                 entries.append({'sha256': sha, 'path': archive_path, 'member': member.filename,
                                 'operator': match['operator'], 'line': match['line'],
-                                'validFrom': start, 'validTo': end, 'bytes': member.file_size})
-    return {'entries': entries, 'unrecognised': unrecognised, 'notValidOnDate': not_valid,
-            'date': today}
+                                'validFrom': start, 'validTo': end, 'bytes': member.file_size,
+                                'inForce': start <= today <= end})
+    return {'entries': entries, 'unrecognised': unrecognised,
+            'datasetsRead': sorted(snapshots['datasets']),
+            'snapshotsSuperseded': len(snapshots['supersededOrUnreadable']),
+            'filesExpired': expired, 'filesBeyondHorizon': beyond,
+            # Kept under its old name for readers of earlier coverage summaries.
+            'notValidOnDate': expired + beyond,
+            'date': today, 'horizon': horizon}
 
 
 def index_datasets(directory=TIMETABLE_DIR, today=None):
-    """The files valid on `today`. Kept for callers that only need the list."""
-    return survey_datasets(directory, today)['entries']
+    """The files in force on `today`. Kept for callers that only need the list."""
+    return [e for e in survey_datasets(directory, today)['entries'] if e['inForce']]
 
 
 def _local(tag):
@@ -457,8 +531,37 @@ def build_published(con, coverage=None):
     }
 
 
+# A refresh that goes wrong must leave the last good catalogue in place. A build that would
+# publish nothing, or a small fraction of what is already published, is refused rather than
+# written: a partial timetable download is indistinguishable from a service being withdrawn, and
+# the wrong one of those would quietly tell passengers their bus does not run. The published file
+# keeps its own generatedAt, so an old catalogue is visibly old rather than silently wrong.
+KEEP_FRACTION = 0.5
+
+
+def shrink_floor(already_published, explicit=False, allow_shrink=False):
+    """The fewest patterns a build may publish when a catalogue is already published.
+
+    An explicit build (--lines, --max-lines) is meant to be small, and --allow-shrink says a
+    real withdrawal is expected. Otherwise a build that would publish less than half of what is
+    already there is refused: the likeliest cause is a timetable download that failed or
+    arrived truncated, and publishing it would tell passengers their service does not run.
+    """
+    if explicit or allow_shrink or not already_published:
+        return 1
+    return max(1, int(already_published * KEEP_FRACTION))
+
+
+def _published_now(target):
+    """The catalogue already on disk, if it can be read. A corrupt one is treated as absent."""
+    try:
+        return json.loads(Path(target).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=None, log=print,
-          today=None):
+          today=None, allow_shrink=False):
     root = Path(root)
     today = today or datetime.now(LONDON).date()
     survey = survey_datasets(root / TIMETABLE_DIR, today)
@@ -503,15 +606,34 @@ def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=No
         finish_run(con, run_id, 'succeeded')
         summary = {
             'selection': mode, 'date': today.isoformat(), 'cap': max_lines,
+            'validityWindow': {'from': today.isoformat(), 'to': survey['horizon'].isoformat()},
             'servicesSelected': len(selected), 'filesParsed': files,
+            'datasetsRead': survey['datasetsRead'],
+            'snapshotsSuperseded': survey['snapshotsSuperseded'],
             'filesNotValidOnDate': survey['notValidOnDate'],
+            'filesExpiredBeforeDate': survey['filesExpired'],
+            'filesBeyondHorizon': survey['filesBeyondHorizon'],
             'unrecognisedFileNames': len(survey['unrecognised']),
             'observedServicesWithoutTimetable': len(without),
             'observedServicesWithoutTimetableExamples': [
                 {'operator': op, 'line': line, 'observations': n} for op, line, n in without[:20]],
         }
         published = build_published(con, summary)
-        atomic_json(root / PATTERNS_TARGET, published)
+        target = root / PATTERNS_TARGET
+        previous = _published_now(target)
+        kept = len(previous['patterns']) if previous and previous.get('patterns') else 0
+        floor = shrink_floor(kept, explicit=bool(lines or max_lines), allow_shrink=allow_shrink)
+        if kept and len(published['patterns']) < floor:
+            finish_run(con, run_id, 'refused', error_class='catalogue_would_shrink',
+                       error_detail=f"{len(published['patterns'])} patterns is below the floor "
+                                    f'of {floor}')
+            log(json.dumps({'refused': 'catalogue_would_shrink',
+                            'wouldPublish': len(published['patterns']), 'alreadyPublished': kept,
+                            'floor': floor, 'keptGeneratedAt': previous.get('generatedAt'),
+                            'note': 'the published catalogue was left unchanged; '
+                                    'pass --allow-shrink if the reduction is real'}))
+            raise PatternBuildRefused(len(published['patterns']), kept, floor)
+        atomic_json(target, published)
         log(json.dumps({**{k: v for k, v in summary.items()
                            if k != 'observedServicesWithoutTimetableExamples'},
                         'datasetsIndexed': len({e['sha256'] for e in entries}),
@@ -536,10 +658,17 @@ def main(argv=None):
                              'recorded in the published coverage summary)')
     parser.add_argument('--date', help='judge timetable validity on this day (YYYY-MM-DD); '
                                        'default today in Europe/London')
+    parser.add_argument('--allow-shrink', action='store_true',
+                        help='publish even if the new catalogue holds far fewer patterns than the '
+                             'one already published (a real withdrawal, not a failed download)')
     args = parser.parse_args(argv)
     day = date.fromisoformat(args.date) if args.date else None
-    build(lines=args.lines.split(',') if args.lines else None, coverage=args.coverage,
-          max_lines=args.max_lines, today=day)
+    try:
+        build(lines=args.lines.split(',') if args.lines else None, coverage=args.coverage,
+              max_lines=args.max_lines, today=day, allow_shrink=args.allow_shrink)
+    except PatternBuildRefused as refused:
+        print(str(refused), file=sys.stderr)
+        return 2
     return 0
 
 

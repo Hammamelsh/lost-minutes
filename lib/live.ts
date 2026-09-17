@@ -211,8 +211,10 @@ export function ageWords(seconds:number|null|undefined):string{
  if(seconds===null||seconds===undefined||!Number.isFinite(seconds))return 'age unknown';
  const s=Math.round(seconds);
  if(s<0)return 'timestamped ahead of our clock';
- if(s<10)return 'reported seconds ago';
- if(s<90)return `reported ${s}s ago`;
+ // Under ten seconds used to read "reported seconds ago", which looks like a page that has lost
+ // its figure. The number is what we hold, and it is no less exact here than at thirty seconds.
+ // Nothing is ever "now": a report under half a second old is shown as one second, not zero.
+ if(s<90)return `reported ${Math.max(1,s)}s ago`;
  const m=Math.round(s/60);
  if(m<60)return `reported ${m} min ago`;
  const h=Math.floor(m/60);

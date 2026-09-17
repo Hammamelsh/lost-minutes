@@ -12,7 +12,7 @@
  * an arrival time, which Lost Minutes does not predict.
  */
 import type {FollowBus} from '@/lib/follow';
-import {alongRouteWords,bringsItToYourStop,relateToStop,relationWords} from '@/lib/patterns';
+import {alongRouteWords,bringsItToYourStop,relateToStop,relationWords,validOn} from '@/lib/patterns';
 import type {PatternCatalogue,ServicePattern,StopRelation} from '@/lib/patterns';
 import {runsOn} from '@/lib/service-days';
 import type {OperatingRule} from '@/lib/service-days';
@@ -44,6 +44,10 @@ export function servicesAtStop(catalogue:PatternCatalogue|null,stopId:string,day
  for(const pattern of catalogue?.patterns??[]){
   const index=pattern.stops.indexOf(stopId);
   if(index<0||index===pattern.stops.length-1)continue;
+  // The catalogue carries registrations that begin in the next fortnight, so that a timetable
+  // change does not wait for a rebuild. One not yet in force, or already replaced, describes a
+  // service nobody can board today and is not listed.
+  if(!validOn(pattern,day))continue;
   const key=serviceKey(pattern);
   const group=groups.get(key)??{key,operator:pattern.operator??null,line:pattern.line,
    direction:pattern.direction??null,destination:pattern.destination||'Destination not named in the timetable',

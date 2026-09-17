@@ -113,7 +113,8 @@ test('freshness thresholds come from the published policy, not the frontend',()=
 });
 
 test('age wording never claims a position is current',()=>{
- assert.equal(ageWords(3),'reported seconds ago');
+ assert.equal(ageWords(3),'reported 3s ago');
+ assert.equal(ageWords(0.2),'reported 1s ago','never "now", and never a bare zero');
  assert.equal(ageWords(45),'reported 45s ago');
  assert.equal(ageWords(600),'reported 10 min ago');
  assert.equal(ageWords(7200),'reported 2h 0m ago');

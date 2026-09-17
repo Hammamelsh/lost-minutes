@@ -56,12 +56,15 @@ const FALLBACK:Record<string,string>={
  tiles_failed:'none of its map tiles arrived',startup_timeout:'it could not finish starting',
 };
 
-export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
+export default function FollowView({paused=false,mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
                                     onLocate,locating,locationError,patterns,patternsById,
                                     here,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
                                     clockOffsetMs=0,initialJourney}:{
+ /** True while the engineering area is open in front of this page. It stays mounted, so the map
+  *  must be told to stop drawing rather than paint a canvas nobody can see. */
+ paused?:boolean;
  mode:FeedMode;live:LiveState|null;buses:FollowBus[];roads:import('@/lib/replay').RoadMap|null;
  onRefresh:()=>void;refreshing:boolean;publicationAgeSeconds:number|null;
  ageBasis:'server'|'device';archiveDate?:string;onUseArchive?:()=>void;usingArchive:boolean;
@@ -348,10 +351,16 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    +`to ${destinationLabel(selection.bus.destination)}${selection.bus.journeyRef?` (journey ${selection.bus.journeyRef})`:''}. `
    +'It is shown at each report it makes, not estimated, and the map has stopped following it. '
    +'Keep following it to go on with this journey.';
+ // "Last reported near Moss Park Road" beside "last report nearest Moss Park Road, 2 stops before
+ // yours" is the same fact twice, and a passenger reads the repetition as two different claims.
+ // The activity line is kept where it says more: that the bus appears to be standing there, or
+ // where the progress line names a different stop or is missing altogether.
+ const progressText=stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null;
+ const activityAdds=activityLine!==null&&(activity?.kind==='stopped'||!progressText
+  ||!progressText.includes(name(activity?.kind==='near'?activity.stop:'')));
  const stripStatus=selection.kind==='absent'?'No current report'
   :selection.kind==='new_journey'?`Now on another journey · ${ageChip(selection.bus)}`
-  :shown?[stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null,
-          activityLine?.text,ageChip(shown)].filter(Boolean).join(' · '):'';
+  :shown?[progressText,activityAdds?activityLine?.text:null,ageChip(shown)].filter(Boolean).join(' · '):'';
  const inList=!pin||(stop?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key);
 
  const rideOverlay=shown?<div className="ride-card" data-vehicle={shown.vehicle}>
@@ -367,7 +376,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
    <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
   </div>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
-  {activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
+  {activityAdds&&activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${relevant?prog.tone:'bad'}`}>
    {relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
@@ -493,7 +502,7 @@ export default function FollowView({mode,live,buses,roads,onRefresh,refreshing,
       <FollowMap buses={mapBuses} selected={shown} follow={follow&&!pausedJourney} roads={roads}
        mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
      </div>
-   : <CityMap buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
+   : <CityMap paused={paused} buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       view={effectiveView} onViewChange={changeView} theme={theme} onThemeChange={saveTheme}
       fitRequest={fitRequest} onLocate={guideLocates?undefined:onLocate} locating={locating} rideOverlay={rideOverlay}

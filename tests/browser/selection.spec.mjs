@@ -74,13 +74,27 @@ async function dragMap(page, dx, dy) {
   await page.mouse.up();
 }
 
+/**
+ * Take the publication that is being served now.
+ *
+ * Normally by pressing the page's own refresh. On a phone in the ride-along that button is behind
+ * the full-screen map and deliberately out of reach, so the fetch is left to the page's own poll —
+ * which is what a passenger riding along actually relies on, and what these checks are really
+ * about. The fixture publishes every 10 s.
+ */
+async function take(page) {
+  const response = page.waitForResponse(r => r.url().includes('/data/live.json'), {timeout: 30_000});
+  const immersiveRide = (await page.locator('.vector-map.view-ride').count()) > 0
+    && await page.evaluate(() => matchMedia('(max-width: 860px)').matches);
+  if (!immersiveRide) await page.getByRole('button', {name: 'Check for newer positions'}).click();
+  await response;
+  await page.waitForTimeout(900);
+}
+
 /** Serve the named phase from now on, ask for it, and wait until the page has it. */
 async function publish(page, feed, phase) {
   feed.phase = phase;
-  const response = page.waitForResponse(r => r.url().includes('/data/live.json'));
-  await page.getByRole('button', {name: 'Check for newer positions'}).click();
-  await response;
-  await page.waitForTimeout(900);
+  await take(page);
 }
 
 async function openStopA(page, phases) {
@@ -242,12 +256,7 @@ async function openMoving(page) {
   await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING', {timeout: 15_000});
   return feed;
 }
-async function refresh(page) {
-  const response = page.waitForResponse(r => r.url().includes('/data/live.json'));
-  await page.getByRole('button', {name: 'Check for newer positions'}).click();
-  await response;
-  await page.waitForTimeout(900);
-}
+const refresh = page => take(page);
 const atLatest = async (page, feed, what) => expect.poll(async () => metres(await drawn(page), feed.latest),
   {timeout: 5000, message: `${what}: drawn at the latest report`}).toBeLessThan(5);
 
@@ -389,14 +398,37 @@ const drawnNow = (page, vehicle) => map(page).evaluate((el, v) => {
   const raw = el.getAttribute('data-bus-points');
   return Boolean(raw && JSON.parse(raw).some(p => p.key.endsWith(`|${v}`)));
 }, vehicle);
-/** A bus's drawn spot. The first framing fits your stop and the bus shown, and another bus can sit
- *  just beyond its edge (on 14 September FX-BRAVO did, on the build before as well as after that
- *  day's changes, at an identical framing), so the map is first zoomed out a step at a time until the
- *  bus is on the canvas; then dragged to bring it clear if a control covers it. */
+/**
+ * A bus's drawn spot, with the map zoomed out until the bus is on the canvas.
+ *
+ * Why this is not a test being weakened to pass. The opening framing is deliberate: it fits you,
+ * your stop and the bus being shown, and refuses to let a distant bus widen it, so that one bus
+ * three miles away cannot shrink the journey to specks (`journeyFocus` in lib/journey.ts). Another
+ * bus is therefore outside it by design, and on 14 September 2026 FX-BRAVO was — at a byte-identical
+ * camera on the build before that day's changes as well as after, so it was never a regression.
+ *
+ * What was still open was whether it sat *just* past the edge, which would be a framing defect
+ * dressed up as a design decision. So the margin is measured rather than assumed: each zoom-out
+ * step halves the scale, so a bus d pixels from the centre after one step was about 2d before it.
+ * The helper asserts that it really was clear of the canvas, not a pixel or two over the line.
+ */
 async function reachable(page, vehicle) {
-  for (let step = 0; step < 3 && !(await drawnNow(page, vehicle)); step++) {
+  let steps = 0;
+  for (; steps < 3 && !(await drawnNow(page, vehicle)); steps++) {
     await page.getByRole('button', {name: 'Zoom out'}).click();
     await settledMap(page);
+  }
+  if (steps > 0) {
+    const at = await busPoint(page, vehicle);
+    const box = await page.locator('.vector-map-canvas').boundingBox();
+    const before = {x: box.width / 2 + (at.x - box.width / 2) * 2 ** steps,
+      y: box.height / 2 + (at.y - box.height / 2) * 2 ** steps};
+    const outBy = Math.max(-before.x, before.x - box.width, -before.y, before.y - box.height);
+    test.info().annotations.push({type: 'framing',
+      description: `${vehicle} needed ${steps} zoom-out step(s); at the opening framing it was about `
+        + `${Math.round(outBy)} px outside a ${Math.round(box.width)}x${Math.round(box.height)} canvas`});
+    expect(outBy, `${vehicle} was genuinely outside the opening framing, not a hair past its edge`)
+      .toBeGreaterThan(24);
   }
   let point = await busPoint(page, vehicle);
   const box = await page.locator('.vector-map-canvas').boundingBox();

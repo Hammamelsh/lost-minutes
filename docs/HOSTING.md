@@ -66,11 +66,16 @@ protecting the origin, not about correctness.
 
 ## Itemised estimate
 
-**Checked again on 14 September 2026, and the price has gone up.** Hetzner's documentation records
-a price adjustment for new orders from 15 June 2026: the **CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe,
-20 TB traffic) went from €3.99 to **€5.49 a month net (€0.0088 an hour), excluding IPv4**. The Arm
-CAX11 went from €4.49 to €5.99. Hetzner's IP pricing page lists a cloud Primary IPv4 at **€0.50 a
-month**.
+**Re-checked on 17 September 2026 against Hetzner's own price-adjustment page, and unchanged since
+14 September.** For new orders from 15 June 2026 the **CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe, 20 TB
+traffic) is **€5.49 a month net (€0.0088 an hour), excluding IPv4**, up from €3.99; the Arm CAX11
+is €5.99, up from €4.49. That page states "All prices are excluding VAT". Hetzner's IP pricing page
+lists a cloud Primary IPv4 at **€0.50 a month**, and billing is the lower of the hourly rate and
+the monthly cap, charged whether the server is running or not.
+
+Source: <https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/> and
+<https://docs.hetzner.com/cloud/billing/faq/>. The main pricing page renders its figures in the
+browser and still cannot be read here; confirm the total in the console before ordering.
 - Backups: the price is shown only on the product page, which renders its figures in the browser
   and could not be read here. They are listed as 20% of the server's price, as recorded earlier.
 - VAT: UK consumers are charged 20% on top of the net prices, as recorded earlier.
@@ -97,21 +102,87 @@ archive downloads. At the measured 0.13 GB a day of raw captures, 14 days of ret
 1.9 GB, well inside the 40 GB local NVMe disk. That disk is persistent across restarts, which is
 what the collector's checkpointing needs.
 
+## Can the beta run on a provider hostname, without buying a domain?
+
+Not reliably, and it is worth being precise about why, because "it has a hostname" is not the same
+as "it can have a certificate".
+
+* **Hetzner's own rDNS name** (`static.<ip>.clients.your-server.de`) does resolve to the server, so
+  an ACME HTTP-01 challenge would work in principle. In practice Let's Encrypt counts certificates
+  per registered domain, and `your-server.de` is shared by every Hetzner customer, so that budget
+  is permanently exhausted. Issuance fails, unpredictably, and a portfolio link that intermittently
+  shows a certificate warning is worse than no link.
+* **A free dynamic-DNS subdomain** — DuckDNS, afraid.org and similar — is a real answer. It is a
+  normal DNS name under a domain with spare certificate budget, Caddy obtains a certificate for it
+  the usual way, and it costs nothing. `lost-minutes.duckdns.org` would carry the beta perfectly
+  well. The cost is that it reads as a hobby address on a CV.
+* **A domain of your own**, about £10 a year, is the one that reads right next to your name, and it
+  is what saved stops and a home-screen icon need to keep working.
+
+**So: yes, the beta can start today without buying anything, on a free dynamic-DNS subdomain, and
+the domain can be added later without changing the server** — Caddy takes a new name from
+`/etc/lost-minutes/caddy.env` and obtains its certificate on restart. Anyone who saved stops under
+the old address would lose them, which is an argument for choosing the final name before inviting
+more than a handful of testers.
+
+## Backups and recovery
+
+Nothing here is irreplaceable in the same way, so the policy differs by kind:
+
+| What | If the disk is lost | Policy |
+|---|---|---|
+| The site and the pipeline | re-uploaded from this repository in one command | no backup needed |
+| The DuckDB warehouse | rebuilt from the raw captures it was loaded from | no backup needed |
+| Raw position captures | **cannot be re-collected**: the feed has no history | the only thing worth paying for |
+| Timetable versions | re-downloadable, but a withdrawn registration is gone for good (route 256's Monday–Friday file already is) | worth keeping |
+
+Hetzner's automated backups are 20% of the server price — about €1.10 net, €1.32 with VAT — and
+take a snapshot of the whole disk daily, keeping seven. That is the simplest thing that covers the
+two rows that matter. The alternative, a nightly `rsync` of `data/live-capture/` and
+`data/live-capture/timetables/` to this machine, costs nothing and is one more thing to remember.
+
+**Recommendation: turn backups on.** £1.10 a month to keep the one dataset that cannot be
+collected twice is the easiest decision in this document.
+
+## Deploying and rolling back
+
+* **Deploy:** `deploy/publish.sh deploy@<server>` builds here, keeps the release that is running at
+  `/srv/lost-minutes/previous`, uploads, and writes a `RELEASE` file naming the commit. The page
+  carries the same stamp, so what a tester reports can be matched to a commit.
+* **Roll back:** `ssh deploy@<server> sudo bash /srv/lost-minutes/app/deploy/rollback.sh`. It puts
+  the previous release back and restarts the collector. It deliberately does **not** restore
+  `live.json`, `config.json` or `operations.json`: those are the collector's output, and a rollback
+  must not put a stale publication in front of passengers.
+* **Verify either way:** `curl -sI https://<domain>/ | head -3`, then
+  `curl -s https://<domain>/data/live.json | head -c 200`, then open it on a phone.
+
+One release of history is kept, not many. Anything older is a `git checkout` and a rebuild.
+
 ## Supervision and freshness monitoring
 
 - **Collector supervision:** `lost-minutes-collector.service` runs under systemd with
   `Restart=always`. Every 5 minutes the watchdog (`lost-minutes-health.timer`, `check-health.sh`)
   restarts a collector that has not published for 10 minutes. It leaves the nightly timetable
   rebuild alone.
-- **What is missing is a person being told.** The watchdog restarts; it tells nobody. If the
-  server itself stops, or restarts do not help, the public feed goes stale unnoticed.
-- **Recommended: an external dead man's switch.** Healthchecks.io's free "Hobbyist" plan (checked
-  14 September 2026: $0 a month, 20 checks, email alerts) gives each check a ping address.
-  - The watchdog pings it only when the publication is fresh.
-  - When the pings stop, for any reason (collector, server or network), an email follows after the
-    grace period.
-  - Not configured: it needs an account, and the ping address kept on the server in
-    `/etc/lost-minutes/`, never in Git.
+- **The watchdog now tells four failures apart**, because an HTTP 200 hides all of them
+  (`deploy/check-health.sh`):
+  1. the collector is not running → restart it;
+  2. it is running but has stopped publishing → restart it;
+  3. it is publishing, but the feed is not live (upstream quiet, or the key refused) → a restart
+     would not help, so it records the state and restarts nothing;
+  4. it is publishing a live feed whose newest vehicle report is over 5 minutes old → upstream's
+     problem, which the page already shows to passengers.
+- **What is still missing is a person being told.** The watchdog restarts; it tells nobody. If the
+  server stops, or restarts do not help, the public feed goes stale unnoticed.
+- **Prepared, and off until you choose the destination: an external dead man's switch.** The
+  watchdog pings `LM_HEALTH_PING_URL` whenever a fresh publication exists, and `<url>/fail` when it
+  has had to restart the collector. Silence from those pings means the site has stopped publishing
+  for any reason at all, including this machine being off.
+  - Healthchecks.io's free "Hobbyist" plan (checked 14 September 2026: $0 a month, 20 checks, email
+    alerts) is the obvious destination, but **no account has been created and nothing is
+    configured**. The URL goes in `/etc/lost-minutes/health.env` (see `deploy/health.env.example`),
+    chmod 600, never in Git.
+  - **Confirm the destination — which address should be emailed — before it is switched on.**
 
 ## Deployment configuration (ready, not provisioned)
 
@@ -123,22 +194,40 @@ the Caddyfile locally. The steps are in `deploy/README.md`.
 
 ## What I would do
 
-Take the CX23 with its IPv4 and without backups to start (about **£6 a month with VAT**, ~£7 with
-a domain). Backups can wait for three reasons:
-- the warehouse is reproducible from the raw captures;
-- the raw captures cannot be re-collected, but losing a fortnight of collection is an annoyance,
-  not a disaster;
-- backups can be added later if the accumulated history starts to matter.
+**Hetzner Cloud CX23, in Falkenstein, with its IPv4 and with backups on: €5.49 + €0.50 + €1.10 net
+= €7.09, about €8.51 with 20% VAT, roughly £7.25 a month.** Add a domain (~£10 a year, ~£0.85 a
+month) and it is about **£8 a month**, or **£97 in the first year**.
 
-Point a subdomain at it through Cloudflare, and add the Healthchecks.io ping to the watchdog.
+Backups are the one place this changes from the earlier recommendation, and the reason is the route
+256 finding: TfGM's current registration for that line no longer contains the Monday–Friday service
+its previous one did. Timetable versions and raw position captures are the two things that cannot
+be collected twice, and £1.10 a month is a small price for not losing them.
 
-This is also what makes returning practical. A home-screen icon and saved stops are tied to the
-address. The trial link is a temporary Quick Tunnel, so the page itself advises against installing
-it.
+**Alternatives, briefly.** Cloudflare Pages, Netlify and GitHub Pages host the site for nothing and
+cannot run a 24/7 writer with a disk, which is the actual requirement. Fly.io is comparable in
+price; its volumes are per-machine and its free allowances have moved more than once. A Raspberry
+Pi at home is genuinely cheaper and a legitimate choice — the trade-off is your home IP, your
+electricity and your uptime, which is a poor story for a portfolio link. GitHub Actions is the
+wrong shape entirely for a 20-second collector, and each run would start with no warehouse; it is
+used here for CI instead (`.github/workflows/checks.yml`).
 
-**The decision I need from you:**
-1. approval of about **£6–8 a month** with VAT (CX23 with IPv4; optional backups; a domain);
-2. the domain or subdomain to use;
-3. whether to create the free Healthchecks.io account for alerts.
+**The beta can start without buying a domain**, on a free DuckDNS-style subdomain (see above), and
+the domain can be added later by changing one line in `/etc/lost-minutes/caddy.env`. Saved stops
+and any home-screen icon are tied to whichever address people use, so it is worth choosing the
+final name before inviting more than a handful of testers.
 
-I will not provision anything until you say so. The steps after that are in `deploy/README.md`.
+## The decision needed, exactly
+
+1. **Spend about £7.25 a month** (CX23 + IPv4 + backups, with VAT), or £6.10 without backups.
+   Backups are recommended.
+2. **A Hetzner Cloud account, and one of:** an API token in the environment so provisioning can be
+   scripted from here, or a server you create yourself plus an SSH key and a sudo user, after which
+   `deploy/publish.sh deploy@<host>` and `deploy/install.sh` do the rest.
+3. **The address to use**: a domain or subdomain you own, or "use a free DuckDNS subdomain for
+   now".
+4. **Where a stalled-publication alert should go** — which email — and whether to create the free
+   Healthchecks.io account for it. Nothing is created until you say so.
+
+Nothing is provisioned, no account exists and nothing has been bought. The steps after the answer
+are in `deploy/README.md`, and the whole configuration is already validated on this machine by
+`deploy/validate.sh`.

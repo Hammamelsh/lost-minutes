@@ -29,6 +29,11 @@
 		root * {$LM_ROOT}/out
 		# Content-hashed file names never change.
 		header /_next/static/* Cache-Control "public, max-age=31536000, immutable"
+		# MapLibre's modules live under a folder named by version, so a cached copy can never
+		# mix two releases.
+		header /vendor/* Cache-Control "public, max-age=31536000, immutable"
+		# The two typefaces: stable names, so a day with revalidation rather than a year.
+		header /fonts/* Cache-Control "public, max-age=86400, stale-while-revalidate=604800"
 		# The page and the service worker must revalidate, so a deploy is picked up.
 		header / Cache-Control "no-cache"
 		header /index.html Cache-Control "no-cache"

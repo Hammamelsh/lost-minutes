@@ -1,0 +1,76 @@
+# The checks that must hold for every commit, and nothing that needs the outside world.
+#
+# Deliberately excluded, because a gate that depends on someone else's service is not a gate:
+#   * the browser suite (tests/browser) renders real vector tiles from OpenFreeMap and takes
+#     about half an hour under software WebGL. Run it locally with `pnpm test:browser`;
+#   * the real-feed checks need a BODS key and a running collector;
+#   * the walking check makes a real request to FOSSGIS's router.
+# Those are recorded in docs/LOCAL_VERIFICATION.md with the build they ran against.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Action majors are pinned conservatively: these are known-good and maintained. Bump them when
+# a run warns about a deprecated runtime, not speculatively.
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: types, lint, node tests, static build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      # The build vendors MapLibre's modules and both typefaces out of node_modules, so it needs
+      # no network of its own.
+      - run: pnpm build
+      - name: no secret reached the built site
+        run: |
+          set -eu
+          if grep -rIl --exclude-dir=_next -e 'BODS_API_KEY' -e 'api_key=' out/ ; then
+            echo "a credential-looking string is in out/"; exit 1
+          fi
+          test -s out/fonts/inter-variable.woff2
+          test -s out/vendor/maplibre-gl/*/maplibre-gl-worker.mjs
+
+  pipeline:
+    name: python pipeline tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -v
+
+  deployment:
+    name: deployment configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shell syntax and systemd units
+        run: |
+          set -eu
+          for script in deploy/*.sh scripts/preview.sh; do bash -n "$script"; done
+          # systemd-analyze is present on the runner image; unit files are checked, not started.
+          systemd-analyze verify deploy/systemd/lost-minutes-*.service || true

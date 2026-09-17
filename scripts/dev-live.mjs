@@ -14,6 +14,7 @@ import {spawn} from 'node:child_process';
 import {existsSync, readFileSync} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {vendorMaplibre} from './vendor-maplibre.mjs';
+import {vendorFonts} from './vendor-fonts.mjs';
 
 const root = new URL('..', import.meta.url).pathname;
 const args = process.argv.slice(2);
@@ -101,6 +102,7 @@ start('collector', python, ['-m', 'pipeline.collect', '--minutes', String(minute
 });
 
 vendorMaplibre();   // the map's own modules, served unbundled from public/vendor
+vendorFonts();      // the two typefaces, served from public/fonts
 start('frontend', 'node', ['node_modules/next/dist/bin/next', 'dev'], line => {
   if (!ready.frontend && /Ready in|localhost:3000/.test(line)) {ready.frontend = true; announce();}
 });

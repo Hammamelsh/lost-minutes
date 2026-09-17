@@ -82,6 +82,12 @@ expect /data/patterns.json Cache-Control "max-age=300"
 expect /sw.js Cache-Control no-cache
 static=$(cd out && ls _next/static/chunks/*.js | head -1)
 expect "/$static" Cache-Control immutable
+# MapLibre's modules are under a version folder, so they are immutable too; the typefaces keep a
+# stable name, so they revalidate after a day rather than being pinned for a year.
+vendor=$(cd out && ls vendor/maplibre-gl/*/maplibre-gl.mjs | head -1)
+expect "/$vendor" Cache-Control immutable
+expect /fonts/inter-variable.woff2 Cache-Control "max-age=86400"
+expect /fonts/inter-variable.woff2 Content-Type font/woff2
 expect / X-Content-Type-Options nosniff
 expect / Referrer-Policy strict-origin-when-cross-origin
 expect / Permissions-Policy "geolocation=(self)"

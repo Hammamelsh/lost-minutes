@@ -3,6 +3,35 @@
 @import "tw-animate-css";
 @import "../vendor/shadcn-tailwind-4.13.0.css";
 
+/* ----------------------------------------------------------------------------------------
+   Typefaces. Two variable families, served from this site (scripts/vendor-fonts.mjs), never
+   from a font CDN: a page read at a bus stop should not hand a third party a request, and the
+   service worker can keep them.
+
+   Inter carries the interface, where legibility at 12-15px on a phone in daylight decides
+   everything. Space Grotesk carries the voice: the wordmark, headings, route numbers and the
+   ride-along's HUD. Its slightly mechanical forms suit a transit instrument, and its figures
+   are unambiguous at a glance, which matters when the number on screen is the bus you are
+   about to board. Both are SIL OFL 1.1; the licences are served at /fonts/LICENCES.txt.
+
+   font-display:swap, so a slow font never delays the stop and the buses.
+   ---------------------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('/fonts/inter-variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Space Grotesk Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('/fonts/space-grotesk-variable.woff2') format('woff2');
+}
+
 @utility scrollbar-thin {
   scrollbar-width: thin;
 }
@@ -29,6 +58,11 @@
   --accent:#2b4250; --accent-foreground:#edf3f5; --destructive:#ff9a82; --border:#314350;
   --input:#314350; --ring:#c6f36a; --radius:0.75rem;
   --chart-1:#c6f36a; --chart-2:#74c5de; --chart-3:#ffaf77; --chart-4:#b0a1ef; --chart-5:#ee7790;
+
+  /* The two voices, and the platform's own monospace for hashes and clocks. */
+  --type-sans:'Inter Variable',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  --type-display:'Space Grotesk Variable','Inter Variable',system-ui,Arial,sans-serif;
+  --type-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;
 }
 
 @theme inline {
@@ -67,13 +101,16 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: Arial, Helvetica, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  --font-sans: var(--type-sans);
+  --font-display: var(--type-display);
+  --font-mono: var(--type-mono);
 }
 
 
-body { margin:0; background:var(--background);color:var(--foreground);font-family:Arial,Helvetica,sans-serif; }
+body { margin:0; background:var(--background);color:var(--foreground);font-family:var(--type-sans);
+  /* Inter's default tracking is loose for interface text; a hair tighter reads as set, not typed. */
+  letter-spacing:-0.011em; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+input,button,select,textarea { font-family:inherit; letter-spacing:inherit; }
 * { box-sizing:border-box; }
 button,a,input { -webkit-tap-highlight-color:transparent; }
 button { cursor:pointer; }
@@ -968,3 +1005,185 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  @media(max-width:540px){.app-shell{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}}
  .footer{padding-bottom:max(34px,calc(env(safe-area-inset-bottom) + 16px))}
 }
+
+/* ==========================================================================================
+   THE TWO VOICES
+   Space Grotesk names things: the wordmark, headings, a route number, a status word, a stop's
+   name. Inter says things: every sentence, every explanation, every piece of evidence. The rule
+   is worth keeping to, because it is what makes a route number read as an object you can point
+   at rather than as text. Numbers that sit in columns or change in place are tabular, so a
+   report age counting up does not make the line beside it jitter.
+   ========================================================================================== */
+.brand,.page-heading h1,.evidence-heading h2,.map-card-head h2,.data-heading h2,.ops-heading h2,
+.eyebrow,.your-stop-eyebrow,.section-head,.saved-head,.nearby-head,.follow-list-head,
+.headline-number,.mini-stats strong,.evidence-stats strong,.ops-measures strong,
+.route-pill,.route-badge,.ride-launch-route,.bus-marker-route,.follow-badge,
+.ride-mode,.ride-state,.ride-card-head strong,.bus-card-title strong,.active-bus-copy strong,
+.age-chip,.fresh-chip,.ops-chip,.follow-chip,.service-chip strong,.walk-head,.nearby-stop-copy strong,
+.stop-search-option strong,.journey-choice-copy strong,.your-stop-row h2,.loading-card h2,
+.archive-badge,.follow-bar,.map-legend,.stop-progress,.time-chip small {
+  font-family:var(--type-display);
+}
+.brand{letter-spacing:-1.4px;font-weight:700}
+.page-heading h1{letter-spacing:-1.9px;font-weight:600}
+.evidence-heading h2,.data-heading h2,.ops-heading h2{letter-spacing:-0.9px;font-weight:600}
+.eyebrow,.your-stop-eyebrow,.saved-head,.nearby-head,.section-head,.follow-list-head{font-weight:700}
+.headline-number,.mini-stats strong,.evidence-stats strong{font-weight:500;font-variant-numeric:tabular-nums}
+.route-pill,.route-badge,.ride-launch-route,.bus-marker-route,.follow-badge{font-weight:700;letter-spacing:-0.2px}
+.age-chip,.fresh-chip,.ops-chip,.follow-chip{font-weight:600;font-variant-numeric:tabular-nums}
+/* An age counts up in place; a column of ages should not shuffle while it does. */
+.follow-row,.bus-card,.ride-card,.active-bus,.follow-bar,.claims,.ops-card{font-variant-numeric:tabular-nums}
+
+/* ==========================================================================================
+   THE RIDE-ALONG'S FURNITURE
+   Four things, in three bands: the bar (leave, what the camera is doing, what this is), any
+   note that has to be read, the two actions, and the card. They were a single column of chips
+   down the left, which on a 360 px phone took the top third of the street and put "Front view"
+   a long reach from a thumb. The bar and the notes are pinned to the top; the actions and the
+   card sit in a column at the foot, actions above the card, so neither can cover the other
+   whatever the card says. Only the controls themselves take pointer events: the gaps between
+   them belong to the map, so a drag anywhere on the street still looks around.
+   ========================================================================================== */
+.ride-hud{display:flex;flex-direction:column;justify-content:flex-end;align-items:flex-start;
+ gap:8px;padding:11px 11px 34px}
+.ride-bar{position:absolute;left:11px;right:11px;top:11px;display:flex;align-items:center;
+ gap:8px;flex-wrap:wrap;pointer-events:none}
+.ride-bar>*{pointer-events:auto}
+.ride-exit{position:static;left:auto;top:auto;flex-shrink:0}
+.ride-notes{position:absolute;left:11px;top:66px;right:11px;flex-direction:column;align-items:flex-start;
+ max-width:min(440px,calc(100% - 22px))}
+.ride-notes:empty{display:none}
+.ride-actions{order:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;pointer-events:none;
+ max-width:100%}
+.ride-actions>*{pointer-events:auto}
+.ride-card{position:static;left:auto;bottom:auto;order:2;width:min(360px,100%)}
+.ride-camera,.ride-return{align-self:auto}
+
+/* ---- The whole screen, on a phone.
+   A ride-along that is a 400 px card inside a scrolling page is a diagram. The same camera
+   across the whole screen is a journey, and that is the part of this app people have liked.
+   The page behind it stops scrolling and its position is restored on the way out (city-map.tsx),
+   so leaving the ride returns the passenger to the stop they left, not to the top of the page. */
+@media(max-width:860px){
+ body.riding{overflow:hidden}
+ .vector-map.view-ride{position:fixed;inset:0;z-index:60;width:100%;height:100dvh;max-height:none;
+  min-height:0;border-radius:0;border-width:0;box-shadow:none}
+ .vector-map.view-ride .ride-hud{
+  padding:calc(env(safe-area-inset-top,0px) + 10px) calc(env(safe-area-inset-right,0px) + 12px)
+          calc(env(safe-area-inset-bottom,0px) + 14px) calc(env(safe-area-inset-left,0px) + 12px)}
+ .vector-map.view-ride .ride-bar{left:calc(env(safe-area-inset-left,0px) + 12px);
+  right:calc(env(safe-area-inset-right,0px) + 12px);top:calc(env(safe-area-inset-top,0px) + 10px);
+  flex-wrap:nowrap}
+ /* The tools column sits at this height on the right, so the notes stop short of it. */
+ .vector-map.view-ride .ride-notes{left:calc(env(safe-area-inset-left,0px) + 12px);
+  right:calc(env(safe-area-inset-right,0px) + 70px);top:calc(env(safe-area-inset-top,0px) + 64px);
+  max-width:none}
+ .vector-map.view-ride .ride-card{width:100%}
+ /* One row that fits 360 px: the cross and "Exit" carry the meaning, the full label is read out
+    to assistive technology through the same button's text. */
+ .vector-map.view-ride .ride-exit-long{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .vector-map.view-ride .ride-mode{min-width:0;overflow:hidden}
+ .vector-map.view-ride .ride-mode>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ /* The map is already the screen: making it bigger means nothing here. */
+ .vector-map.view-ride .map-tools button[aria-pressed]{display:none}
+ .vector-map.view-ride .map-tools{top:calc(env(safe-area-inset-top,0px) + 64px);bottom:auto;
+  right:calc(env(safe-area-inset-right,0px) + 12px)}
+ .vector-map.view-ride .map-credit-line{left:auto;right:calc(env(safe-area-inset-right,0px) + 12px);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 2px);font-size:9px;opacity:.8}
+}
+/* A phone on its side: the bar and the card both shrink, and the actions stay beside the card
+   rather than above it, so the street keeps the middle of the screen. */
+@media(max-width:860px) and (max-height:520px){
+ .vector-map.view-ride .ride-hud{flex-direction:row;align-items:flex-end;justify-content:flex-start;gap:10px}
+ .vector-map.view-ride .ride-card{width:min(330px,60%)}
+ .vector-map.view-ride .ride-actions{order:3;flex-direction:column;align-items:flex-start}
+}
+
+/* The bar has to fit 360 px with a thumb-sized target on each control. "What is this?" becomes
+   its own question mark, and "Ride-along" — the one word that never changes — stands down so
+   the state that does is never the part that is cut off. Both stay in the accessibility tree. */
+@media(max-width:860px){
+ .vector-map.view-ride .ride-about summary>span,
+ .vector-map.view-ride .ride-mode>strong,
+ .vector-map.view-ride .ride-mode-sep{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+ .vector-map.view-ride .ride-about summary{position:relative;min-width:34px;min-height:34px;
+  display:grid;place-items:center;border-radius:50%;padding:0;font-size:15px;font-weight:700}
+ .vector-map.view-ride .ride-about summary::after{content:'?'}
+ .vector-map.view-ride .ride-about[open] summary{border-radius:50%}
+ .vector-map.view-ride .ride-about p{position:absolute;right:0;top:40px;width:min(320px,80vw)}
+ .vector-map.view-ride .ride-mode{margin-left:auto}
+ .vector-map.view-ride .ride-mode-state{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ /* Room under the card for the basemap credit, which must always be readable. */
+ .vector-map.view-ride .ride-hud{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 28px)}
+ .vector-map.view-ride .map-credit-line{left:calc(env(safe-area-inset-left,0px) + 12px);right:auto}
+}
+
+/* ---- The two notes at the foot: how to send feedback, and what happens to a location.
+   Quiet by default. A beta asks people for their time; the least it can do is be plain about
+   what it does with what it learns. */
+.site-notes{display:flex;flex-wrap:wrap;gap:10px 18px;padding:22px 0 0;border-top:1px solid #253645}
+.site-note{font-size:13px;color:#b7c8d2;min-width:0}
+.site-note>summary{cursor:pointer;display:inline-flex;align-items:center;gap:7px;min-height:44px;
+ padding:0 12px;border-radius:10px;border:1px solid #2f4553;background:#13222e;color:#d3e0e7;
+ font-family:var(--type-display);font-weight:650;list-style:none}
+.site-note>summary::-webkit-details-marker{display:none}
+.site-note>summary:hover{border-color:#4a6373;color:var(--primary)}
+.site-note-body{max-width:640px;margin:10px 0 4px;padding:14px 16px;border-radius:12px;
+ background:#101d28;border:1px solid #27394a}
+.site-note-body p{margin:0 0 10px;font-size:13px;line-height:1.65;color:#b7c8d2}
+.site-note-body p:last-child{margin-bottom:0}
+.site-note-body a{color:#c6f36a}
+.site-note-report{margin:0 0 12px;padding:11px 12px;border-radius:9px;background:#0b141c;
+ border:1px solid #223444;color:#c9d9e1;font-family:var(--type-mono);font-size:11.5px;line-height:1.6;
+ white-space:pre-wrap;overflow-wrap:anywhere;max-height:230px;overflow:auto}
+.site-note-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+.site-note-actions .action{display:inline-flex;align-items:center;gap:7px;margin:0;min-height:44px}
+@media(max-width:540px){.site-notes{gap:8px}.site-note{width:100%}.site-note>summary{width:100%}}
+
+/* ==========================================================================================
+   ONE ANSWER, THEN THE ALTERNATIVES
+   Five cards of the same weight make a passenger read all five. The bus they are being shown is
+   the answer to the question they asked, so it is given the page's one accent edge and a route
+   number at the size of a bus blind; the lists under it are alternatives, and read as such.
+   Nothing here changes what is claimed — only which claim is read first.
+   ========================================================================================== */
+.active-bus{position:relative;border-left-width:3px;border-left-color:#8fbf4f;
+ background:linear-gradient(180deg,#17293a 0%,#142433 100%)}
+.active-bus.suggested{border-left-color:#5f7f9a}
+.active-bus.absent,.active-bus.new_journey{border-left-color:#c79a52}
+.active-bus .route-pill{min-width:44px;padding:7px 6px;font-size:15px;border-radius:8px}
+.active-bus-copy strong{font-size:15px;letter-spacing:-0.2px}
+/* The section headings step back: they label, they do not compete. */
+.section-head,.follow-list-head,.nearby-head{font-size:11px;letter-spacing:1.3px;color:#8ba2b0}
+.waiting .section-head{color:#a8c184}
+
+/* ---- The coverage ledger: four different answers to "do you cover route N?", kept apart. */
+.coverage{margin:22px 0 6px;padding:22px 24px;background:#132230;border:1px solid #2c4150;border-radius:16px}
+.coverage .section-title h3{font-family:var(--type-display);font-size:17px;font-weight:600;letter-spacing:-0.3px}
+.coverage>.microcopy{max-width:760px;margin:0 0 16px}
+.coverage-totals{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:0 0 18px}
+.coverage-totals>div{padding:14px 16px;border-radius:12px;background:#0f1c27;border:1px solid #27394a}
+.coverage-totals strong{display:block;font-family:var(--type-display);font-size:28px;font-weight:500;
+ letter-spacing:-1px;color:#d7f5a4;font-variant-numeric:tabular-nums}
+.coverage-totals span{display:block;margin-top:5px;font-size:12px;line-height:1.5;color:#9db1bd}
+.coverage-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.coverage-row{padding:13px 14px;border-radius:12px;background:#0f1c27;border:1px solid #24384a}
+.coverage-row-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.coverage-row-head strong{font-family:var(--type-display);font-size:13px;font-weight:650;color:#dbe7ee}
+.coverage-count{margin-left:auto;font-size:12px;color:#94aab8;font-variant-numeric:tabular-nums}
+.coverage-marks{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:11px}
+.coverage-mark{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:9px;
+ background:#13222e;border:1px solid #27394a;font-size:11.5px;line-height:1.4}
+.coverage-mark b{display:flex;align-items:center;gap:5px;font-family:var(--type-display);font-size:11.5px;
+ font-weight:650;color:#c3d5df}
+.coverage-mark svg{flex-shrink:0}
+.coverage-mark i{font-style:normal;color:#8ba2b0}
+.coverage-mark.yes{border-color:#3c5b36}
+.coverage-mark.yes svg{color:#a9dd63}
+.coverage-mark.no svg{color:#7d8f9b}
+.coverage-refusals{margin:10px 0 0;padding:0 0 0 2px;list-style:none;display:flex;flex-direction:column;gap:5px}
+.coverage-refusals li{font-size:12px;line-height:1.5;color:#a9bcc7}
+.coverage-refusals b{font-family:var(--type-display);color:#e3edf2;font-variant-numeric:tabular-nums}
+.coverage>.text-action{margin-top:14px}
+@media(max-width:900px){.coverage-totals{grid-template-columns:1fr}.coverage-marks{grid-template-columns:1fr 1fr}}
+@media(max-width:540px){.coverage{padding:18px 15px}.coverage-marks{grid-template-columns:1fr}}

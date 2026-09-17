@@ -23,7 +23,10 @@ export default function WalkGuide({state,config,here,stop,consent,onConsent,onRe
    <Footprints size={16} aria-hidden="true"/>
    {words&&state.status!=='problem'
     ? <p className="walk-answer"><strong>{words.time} walk</strong><span>{words.distance} to {stopName}</span></p>
-    : <p className="walk-answer"><strong>Walk to {stopName}</strong>
+    : <p className="walk-answer">{/* The stop is named directly above this, in the same card: repeating
+          it cost two lines of a phone's first screen and told the reader nothing. It is kept for
+          anyone listening rather than looking. */}
+       <strong>Walk there<span className="sr-only"> to {stopName}</span></strong>
        {straight!==null&&<span>{distanceWords(straight)} in a straight line, not a walking route</span>}</p>}
   </div>
 

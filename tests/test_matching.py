@@ -71,6 +71,26 @@ class MatchTests(unittest.TestCase):
         result = match_vehicle(self.bus(stop[3][0], stop[3][1], direction='outbound'), [self.main])
         self.assertEqual(result['reason'], 'no_pattern_for_direction')
 
+    def test_a_direction_held_for_other_days_is_not_the_same_as_one_never_held(self):
+        """Route 256, 17 September 2026: the registration in force has Saturday and Sunday
+        journeys towards Piccadilly Gardens and no Monday-to-Friday ones at all. Saying
+        "not for the direction the operator reported" reads as "this bus does not go that way".
+        What is true is that the timetable cannot say, on this day."""
+        weekend = pattern('p-weekend', '256', 'inbound', chain('A', 10), rules=[{'days': [5, 6]}])
+        weekday_other_way = pattern('p-school', '256', 'outbound', chain('A', 10),
+                                    rules=[{'days': [0, 1, 2, 3]}])
+        stop = weekend['placed'][3]
+        here = self.bus(stop[3][0], stop[3][1], route='256', direction='inbound')
+        thursday = match_vehicle(here, [weekend, weekday_other_way], day=MONDAY)
+        self.assertEqual(thursday['reason'], 'no_pattern_for_direction_today')
+        # The same bus at the weekend is placed, so the refusal really is about the day.
+        saturday = match_vehicle(here, [weekend, weekday_other_way], day=date(2026, 9, 19))
+        self.assertTrue(saturday['matched'])
+        # A direction the timetable never describes keeps the plainer reason.
+        never = match_vehicle(self.bus(stop[3][0], stop[3][1], route='256', direction='clockwise'),
+                              [weekend], day=date(2026, 9, 19))
+        self.assertEqual(never['reason'], 'no_pattern_for_direction')
+
     def test_a_bus_far_from_every_stop_is_not_placed(self):
         # Well beyond the threshold: being near nothing is not evidence of being anywhere.
         result = match_vehicle(self.bus(53.40, -2.40), [self.main])

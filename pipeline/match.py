@@ -42,6 +42,12 @@ REASONS = {
                                   'day, so none of its patterns can be the one this bus is running.',
     'no_pattern_for_direction': 'Patterns are held for this route, but not for the direction '
                                 'the operator reported.',
+    # Held, but not for this day. That is "we cannot say", not "this bus does not go that way":
+    # route 256 has Saturday and Sunday journeys towards Piccadilly Gardens in the registration
+    # in force, and no Monday-to-Friday ones at all, so every weekday inbound 256 lands here.
+    'no_pattern_for_direction_today': 'The timetable held for this route has journeys in this '
+                                      'direction, but none on this day of the week, so which '
+                                      'stops this bus calls at cannot be said.',
     'too_far_from_pattern': 'The bus is too far from any stop on the route to say where along '
                             'it the bus has got to.',
     'ambiguous_branch': 'More than one branch of this route fits the position, so which one the '
@@ -141,6 +147,7 @@ def match_vehicle(vehicle, patterns, day=None):
     if not same_service:
         return {'matched': False, 'reason': 'no_pattern_for_operator', 'evidence': evidence}
 
+    valid = same_service
     if day is not None:
         valid = [p for p in same_service
                  if (not p.get('validFrom') or p['validFrom'] <= day)
@@ -155,10 +162,18 @@ def match_vehicle(vehicle, patterns, day=None):
         evidence['operatingDayChecked'] = all(p.get('rules') is not None for p in running)
         same_service = running
 
-    candidates = [p for p in same_service if not direction or not p['direction']
-                  or p['direction'] == direction]
+    def _fits_direction(pattern):
+        return not direction or not pattern['direction'] or pattern['direction'] == direction
+
+    candidates = [p for p in same_service if _fits_direction(p)]
     if not candidates:
-        return {'matched': False, 'reason': 'no_pattern_for_direction', 'evidence': evidence}
+        # A direction held for other days of the week is a different situation from one the
+        # timetable never describes, and the passenger is told which.
+        held_other_days = day is not None and any(_fits_direction(p) for p in valid)
+        return {'matched': False,
+                'reason': 'no_pattern_for_direction_today' if held_other_days
+                          else 'no_pattern_for_direction',
+                'evidence': evidence}
 
     scored = []
     for pattern in candidates:

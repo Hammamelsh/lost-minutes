@@ -4,8 +4,60 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 14 September 2026, evening (passenger feedback: navigation, phones, returning).
-Changes, each answering reported feedback (listed in `docs/PASSENGER_TEST.md`):
+Last updated: 17 September 2026 (beta readiness: coverage traced, the ride made the screen, and
+the release prepared).
+
+**17 September, towards a public beta.** Everything here is checked in Chromium on this machine
+unless it says otherwise; no physical phone has been used, and the app is still served only from a
+temporary Cloudflare Quick Tunnel.
+- **Route 256's weekday gap was traced to source, and the standing explanation was wrong.** It was
+  not a catalogue built on a Sunday. TfGM's registration for the 256 that took effect on 30 August
+  2026 contains a Saturday file, a Sunday file and three single-journey school files, and **no
+  Monday-to-Friday inbound service at all**; the previous registration, which expired on 29 August,
+  had one with 101 journeys. Rebuilding on a Thursday confirmed it. The refusal now says the true
+  thing: a direction held for other days returns `no_pattern_for_direction_today`, "the timetable
+  held for this route has journeys in this direction, but none on this day of the week".
+  `docs/COVERAGE.md` traces it file by file.
+- **Two ways the timetable catalogue could go wrong, both fixed.** The collector re-downloads the
+  datasets while it runs, and the build read every snapshot it found: route 15's published journey
+  count doubled from 280 to 560 without a single new journey existing, and a withdrawn registration
+  would have been kept alive. Only the newest snapshot of each dataset is read now. And a build that
+  would publish less than half of the catalogue already published is **refused**, leaving the last
+  good file in place: a failed download and a withdrawn service look identical from inside.
+  Files valid at any point in the coming fortnight are now parsed, so a timetable change no longer
+  waits for a rebuild to happen that morning, and both the matcher and the page check a pattern's
+  own validity before using it.
+- **The coverage ledger** under Behind the data says, service by service, what can and cannot be
+  said: positions, a timetable running today, checked road geometry, estimated movement — four
+  answers, never rolled into one. On 17 September: 285 of 587 buses placed, 109 of 159 services with
+  a registration running today, 2 services with an accepted road shape running that day.
+- **The ride-along is the screen on a phone**, not a card in a scrolling page: the map is fixed to
+  the viewport, the page behind it stops scrolling and its position is restored on the way out, and
+  the four stacked chips became one bar (leave, what the camera is doing, what this is) with the two
+  actions above the card. It is a mode you leave, so the header is out of reach while it runs.
+- **Two typefaces, served from this site**: Inter for the interface, Space Grotesk for the wordmark,
+  headings, route numbers and the HUD. Both SIL OFL, copied out of node_modules at build time, never
+  from a font CDN.
+- **The daylight street preview has depth.** Road, ground and buildings sat within a few per cent of
+  each other; the ground is now dropped away from the road surface, blocks are deepened and lit from
+  one side, and the haze is stronger. The drawn bus has a contact shadow, so it no longer floats on
+  the paper map.
+- **How fast the map is actually drawing is measured** (`data-frame-ms`, the median of the last 90
+  frame intervals) and carried in the feedback report, because "the street preview froze" cannot be
+  settled by eye and has never been reproduced here.
+- **A feedback route and a plain account of location use** sit at the foot of the page. Nothing is
+  sent from the page; the report is copied to the clipboard.
+- **Operations:** the watchdog tells four failures apart (collector down, publication stalled,
+  upstream not live, upstream reports old) and restarts only the two that are ours; a dead man's
+  switch is prepared and **off** until the owner names a destination. `deploy/rollback.sh` puts the
+  previous release back in one command. CI runs the deterministic checks
+  (`.github/workflows/checks.yml`); the browser suite, the real feed and the real router stay out of
+  it.
+- Hosting is costed, re-checked and **still not provisioned**: `docs/HOSTING.md` ends with the exact
+  decision needed.
+
+Before that, 14 September 2026, evening (passenger feedback: navigation, phones, returning).
+Changes that evening, each answering reported feedback (listed in `docs/PASSENGER_TEST.md`):
 - the passenger's page is the whole page, with no tabs. Explore (the archive replay), Evidence and
   Operations moved under **Behind the data**, a secondary area with a short account of the pipeline
   and direct addresses (`/#operations`, `/#evidence`, `/#recorded-journeys`). Explore is now
@@ -547,15 +599,21 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   20 s apart: a bus standing at lights within 40 m of a stop reads the same as one at it, and a
   short call between two reports is missed. The thresholds (50 m, 40 m, 15 m, 20 s) are reasoned
   from GPS noise and report spacing; they have not been measured against observed calls.
-- **Route 256 on a weekday is not matched.** Every 256 inbound pattern held here runs only at
-  weekends, and the one weekday outbound variant (school days) has no accepted road shape. On
-  Monday 14 September all 965 reports of 12 inbound journeys were placed on no pattern. So such a
-  bus cannot be said to call at a stop; the page says it is not placed rather than guessing. The
-  patterns were built on a Sunday. A rebuild on a weekday, with `pipeline.route_coverage` for the
-  tester's route, is the next check.
-- **No bus is tied to one timetabled journey.** The feed's journey references matched none of
-  the timetable's journey codes in the 10 checked, so branches are settled only by the
-  reported destination, and no scheduled time at a stop is shown.
+- **Route 256 on a weekday cannot be placed, and that is upstream.** Traced to source on
+  17 September and rebuilt on a weekday to confirm it: the TfGM registration in force for the 256
+  from 30 August 2026 holds a Saturday file, a Sunday file and three single-journey school files,
+  and **no Monday-to-Friday inbound service**. The registration that expired on 29 August had one,
+  with 101 journeys. So a weekday 256 towards Piccadilly Gardens is refused with
+  `no_pattern_for_direction_today` and its position is still shown. Not a build-day artefact, and
+  not fixable here. Route 15 is the route to use for a trial. `docs/COVERAGE.md`.
+- **A vehicle and its current journey are identified; the *timetabled* journey it is running is
+  not.** These are different things and the difference matters. Every report carries the operator's
+  own vehicle reference and journey reference, and a chosen bus is pinned by
+  (operator, vehicle, route, direction, journeyRef) and never substituted — so "the same bus" is
+  never a guess. What is missing is the link from that journey to a *scheduled* journey in the
+  timetable: the feed's journey references matched none of the timetable's journey codes in the 10
+  checked, so branches are settled only by the reported destination, and **no scheduled time at a
+  stop is ever shown**. Identifying the timetabled journey is the next priority (2 below).
 - **Bank-holiday operation is recorded, not evaluated.**
 - **Coverage is limited to the timetables held:** two TfGM operator datasets (BNML and BNSM).
   49 observed services have no timetable here, the largest by reports being BNGN's 10, 36, 37

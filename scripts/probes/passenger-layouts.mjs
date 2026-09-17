@@ -179,8 +179,13 @@ async function flow(browser, base, size, status) {
     await shot('street-preview-blocked');
   }
 
-  // The engineering views and back again: nothing the passenger chose may change.
+  // The engineering views and back again: nothing the passenger chose may change. On a phone the
+  // ride-along is the whole screen, so it is left first, exactly as a passenger would.
   step('engineering and back');
+  if (size.viewport.width <= 860 && await page.locator('.vector-map').getAttribute('data-ride') !== 'off') {
+    await page.getByRole('button', {name: 'Exit ride-along'}).click({timeout: 8000});
+    await wait(800);
+  }
   await page.evaluate(() => { window.__lmCanvas = document.querySelector('.maplibregl-canvas'); });
   const before = {stop: await page.locator('.your-stop-copy strong').innerText(), vehicle: await card.getAttribute('data-vehicle'),
     ride: await page.locator('.vector-map').getAttribute('data-ride')};

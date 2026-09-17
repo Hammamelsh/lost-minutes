@@ -8,3 +8,6 @@ Type=oneshot
 ExecStart=/srv/lost-minutes/app/deploy/check-health.sh
 Environment=LM_ROOT=/srv/lost-minutes/app
 Environment=LM_MAX_PUBLICATION_AGE=600
+# Optional, and off until the owner has confirmed where an alert should go: a dead man's switch
+# URL in LM_HEALTH_PING_URL. Kept out of Git, like every other secret.
+EnvironmentFile=-/etc/lost-minutes/health.env

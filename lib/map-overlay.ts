@@ -59,6 +59,15 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   {id:'lm-stop-ring',type:'circle',source:STOP_SOURCE,
    paint:{'circle-radius':15,'circle-color':'#ffb459','circle-opacity':0.18,'circle-pitch-alignment':'map',
           'circle-stroke-color':o.stopRing,'circle-stroke-width':2.5}},
+  // A soft contact shadow under the drawn bus, on the ground and scaled with it. Without one the
+  // model floated: on the daylight map its near-white roof sat within a few per cent of the paper
+  // ground and the whole vehicle washed out. It is drawn only where the model is, and carries no
+  // meaning of its own, so it is grey rather than any of the three reserved colours.
+  {id:'lm-bus-shadow',type:'circle',source:SELECTED_SOURCE,minzoom:MODEL_MIN_ZOOM,
+   layout:{visibility:'none'},
+   paint:{'circle-color':'#0b1116','circle-pitch-alignment':'map','circle-blur':0.75,
+          'circle-opacity':['interpolate',['linear'],['zoom'],MODEL_MIN_ZOOM,0,19,0.3],
+          'circle-radius':['interpolate',['exponential',2],['zoom'],MODEL_MIN_ZOOM,9,21,120]}},
   {id:'lm-bus-model',type:'fill-extrusion',source:MODEL_SOURCE,minzoom:MODEL_MIN_ZOOM,
    layout:{visibility:'none'},
    paint:{'fill-extrusion-color':['get','colour'],'fill-extrusion-base':['get','base'],
@@ -115,7 +124,11 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
    paint:{'text-color':'#16240c'}},
   {id:'lm-sel-caption',type:'symbol',source:SELECTED_SOURCE,minzoom:13,
    layout:{'text-field':['get','caption'],'text-font':['Noto Sans Bold'],'text-size':11,
-           'text-anchor':'top','text-offset':['step',['zoom'],['literal',[0,1.6]],MODEL_MIN_ZOOM,['literal',[0,5.2]]],
+           // The drawn bus is 12 m long, so at the ride-along's zoom it is most of the screen: a caption
+           // 5.2 em below its centre landed on its own back end. It clears the model's tail at each zoom
+           // the model is drawn at.
+           'text-anchor':'top','text-offset':['step',['zoom'],['literal',[0,1.6]],MODEL_MIN_ZOOM,['literal',[0,5.2]],
+            19,['literal',[0,7.4]],19.6,['literal',[0,10.2]]],
            'text-allow-overlap':true,'text-ignore-placement':true,'text-letter-spacing':0.08,
            'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':2.2}},

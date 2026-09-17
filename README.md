@@ -28,6 +28,24 @@ Between reports, a bus on the three evaluated routes (15, 250 and 256) may be dr
 labelled estimate, computed on the device and never stored or published.
 Roadmap work is tracked in `research/IMPLEMENTED.md`.
 
+![The ride-along filling a 390 px phone screen: a bar with Exit, "following the bus" and a question
+mark; a lime 3D bus seen from behind on Moss Lane West, inside a ground ring with a contact shadow
+and a dotted ESTIMATE trail; a Front view button; and a card reading "15 to Roedean Gardens,
+Estimated position, last report 27 s ago, last report nearest Chorlton Road, 9 stops before
+yours".](docs/images/phone-ride-along.png)
+
+*Following a real route 15 bus, on the real feed, through the temporary public link. The position is
+an estimate between reports and says so, with the age of the report it is estimated from.*
+
+**Beta readiness, 17 September 2026.** The app is prepared for invited testing and is **not yet
+hosted**: it is served from this laptop through a temporary Cloudflare Quick Tunnel, so it stops
+when the laptop does and its address changes at every restart. The release record — what is
+verified, what is not, the supported scope, the measured figures and the costs — is in
+`docs/RELEASE.md`; what the app can and cannot say, service by service, is traced in
+`docs/COVERAGE.md`; the hosting decision that is waiting on the owner is at the end of
+`docs/HOSTING.md`. **No physical phone has been used for any check**; `docs/PASSENGER_TEST.md`
+carries the short script for that.
+
 Data comes from the Department for Transport's Bus Open Data Service via the Open
 Innovations / National Data Library archive (Open Government Licence v3.0), with road
 geometry from OpenStreetMap (ODbL). Attribution and licensing are in full at the end of

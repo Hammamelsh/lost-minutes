@@ -1929,3 +1929,132 @@ The two failures in the full run:
 
 Python was not rerun, because no Python changed. No physical phone was used: installing, GPS, a
 real screen lock, sunlight, battery and a screen reader remain unchecked.
+
+---
+
+# Beta readiness — 17 September 2026 (VS Code / WSL)
+
+Everything below ran on this machine. **No physical phone was used at any point**, and the app was
+served only from this laptop: through Caddy on 127.0.0.1:8098 for the probes, and through a
+temporary Cloudflare Quick Tunnel for the public checks. Where a figure comes from a fixture, a
+recording or the real feed, it says so.
+
+## Tracing route 256, from source
+
+Read directly out of the preserved TfGM BNML dataset (`data/live-capture/timetables/`, git-ignored)
+with `pipeline.patterns.extract_patterns`:
+
+| File | Operating days | Directions | Journeys |
+|---|---|---|---|
+| `…_20260719_20260829_2390029.xml` (expired 29 Aug) | Mon–Fri | inbound and outbound | 101 |
+| `…_20260719_20260829_2390035.xml` (expired 29 Aug) | Mon–Fri | inbound and outbound | 101 |
+| `…_20260830_20310719_2416002.xml` (in force) | Sat | inbound and outbound | 90 |
+| `…_20260830_20310719_2416003.xml` (in force) | Sun | inbound and outbound | — |
+| `…_20260830_20310719_2416004/6.xml` (in force) | Mon–Thu, school | outbound only | 1 each |
+| `…_20260830_20310719_2416005.xml` (in force) | Fri, school | outbound only | 1 |
+
+Rebuilt on Thursday 17 September: the four published 256 patterns run Sat–Sun, Sat, Fri–Sun and
+Mon–Thu (outbound, school). **The registration in force has no Monday-to-Friday inbound service.**
+The live publication the same afternoon refused every weekday inbound 256 with
+`no_pattern_for_direction_today`. Conclusion: an upstream registration gap, not a build-day
+artefact. Full trace in `docs/COVERAGE.md`.
+
+## The catalogue rebuild, and a double count it exposed
+
+- First rebuild (all snapshots read): 1,143 files parsed, 533 patterns, and **route 15 inbound
+  published with 560 journeys**. Route 256 inbound: 150.
+- Cause: the collector had stored a second BNML snapshot and a second BNSM snapshot that morning,
+  so every service file was parsed twice and the journey counts summed.
+- Second rebuild (newest snapshot of each dataset only): **575 files parsed, 524 patterns across
+  157 services**, route 15 inbound back to **140 journeys**, route 256 inbound to **75**.
+- `snapshotsSuperseded: 2`, `datasetsRead: [BNFM, BNML, BNSM]`, `filesExpiredBeforeDate: 538`,
+  `filesBeyondHorizon: 0`.
+- Checked afterwards: **all 9 road-shape pattern ids survive the rebuild**, and all 6 accepted
+  shapes are still in the catalogue, because a pattern id is a hash of its stop sequence.
+  Estimated movement was not silently broken.
+
+## Coverage, on a real publication
+
+Rendered from `live.json` and `patterns.json` in the browser, 17 September, ~15:55 BST:
+**587 vehicles, 285 placed (48.6%), 109 of 159 services with a registration running that day, 2
+services with an accepted road shape running that day (15 and 250).**
+Refusals: `ambiguous_branch` 139, `no_pattern_for_route` 127, `loop_pattern` 3,
+`no_pattern_for_direction_today` 2, `too_far_from_pattern` 2, `no_pattern_for_operator` 1.
+
+Before the rebuild the same measure read 261 matched / 330 unmatched with
+`no_pattern_for_route` 161, so widening the catalogue from 89 to 157 services moved 34 fewer buses
+into "no timetable held".
+
+## A map nobody can see, measured
+
+The passenger's page stays mounted behind the engineering area. Frames drawn by the map, counted
+from `data-frames` over 5-second windows against the real feed:
+
+| | Before | After |
+|---|---|---|
+| Passenger's page in front | 17.2 a second | unchanged (frames only while something moves) |
+| Behind the data, hidden | **27.6 a second** | **0.0 a second** |
+
+It drew *more* while hidden, because the view over it is lighter. Script:
+`hidden-work.mjs` in the session scratchpad; the fix is `paused` in `components/city-map.tsx`.
+
+## Payload a phone actually downloads
+
+Measured through the public link: `live.json` **807 KB raw, 119 KB gzipped** for 587 vehicles,
+polled every 20 s (~21 MB an hour). `patterns.json` 2.0 MB raw, 149 KB gzipped, fetched once.
+Both typefaces 70 KB, fetched once and cached by the service worker. Recorded as opportunity 25.
+
+## Layout probe, five sizes, three builds
+
+`node scripts/probes/passenger-layouts.mjs --base http://127.0.0.1:8098/` at 360, 390, 800×?,
+844×390 and 1280 px. On the final pass (`beta-3`): **no problems at any size** — nothing covered,
+nothing clipped, no sideways scroll, no touch target under 24 px — and the round trip behind the
+data kept the stop, the chosen bus and the same map instance at every size.
+
+On the way, the probe caught a real consequence of the immersive ride: with the map fixed to the
+viewport, the header is deliberately out of reach, so the probe and `navigation.spec` now leave the
+ride first on a phone and re-enter it afterwards, which checks resumption as well.
+
+## Deployment configuration
+
+`CADDY=~/.local/bin/caddy deploy/validate.sh` — every check passed, including the two added for the
+vendored MapLibre modules (immutable) and the typefaces (`max-age=86400`, `font/woff2`).
+
+## Checks
+
+- `pnpm typecheck`, `pnpm lint` — pass.
+- `pnpm test` — **137 Node tests**, 0 failures.
+- `.venv/bin/python -m unittest discover -s tests` — **97 Python tests**, 0 failures
+  (92 before, plus 4 for the catalogue's snapshot, horizon and shrink rules and 1 for the
+  direction-not-today refusal).
+- `pnpm build` — passes, and the built site carries the typefaces and no build-machine path.
+- `pnpm test:browser` on the final build, one worker, SwiftShader: **188 passed, 24 skipped by
+  design, 0 failed, 30.2 minutes.** The 24 skips are the checks that need something this run does
+  not have: 6 real-feed (a BODS key and a running collector), 2 real-walking (a request to FOSSGIS),
+  9 desktop-only map checks skipped on the phone project, and 7 size-specific checks
+  (`map.spec` on mobile, `access`, `navigation`, `ride`, `selection`, `replay`).
+
+  **The run before it found 7 failures, all mine, all in the ride-along.** They are worth recording
+  rather than smoothing over:
+  - two were defects I had introduced: the map's tools and the ride's notes shared a height on the
+    immersive phone ride, so a note ran under the tools;
+  - one was a framing margin my own type change used up: the camera reserved 40 px around a stop
+    for its name where the check demands 60, so a fitted stop cleared the Ride along button by about
+    four pixels and had been passing on luck. `NAME_ROOM` is now 60, which is the honest fix;
+  - four were checks reaching controls a passenger no longer can. With the ride filling the phone's
+    screen, the list and the refresh button behind it are deliberately out of reach. The checks now
+    do what a passenger would: leave the ride to choose another bus from the list, and let
+    publications arrive through the page's own poll, which is what someone riding along relies on.
+
+## Through the public link, on the final build
+
+`node scripts/probes/public-preview.mjs --base https://….trycloudflare.com --label beta-final`,
+17 September 2026 17:14 BST, REAL data, in Chromium's phone emulation:
+- the page returns 200; the service worker is activated and controlling it; the secure context and
+  `Permissions-Policy: geolocation=(self)` let it ask for a location, and it obtained one;
+- at **Marston Road (nr)**, route **15** bus **MX62GKV** was chosen and **kept through two further
+  real publications** (16:14:11Z and 16:14:31Z), both fetched from the network through the service
+  worker, **none from the device cache**;
+- a pinch zoomed the outside ride-along from 20 to 20.9 and it went on following; in the street
+  preview it zoomed 20.77 to 21.7 and paused following, and Return to bus resumed it;
+- 71 tiles, 0 tile errors, 0 page errors; no layout problem at 360 or 390 px.

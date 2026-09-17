@@ -217,16 +217,20 @@ export function buildingExtrusion(theme:MapTheme):Layer{
  * in black. Nothing here adds a feature the map does not have; the outside view keeps the map's
  * own paint.
  */
-export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;sky:Record<string,unknown>;
+export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;ground:string;sky:Record<string,unknown>;
  light:{anchor:'map';color:string;intensity:number;position:[number,number,number]}}>={
- day:{extrusion:'#e4d6bc',kerb:'#a88a60',
-  sky:{'sky-color':'#b9cfd9','horizon-color':'#efe7d6','fog-color':'#efe7d6','sky-horizon-blend':0.55,
-   'horizon-fog-blend':0.6,'fog-ground-blend':0.25,'atmosphere-blend':0},
-  light:{anchor:'map',color:'#fff4dc',intensity:0.45,position:[1.15,225,55]}},
- night:{extrusion:'#415a6a',kerb:'#6f8796',
-  sky:{'sky-color':'#0d1d2a','horizon-color':'#4d6879','fog-color':'#22394a','sky-horizon-blend':0.8,
-   'horizon-fog-blend':0.55,'fog-ground-blend':0.2,'atmosphere-blend':0},
-  light:{anchor:'map',color:'#e8edf2',intensity:0.6,position:[1.15,245,62]}},
+ // Daylight was the weaker of the two: road, ground and buildings sat within a few per cent of
+ // each other, so the street read as a pale void with no depth. The ground is dropped away from
+ // the road surface, the blocks are deepened and lit harder from one side, and the haze is
+ // strengthened, so the street has a near, a middle and a far.
+ day:{extrusion:'#d3bd94',kerb:'#9a7c4e',ground:'#ddcfb0',
+  sky:{'sky-color':'#a8c4d4','horizon-color':'#f2e6cd','fog-color':'#e9dcc2','sky-horizon-blend':0.5,
+   'horizon-fog-blend':0.65,'fog-ground-blend':0.5,'atmosphere-blend':0},
+  light:{anchor:'map',color:'#fff4dc',intensity:0.62,position:[1.15,225,50]}},
+ night:{extrusion:'#3c566a',kerb:'#7590a1',ground:'#0b161e',
+  sky:{'sky-color':'#0a1723','horizon-color':'#52708a','fog-color':'#1d3446','sky-horizon-blend':0.8,
+   'horizon-fog-blend':0.55,'fog-ground-blend':0.32,'atmosphere-blend':0},
+  light:{anchor:'map',color:'#e8edf2',intensity:0.68,position:[1.15,245,62]}},
 };
 
 /** The small part of MapLibre's Map this module needs, so it stays testable without WebGL. */

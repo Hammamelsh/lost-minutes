@@ -88,7 +88,8 @@ browser and still cannot be read here; confirm the total in the console before o
 | Hetzner CX23 (2 vCPU, 4 GB, 40 GB NVMe) | €5.49 net |
 | Primary IPv4 | €0.50 net |
 | Server with IPv4, with 20% VAT | about €7.19 (~£6.10) |
-| Hetzner automated backups (20% of the server, optional) | about €1.10 net, €1.32 with VAT (~£1.10) |
+| Hetzner **Backups** — automatic, daily, 7 kept; 20% of the server price (optional, currently off) | about €1.10 net, €1.32 with VAT (~£1.12) |
+| Hetzner **Snapshots** — manual, per GB of compressed image (a different product; also off) | pennies, but only if someone remembers to take one |
 | Cloudflare free plan (optional) | £0.00 |
 | Object storage | £0.00: not needed, since 40 GB covers the retention below with room to spare |
 | Domain (amortised) | ~£0.85 (~£10 a year); needed for HTTPS unless an existing domain is used |
@@ -243,15 +244,32 @@ Nothing here is irreplaceable in the same way, so the policy differs by kind:
 | Raw position captures | **cannot be re-collected**: the feed has no history | the only thing worth paying for |
 | Timetable versions | re-downloadable, but a withdrawn registration is gone for good (route 256's Monday–Friday file already is) | worth keeping |
 
-Hetzner's automated backups are 20% of the server price — about €1.10 net, €1.32 with VAT — and
-take a snapshot of the whole disk daily, keeping seven. That is the simplest thing that covers the
-two rows that matter. The alternative, a nightly `rsync` of `data/live-capture/` and
-`data/live-capture/timetables/` to this machine, costs nothing and is one more thing to remember.
+### Hetzner's two things are not the same thing
 
-**Recommendation: turn backups on.** £1.10 a month to keep the one dataset that cannot be
-collected twice is the easiest decision in this document.
+This document used "backups" and "snapshot" interchangeably until 18 September 2026. They are
+different products with different failure modes, and the difference is the whole argument:
 
-**Decided on 17 September 2026: no paid backups.** The free substitute is `deploy/backup.sh`, which
+| | **Backups** | **Snapshots** |
+|---|---|---|
+| Created | **automatically, once a day** | **by hand, when someone asks** |
+| Kept | 7 slots; the oldest is deleted when a new one is made | up to 30 per project; **never deleted automatically** |
+| Priced | **a flat 20% of the server's price** | **per GB per month** of the compressed image |
+| Tied to | that server (convert one to a Snapshot to move it) | the project; moveable |
+| For this CX23 | **≈ €1.10 net a month, €1.32 with VAT (~£1.12)** | a few GB at about €0.0143/GB, so **pennies** |
+
+Sources: <https://docs.hetzner.com/cloud/servers/backups-snapshots/faq/> and
+<https://docs.hetzner.com/cloud/billing/faq/> for the mechanics and the 20%; the per-GB snapshot
+figure is from secondary reporting after an April 2026 increase and should be read off the console
+rather than trusted here.
+
+**The cheap one is cheap for a reason.** A Snapshot costs almost nothing precisely because somebody
+has to remember to take it — which is the same weakness as `deploy/backup.sh` below, not a
+substitute for it. **Backups are the only option on this list that survives being forgotten**, and
+that, not the storage, is what the £1.12 buys.
+
+**Recommendation, unchanged: turn Backups on.** It is the easiest decision in this document.
+
+**Decided on 17 September 2026, and unchanged on 19 September: neither Backups nor Snapshots.** The free substitute is `deploy/backup.sh`, which
 pulls `data/live-capture/` — the raw captures and every preserved timetable version — from the
 server to this machine over SSH. It copies only what is not already held, because those files are
 content-addressed and never rewritten, and it deliberately does not mirror the server's 14-day
@@ -294,9 +312,32 @@ is what is recorded, and the run says it did so. The moment this collector origi
 file lived in the warehouse that was lost, and is not reinvented. Observation identity does not
 include the retrieval time, so the same observations come back exactly.
 
-**What is still not demonstrated:** a restore of the *whole* store into a warehouse the rest of the
-pipeline then publishes from, and a restore onto a rebuilt server. Sixty captures and a scratch
-database is a proof of the mechanism, not a rehearsal of the disaster.
+### What that test recovered, and what it did not
+
+**Recovered, and checked:** the raw SIRI-VM responses themselves, and the observations parsed out of
+them — vehicle, operator, route, direction, journey reference, position, bearing and the source's
+own timestamp — for 60 captures, into a warehouse that started empty. Their integrity was proved
+rather than assumed, because each file is named by the SHA-256 of its own bytes. Loading the same
+copy twice changed nothing, so a restore cannot double the history.
+
+**Not recovered, because it is not in the captures:** the *derived* layers. The 60 captures restore
+observations; they do not restore the timetable patterns, the road shapes, the motion evaluation or
+the publication history. Patterns and shapes are rebuilt by their own commands from the preserved
+timetable datasets, which `backup.sh` also copies — but that path has not been exercised after a
+restore.
+
+**Not demonstrated at all, and these are the gaps that matter:**
+
+1. **A whole-store restore.** Sixty captures took 46 seconds; the 3,821 now held would take about
+   fifty minutes, and nothing has run at that size.
+2. **Publishing from a restored warehouse.** `pipeline.live publish` has never been pointed at one.
+   Until it is, "the data is back" means the rows are back, not that the site could serve from them.
+3. **A restore onto a rebuilt server.** Every step so far has been on this laptop.
+4. **The copy itself.** `backup.sh` has never been run against a real server, because there has not
+   been one. The restore was from a local copy standing in for its output.
+
+A proof of the mechanism, not a rehearsal of the disaster. Items 1 and 2 are worth doing once the
+server exists and there is something on it worth losing.
 
 ## Deploying and rolling back
 

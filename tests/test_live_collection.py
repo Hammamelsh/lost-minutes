@@ -463,3 +463,34 @@ class UnavailableDiagnosisTests(unittest.TestCase):
             result = self.diagnose(environ)
             self.assertNotIn('BODS_API_KEY', result['passenger'])
             self.assertNotIn('collector', result['passenger'].lower())
+
+
+class StopSignalTests(unittest.TestCase):
+    """A stop must be recorded however the collector was started.
+
+    On 19 September 2026 a collector started by `scripts/preview.sh` ignored the SIGINT that
+    `preview.sh stop` sends and went on collecting — cycles 170 to 177 arrived after the signal —
+    while the script reported that it had stopped. The cause is POSIX: a shell starting a background
+    job without job control sets SIGINT to SIG_IGN in the child, and an ignored disposition survives
+    exec. Installing a handler replaces it, so SIGINT belongs in STOP_SIGNALS whatever else sends it.
+    """
+
+    def test_every_signal_a_stop_is_sent_with_is_handled(self):
+        from pipeline.collect import STOP_SIGNALS
+        self.assertIn('SIGTERM', STOP_SIGNALS, 'systemd and preview.sh stop send this')
+        self.assertIn('SIGINT', STOP_SIGNALS, 'Ctrl-C, dev:live, and an inherited SIG_IGN')
+        self.assertIn('SIGHUP', STOP_SIGNALS, 'a closed terminal')
+
+    def test_installing_a_handler_overrides_an_inherited_ignore(self):
+        import signal
+        from pipeline.collect import _install_stop_handlers, _restore_handlers
+        before = signal.signal(signal.SIGINT, signal.SIG_IGN)      # as a background job inherits it
+        try:
+            previous = _install_stop_handlers()
+            try:
+                self.assertNotEqual(signal.getsignal(signal.SIGINT), signal.SIG_IGN,
+                                    'an ignored SIGINT must not survive the collector starting')
+            finally:
+                _restore_handlers(previous)
+        finally:
+            signal.signal(signal.SIGINT, before)

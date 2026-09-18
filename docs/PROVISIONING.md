@@ -22,7 +22,7 @@ In <https://console.hetzner.cloud> → **Add Server**:
 | Image | **Ubuntu 24.04** (Debian 12 also works; `deploy/install.sh` handles both) |
 | Type | **Shared vCPU → CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe) |
 | Networking | **IPv4 enabled** — needed, and billed separately |
-| Backups | **leave off** |
+| Backups | **leave the tick box off.** Hetzner's *Backups* (automatic, daily, 20% of the server price) and its *Snapshots* (manual, per GB) are different products; both stay off unless you say otherwise. `docs/HOSTING.md` sets out the difference |
 | SSH key | add yours, so you can reach it without a password |
 | Name | anything; `lost-minutes` is tidy |
 
@@ -31,9 +31,11 @@ the CX23 plus €0.50 for the IPv4 — €5.99 net, about €7.19 with 20% VAT, 
 Hetzner raised prices in June 2026 and may have again. *The console's own figure is the one that
 matters; if it does not match, stop and tell me rather than paying more than you meant to.*
 
-Why 4 GB and not something smaller: the nightly timetable rebuild peaks at **853 MB** and the
-collector wants about **1.4 GB** beside it, both measured on 18 September 2026. A 1 GB machine
-cannot do it.
+Why 4 GB and not something smaller: the nightly timetable rebuild peaks at **853 MB**, measured on
+18 September 2026, and the collector sits at about **376 MB** at the two threads a CX23 gives it.
+(It reached 1.8 GB and climbing on a 16-core laptop, where DuckDB took 32 threads — an allocator
+artefact, not the application; the unit pins the thread count so the figure travels.) A 1 GB machine
+still cannot run the rebuild.
 
 ## Yours — step 2: a free subdomain, pointed at that server
 
@@ -59,8 +61,8 @@ whichever address people first use; moving later loses them.
 
 ## Yours — step 3: the BODS key, typed by you, onto the server
 
-The key never passes through me, this repository, or any chat. After I have run the install (which
-stops the first time and asks for it), you put it in place yourself:
+**The key never passes through me, this repository, a commit, or any chat.** `install.sh` stops the
+first time and asks for it; you put it in place yourself, then the same command again starts it:
 
 ```bash
 ssh deploy@<host>

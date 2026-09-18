@@ -72,7 +72,14 @@ class CollectorStopped(BaseException):
         self.signal_name = signal_name
 
 
-STOP_SIGNALS = ('SIGTERM', 'SIGHUP')
+# SIGINT is in here for a reason that is not obvious. A shell starting a background job without job
+# control sets SIGINT and SIGQUIT to SIG_IGN in the child, and an ignored disposition survives exec —
+# so a collector started by `scripts/preview.sh` inherited an ignored SIGINT and cycled straight
+# through the one that `preview.sh stop` sends, while the script reported that it had stopped
+# (observed 19 September 2026: cycles 170 to 177 arrived after the signal). Installing a handler
+# here replaces that inherited disposition, so the same stop is recorded the same way however the
+# collector was started.
+STOP_SIGNALS = ('SIGTERM', 'SIGHUP', 'SIGINT')
 
 
 def _raise_stop(signum, _frame):

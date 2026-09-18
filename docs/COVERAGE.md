@@ -67,11 +67,39 @@ Looked up read-only through the BODS dataset API. Six TfGM timetable datasets li
 | Would cover | **36, 37 and V1** among the five largest gaps, plus about 116 other lines |
 | Would **not** cover | **10 and 8**. They appear in that dataset as **`10B`** and **`8B`**, and the live feed reports the line as `10` and `8`. A route label is matched exactly, by design, so these would still be refused. Where their registrations live is not yet established |
 
-**Not done, deliberately.** It is one line in `BODS_TIMETABLE_URL` and a rebuild, but it changes
-what the collector downloads and grows `patterns.json` (already 2.04 MB, 140 KB gzipped, and
-already flagged as more than a phone needs — opportunity 25). It is the highest-value next change
-to coverage, and it should be made at the start of a session with a rebuild and a fresh coverage
-count, not at the end of one.
+### Imported 18 September 2026, and what it changed
+
+Validated first: 273 files, **256 valid that day**, 100% BNGN, so it becomes a clean fourth snapshot
+group and cannot supersede BNML or BNSM. It covered **9 of the 11 BNGN lines then reporting**.
+
+| | Before | After |
+|---|---|---|
+| Timetable datasets read | BNFM, BNML, BNSM | **+ BNGN** |
+| Services published | 157 | **175** |
+| Patterns published | 524 | **576** |
+| Observed services with no timetable | 130 | **114** |
+| `patterns.json`, fetched once | 2.04 MB / 139 KB gz | **2.16 MB / 154 KB gz** |
+| Nightly rebuild peak | 853 MB, 3 min 05 s | **845 MB, 3 min 55 s** |
+
+Measured against a live publication the same night:
+
+| | Before | After |
+|---|---|---|
+| `no_pattern_for_route` — no registration held at all | **48** | **21** |
+| BNGN vehicles placed on a pattern | **0 of 27** | **11 of 26** |
+| Matched, all operators | 86 of 218 (39%) | 93 of 197 (47%) |
+
+**What it did not fix, and was never going to.**
+
+* **Lines 10 and 8 are still refused.** The dataset registers them as **`10B`** and **`8B`**, and the
+  feed reports `10` and `8`. A route label is matched exactly; treating them as the same service
+  would be asserting an equivalence nothing here evidences. Where their registrations live is still
+  not established.
+* **Route 256 is unchanged.** It is a BNML service and this is a BNGN dataset; the four published
+  256 patterns are the same four, still Sat–Sun, Sat, Fri–Sun and Mon–Thu school. The weekday gap
+  traced above is untouched by this import, as expected.
+* The counts above were taken late on a Friday evening, when fewer services run. The proportions are
+  honest for that publication and are not a daytime figure.
 
 `ambiguous_branch` at 139 is the honest cost of coverage: more patterns mean more paths that fit
 a position equally well. It is a refusal, not an error.

@@ -17,8 +17,11 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.collect --minutes 1440
 Restart=always
 RestartSec=15
-# SIGINT, as dev:live sends: the collector records why it stopped and releases its writer lock.
-KillSignal=SIGINT
+# SIGTERM, systemd's own default: the collector records why it stopped and releases its writer lock.
+# This was SIGINT until 19 September 2026, which worked here only because systemd does not start a
+# service the way a shell starts a background job — a shell hands such a child an ignored SIGINT.
+# SIGTERM cannot be inherited away, and the collector now handles all three.
+KillSignal=SIGTERM
 TimeoutStopSec=30
 # It writes only its warehouse, raw captures and published files.
 NoNewPrivileges=yes

@@ -120,7 +120,16 @@ stop() {
   if pid=$(ours tunnel cloudflared); then kill "$pid"; echo "stopped the tunnel (pid $pid); its address no longer works"; fi
   if pid=$(ours caddy caddy); then kill "$pid"; echo "stopped caddy (pid $pid)"; fi
   if pid=$(ours collector pipeline.collect); then
-    kill -INT "$pid"; echo "stopped the collector (pid $pid); it records the stop and releases its lock"
+    # SIGTERM, not SIGINT: this script starts the collector as a background job, and a shell without
+    # job control hands such a child an ignored SIGINT. The collector handles both now, but SIGTERM
+    # is the one that cannot be inherited away. Then check it actually went, rather than say so.
+    kill -TERM "$pid"
+    for _ in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "collector (pid $pid) did not stop within 30 s; it still holds the writer lock" >&2
+    else
+      echo "stopped the collector (pid $pid); it recorded the stop and released its lock"
+    fi
   fi
   # The request log holds the forwarded address of every phone that opened the link: not kept.
   rm -f "$DIR"/*.pid "$DIR/url" "$DIR/caddy.log"

@@ -961,3 +961,76 @@ widely; if it is 90 KB, the evidence is not where the weight is and the measurem
 is.
 
 **Status:** open, and stated in `docs/RELEASE.md` as a known cost rather than fixed on beta eve.
+
+## 26. A copy of irreplaceable data that nothing could read back
+
+**Problem and evidence.**
+- `deploy/backup.sh` (17 September 2026) copies `data/live-capture/` from the server because the
+  BODS feed has no history: a day of raw captures lost is lost.
+- **Nothing could read them back.** `pipeline.run reprocess` reloads the *archive selection*, not
+  live captures; the collector loads each response in the same pass that fetches it, and there was
+  no other entry point. `docs/HOSTING.md` nevertheless said "the warehouse is rebuilt from the raw
+  captures it was loaded from", which was untested and, in practice, false.
+- The decision not to buy the provider's snapshots was taken partly on the strength of that script.
+
+**Who hits it, and the current workaround.** Whoever loses the server. Fixed on 18 September:
+`pipeline/restore.py` reads captures back, verified by restoring 60 copied files into an empty
+warehouse — 25,232 observations, 1,396 vehicles, 0 corrupt, and a second run adding nothing.
+
+**Recurrence and effort.** One instance; about ninety minutes including tests. The class is common:
+a backup nobody has restored from is a hypothesis.
+
+**Right answer.** Done here, and the general lesson is cheap to state: **a backup procedure is not
+finished until a restore has been performed from its output.** The script and the reader belong in
+the same change, and the restore belongs in the test suite, not in a runbook nobody executes.
+
+**Existing tools.** Nothing to buy. Content-addressed stores make this easy — the filename is the
+checksum, so integrity is provable rather than assumed, which is what the restore relies on.
+
+**Smallest reusable capability.** The pattern rather than the code: name preserved payloads by the
+hash of their bytes, and write the reader in the same commit as the writer.
+
+**Next cheap validation.** Restore the *whole* capture store into a scratch warehouse and publish
+from it, which is the step still missing: sixty captures into a scratch database proves the
+mechanism, not the disaster. At the measured 0.76 s per capture the 3,821 held would take about
+fifty minutes.
+
+**Status:** the reader exists and is tested. A full-store restore, and a restore onto a rebuilt
+server, are open.
+
+## 27. A measurement taken over one minute, reported as a property
+
+**Problem and evidence.**
+- On 17 September this project recorded the collector's memory as "**~1.55 GB, steady** over
+  repeated samples — it is not growing, so 24/7 operation is not a leak risk". The evidence was
+  three `ps` readings sixty seconds apart.
+- On 18 September, sampling every thirty seconds showed it rising: **1,148 → 1,237 → 1,334 → 1,402
+  → 1,411 → 1,426 → 1,466 MB** across three minutes. The cause was not a leak — DuckDB's default
+  memory limit is 80% of the machine's RAM, so it took what it was offered — but the reported
+  property was wrong, and the number would have been used to size a server.
+- The same session then bounded it and sampled for twenty minutes, where the median by fifths went
+  1,441 → 1,533 → 1,587 → 1,563 → 1,563 MB: rising, then flat. **That is still not proof over
+  hours**, and this time the write-up says so.
+
+**Who hits it, and the current workaround.** Anyone sizing infrastructure from a spot check. The
+habit that catches it is cheap: a sampler script and a wait.
+
+**Recurrence and effort.** One instance recorded here, caught only because the owner challenged the
+claim. The pattern — a snapshot reported as a steady state — is one of the commonest errors in
+performance work.
+
+**Right answer.** A habit, plus fifteen lines of shell: **never report a resource figure from fewer
+samples than the thing's own time constant.** For a process with a cache, that means minutes at
+least, and the write-up should carry the sample count and the window, not just the number.
+
+**Existing tools.** `/usr/bin/time -v` for a peak (it gave the nightly rebuild's 853 MB in one
+line), `ps` in a loop for a trajectory. Nothing else is needed at this size.
+
+**Smallest reusable capability.** A `scripts/sample.sh <pid-pattern> <out.csv>` kept in the
+repository rather than the scratchpad, so the next measurement starts from a trajectory.
+
+**Next cheap validation.** The 48-hour observation, which is the only thing that can answer the
+question the twenty minutes left open.
+
+**Status:** the claim is withdrawn and corrected. The sampler is still a scratchpad script; the
+hours-long answer is open.

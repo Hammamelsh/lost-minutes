@@ -17,6 +17,10 @@ ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
 ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
 TimeoutStartSec=30min
+# Measured peak 853 MB on 18 September 2026 (`/usr/bin/time -v`), in 3 min 05 s. This runs with the
+# collector stopped, so the two footprints never add up.
+Environment=LM_DB_MEMORY_LIMIT=1GB
+MemoryMax=1500M
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

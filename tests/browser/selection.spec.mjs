@@ -427,8 +427,16 @@ async function reachable(page, vehicle) {
     test.info().annotations.push({type: 'framing',
       description: `${vehicle} needed ${steps} zoom-out step(s); at the opening framing it was about `
         + `${Math.round(outBy)} px outside a ${Math.round(box.width)}x${Math.round(box.height)} canvas`});
+    // The margin is coupled to how much room the fit reserves around a stop for its name. On
+    // 18 September 2026 that reserve went from 40 px to 60 px — because a fitted stop was clearing
+    // the Ride along button by about four pixels — and this margin fell with it, from comfortably
+    // clear to exactly 24 px. That is the coupling working, and it is why the number is recorded in
+    // the annotation above rather than only asserted: what matters is that the bus was really off
+    // the canvas and not a pixel or two past its edge, which is what a hairline framing bug looks
+    // like. If this ever approaches single figures, the framing has drifted and should be looked at
+    // rather than the threshold lowered again.
     expect(outBy, `${vehicle} was genuinely outside the opening framing, not a hair past its edge`)
-      .toBeGreaterThan(24);
+      .toBeGreaterThan(8);
   }
   let point = await busPoint(page, vehicle);
   const box = await page.locator('.vector-map-canvas').boundingBox();

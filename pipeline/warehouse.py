@@ -265,6 +265,17 @@ def connect(db_path=DEFAULT_DB):
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(path))
+    # Bound what the warehouse may take, because DuckDB's default is 80% of the machine's memory
+    # and the collector runs for as long as the machine does. On this 16 GB laptop that meant a
+    # resident set still climbing through 1.3 GB after ten minutes of collection — not a leak, but
+    # not a figure anyone could size a server from either. On a 4 GB server the same default would
+    # reach for 3.2 GB and meet the OOM killer. Over the limit DuckDB spills to disk beside the
+    # database rather than failing. LM_DB_MEMORY_LIMIT and LM_DB_THREADS override it; the pattern
+    # build's own peak is mostly parsed XML in Python and is not affected by either.
+    con.execute(f"SET memory_limit='{os.environ.get('LM_DB_MEMORY_LIMIT', '1GB')}'")
+    threads = os.environ.get('LM_DB_THREADS')
+    if threads:
+        con.execute(f'SET threads={int(threads)}')
     con.execute('BEGIN')
     con.execute(DDL)
     # Additive migrations for older warehouses, before the views that select from them.

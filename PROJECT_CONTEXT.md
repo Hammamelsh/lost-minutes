@@ -4,8 +4,39 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 17 September 2026 (beta readiness: coverage traced, the ride made the screen, and
-the release prepared).
+Last updated: 18 September 2026 (reliability tested rather than asserted, and two claims withdrawn).
+
+**18 September, the claims this project had not earned.** The hosting decision is made — Hetzner
+CX23, no paid backups, a free subdomain — and `docs/PROVISIONING.md` is the runbook for it. Nothing
+is provisioned; nothing has been bought.
+- **Two claims withdrawn.** "The collector's memory is steady, so not a leak risk" rested on three
+  samples over a minute; measured properly it rose 1,148 → 1,466 MB in three minutes, because
+  DuckDB's default limit is 80% of the machine's RAM. It is now bounded (`LM_DB_MEMORY_LIMIT`,
+  1 GB). Left running it kept climbing — **+300 MB an hour over 63 minutes, no plateau** — which
+  looked like a leak and would have met the collector unit's old 1500M ceiling within the hour.
+  It is not a leak: DuckDB takes a thread per core and glibc scales its arenas with threads, so this
+  16-core laptop ran 32 where a CX23 gives 2. **At two threads the same collector is flat: median
+  376 MB across 26 readings over 19 minutes.** The unit now pins `LM_DB_THREADS=2` and
+  `MALLOC_ARENA_MAX=2`, and `MemoryHigh`/`MemoryMax` are sized from measurement rather than hope.
+  And "the warehouse is rebuilt from the raw captures" was **false in practice**: nothing could read
+  live captures back.
+- **`pipeline/restore.py`** now reads them back, and the restore was performed rather than
+  described: 60 copied captures → **25,232 observations, 1,396 vehicles** into an empty warehouse,
+  every file verified against the SHA-256 in its own name, and a second run adding nothing.
+- **The nightly timetable refresh** peaks at **853 MB** in 3 min 05 s, and rebuilt identically to
+  the previous day apart from the date — evidence the snapshot fix holds. That figure, not the
+  collector's, is what rules out a small host.
+- **Restart recovery, tested twice:** the run the sleeping laptop abandoned was resolved to
+  `interrupted / abandoned` by the next collector unprompted, and a deliberate `SIGKILL` was
+  publishing again within 45 seconds. A second collector is refused with `collector_busy`.
+- **A 26-hour-old publication that still called itself live** was refused by the page entirely:
+  NOT UPDATING, no buses listed, none drawn. It also exposed "updated 94646s ago", so ages now read
+  in minutes, hours and days.
+- **167 phone touch targets under 44 px became 43**, and on a phone only the wordmark link remains.
+- **A 30-second recording of the actual app** on the real feed
+  (`scripts/probes/demo-recording.mjs`), which judges its own take: the bus it caught had reported
+  no bearing, so it says the take is fair but not representative.
+- **Drafts for approaching TfGM** in `docs/TFGM_APPROACH.md`, sent to nobody.
 
 **17 September, towards a public beta.** Everything here is checked in Chromium on this machine
 unless it says otherwise; no physical phone has been used, and the app is still served only from a
@@ -227,6 +258,12 @@ node scripts/probes/selection-playback.mjs [--base http://localhost:3100/]
 CADDY=/path/to/caddy deploy/validate.sh    # the server configuration, checked on this machine
 scripts/preview.sh start|status|stop       # a temporary HTTPS link for a phone: out/ and the live
                             # /data through Caddy on 127.0.0.1, and a Cloudflare Quick Tunnel
+.venv/bin/python -m pipeline.restore [--captures DIR] [--db PATH] [--limit N]
+                            # read preserved position captures back into a warehouse: what makes
+                            # deploy/backup.sh a backup rather than a pile of files
+node scripts/probes/demo-recording.mjs --base http://127.0.0.1:8098/ [--label name]
+                            # ~30 s of the actual app on whatever the base serves, as WebM and as
+                            # labelled stills, with the take judged in recording.json
 node scripts/probes/public-preview.mjs --base https://….trycloudflare.com
                             # that link checked as a phone reaches it (emulation), and 360/390 px layouts
 node scripts/probes/passenger-layouts.mjs --base http://127.0.0.1:8098/ [--label name]
@@ -615,10 +652,11 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   checked, so branches are settled only by the reported destination, and **no scheduled time at a
   stop is ever shown**. Identifying the timetabled journey is the next priority (2 below).
 - **Bank-holiday operation is recorded, not evaluated.**
-- **Coverage is limited to the timetables held:** two TfGM operator datasets (BNML and BNSM).
-  49 observed services have no timetable here, the largest by reports being BNGN's 10, 36, 37
-  and 8, and their buses are refused with that reason. Ambiguity grew with coverage: more
-  patterns mean more paths that fit a position equally well, and those stay unresolved.
+- **Coverage is limited to the timetables held:** three TfGM operator datasets (BNML, BNSM, BNFM).
+  **130 observed services have no timetable here** (18 September 2026), the largest by reports being
+  BNGN's 10, 37, 36, 8 and V1, and their buses are refused with that reason. Ambiguity grew with
+  coverage: more patterns mean more paths that fit a position equally well, and those stay
+  unresolved — 139 of 587 vehicles in one publication.
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
   nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
   shown from above as a round token.
@@ -793,15 +831,21 @@ build-machine path and no tile ever loaded.
 
 - **3,498 active bus stops** in the service area, from NaPTAN ATCO area 180, each with its
   indicator, street and, where NaPTAN has one, the direction a bus travels there.
-- **Timetables:** three TfGM TransXChange datasets are preserved (the current BNML and BNSM
-  datasets and an earlier version); 443 of their files are valid on 13 September.
+- **Timetables:** three TfGM TransXChange datasets are preserved, one per operator group
+  (**BNML, BNSM, BNFM**). The collector re-downloads them while it runs and stores each distinct
+  version by content hash; **only the newest snapshot of each is read**, because reading them all
+  counted the same service twice. On 18 September 2026, **575 files** were read — every file whose
+  declared validity touches the fortnight ahead — and 538 expired ones were not.
 - **Selection:** every operator-and-line pair seen in the collected positions that has a valid
-  file: 89 services, 9,331 journey patterns, 404 distinct stop sequences, **387 published**.
-  A pattern is published when it calls at a stop inside the area and has at least five stops;
-  166 of the 387 would have been hidden by the earlier 60% rule. `--coverage all`, `--lines`
-  and `--max-lines` are explicit alternatives, and whichever is used is written into
+  file: **157 services, 524 patterns, 522 distinct stop sequences published**. A pattern is
+  published when it calls at a stop inside the area and has at least five stops. `--coverage all`,
+  `--lines` and `--max-lines` are explicit alternatives, and whichever is used is written into
   `patterns.json` under `coverage`, with the observed services that have no timetable.
-- `patterns.json` is 1.47 MB (105 KB gzipped).
+- **130 observed services still have no timetable here**, led by BNGN's 10, 37, 36, 8 and V1
+  (20,000–27,500 observations each). That is one operator group whose dataset is not downloaded,
+  not a scatter: one line in `BODS_TIMETABLE_URL` and a rebuild would close most of it.
+- `patterns.json` is 2.04 MB (140 KB gzipped), fetched once. `docs/COVERAGE.md` audits all of this
+  service by service, and the same ledger is in the app under Behind the data.
 
 ## Next priorities
 
@@ -810,17 +854,14 @@ build-machine path and no tile ever loaded.
    inbound had no weekday timetable pattern here. If the route is not covered, rebuild the patterns
    on a weekday (`.venv/bin/python -m pipeline.patterns build`, with no collector running) and
    check again.
-1. **Decide on hosting** so collection runs when this machine does not. The costed proposal is
-   in `docs/HOSTING.md`: one Hetzner CX23 with systemd. Since Hetzner's 15 June 2026 price rise,
-   that is €5.49 net plus €0.50 for IPv4, about £6 a month with VAT, and £7–8 with backups and a
-   domain. Confirm the price in Hetzner's console. A free Healthchecks.io check would tell a person
-   when publication stops, and the whole server configuration is
-   ready in `deploy/` (Caddy with HTTPS, the collector under systemd, a nightly timetable rebuild,
-   a watchdog) and checked on this machine by `deploy/validate.sh`. Needs your approval, and a
-   domain, before anything is provisioned. It is also what a phone trial needs: a phone lets a
-   page use its location only over HTTPS. Over a plain address on the same Wi-Fi, "Buses near me"
-   and walking directions cannot work, though searching for a stop by name does. Until then,
-   `scripts/preview.sh` gives a temporary HTTPS link (`docs/PASSENGER_TEST.md`).
+1. **Provision the hosting that is already decided** — Hetzner CX23, no paid backups, a free
+   subdomain — so collection runs when this machine does not. `docs/PROVISIONING.md` is the
+   step-by-step and names the only three things that need the owner: creating the server (reading
+   the console's own total before paying, because the documented €5.99 net may have moved again),
+   pointing a free subdomain at it, and putting the BODS key on it by hand. Everything after that
+   is scripted and validated locally by `deploy/validate.sh`. It is also what a phone trial needs:
+   a phone lets a page use its location only over HTTPS. Until then, `scripts/preview.sh` gives a
+   temporary link (`docs/PASSENGER_TEST.md`).
 2. **Identify the timetabled journey**, not just the pattern: match the operator's reported
    origin departure time against journeys on the same line, direction and day, and measure
    the hit rate before any scheduled time is shown (opportunity log, entry 7).

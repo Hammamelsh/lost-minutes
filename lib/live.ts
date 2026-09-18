@@ -206,19 +206,27 @@ export function freshnessOf(ageSeconds:number|null|undefined,policy:FreshnessPol
  return 'expired';
 }
 
+/**
+ * How long ago, in words a passenger can judge at a glance.
+ *
+ * Seconds up to a minute and a half, then minutes, hours and days. Seconds alone do not scale:
+ * after this machine slept overnight the status bar read "updated 94646s ago", which is a number
+ * nobody reads as "yesterday". Nothing is ever "now": under half a second is one second, not zero.
+ */
+export function elapsedWords(seconds:number):string{
+ const s=Math.round(seconds);
+ if(s<90)return `${Math.max(1,s)}s`;
+ const m=Math.round(s/60);
+ if(m<60)return `${m} min`;
+ const h=Math.floor(m/60);
+ return h<24?`${h}h ${m%60}m`:`${Math.floor(h/24)}d ${h%24}h`;
+}
+
 /** Plain words a passenger can act on. Never "now": a report is never instantaneous. */
 export function ageWords(seconds:number|null|undefined):string{
  if(seconds===null||seconds===undefined||!Number.isFinite(seconds))return 'age unknown';
- const s=Math.round(seconds);
- if(s<0)return 'timestamped ahead of our clock';
- // Under ten seconds used to read "reported seconds ago", which looks like a page that has lost
- // its figure. The number is what we hold, and it is no less exact here than at thirty seconds.
- // Nothing is ever "now": a report under half a second old is shown as one second, not zero.
- if(s<90)return `reported ${Math.max(1,s)}s ago`;
- const m=Math.round(s/60);
- if(m<60)return `reported ${m} min ago`;
- const h=Math.floor(m/60);
- return h<24?`reported ${h}h ${m%60}m ago`:`reported ${Math.floor(h/24)}d ago`;
+ if(seconds<0)return 'timestamped ahead of our clock';
+ return `reported ${elapsedWords(seconds)} ago`;
 }
 
 /** Effective mode, given what the network and the payload actually said. */

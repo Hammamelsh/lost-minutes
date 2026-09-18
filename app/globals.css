@@ -290,7 +290,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .your-stop-copy small{display:block;font-size:12px;color:#a7bcc8;margin-top:2px}
 .your-stop-copy em{font-style:normal;display:block;font-size:11px;color:#8298a6;margin-top:2px}
 .your-stop-actions{display:flex;gap:7px;flex-shrink:0;margin-left:auto}
-.your-stop-actions button{min-height:38px;min-width:44px;padding:0 10px;border-radius:9px;
+.your-stop-actions button{min-height:44px;min-width:44px;padding:0 10px;border-radius:9px;
  border:1px solid #375060;background:#172935;color:#d3e0e5;font-size:13px;font-weight:600;
  display:inline-flex;align-items:center;gap:6px;justify-content:center}
 .your-stop-actions button.on{border-color:#8fbf4f;background:#253524;color:#c6f36a}
@@ -535,7 +535,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  max-width:100%}
 .follow .follow-badge{font-size:11.5px;letter-spacing:1.2px}
 .follow .follow-bar-when{font-size:12.5px;flex:0 1 auto}
-.follow .follow-refresh{min-width:36px;min-height:36px;border-radius:999px}
+.follow .follow-refresh{min-width:44px;min-height:44px;border-radius:999px}
 @media(min-width:1024px){.follow>.follow-bar{justify-self:start}}
 
 /* ---- Your stop. */
@@ -545,7 +545,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .your-stop-eyebrow{display:block;font-size:10.5px!important;font-weight:800;letter-spacing:1.2px;
  text-transform:uppercase;color:#ffb459!important;margin:0 0 2px!important}
 .follow .your-stop-actions{order:0;margin:0 0 0 auto;gap:6px}
-.follow .your-stop-actions button{min-height:40px;min-width:40px;padding:0 10px}
+.follow .your-stop-actions button{min-height:44px;min-width:44px;padding:0 10px}
 
 /* ---- The map: an elevated city map, framed. */
 .vector-map{height:clamp(360px,54vh,600px);border-radius:16px;isolation:isolate}
@@ -560,7 +560,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .map-views{position:absolute;left:11px;top:11px;z-index:3;display:flex;gap:8px;flex-wrap:wrap;max-width:calc(100% - 80px)}
 .view-switch{display:flex;background:#0f1b24e8;border:1px solid #3f5462;border-radius:11px;padding:3px;
  backdrop-filter:blur(6px)}
-.view-switch button{min-height:38px;min-width:52px;padding:0 12px;border:0;border-radius:8px;background:none;
+.view-switch button{min-height:44px;min-width:52px;padding:0 12px;border:0;border-radius:8px;background:none;
  color:#c9d7de;font-size:13.5px;font-weight:750;letter-spacing:.3px}
 .view-switch button[aria-pressed=true]{background:#c6f36a;color:#16240c}
 .fit-journey{min-height:44px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:11px;
@@ -606,7 +606,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ride-exit{position:absolute;left:11px;top:11px;min-height:44px;display:inline-flex;align-items:center;gap:6px;
  padding:0 13px;border-radius:11px;border:1px solid #c6f36a;background:#0f1b24ee;color:#e8ffc8;font-size:13.5px;font-weight:750}
 /* The viewpoint switch: front of the upper deck, or outside the bus. */
-.ride-camera{align-self:flex-start;min-height:40px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
+.ride-camera{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
  border-radius:10px;border:1px solid #3f5462;background:#0f1b24ee;color:#e4eef2;font-size:13px;font-weight:750}
 .ride-camera.on{border-color:#c6f36a;color:#e8ffc8}
 .ride-camera[aria-disabled=true]{opacity:.62}
@@ -885,7 +885,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .follow .your-stop-row{align-items:flex-start}
 .follow .your-stop-copy strong{white-space:normal;overflow-wrap:anywhere}
 .follow .your-stop-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;order:0}
-.follow .your-stop-actions button{min-height:40px;min-width:44px;padding:0 11px}
+.follow .your-stop-actions button{min-height:44px;min-width:44px;padding:0 11px}
 .follow .your-stop-actions button span{font-size:13px}
 .active-bus{position:sticky;top:8px;z-index:6;display:flex;align-items:center;gap:10px;padding:8px 10px;
  border-radius:12px;border:1px solid #4c6b39;background:#16261c;box-shadow:0 8px 22px #060f1799}
@@ -896,7 +896,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .active-bus-copy strong{display:block;font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
 .active-bus-copy small{display:block;font-size:12px;line-height:1.45;color:#a9bcc7;margin-top:1px}
 .active-bus.absent .active-bus-copy small,.active-bus.new_journey .active-bus-copy small{color:#f1c68a}
-.active-bus .text-action{flex-shrink:0;min-height:40px}
+.active-bus .text-action{flex-shrink:0;min-height:44px}
 .empty-state{display:grid;gap:6px;padding:12px;border-radius:12px;border:1px dashed #3d5260;background:#132330}
 .empty-state strong{font-size:14px;font-weight:650;line-height:1.5;color:#dbe7ec}
 .empty-state span{font-size:12.5px;color:#9fb3bf;line-height:1.5}
@@ -1187,3 +1187,30 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .coverage>.text-action{margin-top:14px}
 @media(max-width:900px){.coverage-totals{grid-template-columns:1fr}.coverage-marks{grid-template-columns:1fr 1fr}}
 @media(max-width:540px){.coverage{padding:18px 15px}.coverage-marks{grid-template-columns:1fr}}
+
+/* ==========================================================================================
+   A FINGER'S WORTH, EVERYWHERE
+   The layout probe measures every control a phone can tap. On 18 September 2026 nine were still
+   short of the 44 px both Apple and Google ask for — 33 to 40 px tall — and they were not obscure
+   ones: the refresh beside the feed's status (36x36), Save, Share, Change and Locate me on the
+   stop (40 high), Details on the answer, the 2D/City switch (38), and the ride's own controls.
+   Width was never the problem; height was, because each had been given padding rather than a
+   minimum. Nothing moves or changes meaning here: the boxes simply reach the size of a thumb.
+   ========================================================================================== */
+.your-stop-locate,.fit-journey,.ride-return{min-height:44px}
+.stop-search-clear,.stop-search-locate{min-width:44px;min-height:44px}
+/* The walk guide's own Locate me, and the switch between estimated and reported positions: both
+   are things a thumb presses, and both were short. 44 px is a guideline about fingers, so it is
+   applied where a finger is the pointer and left alone at desktop width, where the engineering
+   tabs and "What is this?" are clicked rather than tapped. */
+.walk-action{min-height:44px}
+@media(pointer:coarse){
+ .bus-card-motion .text-action,.ride-motion .text-action{min-height:44px}
+ /* "How the estimate is made" and "How this is known" are disclosures a thumb opens. */
+ .bus-card-motion summary,.bus-card-activity summary,.bus-evidence-toggle{min-height:44px}
+}
+/* The ride's "What is this?" had been squeezed to 34 px to fit a 360 px bar. It gets its 44 back;
+   the mode line beside it flexes and simply shortens, which is what it is there to do. */
+@media(max-width:860px){
+ .vector-map.view-ride .ride-about summary{min-width:44px;min-height:44px}
+}

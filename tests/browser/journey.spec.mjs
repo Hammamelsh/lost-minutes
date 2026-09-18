@@ -287,7 +287,11 @@ test.describe('a publication that has stopped', () => {
   test('is labelled, not shown as live, and its reports are aged from when they were made', async ({page}) => {
     await openAtStopA(page, {live: [() => journeyLive({publishedAgoSeconds: 600})]});
     await expect(page.locator('.follow-badge')).toContainText('NOT UPDATING');
-    await expect(page.locator('.follow-bar-when')).toContainText(/updated \d+s ago/);
+    // Ten minutes, said as ten minutes. This asserted /updated \d+s ago/ until 18 September 2026,
+    // which passed while the bar was reading "updated 94646s ago" after this machine slept — a
+    // number nobody reads as "yesterday". The fixture publishes 600 s ago, so the exact wording is
+    // asserted rather than a shape that cannot tell 600 s from a day.
+    await expect(page.locator('.follow-bar-when')).toContainText('updated 10 min ago');
     // A report inside a file published ten minutes ago is at least ten minutes old, whatever
     // age the publisher wrote beside it at the time. Old reports are not offered as your bus:
     // they are listed apart, aged from when they were made.

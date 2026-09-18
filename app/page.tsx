@@ -16,7 +16,7 @@ import SectionBoundary from '@/components/section-boundary';
 import SiteNotes from '@/components/site-notes';
 import CoverageLedger from '@/components/coverage-ledger';
 import {busesFromArchive,busesFromLive,busFromVehicle} from '@/lib/follow';
-import {DEFAULT_CONFIG,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
+import {DEFAULT_CONFIG,elapsedWords,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
 import type {LiveVehicle} from '@/lib/live';
 
 /** SHA-256 of the live file exactly as this page received it, so the passenger's evidence can
@@ -291,7 +291,7 @@ export default function Home(){
  const away=section!=='follow';
  // The pipeline as it stands now, for anyone reviewing it: what the passenger's page is reading.
  const collector=live?.collection.collector;
- const liveNow=liveMode==='live'?`Right now: live positions${collector?.kind==='bounded_development'?' from a time-limited run on one machine':''}, published ${publishedAge===null?'moments':`${Math.round(publishedAge)} s`} ago.`
+ const liveNow=liveMode==='live'?`Right now: live positions${collector?.kind==='bounded_development'?' from a time-limited run on one machine':''}, published ${publishedAge===null?'moments':elapsedWords(publishedAge)} ago.`
   :liveMode==='stale'?`Right now: our publication has stopped updating${publishedAge===null?'':`; the last was ${Math.max(1,Math.round(publishedAge/60))} min ago`}, and the passenger’s page says so.`
   :liveMode==='offline'?'Right now: this device is offline, and the passenger’s page says so.'
   :'Right now: no live collection is running, so the passenger’s page says that rather than show old positions.';
@@ -362,7 +362,7 @@ export default function Home(){
    </Tabs>
    </SectionBoundary>
   </section>}
-  <SiteNotes feed={liveMode} publishedAgo={publishedAge===null?'':`${Math.round(publishedAge)} s ago`} stop={null}/>
+  <SiteNotes feed={liveMode} publishedAgo={publishedAge===null?'':`${elapsedWords(publishedAge)} ago`} stop={null}/>
   <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a>{!away&&<> · <a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}}>Behind the data: how it is built</a></>}</p></footer>
  </main>
 }

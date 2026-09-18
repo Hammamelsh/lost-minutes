@@ -39,6 +39,16 @@ What runs on the server:
    ```
    and open the site on a phone.
 
+## Going back, and getting data back
+
+| | |
+|---|---|
+| `deploy/rollback.sh` (on the server) | puts the previous release back in one command. One release of history is kept; the collector's own published data is deliberately not rolled back |
+| `deploy/backup.sh deploy@<host>` (from here) | pulls the raw captures and preserved timetable versions to this machine. **Manual** — nothing runs it but you |
+| `.venv/bin/python -m pipeline.restore --captures <copy> --db <warehouse>` | reads those captures back into a warehouse. Verified 18 September 2026: 60 copied captures restored 25,232 observations into an empty database, with every file checked against the SHA-256 in its own name, and a second run adding nothing |
+
+`docs/HOSTING.md` says plainly what the backup does and does not protect.
+
 Updating: run `deploy/publish.sh` again. Site changes are live at once; for pipeline changes,
 `sudo systemctl restart lost-minutes-collector`. Stopping collection:
 `sudo systemctl stop lost-minutes-collector`.

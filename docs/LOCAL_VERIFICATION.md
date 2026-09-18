@@ -2067,3 +2067,130 @@ age (stale after 120 s) rather than trusting what the file calls itself. The bus
 their last reports with honest ages — a four-minute-old report is inside the 15-minute expiry — and
 none was estimated forward. Starting collection again returned it to **"LIVE · updated 15s ago"**
 with 626 vehicles. Frames: `outputs/probes/public-state/ageing.png` and `live-again.png`.
+
+
+---
+
+# Reliability, actually tested — 18 September 2026 (VS Code / WSL)
+
+The previous entry made two claims it had not earned. Both are corrected here, and the four things
+that had never been tested were tested. Everything below ran on this machine; **no physical phone
+has been used at any point**.
+
+## The nightly timetable refresh
+
+`/usr/bin/time -v .venv/bin/python -m pipeline.patterns build`:
+
+| | |
+|---|---|
+| Peak resident set | **853,560 KB — 853 MB** |
+| Wall clock | 3 min 05 s, 34% CPU (it is I/O bound) |
+| Output | 575 files read, 524 patterns across 157 services |
+| Compared with the previous day's build | **identical**: same 524 pattern ids, same journey counts, no additions, no removals. Only the build date and the count of observed services with no timetable (111 → 130) changed |
+
+That the rebuild is reproducible is the point: it is evidence the snapshot-deduplication fix of
+17 September holds, and 853 MB is the figure that rules out a 512 MB host.
+
+## The collector's memory, and a withdrawn claim
+
+**Withdrawn:** "~1.55 GB, steady over repeated samples — it is not growing, so 24/7 operation is not
+a leak risk." Three samples over a minute cannot support that.
+
+Measured properly, sampling every 30 s:
+
+| | |
+|---|---|
+| Unbounded, first three minutes | 1,148 → 1,237 → 1,334 → 1,402 → 1,411 → 1,426 → **1,466 MB** |
+| Cause | DuckDB's default memory limit is **80% of the machine's RAM** — 12.6 GB here |
+| After bounding it (`memory_limit`, 1 GB default, `LM_DB_MEMORY_LIMIT`) | median by fifths over 20 minutes: **1,441 → 1,533 → 1,587 → 1,563 → 1,563 MB** — rising, then flat |
+| CPU | median 21.4% of one core |
+| Publication interval held throughout | max age 20 s, median 10 s |
+
+Left to run, it kept climbing. Over **63 minutes** of continuous collection the median by six-minute
+window was `1465 1573 1563 1626 1626 1686 1698 1673 1690 1719 1784` MB, peaking at 1,807 — about
+**+300 MB an hour, rising in almost every window, with no plateau.** That looks like a leak, and the
+collector unit's `MemoryMax=1500M` would have had the OOM killer take it within the hour.
+
+**It is not a leak.** There is no per-cycle accumulation in `pipeline/collect.py` and no
+module-level cache in the pipeline, so the growth had to be below the Python — and both DuckDB's
+threads and glibc's allocator arenas scale with core count. This laptop has 16 cores, so DuckDB
+took 32 threads; a CX23 gives 2.
+
+**The same collector, same feed, same code, with `LM_DB_THREADS=2` and `MALLOC_ARENA_MAX=2`:**
+
+| | 32 threads | 2 threads |
+|---|---|---|
+| Early in the run | ~1,378 MB | **346 MB** |
+| Over 19 minutes, 26 readings | +300 MB/hour, no plateau | **flat: min 342, median 376, max 497 MB** |
+| First half vs second half median | rising throughout | **372 → 382 MB** |
+
+So the expected footprint on the server is **about 376 MB, not 1.8 GB and climbing**, and the
+`memory_limit` barely moved the total because the memory was in arenas rather than the buffer pool.
+Both variables were changed together, so which does the work is not established; and 19 minutes is
+not days. The unit now pins both, and the 48-hour observation still confirms it.
+
+## Stale feed, through the real page
+
+The laptop slept mid-collection on 17 September, which produced a better test than a staged one.
+By the next evening the published file was **26 hours old** and still said:
+
+```
+"state": "live", 655 vehicles, newest report 3 s old, collector "running"
+```
+
+Every part of that is stale, and the page believed none of it: **"NOT UPDATING · updated 1d 2h
+ago"** in the warning tone, **0 bus rows, 0 suggested bus, 0 buses drawn on the map**, and the
+message "Every position we hold has passed its cut-off — nothing has reported in the last 15
+minutes, so there is nothing honest to draw." Frame:
+`outputs/probes/public-state/expired-26h.png`.
+
+It also exposed a wording defect: the bar read **"updated 94646s ago"**. Ages now read in minutes,
+hours and days (`elapsedWords`).
+
+## Restart recovery, and no second writer
+
+| What was done | What happened |
+|---|---|
+| The laptop slept mid-run on 17 Sep, leaving the run marked `running` | Starting the next collector resolved it to **`interrupted`, exit reason `abandoned`**, unprompted |
+| `kill -9` on a running collector | The writer lock was released by the OS; a fresh collector **published again within 45 s**, 267 vehicles |
+| Starting a second collector while one runs | Refused: `{"error": "collector_busy", "detail": "Another collector holds data/warehouse/collector.lock. Only one writer may run at a time."}` |
+| Opening the warehouse while the collector holds it | DuckDB refuses the connection by name and PID — single-writer, enforced by the database as well as the lock file |
+
+## Restoring from a copied capture
+
+Until today there was **no code that could read live captures back**: `pipeline.run reprocess`
+reloads the archive selection, not them. `pipeline/restore.py` now does, and the restore was run
+rather than described.
+
+| | |
+|---|---|
+| Copied out, as `deploy/backup.sh` would pull them | 60 captures, 3.1 MB |
+| Restored into an **empty** warehouse | **25,232 observations, 1,396 distinct vehicles**, spanning 12–17 September |
+| Integrity | every file verified against the SHA-256 in its own name: **0 corrupt, 0 undated, 0 malformed** |
+| Run a second time over the same copy | **0 new**, 35,145 recognised as repeats, count unchanged |
+| Rate | ~0.76 s per capture, so the 3,821 now held would take about 50 minutes |
+
+Six checks cover it in `tests/test_restore.py`, including a byte flipped in transit being detected
+and skipped, and a capture with no stated time being refused rather than dated by guess.
+
+**Not demonstrated:** a restore of the whole store into a warehouse the pipeline then publishes
+from, or onto a rebuilt server.
+
+## Touch targets
+
+The layout probe measures every control a phone can tap, at five sizes. **167 occurrences were
+under 44 px** — the feed's refresh at 36×36, Save, Share, Change and Locate me at 40 high, the
+2D/City switch at 38, the ride's own controls, the disclosure summaries. Raised in the rules
+themselves, because an appended override was reordered past by the bundler and silently did
+nothing. **43 occurrences remain, and on a phone only one: the "lost minutes." wordmark link at
+120×33**, which is a wordmark rather than a control and is left alone deliberately. The rest are at
+desktop width, where the pointer is a mouse.
+
+## Checks
+
+- `pnpm typecheck`, `pnpm lint` — pass.
+- `pnpm test` — **137 Node tests**, 0 failures.
+- `.venv/bin/python -m unittest discover -s tests` — **103 Python tests**, 0 failures (97 + 6 for
+  the restore).
+- `pnpm build` — passes.
+- `pnpm test:browser` — see the release record.

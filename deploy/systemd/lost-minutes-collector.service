@@ -31,7 +31,30 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryMax=1500M
+# Bound the database's own share, so it cannot reach for 80% of the machine as DuckDB does by
+# default. Measured 18 September 2026: this does not shrink the collector much, because most of its
+# footprint is Python — the parsed XML, the pattern catalogue and the matcher — but it stops the
+# database taking 3.2 GB of a 4 GB server.
+Environment=LM_DB_MEMORY_LIMIT=1GB
+# Two threads, and two allocator arenas, set explicitly rather than left to the machine. DuckDB
+# takes a thread per core and glibc scales its arenas with threads; on the 16-core laptop where this
+# was measured that meant 32 threads, a resident set four times larger, and a climb of about 300 MB
+# an hour that looked exactly like a leak. With both pinned to 2 the same collector sat flat around
+# 370 MB. A CX23 has 2 vCPU and would pick 2 anyway; saying so means the figure does not change if
+# it is ever moved to a larger machine. Both were changed together, so which of the two does the
+# work is not established — only that the pair removes the growth.
+Environment=LM_DB_THREADS=2
+Environment=MALLOC_ARENA_MAX=2
+# Sized from measurement, not from hope. MemoryMax was 1500M from 13 September, set before anything
+# had been measured and checked only by `systemd-analyze verify`, which validates syntax and not
+# sizing: the collector's resident set was measured at 1,465 MB rising to 1,626 MB over 27 minutes,
+# so that cap would have had the OOM killer take it within the hour, every hour, on a loop.
+# MemoryHigh puts the kernel to work reclaiming first; MemoryMax is the ceiling beyond which it is
+# killed and systemd starts it again 15 s later. On a 4 GB server this leaves about 1.6 GB for the
+# operating system and Caddy. The nightly rebuild does not overlap: lost-minutes-refresh stops this
+# unit before it runs.
+MemoryHigh=1800M
+MemoryMax=2400M
 
 [Install]
 WantedBy=multi-user.target

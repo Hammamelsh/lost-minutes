@@ -104,18 +104,83 @@ what the collector's checkpointing needs.
 
 ## What the collector actually needs, measured
 
-Taken from a running bounded collection on this machine, 17 September 2026, publishing 630 vehicles
-every 20 seconds:
+### A correction to what this document said on 17 September
 
-| | |
-|---|---|
-| Resident memory | **~1.55 GB, steady** over repeated samples — it is not growing, so 24/7 operation is not a leak risk |
-| Why that much | DuckDB has **no `memory_limit` set**, so it takes what the machine offers. It would adapt downward on a smaller box; what is untested is the nightly pattern build, which parses 19,344 patterns from 575 files and takes 3.5 minutes here |
-| Warehouse on disk | 172 MB after a few days of intermittent runs |
-| Raw captures on disk | 220 MB so far, growing at a measured 0.13 GB a day |
+It said the resident set was "**~1.55 GB, steady** over repeated samples — it is not growing, so
+24/7 operation is not a leak risk". **That was an overclaim and it is withdrawn.** Three samples
+over sixty seconds cannot tell a plateau from a slow climb, and a longer look on 18 September
+showed a climb: **1,148 MB → 1,237 → 1,334 → 1,402 → 1,411 → 1,426 → 1,466 MB across three minutes**
+of collection.
 
-**This is the number that decides a host.** A platform selling 512 MB is not obviously enough, and
-nobody has tested the nightly rebuild under that ceiling.
+The cause was not a leak. **DuckDB's default memory limit is 80% of the machine's RAM** — 12.6 GB
+on this 16 GB laptop — so it took what it was offered and kept taking. On a 4 GB server the same
+default would reach for 3.2 GB and meet the OOM killer.
+
+**What changed:** `pipeline/warehouse.py` now sets an explicit limit when it connects, **1 GB by
+default**, with `LM_DB_MEMORY_LIMIT` and `LM_DB_THREADS` to override. Over the limit DuckDB spills
+to disk beside the database rather than failing.
+
+**What that did not change, and it is the finding that matters:** with the limit in force the
+resident set went on rising. Sampled every thirty seconds through **63 minutes** of continuous
+collection, the median by six-minute window was:
+
+```
+1465  1573  1563  1626  1626  1686  1698  1673  1690  1719  1784   MB
+```
+
+**That is not a cache warming to a plateau. It rises in almost every window, by roughly 300 MB an
+hour, and had not flattened when the run ended at 1,807 MB.** Extrapolated — and extrapolation is
+all it is — that reaches the 2,400 MB ceiling in the collector's unit in two to three hours, where
+systemd would restart it and the climb would begin again.
+
+That looked like a leak, and it was tested rather than assumed. There is no per-cycle accumulation
+in `pipeline/collect.py` and no module-level cache anywhere in the pipeline, so the growth had to be
+below the Python: DuckDB's own allocation, or glibc's arenas — **and both scale with thread count.**
+DuckDB takes a thread per core, so 32 on this 16-core laptop, where a CX23 gives 2.
+
+### Re-run with two threads, which is what the server will have
+
+The same collector, same feed, same code, with `LM_DB_THREADS=2` and `MALLOC_ARENA_MAX=2`:
+
+| | 32 threads (this laptop's default) | **2 threads (a CX23)** |
+|---|---|---|
+| Resident set, early in the run | ~1,378 MB | **342–497 MB** |
+| After an hour | 1,766 MB and still rising | — |
+| Over 19 minutes | **+300 MB an hour, no plateau** | **flat: median 376 MB across 26 readings, no upward trend** |
+
+**The growth does not reproduce at the thread count the server will run.** It was the allocator
+scaling with cores, not the application accumulating anything — which also explains why bounding
+DuckDB's `memory_limit` barely moved the total: the memory was in arenas, not in the buffer pool.
+
+The unit now pins `LM_DB_THREADS=2` and `MALLOC_ARENA_MAX=2` explicitly rather than relying on the
+server having two cores, so the figure does not change if it is ever moved to a larger machine.
+
+**Two caveats, because this is the kind of result it is tempting to over-read.** Both variables were
+changed together, so which of the two does the work is not established — only that the pair removes
+the growth. And the flat run lasted 19 minutes, not days: the 48-hour observation is still what settles
+it. What has changed is that there is no longer a reason to expect a leak, and the expected
+footprint on the server is **about 376 MB rather than 1.8 GB and climbing**.
+
+### The figures
+
+| | | How |
+|---|---|---|
+| Collector resident set | **~1.4 GB** with the 1 GB database limit in force | `ps` every 30 s through a bounded run, 18 Sep |
+| Nightly timetable refresh, peak | **853 MB**, 3 min 05 s wall clock, 34% CPU | `/usr/bin/time -v .venv/bin/python -m pipeline.patterns build`, 18 Sep |
+| Warehouse on disk | 172 MB after a few days of intermittent runs | |
+| Raw captures on disk | 220 MB, **3,821 captures**, growing at a measured 0.13 GB a day | |
+
+**These are the numbers that decide a host.** The nightly rebuild alone peaks at 853 MB, so a
+platform selling 512 MB cannot run it, and the collector wants about 1.4 GB beside that. The
+Hetzner CX23's 4 GB is comfortable; 1 GB would not be.
+
+### What is still unknown, and should not be claimed
+
+**Whether the resident set is stable over many hours or days is not established.** Nothing here has
+run for more than about ninety minutes at a stretch, and the longest run this machine has managed
+ended when it went to sleep. A leak that shows itself after six hours would look exactly like these
+measurements. That is what the 48-hour observation in `docs/RELEASE.md` exists to find out, and
+until it has run, this document claims nothing about leaks in either direction.
 
 ## Platforms that host a static site, and why they do not host this
 
@@ -190,9 +255,48 @@ collected twice is the easiest decision in this document.
 pulls `data/live-capture/` — the raw captures and every preserved timetable version — from the
 server to this machine over SSH. It copies only what is not already held, because those files are
 content-addressed and never rewritten, and it deliberately does not mirror the server's 14-day
-deletions: outliving them is the point. What it is not: a bare-metal restore. Losing the server
-still means provisioning a new one and running `publish.sh` and `install.sh`; this protects the data
-behind those commands, and it runs only when this machine is on.
+deletions: outliving them is the point.
+
+### What that script is, stated plainly
+
+On 17 September this document presented it as though it settled the matter. It does not, and the
+limits matter more than the script does:
+
+* **It is manual.** Nothing runs it. There is no timer, no systemd unit, no cron entry and no
+  reminder. If it is not typed, no copy is taken. Hetzner's paid snapshots run whether anyone
+  remembers or not, and that — not the storage — is what £1.10 a month actually buys.
+* **It is a pull from this laptop**, so it can only run while this machine is on, awake and able to
+  reach the server. The night this machine slept mid-collection is the ordinary case, not an
+  unlucky one.
+* **It is not a bare-metal restore.** Losing the server still means provisioning a new one and
+  running `publish.sh` and `install.sh`. What the copy protects is the data behind those commands.
+
+### Restoring from the copy: demonstrated, 18 September 2026
+
+On 17 September the claim that "the warehouse is rebuilt from the raw captures it was loaded from"
+was **untested, and in fact there was no code that could do it.** The captures were files with no
+door: `pipeline.run reprocess` reloads the *archive* selection, not live captures. A copy nobody can
+read back is not a backup, so `pipeline/restore.py` now exists and the restore was actually run:
+
+| | |
+|---|---|
+| Copied out of the capture store, as `backup.sh` would pull them | **60 captures, 3.1 MB** |
+| Restored into an **empty** warehouse from that copy | `.venv/bin/python -m pipeline.restore --captures <copy> --db <new.duckdb>` |
+| Recovered | **25,232 observations, 1,396 distinct vehicles**, spanning 12–17 September |
+| Integrity | every capture verified against the SHA-256 in its own filename before being read; **0 corrupt, 0 undated, 0 malformed** |
+| Run a second time over the same copy | **0 new observations, 35,145 recognised as repeats**, the count unchanged at 25,232 — restoring twice cannot double anything |
+| Cost | about **0.76 s per capture**, so the 3,821 captures now held would take roughly 50 minutes |
+
+Two things it is careful about. **Integrity is proved, not assumed:** each file is named by the
+SHA-256 of its own bytes, so a damaged copy is detected and skipped rather than loaded. **The three
+clocks stay apart:** a restored capture carries only the producer's own `ResponseTimestamp`, so that
+is what is recorded, and the run says it did so. The moment this collector originally fetched the
+file lived in the warehouse that was lost, and is not reinvented. Observation identity does not
+include the retrieval time, so the same observations come back exactly.
+
+**What is still not demonstrated:** a restore of the *whole* store into a warehouse the rest of the
+pipeline then publishes from, and a restore onto a rebuilt server. Sixty captures and a scratch
+database is a proof of the mechanism, not a rehearsal of the disaster.
 
 ## Deploying and rolling back
 

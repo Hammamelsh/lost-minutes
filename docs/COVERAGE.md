@@ -1,6 +1,6 @@
 # Coverage: what Lost Minutes can say, and where it stops
 
-Measured on **Thursday 17 September 2026** against the catalogue published at
+Measured on **Thursday 17 September 2026**, with the counts refreshed on **Friday 18 September** against the catalogue published at
 `2026-09-17T14:29:50Z` and a live publication of 587 vehicles taken the same afternoon.
 Every figure here is reproducible: the in-product version of this audit is the coverage ledger
 under **Behind the data → Operations**, computed in the browser from the same two published files.
@@ -49,11 +49,29 @@ publisher recorded:
 | `too_far_from_pattern` | 2 | more than the threshold from every stop on the route |
 | `no_pattern_for_operator` | 1 | the line is held, for a different operator, so it is a different service |
 
-`no_pattern_for_route` is one operator group, not a scatter: **111 observed services have no
-timetable here**, led by BNGN's 10, 37, 36, 8 and V1 (17,000–22,500 observations each in the
-warehouse). Closing most of that gap is one line of configuration — adding that operator's
-dataset URL to `BODS_TIMETABLE_URL` and rebuilding — not a code change. It has not been done,
-because the dataset has not been identified and checked against the 40 MB collector limit.
+`no_pattern_for_route` is one operator group, not a scatter: on 18 September **130 observed
+services have no timetable here**, led by BNGN's 10, 37, 36, 8 and V1 (20,000–27,500 observations
+each in the warehouse).
+
+### The dataset that would close most of it — identified 18 September 2026
+
+Looked up read-only through the BODS dataset API. Six TfGM timetable datasets list NOC `BNGN`;
+**dataset 12769** is the one that carries its services:
+
+| | |
+|---|---|
+| `https://data.bus-data.dft.gov.uk/timetable/dataset/12769/download/` | |
+| Contents | **273 files, 100% BNGN**, 119 distinct line labels |
+| Size | **4.4 MB** — well inside the collector's 40 MB limit |
+| Effect on the snapshot rule | its dominant operator is BNGN, so it becomes a clean fourth group and cannot supersede the BNML or BNSM snapshots |
+| Would cover | **36, 37 and V1** among the five largest gaps, plus about 116 other lines |
+| Would **not** cover | **10 and 8**. They appear in that dataset as **`10B`** and **`8B`**, and the live feed reports the line as `10` and `8`. A route label is matched exactly, by design, so these would still be refused. Where their registrations live is not yet established |
+
+**Not done, deliberately.** It is one line in `BODS_TIMETABLE_URL` and a rebuild, but it changes
+what the collector downloads and grows `patterns.json` (already 2.04 MB, 140 KB gzipped, and
+already flagged as more than a phone needs — opportunity 25). It is the highest-value next change
+to coverage, and it should be made at the start of a session with a rebuild and a fresh coverage
+count, not at the end of one.
 
 `ambiguous_branch` at 139 is the honest cost of coverage: more patterns mean more paths that fit
 a position equally well. It is a refusal, not an error.

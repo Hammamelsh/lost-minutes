@@ -70,6 +70,11 @@ start() {
 
   if pid=$(ours caddy caddy); then
     echo "caddy: already running (pid $pid)"
+  elif curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/"; then
+    # Something else is already serving this port. Caddy would happily bind it too (SO_REUSEPORT)
+    # and leave a second server this script does not know how to stop.
+    echo "caddy: something is already answering on 127.0.0.1:$PORT, so none was started."
+    echo "       Stop it first if it is not serving this build."
   else
     printf '{\n\tadmin off\n\tdefault_bind 127.0.0.1\n}\n\nimport %s/deploy/Caddyfile\n' "$ROOT" >"$DIR/Caddyfile"
     export LM_DOMAIN="http://:$PORT" LM_ROOT="$ROOT"

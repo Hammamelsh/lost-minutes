@@ -16,7 +16,7 @@ import {londonDate} from '@/lib/service-days';
 import {bearingWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,stopPlace,
         subscribeSavedStops,toggleSavedStop,type Stop} from '@/lib/stops';
 import {destinationLabel,directionLabel,routeId,routeNumber,routesByRecency,type FollowBus} from '@/lib/follow';
-import {favouriteKey,favouritesServerSnapshot,favouritesSnapshot,isFavourite,saveFavourites,
+import {elapsedWords,favouriteKey,favouritesServerSnapshot,favouritesSnapshot,isFavourite,saveFavourites,
         subscribeFavourites,toggleFavourite,type Favourite,type FeedMode,type LiveState} from '@/lib/live';
 import {clock} from '@/lib/replay';
 import {saveTheme,subscribeTheme,themeServerSnapshot,themeSnapshot} from '@/lib/theme';
@@ -410,7 +410,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     {mode==='archive'?archiveDate
      :loading?'waiting for the first positions'
      :publicationAgeSeconds===null?'not published yet'
-     :`updated ${ageBasis==='device'?'about ':''}${Math.round(publicationAgeSeconds)}s ago`}</span>
+     :`updated ${ageBasis==='device'?'about ':''}${elapsedWords(publicationAgeSeconds)} ago`}</span>
    {mode!=='archive'&&collector?.kind==='bounded_development'&&<span className="follow-bar-run"
      title="Collected by a time-limited run on one machine, not an always-on service">
     local run{collector.endsBy&&collector.status==='running'?` · until ${clock(Date.parse(collector.endsBy))}`:''}</span>}
@@ -679,7 +679,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     ?'Your browser cannot reach us and there is no copy saved here yet.'
     :`Nothing has reported in the last ${expiryMinutes} minutes, so there is nothing honest to draw.`}</p>
    {mode==='stale'&&<p className="follow-empty-aside">Our collector last published{' '}
-    {publicationAgeSeconds===null?'at an unknown time':`${Math.round(publicationAgeSeconds)} seconds ago`}.</p>}
+    {publicationAgeSeconds===null?'at an unknown time':`${elapsedWords(publicationAgeSeconds)} ago`}.</p>}
    {onUseArchive&&!usingArchive&&<button className="action" onClick={onUseArchive}>Follow a bus in the recording</button>}
   </div>}
 

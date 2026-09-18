@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {parseLive,parseConfig,DEFAULT_CONFIG,observationAge,publicationAge,freshnessOf,
-        ageWords,feedMode,readFavourites,writeFavourites,toggleFavourite,isFavourite,
+        ageWords,elapsedWords,feedMode,readFavourites,writeFavourites,toggleFavourite,isFavourite,
         favouriteKey,serverReference} from '../lib/live.ts';
 import {accuracyRing,boundsOf,fitProjection,metres} from '../lib/geo.ts';
 
@@ -118,6 +118,10 @@ test('age wording never claims a position is current',()=>{
  assert.equal(ageWords(45),'reported 45s ago');
  assert.equal(ageWords(600),'reported 10 min ago');
  assert.equal(ageWords(7200),'reported 2h 0m ago');
+ // After this machine slept overnight the status bar read "updated 94646s ago".
+ assert.equal(elapsedWords(94646),'1d 2h','a day-old publication reads as a day, not 94646 seconds');
+ assert.equal(elapsedWords(0.2),'1s');
+ assert.equal(elapsedWords(600),'10 min');
  assert.equal(ageWords(null),'age unknown');
  assert.equal(ageWords(-5),'timestamped ahead of our clock');
  for(const seconds of [0,1,30,90,3600,90000])assert.ok(!/\bnow\b/.test(ageWords(seconds)));

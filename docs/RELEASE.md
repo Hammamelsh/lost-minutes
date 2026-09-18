@@ -6,10 +6,48 @@ One page, kept current. What is running, what is verified, what is not, and what
 |---|---|
 | **Commit** | *Prepare a public beta: trace the coverage to its source, make the ride-along the screen on a phone, and write the release down* — the commit this file was released with. A hash written here can only ever be the previous commit's, so `git log -1` is the record, and the running site carries its own stamp (below) |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
-| **Public address** | **temporary**, from a Cloudflare Quick Tunnel: it changes at every restart and lives only while this laptop and WSL are up. `scripts/preview.sh status` prints the one in force. The link used for the checks below was `nations-environment-grown-emerald.trycloudflare.com` on 17 September 2026 |
+| **Public address** | **temporary**, from a Cloudflare Quick Tunnel: it changes at every restart and lives only while this laptop and WSL are up. `scripts/preview.sh status` prints the one in force. It has already changed once — the laptop slept on 17 September and both the link and collection stopped with it |
 | **Deployment status** | **not provisioned.** `deploy/` is complete and validated on this machine; no server exists, nothing has been bought |
 | **Collection** | one bounded run on this laptop; nothing runs when it is off |
-| **Verdict** | **ready for invited testing. Not ready for public beta** — see "What stands between this and a public beta" |
+| **Verdict** | **Ready for invited testing, and ready to be hosted.** The one thing that looked like a blocker tonight — the collector's memory rising ~300 MB an hour — **does not reproduce at the thread count the server will run**: flat at about 376 MB over 19 minutes with two threads. Nothing else is blocking except provisioning itself. See "What stands between this and a public beta" |
+
+## What changed on 18 September, and what it corrected
+
+Four claims this document made on 17 September have been tested rather than asserted. Two of them
+were wrong.
+
+| Claim on 17 Sep | What testing found |
+|---|---|
+| The collector's memory is "steady … not a leak risk" | **Withdrawn.** Three samples over sixty seconds cannot tell a plateau from a climb. A longer look showed the resident set rising 1,148 → 1,466 MB in three minutes, because DuckDB's default limit is 80% of the machine's RAM. It is now bounded explicitly (1 GB, `LM_DB_MEMORY_LIMIT`). Whether it is stable over *hours* is still unknown and is no longer claimed |
+| "The warehouse is rebuilt from the raw captures it was loaded from" | **Was false in practice.** No code could read live captures back; `reprocess` reloads the archive selection, not them. `pipeline/restore.py` now exists and a restore was actually performed |
+| `deploy/backup.sh` presented as settling the backup question | **Qualified.** It is manual, unscheduled, a pull that only runs when this laptop is awake, and not a bare-metal restore. What £1.10 a month buys is not storage but *someone remembering* |
+| Nothing said about the nightly timetable rebuild's footprint | **Measured: 853 MB peak**, 3 min 05 s, 34% CPU. That, not the collector, is the number that rules out a 512 MB host |
+
+Also verified on 18 September, none of it previously tested:
+
+* **Stale feed, through the real page.** The laptop slept mid-collection on 17 September, which
+  produced a better test than any I would have staged: a publication **26 hours old** that still
+  called itself `"state": "live"` with 655 vehicles whose newest report claimed to be 3 seconds old.
+  The page refused all of it — *"NOT UPDATING · updated 1d 2h ago"*, **zero buses listed, zero
+  suggested, zero drawn on the map**, and the honest line "Every position we hold has passed its
+  cut-off".
+* **Restart recovery.** The run the sleeping laptop abandoned was left marked `running`. Starting
+  the next collector resolved it to **`interrupted`, exit reason `abandoned`**, with no
+  intervention. A deliberate `SIGKILL` mid-run repeated it: the writer lock was released by the OS,
+  and a fresh collector was publishing again **within 45 seconds**.
+* **No second writer.** Starting a collector while one runs is refused:
+  `{"error": "collector_busy", "detail": "Another collector holds data/warehouse/collector.lock."}`
+  The warehouse itself refuses a second connection too.
+* **Restoring from a copied capture.** 60 captures copied out as `backup.sh` would pull them, then
+  restored into an **empty** warehouse: **25,232 observations, 1,396 vehicles** recovered, every
+  file verified against the SHA-256 in its own name, 0 corrupt. Run twice, it added **0** new
+  observations — a restore cannot double history. Details and limits in `docs/HOSTING.md`.
+* **A touch-target sweep.** The layout probe measures every control a phone can tap. **167
+  occurrences were under the 44 px both Apple and Google ask for** — the feed's refresh at 36×36,
+  Save/Share/Change/Locate me at 40 high, the 2D/City switch at 38, the ride's own controls. They
+  were raised in the rules themselves rather than with an override the bundler reorders past.
+* **A wording defect the stale state exposed.** The status bar read *"updated 94646s ago"*. Ages now
+  read in minutes, hours and days.
 
 ## Supported beta scope
 
@@ -63,6 +101,12 @@ real feed or a physical device, it says so. **No physical phone has been used at
 | Drawn-bus error against the next report | median 59–61 m | development and fresh captures, 13–14 Sep |
 | Stops | 3,498 | NaPTAN ATCO 180, service area |
 | Raw capture growth | 0.13 GB/day, ~540,000 observations/day | measured on this machine |
+| Captures preserved so far | **3,821**, 220 MB | 18 Sep 2026 |
+| Nightly timetable refresh | **853 MB peak**, 3 min 05 s, 34% CPU; output identical to the previous day's apart from the build date | `/usr/bin/time -v`, 18 Sep |
+| Collector resident set | median **~1,560 MB** with the 1 GB database limit; rose over the first ten minutes then flattened | 79 samples over 20 min, 18 Sep |
+| Publication interval held | max age **20 s**, median 10 s, across the same 20 minutes | |
+| Restore from a copied capture | 60 captures → **25,232 observations, 1,396 vehicles**; 0 corrupt; a second run added 0 | `pipeline.restore`, 18 Sep |
+| Phone touch targets under 44 px | **167 → 43 occurrences**; on a phone only the wordmark link remains, deliberately | layout probe at five sizes, 18 Sep |
 | Live publication a phone polls | 807 KB raw, **119 KB gzipped**, every 20 s | through the public link, 17 Sep 2026 |
 | Pattern catalogue, fetched once | 2.0 MB raw, 149 KB gzipped | after the 17 Sep rebuild |
 | Typefaces, fetched once and cached | 70 KB for both | Inter 48 KB, Space Grotesk 22 KB |
@@ -87,11 +131,15 @@ with any other app.
    identified.
 7. **139 of 587 are held unresolved between branches.** A refusal, not an error, and the honest cost
    of wider coverage.
-8. **A phone downloads 119 KB (gzipped) every 20 seconds**, about 21 MB an hour, because the live
+8. **The collector's memory over *days* is still unconfirmed.** At the server's thread count it is
+   flat at about 376 MB over 19 minutes, and the 300 MB-an-hour climb seen at 32 threads does not
+   reproduce — but no run here has lasted longer than about two hours, and the 48-hour observation
+   is what settles it.
+9. **A phone downloads 119 KB (gzipped) every 20 seconds**, about 21 MB an hour, because the live
    publication carries full match evidence for all 587 vehicles when the page needs it for one. Not
    broken, but more data than the job needs; the split is described in the opportunity log,
    entry 25. Worth fixing before the beta is advertised widely.
-9. **A bus's *timetabled* journey is still not identified** — see the distinction in
+10. **A bus's *timetabled* journey is still not identified** — see the distinction in
    `PROJECT_CONTEXT.md` — so no scheduled time is ever shown.
 
 ## The 48-hour observation, ready to start
@@ -137,7 +185,8 @@ Essential. Each has an owner and the evidence that closes it.
 
 | # | Action | Owner | Evidence that closes it |
 |---|---|---|---|
-| 1 | Decide the hosting spend and give account access (`docs/HOSTING.md`, last section) | **Hammam** | a yes, a server or an API token, and the address to use |
+| 0 | ~~Understand the collector's memory growth~~ — **done tonight.** It rose ~300 MB an hour at 32 threads and is **flat at about 376 MB at 2**, which is what a CX23 gives. The allocator scaled with cores; the application accumulates nothing. Both variables were changed together, and the flat run was 19 minutes, so the 48-hour observation still confirms it | done | the trajectory above, and the 48 hours |
+| 1 | **Decided 17 Sep: Hetzner CX23, no paid backups, free subdomain.** What is left is the doing: create the server (reading the console's own total before paying), point a DuckDNS subdomain at it, and put the BODS key on it yourself. Step by step in `docs/PROVISIONING.md` | **Hammam** | a hostname, a sudo user, and the subdomain |
 | 2 | Provision and deploy: `deploy/publish.sh`, `deploy/install.sh` | assistant, after 1 | `curl -sI https://<address>/` returns 200 with HSTS, and `/data/live.json` is seconds old |
 | 3 | The 12-minute phone trial on a real device (`docs/PASSENGER_TEST.md`) | **Hammam** | nine written answers and one copied feedback report, including the drawing rate in ms a frame |
 | 4 | Name where a stalled-publication alert should go | **Hammam** | an address in `/etc/lost-minutes/health.env`, and one test ping received |
@@ -151,6 +200,24 @@ Optional polish, in the order I would take it.
 | Add the missing operator's timetable dataset to `BODS_TIMETABLE_URL` | would move most of the 127 "no timetable held" buses into coverage; one line and a rebuild | **Hammam** to identify the dataset, assistant to add and verify |
 | Road shapes for more routes | extends estimated movement past 15, 250 and 256 | assistant |
 | Identify the timetabled journey | the last claim the app deliberately does not make | assistant |
+
+## The recording
+
+**`outputs/probes/demo-recording/beta/lost-minutes.webm`** — about 30 seconds of the actual app on
+a 390 px phone, against the real feed, made by `scripts/probes/demo-recording.mjs`. Nothing is
+staged: no fixtures, no scripted positions, the bus moves as the bus moved. It asks for no location
+— the stop is found by typing — so nobody's position is in it. Eight labelled stills sit beside it
+for anywhere that will not play WebM; there is no ffmpeg on this machine, so nothing converts it.
+
+It runs: the first screen → searching for a stop → the stop and what is coming → riding along, full
+screen → the street ahead → back at the stop → behind the data → the coverage ledger.
+
+**The take is honest about itself, and this one is not representative.** `recording.json` records
+which bus was ridden and whether it reported a bearing. The bus available at 21:15 on a Friday
+reported **none**, so it is drawn correctly as a round token from above rather than as the 3D bus,
+and it was **26 stops away**, so the ride passes through empty streets. The probe says so in its own
+output. **Re-record during daytime service before showing it to anyone**: same command, and the
+recording will judge itself again.
 
 ## The demo sequence
 

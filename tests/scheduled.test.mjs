@@ -7,6 +7,7 @@ import {londonOffsetMinutes,londonWall,londonWallToMs,scheduledAtStop} from '../
 // index 30 is 1,320 s into the schedule. A 06:49 departure is due there at 07:11.
 const seconds=[0,0,60,60,120,180,180,240,300,300,360,420,420,480,540,600,600,660,720,720,780,840,900,900,960,1020,1080,1140,1200,1260,1320];
 const one={departure:'06:49:00',journeys:1,serviceDay:'2026-09-15'};
+const ok={verified:true,medianOffsetMinutes:2.3};
 
 test('London wall time on a BST day is an hour ahead of UTC, and on a GMT day is not',()=>{
  assert.equal(londonOffsetMinutes(Date.UTC(2026,8,15,12)),60,'September: BST');
@@ -19,7 +20,7 @@ test('London wall time on a BST day is an hour ahead of UTC, and on a GMT day is
 });
 
 test('a bus before your stop, on one named journey, gets the timetabled time at your stop',()=>{
- const r=scheduledAtStop({scheduled:one,seconds,busIndex:18,stopIndex:30});
+ const r=scheduledAtStop({scheduled:one,anchor:ok,seconds,busIndex:18,stopIndex:30});
  assert.equal(r.kind,'time');
  assert.equal(r.wall,'07:11');
  assert.equal(r.secondsFromDeparture,1320);
@@ -27,23 +28,23 @@ test('a bus before your stop, on one named journey, gets the timetabled time at 
 });
 
 test('at or past your stop, no time: the schedule there is history',()=>{
- assert.equal(scheduledAtStop({scheduled:one,seconds,busIndex:30,stopIndex:30}).kind,'none');
- assert.match(scheduledAtStop({scheduled:one,seconds,busIndex:30,stopIndex:30}).reason,/nearest your stop already/);
- assert.match(scheduledAtStop({scheduled:one,seconds,busIndex:31,stopIndex:30}).reason,/past your stop/);
+ assert.equal(scheduledAtStop({scheduled:one,anchor:ok,seconds,busIndex:30,stopIndex:30}).kind,'none');
+ assert.match(scheduledAtStop({scheduled:one,anchor:ok,seconds,busIndex:30,stopIndex:30}).reason,/nearest your stop already/);
+ assert.match(scheduledAtStop({scheduled:one,anchor:ok,seconds,busIndex:31,stopIndex:30}).reason,/past your stop/);
 });
 
 test('two journeys at one departure give no answer, and say so',()=>{
- const r=scheduledAtStop({scheduled:{...one,journeys:2},seconds,busIndex:18,stopIndex:30});
+ const r=scheduledAtStop({scheduled:{...one,journeys:2},anchor:ok,seconds,busIndex:18,stopIndex:30});
  assert.equal(r.kind,'none');
  assert.match(r.reason,/2 timetabled journeys leave at 06:49/);
 });
 
 test('an undeclared running time to your stop gives no answer, never zero',()=>{
  const partial=seconds.map((s,i)=>i>=25?null:s);
- const r=scheduledAtStop({scheduled:one,seconds:partial,busIndex:18,stopIndex:30});
+ const r=scheduledAtStop({scheduled:one,anchor:ok,seconds:partial,busIndex:18,stopIndex:30});
  assert.equal(r.kind,'none');
  assert.match(r.reason,/does not declare a running time to your stop/);
- assert.match(scheduledAtStop({scheduled:one,seconds:undefined,busIndex:18,stopIndex:30}).reason,/does not declare running times/);
+ assert.match(scheduledAtStop({scheduled:one,anchor:ok,seconds:undefined,busIndex:18,stopIndex:30}).reason,/does not declare running times/);
 });
 
 test('the pipeline’s reasons for naming no journey are said in words',()=>{
@@ -60,13 +61,25 @@ test('the pipeline’s reasons for naming no journey are said in words',()=>{
 
 test('two journeys at one departure are named when the pipeline says they share a timing, and that timing is used',()=>{
  const slow=seconds.map(x=>x*2);
- const r=scheduledAtStop({scheduled:{...one,journeys:2,timing:1},seconds,timings:[seconds,slow],busIndex:18,stopIndex:30});
+ const r=scheduledAtStop({scheduled:{...one,journeys:2,timing:1},anchor:ok,seconds,timings:[seconds,slow],busIndex:18,stopIndex:30});
  assert.equal(r.kind,'time');
  assert.equal(r.secondsFromDeparture,2640,'the named timing, not the pattern default');
  assert.equal(r.wall,'07:33');
- const older=scheduledAtStop({scheduled:{...one,journeys:2},seconds,busIndex:18,stopIndex:30});
+ const older=scheduledAtStop({scheduled:{...one,journeys:2},anchor:ok,seconds,busIndex:18,stopIndex:30});
  assert.equal(older.kind,'none','without a timing, two journeys stay refused');
  const differ=scheduledAtStop({scheduled:{reason:'journeys_at_this_time_differ_in_timing'},seconds,busIndex:18,stopIndex:30});
  assert.match(differ.reason,/reach your stop at different times/);
+});
+
+test('a timetable whose clock is unchecked, or checked and found off, is withheld with the reason',()=>{
+ const unchecked=scheduledAtStop({scheduled:one,seconds,busIndex:18,stopIndex:30});
+ assert.equal(unchecked.kind,'none');
+ assert.match(unchecked.reason,/not been checked against its own buses/);
+ // Inbound route 15, 20 September 2026: 15 min early at the first stops, on 290 passages.
+ const off=scheduledAtStop({scheduled:one,anchor:{verified:false,reason:'schedule runs 15 min early against the bus’s own reports at its first stops',medianOffsetMinutes:15.4},seconds,busIndex:18,stopIndex:30});
+ assert.equal(off.kind,'none');
+ assert.match(off.reason,/15 min early/);
+ const verified=scheduledAtStop({scheduled:one,anchor:ok,seconds,busIndex:18,stopIndex:30});
+ assert.equal(verified.kind,'time');
 });
 

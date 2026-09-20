@@ -1,0 +1,30 @@
+[Unit]
+Description=Lost Minutes: infer stop passages and score the arrival estimator on the day's reports, collector paused
+Documentation=file:///srv/lost-minutes/app/docs/ARRIVAL_RELEASE_CRITERIA.md
+After=lost-minutes-refresh.service
+
+[Service]
+Type=oneshot
+User=lostminutes
+Group=lostminutes
+WorkingDirectory=/srv/lost-minutes/app
+EnvironmentFile=/etc/lost-minutes/collector.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# The warehouse has one writer and the evaluator only reads, but DuckDB refuses a second
+# connection either way: the collector is paused for the few minutes this takes and always
+# started again. Nothing here reaches a passenger: it writes evaluation files under data/, so the
+# weekday evidence the release criteria need accumulates without any estimate being shown.
+ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival.py --line 15 --fit-until 2026-09-14
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --out data/evaluation/schedule-anchor-server.json
+ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
+TimeoutStartSec=20min
+Environment=LM_DB_MEMORY_LIMIT=1GB
+Environment=LM_DB_THREADS=2
+MemoryMax=1500M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/lost-minutes/app/data

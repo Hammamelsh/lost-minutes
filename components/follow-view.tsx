@@ -107,6 +107,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [view,setView]=useState<MapView>('2d');
  const [fitRequest,setFitRequest]=useState(0);
  const [walkAttempt,setWalkAttempt]=useState(0);
+ // Which patterns' timetable clocks have been checked against their own buses: fetched once,
+ // like the motion evaluation. null until it arrives or if it cannot; a pattern absent is unchecked.
+ const [scheduleAnchor,setScheduleAnchor]=useState<{patterns:Record<string,{verified:boolean;reason?:string|null;medianOffsetMinutes?:number}>}|null|undefined>(undefined);
+ useEffect(()=>{
+  let current=true;
+  fetch('/data/schedule-anchor.json',{cache:'no-store'}).then(r=>r.ok?r.json():null)
+   .then(v=>{if(current)setScheduleAnchor(v&&typeof v==='object'&&v.patterns?v:null)}).catch(()=>{if(current)setScheduleAnchor(null)});
+  return()=>{current=false};
+ },[]);
  // MapLibre when the device can render it; the drawn map when it cannot, and why.
  const [mapFallback,setMapFallback]=useState<string|null>(null);
  // Dependencies of CityMap's creation effect: they must never change identity, or the page's
@@ -311,7 +320,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(!pattern)return null;
   const stopIndex=pattern.stops.indexOf(stop.id);
   if(stopIndex<0)return null;
-  return scheduledAtStop({scheduled:shown.match.scheduled,seconds:pattern.seconds,timings:pattern.timings,busIndex:shown.match.patternIndex,stopIndex});
+  return scheduledAtStop({scheduled:shown.match.scheduled,seconds:pattern.seconds,timings:pattern.timings,busIndex:shown.match.patternIndex,stopIndex,
+   anchor:scheduleAnchor===undefined?null:scheduleAnchor?.patterns?.[pattern.id]??null});
  })();
  const prog=cardRelation?progress(cardRelation,name):null;
  const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];

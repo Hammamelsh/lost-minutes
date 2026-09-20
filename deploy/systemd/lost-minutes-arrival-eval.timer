@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly arrival-estimator evaluation for Lost Minutes, after the timetable rebuild
+
+[Timer]
+OnCalendar=*-*-* 04:10:00 Europe/London
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

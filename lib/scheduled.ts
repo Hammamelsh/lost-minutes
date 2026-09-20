@@ -24,6 +24,10 @@ export type ScheduledInput = {
  /** Index of the stop the bus's last report was nearest to, and of the passenger's stop. */
  busIndex: number;
  stopIndex: number;
+ /** Whether this pattern's timetable clock has been checked against its own buses' passages at
+  *  the first stops (public/data/schedule-anchor.json). Undefined: not checked, so withheld. On
+  *  20 September 2026 inbound route 15 measured fifteen minutes early; nothing on the page could tell. */
+ anchor?: {verified: boolean; reason?: string | null; medianOffsetMinutes?: number} | null;
 };
 
 export type ScheduledAtStop =
@@ -78,6 +82,9 @@ export function scheduledAtStop(input: ScheduledInput): ScheduledAtStop {
  // older publication), two journeys at a departure could differ, and the answer is withheld.
  const timed = scheduled.timing !== undefined ? input.timings?.[scheduled.timing] : undefined;
  if (scheduled.journeys !== 1 && !timed) return {kind: 'none', reason: `${scheduled.journeys} timetabled journeys leave at ${scheduled.departure.slice(0, 5)}, so which one this is cannot be told`};
+ // The timetable's clock must be known to start where the bus does. Unchecked is withheld, not assumed.
+ if (!input.anchor) return {kind: 'none', reason: 'this service’s timetable clock has not been checked against its own buses yet'};
+ if (!input.anchor.verified) return {kind: 'none', reason: input.anchor.reason ?? 'this service’s timetable clock does not match where its buses are'};
  if (busIndex >= stopIndex) return {kind: 'none', reason: busIndex === stopIndex ? 'its last report was nearest your stop already' : 'its last report was past your stop in the timetabled order'};
  const seconds = timed ?? input.seconds;
  if (!seconds) return {kind: 'none', reason: 'this timetable does not declare running times'};

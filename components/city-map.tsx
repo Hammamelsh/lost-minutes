@@ -649,8 +649,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     lk.down=e.clientX;
    };
    const lookUp=(e:PointerEvent)=>{if(e.isPrimary)look.current.down=null};
-   canvasBox.addEventListener('pointerdown',lookDown);canvasBox.addEventListener('pointermove',lookMove);
-   canvasBox.addEventListener('pointerup',lookUp);canvasBox.addEventListener('pointercancel',lookUp);
+   // Capture phase: the canvas beneath handles pointer events itself and does not let them
+   // bubble, so a bubbling listener on its container never heard the drag (measured on
+   // 20 September: offset 0, pointer 'up', while the mouse was held).
+   canvasBox.addEventListener('pointerdown',lookDown,true);canvasBox.addEventListener('pointermove',lookMove,true);
+   canvasBox.addEventListener('pointerup',lookUp,true);canvasBox.addEventListener('pointercancel',lookUp,true);
    const pointerDown=()=>{
     const r=ride.current;
     if(viewRef.current!=='ride')return;
@@ -956,7 +959,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // camera left off the bus glides back, at the passenger's zoom. A count unchanged for 8 s is not
   // trusted: a lift the page never heard would otherwise hold the camera still for good, and in
   // the street preview, where the bus itself is hidden, that would look like a frozen picture.
-  const touching=r.touches>0&&t-r.touchAt<8000;
+  // A held pointer normally pauses placing the camera, so a pinch or a drag is not undone. In
+  // the street preview a held single pointer *is* the camera input (the head-turn), so it does
+  // not count; two touches, a pinch, still do.
+  const headTurning=r.camera==='front'&&look.current.down!==null&&r.touches<2;
+  const touching=r.touches>0&&t-r.touchAt<8000&&!headTurning;
   if(following&&!instance.isMoving()&&!touching){
    if(input.view==='ride'&&r.camera==='front'){
     // Inside the bus: the eye is set from the displayed state every frame (every few seconds
@@ -975,6 +982,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     if(lk.down===null&&lk.offset!==0){const dt=lk.lastT?t-lk.lastT:16;lk.offset*=Math.exp(-dt/600);if(Math.abs(lk.offset)<0.4)lk.offset=0}
     lk.lastT=t;
     const turned=state.frontBearing===null?undefined:(state.frontBearing+lk.offset+360)%360;
+    // Diagnostic, not a feature: the head-turn's inputs, so a browser check can read what the
+    // loop saw rather than infer it from the camera.
+    root.current?.setAttribute('data-look',`${lk.offset.toFixed(1)},${lk.down===null?'up':'held'},${state.frontBearing===null?'null':state.frontBearing.toFixed(1)}`);
     const front=input.track&&aim?frontCamera(instance,input.track,{...v,velocity:v.velocity},0,turned):null;
     if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
     else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}

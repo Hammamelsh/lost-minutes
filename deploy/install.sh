@@ -102,7 +102,7 @@ if needs_bootstrap stop; then
   runuser -u lostminutes -- "$APP/.venv/bin/python" -m pipeline.stops import
 fi
 
-systemctl enable --now lost-minutes-collector.service lost-minutes-refresh.timer lost-minutes-health.timer
+systemctl enable --now lost-minutes-collector.service lost-minutes-refresh.timer lost-minutes-health.timer lost-minutes-arrival-eval.timer
 
 if needs_bootstrap service_pattern; then
   echo "First run: building the timetable catalogue. This takes a few minutes and pauses collection."

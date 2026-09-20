@@ -245,7 +245,13 @@ export function journeyLive({nowMs = Date.now(), omit = [], publishedAgoSeconds 
   return envelope(published, {state: 'live', vehicles});
 }
 
+/** The fixture's timetable clock is checked and verified for the main pattern, unchecked for the branch. */
+export async function serveScheduleAnchor(page, patterns = {'FX:256:main': {verified: true, medianOffsetMinutes: 1.1, passages: 40}}) {
+  await page.route('**/data/schedule-anchor.json*', route => route.fulfill({json: {schemaVersion: 1, patterns}}));
+}
+
 export async function servePatterns(page, catalogue = fixtureCatalogue()) {
+  await serveScheduleAnchor(page);
   await page.route('**/data/patterns.json*', route => route.fulfill({json: catalogue}));
 }
 

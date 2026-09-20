@@ -1,0 +1,43 @@
+{
+ "schemaVersion": 1,
+ "generatedAt": "2026-09-20T18:10:51.754380+01:00",
+ "rule": {
+  "toleranceMinutes": 3.0,
+  "minimumPassages": 20,
+  "firstStops": 10,
+  "basis": "median signed error of inferred passages at the first stops against the feed origin departure plus timetable seconds"
+ },
+ "notes": [
+  "A pattern absent from this file has not been checked, and its timetabled time is withheld.",
+  "Verified means the timetable clock starts where the bus does, within the tolerance; it says nothing about lateness later on."
+ ],
+ "patterns": {
+  "BNML:15:inbound:9c10700c6c": {
+   "verified": false,
+   "medianOffsetMinutes": 15.36,
+   "p80AbsMinutes": 18.16,
+   "passages": 290,
+   "days": [
+    "2026-09-13",
+    "2026-09-14",
+    "2026-09-17",
+    "2026-09-18"
+   ],
+   "reason": "schedule runs 15 min early against the bus\u2019s own reports at its first stops"
+  },
+  "BNML:15:outbound:c9291c1aea": {
+   "verified": true,
+   "medianOffsetMinutes": 2.34,
+   "p80AbsMinutes": 4.69,
+   "passages": 133,
+   "days": [
+    "2026-09-11",
+    "2026-09-13",
+    "2026-09-14",
+    "2026-09-17",
+    "2026-09-18"
+   ],
+   "reason": null
+  }
+ }
+}

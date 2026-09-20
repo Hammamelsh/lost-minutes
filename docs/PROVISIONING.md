@@ -129,6 +129,36 @@ single line in `/etc/lost-minutes/caddy.env`.
 **Choose the name you mean to keep.** Saved stops, saved routes and any home-screen icon are tied to
 whichever address people first use; moving later loses them.
 
+### Done — 20 September 2026
+
+**`lost-minutes.duckdns.org` → `204.168.246.33`**, resolving from the development machine and from
+the server. **The Public Suffix List worry is retired by evidence**: Caddy obtained a Let's Encrypt
+certificate for the name on the first attempt, so `duckdns.org` does not share Hetzner's problem.
+The site answered over HTTPS within seconds.
+
+One consequence worth knowing: **issuing a certificate publishes the hostname.** Certificate
+Transparency logs are public and crawled, and a crawler reached the site within a second of the
+certificate being issued, before anybody was told the address. It is a public address from the
+moment it has a certificate, not from the moment it is announced.
+
+## The site, live — 20 September 2026
+
+Uploaded at commit `9be1a90`, installed, and checked from outside the server:
+
+| | |
+|---|---|
+| Page, `patterns.json`, `stops.json`, `replay.json`, a road shape, `sw.js`, the manifest | **200** |
+| `/.env`, `/RELEASE`, `/deploy/install.sh`, `/pipeline/collect.py`, `/.git/config`, and `/data/../.env` | **404** |
+| HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy: geolocation=(self)`, no `Server` header | present |
+| `live.json` cache | `max-age=10, stale-while-revalidate=20` |
+| Firewall | OpenSSH, 80, 443, enabled |
+| Units installed | collector, refresh, health, retention (the last three as timers; retention not enabled) |
+
+`pipeline.live init` wrote the honest waiting state rather than leaving a 404 behind:
+`{"state": "unavailable", "reason": "no_credentials_configured"}`.
+
+**Not yet true:** nothing is being collected. The page says so, correctly, and will until step 3.
+
 ## Yours — step 3: the BODS key, typed by you, onto the server
 
 **The key never passes through me, this repository, a commit, or any chat.** `install.sh` stops the

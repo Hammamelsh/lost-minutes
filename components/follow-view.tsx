@@ -767,8 +767,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
 
   <p className="follow-notes">{mode==='archive'
    ?'A recording: times are when each bus reported on the day, not how long ago. '
-   :`Positions older than ${expiryMinutes} minutes are withheld${live?` (${live.withheld.expiredPositions} now)`:''}. `}
-   Progress is counted in timetabled stops from each bus’s last report; no arrival time is predicted.
+   :`Positions older than ${expiryMinutes} minutes are withheld. `}
+   Progress is counted in timetabled stops from each bus’s last report. Where the operator’s timetable names the journey, its scheduled time at your stop is shown as the timetable’s; no arrival time is predicted.
    {' '}<button className="text-action" onClick={onOpenEvidence}>How this works</button></p>
  </section>;
 }

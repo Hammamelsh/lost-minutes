@@ -30,9 +30,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import importlib.util  # noqa: E402
 
+# The evaluator is loaded as a module; its own argparse must not see this script's arguments,
+# so they are taken aside first. Clobbering sys.argv before parsing silently discarded every
+# argument to this script until 20 September 2026: locally the defaults happened to be right,
+# on the server the default passages path did not exist and the nightly unit failed.
+ARGS = sys.argv[1:]
+sys.argv = [sys.argv[0]]
 spec = importlib.util.spec_from_file_location('ev', ROOT / 'scripts/evaluate-arrival.py')
 ev = importlib.util.module_from_spec(spec)
-sys.argv = [sys.argv[0]]
 spec.loader.exec_module(ev)
 
 LONDON = ZoneInfo('Europe/London')
@@ -48,7 +53,7 @@ def main():
     ap.add_argument('--db', default=None, help='a warehouse file to read instead of the live one, e.g. a snapshot')
     ap.add_argument('--passages', default=None, help='the passages file to judge against (default data/evaluation/passages-<line>.json)')
     ap.add_argument('--out', default=str(ROOT / 'public/data/schedule-anchor.json'))
-    a = ap.parse_args()
+    a = ap.parse_args(ARGS)
     passages, patterns, dep_info, reports = ev.load_everything(a.line, a.operator, a.db, a.passages)
     errors = defaultdict(list)
     days = defaultdict(set)

@@ -57,3 +57,16 @@ test('the pipeline’s reasons for naming no journey are said in words',()=>{
  }
  assert.match(scheduledAtStop({scheduled:null,seconds,busIndex:18,stopIndex:30}).reason,/no scheduled journey/);
 });
+
+test('two journeys at one departure are named when the pipeline says they share a timing, and that timing is used',()=>{
+ const slow=seconds.map(x=>x*2);
+ const r=scheduledAtStop({scheduled:{...one,journeys:2,timing:1},seconds,timings:[seconds,slow],busIndex:18,stopIndex:30});
+ assert.equal(r.kind,'time');
+ assert.equal(r.secondsFromDeparture,2640,'the named timing, not the pattern default');
+ assert.equal(r.wall,'07:33');
+ const older=scheduledAtStop({scheduled:{...one,journeys:2},seconds,busIndex:18,stopIndex:30});
+ assert.equal(older.kind,'none','without a timing, two journeys stay refused');
+ const differ=scheduledAtStop({scheduled:{reason:'journeys_at_this_time_differ_in_timing'},seconds,busIndex:18,stopIndex:30});
+ assert.match(differ.reason,/reach your stop at different times/);
+});
+

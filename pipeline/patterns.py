@@ -433,6 +433,12 @@ def _declared(stops):
     return sum(1 for _, metres, *_ in stops if metres is not None)
 
 
+def _timing_of(stops):
+    """The per-stop scheduled seconds of a pattern's stops; None where an older caller gave
+    (atco, metres) with no third element, as the loader also allows."""
+    return tuple(stop[2] if len(stop) > 2 else None for stop in stops)
+
+
 def deduplicate(patterns):
     """Identical stop sequences for one operator, line and direction are one path.
 
@@ -446,7 +452,14 @@ def deduplicate(patterns):
                tuple(atco for atco, *_ in pattern['stops']))
         kept = merged.get(key)
         if kept is None:
-            merged[key] = {**pattern, 'journeys': pattern.get('journeys', 0)}
+            # Each departure keeps its own timing: journeys over the same stops can run at
+            # different scheduled speeds, and a time at a stop is only safe to state when every
+            # journey at that departure reaches it at the same second. Timings are distinct
+            # per-stop-seconds tuples; departures point at theirs.
+            timing = _timing_of(pattern['stops'])
+            merged[key] = {**pattern, 'journeys': pattern.get('journeys', 0),
+                           'timings': [timing],
+                           'timedDepartures': [(t, 0) for t in (pattern.get('departures') or [])]}
             continue
         if kept.get('rules') is not None and pattern.get('rules') is not None:
             kept['rules'] = _unique(kept['rules'] + pattern['rules'])
@@ -459,6 +472,11 @@ def deduplicate(patterns):
         # list here left the 140-journey route-15 pattern with 5 departures, and the live site
         # refusing 212 of 215 matched buses as 'not in the timetable' (20 September 2026).
         kept['departures'] = sorted((kept.get('departures') or []) + (pattern.get('departures') or []))
+        timing = _timing_of(pattern['stops'])
+        if timing not in kept['timings']:
+            kept['timings'].append(timing)
+        index = kept['timings'].index(timing)
+        kept['timedDepartures'] = sorted(kept['timedDepartures'] + [(t, index) for t in (pattern.get('departures') or [])])
         if _declared(pattern['stops']) > _declared(kept['stops']):
             kept['stops'] = pattern['stops']
     return list(merged.values())
@@ -491,7 +509,8 @@ def load(con, run_id, patterns, stops_in_area):
                      json.dumps(pattern['rules']) if pattern.get('rules') is not None else None,
                      pattern.get('modified'), pattern.get('revision'),
                      pattern.get('journeys'), known,
-                     json.dumps(pattern.get('departures') or [])))
+                     json.dumps({'timings': [list(t) for t in pattern.get('timings') or []],
+                                 'departures': [list(d) for d in pattern.get('timedDepartures') or []]})))
         for sequence, stop in enumerate(pattern['stops']):
             # A stop is (atco, metres) from an older caller or (atco, metres, seconds) from the
             # parser; a missing third element is an unknown scheduled time, never zero.
@@ -559,7 +578,10 @@ def build_published(con, coverage=None):
             # undeclared link. A time at a stop is this plus a journey's departure, never a prediction.
             'seconds': [int(s[2]) if s[2] is not None else None for s in stops],
             # The scheduled departures of every journey on this pattern, HH:MM:SS local.
-            'departures': json.loads(row[19]) if len(row) > 19 and row[19] else [],
+            'departures': _departure_times(row[19]),
+            # Distinct per-stop scheduled seconds among the journeys merged into this pattern;
+            # each departure names its timing in the warehouse, and the matcher checks they agree.
+            'timings': _timings(row[19]),
         })
     services = sorted({f"{p['operator'] or ''}|{p['line']}" for p in patterns})
     return {
@@ -605,6 +627,25 @@ def shrink_floor(already_published, explicit=False, allow_shrink=False):
     if explicit or allow_shrink or not already_published:
         return 1
     return max(1, int(already_published * KEEP_FRACTION))
+
+
+def _departure_info(text):
+    """Either the JSON built from 20 September 2026 ({timings, departures:[[t,i]]}) or the
+    flat list it replaced, read as one timing so an older warehouse still names journeys."""
+    if not text:
+        return {'timings': [], 'departures': []}
+    value = json.loads(text)
+    if isinstance(value, list):
+        return {'timings': [], 'departures': [[t, 0] for t in value]}
+    return value
+
+
+def _departure_times(text):
+    return [d[0] for d in _departure_info(text)['departures']]
+
+
+def _timings(text):
+    return [[None if x is None else int(x) for x in t] for t in _departure_info(text)['timings']]
 
 
 def _published_now(target):

@@ -311,7 +311,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(!pattern)return null;
   const stopIndex=pattern.stops.indexOf(stop.id);
   if(stopIndex<0)return null;
-  return scheduledAtStop({scheduled:shown.match.scheduled,seconds:pattern.seconds,busIndex:shown.match.patternIndex,stopIndex});
+  return scheduledAtStop({scheduled:shown.match.scheduled,seconds:pattern.seconds,timings:pattern.timings,busIndex:shown.match.patternIndex,stopIndex});
  })();
  const prog=cardRelation?progress(cardRelation,name):null;
  const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];

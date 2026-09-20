@@ -25,6 +25,7 @@ from datetime import datetime
 import math
 import re
 
+from .patterns import _departure_info
 from .service_days import WEEKDAY_NAMES, parse_iso, pattern_runs_on, service_day
 
 # Urban stop spacing in Manchester is a few hundred metres. Beyond this the nearest pattern
@@ -102,7 +103,7 @@ def load_patterns(con):
             'direction': (row[3] or '').lower(), 'destination': row[4], 'loop': bool(row[5]),
             'stopCount': int(row[6]), 'validFrom': parse_iso(row[7]), 'validTo': parse_iso(row[8]),
             'rules': json.loads(row[9]) if row[9] else None,
-            'departures': json.loads(row[10]) if len(row) > 10 and row[10] else [],
+            'departureInfo': _departure_info(row[10] if len(row) > 10 else None),
             'sequence': [atco for atco, _ in stops],
             'placed': [(index, atco, metres, coordinates[atco])
                        for index, (atco, metres) in enumerate(stops) if atco in coordinates]})
@@ -265,13 +266,18 @@ def scheduled_journey(vehicle, pattern_id, patterns):
         return {'reason': 'aimed_departure_unreadable'}
     local = when.strftime('%H:%M:%S')
     pattern = next((p for p in patterns if p['id'] == pattern_id), None)
-    departures = (pattern or {}).get('departures') or []
-    if not departures:
+    info = (pattern or {}).get('departureInfo') or {'departures': []}
+    if not info['departures']:
         return {'reason': 'pattern_has_no_departure_times'}
-    count = departures.count(local)
-    if not count:
+    hits = [index for time, index in info['departures'] if time == local]
+    if not hits:
         return {'reason': 'aimed_departure_not_in_timetable', 'aimedLocal': local}
-    return {'departure': local, 'journeys': count, 'serviceDay': when.date().isoformat()}
+    # Several journeys at one departure are one answer only if they share a timing: then
+    # whichever this is, it reaches every stop at the same scheduled second.
+    if len(set(hits)) == 1:
+        return {'departure': local, 'journeys': len(hits), 'timing': hits[0],
+                'serviceDay': when.date().isoformat()}
+    return {'reason': 'journeys_at_this_time_differ_in_timing', 'journeys': len(hits), 'aimedLocal': local}
 
 
 def match_all(con, vehicles):

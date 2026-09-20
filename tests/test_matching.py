@@ -366,28 +366,50 @@ class RunTimeTests(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]['journeys'], 5)
         self.assertEqual(merged[0]['departures'], ['06:30:00', '07:00:00', '08:10:00', '08:10:00', '09:00:00'],
-                         'repeats kept: the journey count counts them, and a shared time refuses to name')
+                         'repeats kept: the journey count counts them')
+        # Same stops, same seconds: one timing, and both 08:10 journeys point at it.
+        self.assertEqual(len(merged[0]['timings']), 1)
+        self.assertEqual([i for t, i in merged[0]['timedDepartures'] if t == '08:10:00'], [0, 0])
+
+    def test_journeys_over_the_same_stops_at_different_speeds_keep_separate_timings(self):
+        from pipeline.patterns import deduplicate
+        fast = {'operatorCode': 'O', 'lineName': '15', 'direction': 'inbound',
+                'stops': [('S1', 0, 0), ('S2', 300, 60)], 'journeys': 1, 'rules': None, 'departures': ['08:10:00']}
+        slow = {**fast, 'stops': [('S1', 0, 0), ('S2', 300, 120)]}
+        merged = deduplicate([fast, slow])[0]
+        self.assertEqual(len(merged['timings']), 2)
+        self.assertEqual(sorted(i for t, i in merged['timedDepartures']), [0, 1])
+
+    def test_a_shared_departure_is_named_only_when_every_journey_runs_the_same_timing(self):
+        from pipeline.match import scheduled_journey
+        same = [{'id': 'P', 'departureInfo': {'timings': [[0, 60]], 'departures': [['08:10:00', 0], ['08:10:00', 0]]}}]
+        r = scheduled_journey({'aimedDeparture': '2026-09-15T07:10:00+00:00'}, 'P', same)
+        self.assertEqual(r, {'departure': '08:10:00', 'journeys': 2, 'timing': 0, 'serviceDay': '2026-09-15'})
+        differ = [{'id': 'P', 'departureInfo': {'timings': [[0, 60], [0, 120]], 'departures': [['08:10:00', 0], ['08:10:00', 1]]}}]
+        r = scheduled_journey({'aimedDeparture': '2026-09-15T07:10:00+00:00'}, 'P', differ)
+        self.assertEqual(r['reason'], 'journeys_at_this_time_differ_in_timing')
+        self.assertEqual(r['journeys'], 2)
 
     def test_a_matched_bus_is_tied_to_a_scheduled_journey_by_its_reported_origin_departure(self):
         from pipeline.match import scheduled_journey
-        patterns = [{'id': 'P', 'departures': ['07:00:00', '08:10:00', '08:10:00', '09:00:00']}]
-        # 07:10 UTC on a BST day is 08:10 local: two journeys share that departure.
+        patterns = [{'id': 'P', 'departureInfo': {'timings': [[0]], 'departures': [['07:00:00', 0], ['08:10:00', 0], ['08:10:00', 0], ['09:00:00', 0]]}}]
+        # 07:10 UTC on a BST day is 08:10 local: two journeys share that departure and its timing.
         two = scheduled_journey({'aimedDeparture': '2026-09-15T07:10:00+00:00'}, 'P', patterns)
-        self.assertEqual(two, {'departure': '08:10:00', 'journeys': 2, 'serviceDay': '2026-09-15'})
+        self.assertEqual(two, {'departure': '08:10:00', 'journeys': 2, 'timing': 0, 'serviceDay': '2026-09-15'})
         one = scheduled_journey({'aimedDeparture': '2026-09-15T06:00:00+00:00'}, 'P', patterns)
         self.assertEqual(one['journeys'], 1)
         self.assertEqual(one['departure'], '07:00:00')
 
     def test_a_departure_the_timetable_does_not_have_names_no_journey_and_says_so(self):
         from pipeline.match import scheduled_journey
-        patterns = [{'id': 'P', 'departures': ['07:00:00']}]
+        patterns = [{'id': 'P', 'departureInfo': {'timings': [[0]], 'departures': [['07:00:00', 0]]}}]
         self.assertEqual(scheduled_journey({'aimedDeparture': '2026-09-15T06:37:00+00:00'}, 'P', patterns),
                          {'reason': 'aimed_departure_not_in_timetable', 'aimedLocal': '07:37:00'})
         self.assertEqual(scheduled_journey({'aimedDeparture': None}, 'P', patterns),
                          {'reason': 'no_aimed_departure_reported'})
         self.assertEqual(scheduled_journey({'aimedDeparture': 'yesterday'}, 'P', patterns),
                          {'reason': 'aimed_departure_unreadable'})
-        self.assertEqual(scheduled_journey({'aimedDeparture': '2026-09-15T06:00:00+00:00'}, 'P', [{'id': 'P', 'departures': []}]),
+        self.assertEqual(scheduled_journey({'aimedDeparture': '2026-09-15T06:00:00+00:00'}, 'P', [{'id': 'P', 'departureInfo': {'timings': [], 'departures': []}}]),
                          {'reason': 'pattern_has_no_departure_times'})
 
     def test_a_file_with_no_run_times_at_all_publishes_none_rather_than_zero(self):

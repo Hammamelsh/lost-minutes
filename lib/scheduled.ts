@@ -16,9 +16,11 @@
  */
 
 export type ScheduledInput = {
- scheduled: {departure: string; journeys: number; serviceDay: string} | {reason: string} | null | undefined;
+ scheduled: {departure: string; journeys: number; serviceDay: string; timing?: number} | {reason: string} | null | undefined;
  /** The pattern's scheduled seconds from its first stop, parallel to its stops; null past an undeclared link. */
  seconds: (number | null)[] | undefined;
+ /** Distinct timings among the merged journeys; `scheduled.timing` names the one every journey at that departure runs. */
+ timings?: (number | null)[][];
  /** Index of the stop the bus's last report was nearest to, and of the passenger's stop. */
  busIndex: number;
  stopIndex: number;
@@ -68,11 +70,16 @@ export function londonWall(atMs: number): string {
 }
 
 export function scheduledAtStop(input: ScheduledInput): ScheduledAtStop {
- const {scheduled, seconds, busIndex, stopIndex} = input;
+ const {scheduled, busIndex, stopIndex} = input;
  if (!scheduled) return {kind: 'none', reason: 'no scheduled journey was named for this bus'};
  if ('reason' in scheduled) return {kind: 'none', reason: reasonWords(scheduled.reason)};
- if (scheduled.journeys !== 1) return {kind: 'none', reason: `${scheduled.journeys} timetabled journeys leave at ${scheduled.departure.slice(0, 5)}, so which one this is cannot be told`};
+ // With a timing named, the pipeline has checked that every journey at this departure runs the
+ // same one, so their time at any stop is the same and naming it is safe. Without one (an
+ // older publication), two journeys at a departure could differ, and the answer is withheld.
+ const timed = scheduled.timing !== undefined ? input.timings?.[scheduled.timing] : undefined;
+ if (scheduled.journeys !== 1 && !timed) return {kind: 'none', reason: `${scheduled.journeys} timetabled journeys leave at ${scheduled.departure.slice(0, 5)}, so which one this is cannot be told`};
  if (busIndex >= stopIndex) return {kind: 'none', reason: busIndex === stopIndex ? 'its last report was nearest your stop already' : 'its last report was past your stop in the timetabled order'};
+ const seconds = timed ?? input.seconds;
  if (!seconds) return {kind: 'none', reason: 'this timetable does not declare running times'};
  const atStop = seconds[stopIndex], atBus = seconds[busIndex];
  if (atStop === null || atStop === undefined || atBus === null || atBus === undefined)
@@ -89,6 +96,7 @@ function reasonWords(reason: string) {
   case 'aimed_departure_unreadable': return 'the reported departure time could not be read';
   case 'aimed_departure_not_in_timetable': return 'the reported departure is not in the timetable held here';
   case 'pattern_has_no_departure_times': return 'this timetable lists no departures for the pattern';
+  case 'journeys_at_this_time_differ_in_timing': return 'more than one timetabled journey leaves at that time, and they reach your stop at different times';
   default: return reason;
  }
 }

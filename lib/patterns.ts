@@ -30,6 +30,9 @@ const patternSchema = z.object({
  /** Scheduled seconds from the first stop, from the timetable's link run times; null past an
   *  undeclared link, and absent from catalogues built before it was recorded. */
  seconds:z.array(z.number().nullable()).optional(),
+ /** Distinct per-stop scheduled seconds among the journeys merged into this pattern; a
+  *  scheduled journey names which one it runs. Absent from older catalogues. */
+ timings:z.array(z.array(z.number().nullable())).optional(),
 });
 
 const catalogueSchema = z.object({

@@ -34,8 +34,10 @@ const vehicleSchema = z.object({
             /** The scheduled journey this bus is running, by the operator's reported origin
              *  departure against the timetable; or why none could be named. Never a prediction. */
             scheduled:z.union([
-             z.object({departure:z.string(),journeys:z.number().int().positive(),serviceDay:z.string()}),
-             z.object({reason:z.string(),aimedLocal:z.string().optional()})]).optional()}),
+             z.object({departure:z.string(),journeys:z.number().int().positive(),serviceDay:z.string(),
+                       /** Which of the pattern's timings every journey at this departure runs. */
+                       timing:z.number().int().nonnegative().optional()}),
+             z.object({reason:z.string(),aimedLocal:z.string().optional(),journeys:z.number().int().optional()})]).optional()}),
   z.object({unresolved:z.string(),explanation:z.string(),
             // An unresolved branch keeps every candidate: a shared stop is not a shared route.
             candidates:z.array(z.object({patternId:z.string(),patternIndex:z.number().int().nonnegative()})).optional(),

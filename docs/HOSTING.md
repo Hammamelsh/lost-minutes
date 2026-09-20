@@ -18,6 +18,13 @@ published `live.json` at **66 KB** for 155 vehicles.
 
 ## Recommendation: one small VPS, with Cloudflare in front
 
+> **20 September 2026: the CX line shows as not orderable.** All four CX plans are flagged "not
+> available" on Hetzner's own page, in the server-rendered HTML, while the CPX plans are not.
+> **CPX22** — the same 2 vCPU and 4 GB, with 80 GB rather than 40 GB — is the substitute, at a
+> somewhat higher price to be read in the console. The whole of the sizing argument below rests on
+> 4 GB of RAM and 2 vCPU and is unaffected. `docs/PROVISIONING.md` carries this at the point of
+> purchase.
+
 **Hetzner Cloud CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe, Falkenstein, Nuremberg or Helsinki; the size
 this proposal first called CX22) running:
 

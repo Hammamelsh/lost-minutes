@@ -1,6 +1,17 @@
 # Provisioning the beta — the runbook for the choice already made
 
-**Decided:** Hetzner Cloud **CX23**, **no paid backups**, on a **free subdomain**. Costs and the
+**Decided:** Hetzner Cloud, a **2 vCPU / 4 GB** shared-vCPU server, **no paid backups**, on a
+**free subdomain**.
+
+> **Checked again on 20 September 2026, before you spend anything: the CX line is not orderable.**
+> Hetzner's own cost-optimized page marks **all four CX plans — CX23, CX33, CX43, CX53 — "not
+> available"**, in the server-rendered HTML rather than as a loading placeholder, while every CPX
+> plan on the regular-performance page carries no such flag. Whether that is temporary stock or the
+> end of the line, I cannot tell from outside. **The console is the authority: if CX23 is offered,
+> take it; if it is not, take CPX22**, which is the same 2 vCPU and 4 GB with a larger disk. Every
+> number below that matters — the 853 MB rebuild peak, the 376 MB collector, `LM_DB_THREADS=2` —
+> depends on **4 GB of RAM and 2 vCPU**, which both plans give, so nothing else in this runbook
+> changes. Costs and the
 reasoning are in `docs/HOSTING.md`; this page is only the doing.
 
 Everything that could be prepared without an account has been. What is left needs either your money
@@ -20,16 +31,36 @@ In <https://console.hetzner.cloud> → **Add Server**:
 |---|---|
 | Location | Falkenstein, Nuremberg or Helsinki — any is fine; Falkenstein is the usual default |
 | Image | **Ubuntu 24.04** (Debian 12 also works; `deploy/install.sh` handles both) |
-| Type | **Shared vCPU → CX23** (2 vCPU, 4 GB RAM, 40 GB NVMe) |
+| Type | **Shared vCPU → CX23** (2 vCPU, 4 GB, 40 GB NVMe) if it is offered; otherwise **CPX22** (2 vCPU, 4 GB, 80 GB NVMe). Do not drop to CPX12 — 2 GB will not run the nightly rebuild |
 | Networking | **IPv4 enabled** — needed, and billed separately |
 | Backups | **leave the tick box off.** Hetzner's *Backups* (automatic, daily, 20% of the server price) and its *Snapshots* (manual, per GB) are different products; both stay off unless you say otherwise. `docs/HOSTING.md` sets out the difference |
-| SSH key | add yours, so you can reach it without a password |
+| SSH key | **Add SSH key**, and paste the public key below. Without one Hetzner emails a root password, which is worse in every way |
 | Name | anything; `lost-minutes` is tidy |
 
-**Before you confirm, read the total the console shows you.** The documented prices are €5.49 for
-the CX23 plus €0.50 for the IPv4 — €5.99 net, about €7.19 with 20% VAT, roughly **£6.10 a month**.
-Hetzner raised prices in June 2026 and may have again. *The console's own figure is the one that
-matters; if it does not match, stop and tell me rather than paying more than you meant to.*
+### The key to paste
+
+A key dedicated to this server was generated on your machine on 20 September 2026,
+`~/.ssh/lost-minutes`. It is separate from your GitHub key on purpose: either can be revoked without
+touching the other. The private half has not left the machine and is in nothing published.
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDGhchdbednJamKTfnm0c7yI2HG+NNccf4pfGQAzd4Bo lost-minutes server
+```
+
+Hetzner will show you the fingerprint `SHA256:AvbCPQHZKKbglRxrLqzDmLoZyKGZrgb1cDWjpjrF0ZQ`. If it
+shows anything else, the paste went wrong. It has no passphrase, matching your existing key; that is
+a deliberate trade for unattended deploys, and the protection is the file permissions on a machine
+only you use.
+
+### Read the total before you pay
+
+**The console's own figure is the one that decides.** I could not verify a current price from
+outside: Hetzner's public pages inject prices from a script, so the raw pages carry none, and I will
+not repeat a stale number as though I had checked it. What is *documented* from 15 June 2026 is
+€5.49 for the CX23 plus €0.50 for the IPv4 — €5.99 net, about €7.19 with 20% VAT, roughly **£6.10 a
+month**. **CPX22 is a different plan and will cost somewhat more.** Hetzner raised prices in June
+2026 and may have again. *If the total is not close to that, stop and tell me rather than paying
+more than you meant to.*
 
 Why 4 GB and not something smaller: the nightly timetable rebuild peaks at **853 MB**, measured on
 18 September 2026, and the collector sits at about **376 MB** at the two threads a CX23 gives it.

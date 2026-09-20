@@ -157,7 +157,10 @@ Uploaded at commit `9be1a90`, installed, and checked from outside the server:
 `pipeline.live init` wrote the honest waiting state rather than leaving a 404 behind:
 `{"state": "unavailable", "reason": "no_credentials_configured"}`.
 
-**Not yet true:** nothing is being collected. The page says so, correctly, and will until step 3.
+**Since then:** the key was put in place, collection started, and the first-deploy faults above were
+found and fixed on the server. **Still open:** the unattended nightly rebuild at 03:40 Europe/London
+has not yet fired on its own; every rebuild so far was started by hand. It stays listed here until the
+journal shows one the timer started.
 
 ## Yours — step 3: the BODS key, typed by you, onto the server
 

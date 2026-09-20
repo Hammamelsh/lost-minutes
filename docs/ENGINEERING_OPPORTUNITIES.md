@@ -1034,3 +1034,95 @@ question the twenty minutes left open.
 
 **Status:** the claim is withdrawn and corrected. The sampler is still a scratchpad script; the
 hours-long answer is open.
+
+## 28. A deployment validated on the machine that is not the server
+
+**Problem and evidence.** `deploy/validate.sh` runs the systemd units through `systemd-analyze verify`
+and the Caddyfile through a local Caddy, on the development machine. It has never run `install.sh`
+on a server. The first real deployment (20 September 2026) then exposed six faults in one afternoon,
+none of which that validation could see: `rsync-exclude.txt` excluded `public/data` through an
+unanchored `data/`; the upload was 1.75 GB; no `deploy` user existed; a fresh warehouse had no stop
+table or patterns, so 0 of 307 buses matched; a clean SIGTERM exit returned 130 and put the unit into
+`failed`; and a re-run of the installer aborted on a locked warehouse. Each was found by running the
+thing and reading what it did (`git log 9be1a90..d3ce8ba`).
+
+**Who hits it, and the current workaround.** Anyone deploying for the first time, or after changing
+`install.sh`, `publish.sh` or the units. The workaround was the one used: deploy, watch it fail,
+fix, deploy again, on the live server, six times.
+
+**Recurrence and effort.** Six instances in one deployment. About three hours, most of it
+diagnosis rather than repair; each repair was a few lines.
+
+**Right answer.** A script. Run `install.sh` end to end against a throwaway Ubuntu container or VM
+with a fixture key, and assert the outcomes that were wrong: the catalogue files present, the upload
+under 50 MB, the deploy user able to write, `patterns_unavailable` absent from the first
+publication, the unit `inactive` after `systemctl stop`, and a second `install.sh` a no-op.
+
+**Existing tools.** Docker or Podman for the container; the repository already has a CI workflow
+(`.github/workflows/checks.yml`) that could carry it. Nothing here is novel.
+
+**Smallest reusable capability.** `deploy/smoke.sh`: build, `publish.sh` into a container, `install.sh`
+twice, the six assertions. No visual interface needed; a pass/fail line is the product.
+
+**Next cheap validation.** Write it and run it once locally against Ubuntu 26.04, which is what the
+server runs. **Status:** not started; the six faults are fixed individually and each has a check of its
+own, but nothing runs the whole sequence.
+
+## 29. Two lists that must agree, and nothing that checks they do
+
+**Problem and evidence.** `.gitignore` and `deploy/rsync-exclude.txt` both say what does not belong,
+one to Git and one to the server, and they had drifted: the package cache, the probes' output and the
+build info were ignored by Git and shipped by rsync. Separately, the exclude list's `data/` had no
+leading slash and so also matched `public/data/`, the published catalogue. Both were found only by
+listing the transfer with `--out-format`; two earlier checks with a silent `rsync -an` had "proved"
+nothing was wrong because they printed nothing at all (`git log 9be1a90`).
+
+The same shape, elsewhere: `tests/patterns.test.mjs` ended in a literal backslash-n, failed at module
+load, and took twelve tests down with it; the aggregate reported one failing *file* and the count of
+passing tests quietly fell from 137 to 136. A test that fails before it starts hides every test in it.
+
+**Who hits it, and the current workaround.** Whoever adds a large local directory, or edits either
+list, or appends to a test file by script. The workaround is knowing to list the transfer, and to
+notice a falling test count.
+
+**Recurrence and effort.** Three instances in one day. Minutes each once seen; the cost is the not
+seeing.
+
+**Right answer.** Two small tests. One runs the exact dry-run the deploy uses and asserts the required
+files are in the list and the forbidden ones are not (the command is in the commit). The other asserts
+each test file parses and exports at least one test, so a module-load failure is named rather than
+absorbed.
+
+**Existing tools.** `rsync --out-format='%n'` for the listing; `node --check` for the parse.
+
+**Smallest reusable capability.** `tests/deploy-manifest.test.mjs`, twenty lines, in the Node suite.
+
+**Next cheap validation.** Write the manifest test. **Status:** the exclusions are fixed and were
+checked by hand; the test that would keep them fixed is not written.
+
+## 30. A running one-shot service reads as "activating", and a guard that asked "is-active" was silent for weeks
+
+**Problem and evidence.** The watchdog's guard against restarting the collector during the nightly
+rebuild was `if systemctl is-active --quiet lost-minutes-refresh.service`. A `Type=oneshot` service
+is `activating` for the whole of its `ExecStart` and `is-active --quiet` exits 3 for that, so the
+condition was false every time. Reproduced on the server: the watchdog restarted the collector
+mid-rebuild, the collector could not take the warehouse lock, and `Restart=always` retried it every
+15 s: four restarts in three minutes, and it would have run at 03:40 every night (`git log 240137c`).
+
+**Who hits it, and the current workaround.** Anyone guarding one unit on another oneshot's state.
+There was no workaround; nobody knew.
+
+**Recurrence and effort.** One instance, latent since 17 September. Fixed in ten lines once measured.
+
+**Right answer.** A small fix, done: read the state string and accept `activating`, `deactivating`
+and `reloading` as running. Reusable as an idiom in `deploy/README.md`, which now says so.
+
+**Existing tools.** `systemctl show -p ActiveState --value` gives the string directly.
+
+**Smallest reusable capability.** None beyond the idiom; it is a fact about systemd worth writing down
+where the next unit is written.
+
+**Next cheap validation.** The first unattended 03:40 rebuild: the journal must show no collector
+restart during it. **Status:** fixed and re-tested against a hand-started rebuild twice; the
+unattended run is still to come.
+

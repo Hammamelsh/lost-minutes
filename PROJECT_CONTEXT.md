@@ -4,7 +4,72 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 18 September 2026 (reliability tested rather than asserted, and two claims withdrawn).
+Last updated: 20 September 2026 (hosted, and the passenger's two questions answered as far as the data
+allows: "when is my bus due at my stop" and "how long is my walk").
+
+**20 September, hosted, and the first day it could be wrong in public.** The site is at
+**https://lost-minutes.duckdns.org**: Hetzner CX23 in Helsinki (€7.19 a month, the CX line being
+out of stock in Falkenstein), Ubuntu 26.04.1, a Let's Encrypt certificate on the first attempt, the
+collector under systemd. Everything below was checked on that server or in Chromium on the built
+export; nothing on a physical phone.
+- **Five defects the first real deployment exposed, none findable locally** because `validate.sh`
+  checks configuration and never runs on a server: the upload excluded `public/data` (an unanchored
+  `data/` pattern), so the site would have gone live with no stops, patterns or road shapes; the
+  upload was 1.75 GB of package cache and probe video; no `deploy` user existed though every document
+  addressed one; a fresh warehouse had no stop table and no patterns, so **0 of 307** buses matched
+  until the nightly rebuild; and a clean SIGTERM exit returned 130, so systemd called every nightly
+  pause a failure. All fixed and re-checked on the server. A sixth, my own: the installer's first-run
+  probe could not tell a locked warehouse from an empty one.
+- **The watchdog fought the nightly rebuild.** Its guard used `systemctl is-active --quiet`, which
+  exits 3 for a running `Type=oneshot`; reproduced as **4 collector restarts in 3 minutes** during a
+  rebuild. Fixed and re-tested against a real rebuild. Recovery from `SIGKILL`: publishing again in
+  **25 s**, the abandoned run closed with `cause: "not recorded"`. Stall, unreadable file and healthy
+  branches each verified. **The unattended 03:40 rebuild has not yet fired; it is left open.**
+  External alerting (a dead man's switch) is prepared and **off pending the owner's approval**.
+- **BNFM's timetable was in the catalogue but in no configuration.** Its snapshot had been read from
+  a stored file no configuration could fetch again; a fresh server would have rebuilt without it and
+  said nothing. Identified by SHA-256 against the stored snapshot: **dataset 14241**. Four datasets
+  now, all four fetched by the server with hashes identical to the local catalogue.
+- **The walk's starting point is now judged, not assumed.** The page had discarded the fix's accuracy
+  and timestamp, so the Kenwood Road / Norwood Road discrepancy was undiagnosable after the fact;
+  `enableHighAccuracy:false` requested nothing better, but is a hint, not a cause, and this does not
+  claim what the cause was. Now: a fresh fix at best accuracy, never cached; confidence in bands
+  (under 40 m stated plainly, to 150 m hedged as "about" with the doubt beside it, beyond that not
+  routed; a tight fix over five minutes old is stale); **Update my location**, **Choose starting
+  point** on the map (kept for the session, outranking the device until given up), and **Walk to
+  stop in Google Maps** by the boarding point's coordinates, never its name (Hillingdon Road has two
+  stops 40 m apart facing opposite ways). 18 browser checks, desktop and phone, FIXTURE.
+- **Front view at Hillingdon Road (opp), traced.** Not missing geometry: two inbound 15 variants
+  serve the stop to the same destination, the 140-journey pattern (accepted shape, 756 reports) and a
+  5-journey Mon–Sat short working (shape built, **rejected: 0 reports to check it against**). On a
+  weekday the destination cannot separate them, the bus is left unresolved, and an unresolved bus
+  had no road. The stop-list inference that stood in (`sharedOnward`) was wrong in principle: shared
+  stops do not prove a shared road, and convergence after the boarding stop says nothing about the
+  road before it. **Replaced by measurement:** every vertex of the accepted track is tested against
+  every other candidate's shape; shared road is where all lie within 10 m. On route 15 that is
+  **387 → 13,611 m** of the accepted shape, with Hillingdon Road at 8,715 m and **8,320 m of shared
+  road before it**; a bus is placed on it only if its last report and its whole look-ahead (542 m:
+  17 m/s × 30 s + the camera's 32 m) are inside, else left at its report with the reason. The first
+  version fragmented on a 136 m straight and was caught by its own browser check.
+- **Arrival times: the timetabled journey is identifiable, and estimates are evaluable.** The feed's
+  journey reference matches **0 of 114** timetable journey codes. But `OriginAimedDepartureTime`,
+  on 99% of observations across every operator, matches a current `DepartureTime` for **all 161
+  distinct route-15 times (16,310 of 16,310 observations)**. Every timing link carries a `RunTime`
+  (1,994 of 1,994 on route 15); they are read now, and **all 576 patterns publish fully-declared
+  scheduled seconds** per stop. The page shows **"Timetabled at your stop 07:11 · from the operator's
+  timetable, not a prediction"** only for a bus on one pattern, on one journey at that departure,
+  with running times declared to both stops, and still before the stop in the timetabled order.
+  Ground truth for a real estimator exists: **2,025 (journey, stop) pairs with a report within 40 m of
+  the stop** across 91 route-15 journeys, arrival known to about ±20 s; Hillingdon Road passed on 41.
+  **No estimated minutes are shown yet**: the estimator and its held-out evaluation are the next
+  step, and the scheduled time is the honest fallback in place now.
+- **The street preview, from data it already holds:** façades graded by OSM `render_height`, a
+  footway and a broken centre line at the road class's real widths, a look-ahead that lengthens
+  with the drawn speed, and a sky that follows the sun — `lib/daylight.ts` works civil twilight out
+  from the date and Manchester's latitude, held by tests to the equinox's twelve hours. **Not yet
+  judged by eye**: the frames are being taken.
+- **The BODS key seen in a screenshot has not been rotated** (server and local hashes match it).
+  The DuckDNS token seen in another should be recycled too. Neither blocks anything.
 
 **18 September, the claims this project had not earned.** The hosting decision is made — Hetzner
 CX23, no paid backups, a free subdomain — and `docs/PROVISIONING.md` is the runbook for it. Nothing

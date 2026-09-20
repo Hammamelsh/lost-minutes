@@ -72,3 +72,18 @@ on mobile data.
   (`LM_WALKING_ROUTER=none` in `collector.env`).
 - Keep the server patched (`sudo apt install unattended-upgrades`) and SSH key-only.
 - The key lives only in `/etc/lost-minutes/collector.env` (root, group `lostminutes`, 0640).
+
+## Guarding one unit on another: a running one-shot is "activating"
+
+`systemctl is-active` prints `activating`, never `active`, for a `Type=oneshot` service for the whole
+of its `ExecStart`, and `is-active --quiet` exits 3 for it. A guard written as
+`if systemctl is-active --quiet some-oneshot.service` is therefore false while the one-shot runs,
+which is the one moment it was meant to be true. The watchdog had exactly this bug against the
+nightly rebuild until 20 September 2026 (`deploy/check-health.sh`). Read the state and test it:
+
+```bash
+case "$(systemctl is-active some-oneshot.service 2>/dev/null || true)" in
+  active|activating|deactivating|reloading) echo running ;;
+esac
+```
+

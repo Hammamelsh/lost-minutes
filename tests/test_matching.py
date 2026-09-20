@@ -356,6 +356,18 @@ class RunTimeTests(unittest.TestCase):
         # The fixture's three journeys all run jp_1, at 07:00, 09:00 and 08:10.
         self.assertEqual(found['departures'], ['07:00:00', '08:10:00', '09:00:00'])
 
+    def test_merging_identical_stop_patterns_keeps_every_journeys_departure(self):
+        from pipeline.patterns import deduplicate
+        stops = [('S1', 0, 0), ('S2', 300, 60)]
+        a = {'operatorCode': 'O', 'lineName': '15', 'direction': 'inbound', 'stops': stops,
+             'journeys': 2, 'rules': None, 'departures': ['07:00:00', '08:10:00']}
+        b = {**a, 'journeys': 3, 'departures': ['06:30:00', '08:10:00', '09:00:00']}
+        merged = deduplicate([a, b])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]['journeys'], 5)
+        self.assertEqual(merged[0]['departures'], ['06:30:00', '07:00:00', '08:10:00', '08:10:00', '09:00:00'],
+                         'repeats kept: the journey count counts them, and a shared time refuses to name')
+
     def test_a_matched_bus_is_tied_to_a_scheduled_journey_by_its_reported_origin_departure(self):
         from pipeline.match import scheduled_journey
         patterns = [{'id': 'P', 'departures': ['07:00:00', '08:10:00', '08:10:00', '09:00:00']}]

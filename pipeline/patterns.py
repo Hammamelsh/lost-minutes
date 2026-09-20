@@ -453,6 +453,12 @@ def deduplicate(patterns):
         else:
             kept['rules'] = kept.get('rules') or pattern.get('rules')
         kept['journeys'] += pattern.get('journeys', 0)
+        # Every merged journey's departure travels with the merged pattern, repeats kept: the
+        # journey count above already counts them, and a departure two journeys share makes the
+        # page refuse to name either, which is the conservative outcome. Dropping the second
+        # list here left the 140-journey route-15 pattern with 5 departures, and the live site
+        # refusing 212 of 215 matched buses as 'not in the timetable' (20 September 2026).
+        kept['departures'] = sorted((kept.get('departures') or []) + (pattern.get('departures') or []))
         if _declared(pattern['stops']) > _declared(kept['stops']):
             kept['stops'] = pattern['stops']
     return list(merged.values())

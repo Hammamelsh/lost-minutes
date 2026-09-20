@@ -27,6 +27,17 @@ fi
 id lostminutes >/dev/null 2>&1 || useradd --system --home-dir /srv/lost-minutes --shell /usr/sbin/nologin lostminutes
 mkdir -p "$APP/data" /etc/lost-minutes
 chown -R lostminutes:lostminutes "$APP/data" "$APP/public/data"
+# Two writers share public/data: the collector (lostminutes) rewrites live.json every 20 s, and a
+# deploy (the account publish.sh connects as) replaces the catalogue and the road shapes. Without
+# this, the first install succeeds and every later upload fails on Permission denied, because the
+# chown above has just taken the directory away from the account doing the uploading. The setgid
+# bit keeps the group on whatever either of them creates next.
+DEPLOY_USER=${SUDO_USER:-deploy}
+if id "$DEPLOY_USER" >/dev/null 2>&1 && [[ $DEPLOY_USER != root ]]; then
+  usermod -aG lostminutes "$DEPLOY_USER"
+fi
+chmod -R g+w "$APP/public/data"
+find "$APP/public/data" -type d -exec chmod g+s {} +
 python3 -m venv "$APP/.venv"
 "$APP/.venv/bin/pip" install --quiet --upgrade pip
 "$APP/.venv/bin/pip" install --quiet -r "$APP/requirements.txt"
@@ -60,33 +71,40 @@ fi
 # refuses every bus with patterns_unavailable. The published JSON that was uploaded does not help:
 # the matcher reads the warehouse, not the files. The nightly timer would fix it at 03:40, so a
 # first deploy would otherwise serve positions with no timetable behind them until the next
-# morning. Both are safe to repeat, and both are skipped once they have been done.
-if ! "$APP/.venv/bin/python" -c "
+# morning.
+#
+# The probe must tell three states apart, not two. DuckDB allows one writer, so on a re-run with
+# the collector already going the database cannot be opened at all -- and reading that as "empty"
+# is what made this script try to import stops into a locked warehouse and abort the install. A
+# lock means some collector is running against this warehouse, which means it was bootstrapped, so
+# the answer is to skip. Exit 0 means nothing to do; exit 1 means the table is genuinely absent.
+needs_bootstrap() {
+  ! "$APP/.venv/bin/python" - "$1" <<'PROBE'
 import pathlib, sys
-sys.path.insert(0, '$APP')
+sys.path.insert(0, "/srv/lost-minutes/app")
+table = sys.argv[1]
 from pipeline.warehouse import connect, DEFAULT_DB
 try:
-    con = connect(pathlib.Path('$APP') / DEFAULT_DB)
-    sys.exit(0 if con.execute('select count(*) from stop').fetchone()[0] else 1)
+    con = connect(pathlib.Path("/srv/lost-minutes/app") / DEFAULT_DB)
+except Exception as error:
+    # Locked by a running collector, so the warehouse exists and is in use: nothing to do.
+    sys.exit(0 if "lock" in str(error).lower() else 1)
+try:
+    sys.exit(0 if con.execute(f"select count(*) from {table}").fetchone()[0] else 1)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PROBE
+}
+
+if needs_bootstrap stop; then
   echo "First run: importing the stop catalogue (NaPTAN)."
+  systemctl stop lost-minutes-collector.service 2>/dev/null || true
   runuser -u lostminutes -- "$APP/.venv/bin/python" -m pipeline.stops import
 fi
 
 systemctl enable --now lost-minutes-collector.service lost-minutes-refresh.timer lost-minutes-health.timer
 
-if ! "$APP/.venv/bin/python" -c "
-import pathlib, sys
-sys.path.insert(0, '$APP')
-from pipeline.warehouse import connect, DEFAULT_DB
-try:
-    con = connect(pathlib.Path('$APP') / DEFAULT_DB)
-    sys.exit(0 if con.execute('select count(*) from service_pattern').fetchone()[0] else 1)
-except Exception:
-    sys.exit(1)
-" 2>/dev/null; then
+if needs_bootstrap service_pattern; then
   echo "First run: building the timetable catalogue. This takes a few minutes and pauses collection."
   echo "It needs some collected positions to choose which services to build, so if it selects none,"
   echo "let the collector run for a minute and start lost-minutes-refresh.service again."

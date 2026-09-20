@@ -28,6 +28,16 @@ ssh "$TARGET" 'sudo mkdir -p /srv/lost-minutes/app && sudo chown "$(id -un)" /sr
     sudo cp -a /srv/lost-minutes/app /srv/lost-minutes/previous
     echo "kept the running release at /srv/lost-minutes/previous"
   fi'
-rsync -az --delete --exclude-from=deploy/rsync-exclude.txt ./ "$TARGET:/srv/lost-minutes/app/"
+# Two writers share public/data: the collector rewrites live.json every 20 s as its own user, and
+# this upload replaces the catalogue, the road shapes and the site. That mixed ownership is why the
+# transfer runs through sudo on the far side — an unprivileged account cannot chmod a file it does
+# not own, so every deploy after the first install failed on Permission denied. --no-owner and
+# --no-group stop rsync carrying this machine's numeric ids across, which mean nothing there.
+# Ownership is then set once, explicitly, to what install.sh asks for.
+rsync -az --no-owner --no-group --rsync-path="sudo rsync" --delete \
+  --exclude-from=deploy/rsync-exclude.txt ./ "$TARGET:/srv/lost-minutes/app/"
+ssh "$TARGET" 'sudo chown -R lostminutes:lostminutes /srv/lost-minutes/app/public/data
+  sudo chmod -R g+w /srv/lost-minutes/app/public/data
+  sudo find /srv/lost-minutes/app/public/data -type d -exec chmod g+s {} +'
 rm -f RELEASE
 echo "uploaded $COMMIT to $TARGET"

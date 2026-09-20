@@ -23,6 +23,7 @@ import {saveTheme,subscribeTheme,themeServerSnapshot,themeSnapshot} from '@/lib/
 import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
 import type {Origin} from '@/lib/origin';
+import {scheduledAtStop} from '@/lib/scheduled';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
 import {journeyQuery,restoreService,writeJourney,type InitialJourney} from '@/lib/journey-context';
@@ -301,6 +302,17 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const ageText=(bus:FollowBus)=>mode==='archive'?`reported ${clock(bus.observedAtMs,true)}`:bus.ageWords;
  const ageChip=(bus:FollowBus)=>mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','');
  const assoc=shown&&cardRelation?association(cardRelation,shown):null;
+ // A timetabled time at the passenger's stop, from the named scheduled journey and the pattern's
+ // running times: every premise checked in lib/scheduled.ts, none assumed.
+ // Cheap enough to compute each render, which the card does on the clock anyway.
+ const timetabled=(()=>{
+  if(!shown||!stop||!shown.match||!('patternId' in shown.match))return null;
+  const pattern=patternsById.get(shown.match.patternId);
+  if(!pattern)return null;
+  const stopIndex=pattern.stops.indexOf(stop.id);
+  if(stopIndex<0)return null;
+  return scheduledAtStop({scheduled:shown.match.scheduled,seconds:pattern.seconds,busIndex:shown.match.patternIndex,stopIndex});
+ })();
  const prog=cardRelation?progress(cardRelation,name):null;
  const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];
  const walked=walkRoute?walkWords(walkRoute):null;
@@ -614,6 +626,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {shown&&!absent&&stop&&prog&&<div className={`bus-card-answer tone-${relevant?prog.tone:'bad'}`}>
     <strong>{relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</strong>
     {relevant&&prog.detail&&<span>{prog.detail}</span>}</div>}
+   {/* The operator's timetable, read out: the named journey's departure plus the scheduled running
+       time to this stop. Shown only for a bus still before the stop on one named journey, and
+       labelled as the timetable's, because a time at a stop reads as a prediction and is not one. */}
+   {shown&&!absent&&stop&&relevant&&timetabled?.kind==='time'&&<p className="bus-card-scheduled" data-scheduled={timetabled.wall}>
+    <strong>Timetabled at your stop {timetabled.wall}</strong>
+    <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}
    {activityLine&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
     <span>How this is known</span></summary><p>{activityLine.detail}</p></details>}
    {notServing&&!absent&&<div className="bus-card-explored" role="note">

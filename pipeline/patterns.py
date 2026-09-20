@@ -106,7 +106,8 @@ CREATE TABLE IF NOT EXISTS service_pattern (
     version_modified    TEXT,      -- the file's ModificationDateTime
     version_revision    TEXT,      -- the file's RevisionNumber
     journey_count       INTEGER,
-    distances_known     BOOLEAN
+    distances_known     BOOLEAN,
+    departure_times     TEXT       -- JSON list of HH:MM:SS scheduled departures from the first stop
 );
 
 CREATE TABLE IF NOT EXISTS service_pattern_stop (
@@ -122,7 +123,9 @@ CREATE TABLE IF NOT EXISTS service_pattern_stop (
 # Warehouses built before operating days and versions were recorded.
 MIGRATIONS = [f'ALTER TABLE service_pattern ADD COLUMN IF NOT EXISTS {column}' for column in (
     'operating_rules TEXT', 'version_modified TEXT', 'version_revision TEXT',
-    'journey_count INTEGER', 'distances_known BOOLEAN')] + [
+    'journey_count INTEGER', 'distances_known BOOLEAN',
+    # Scheduled departures from the first stop, JSON list of HH:MM:SS, recorded from 20 September 2026.
+    'departure_times TEXT')] + [
     # Scheduled seconds per stop, from the links' RunTime, recorded from 20 September 2026.
     'ALTER TABLE service_pattern_stop ADD COLUMN IF NOT EXISTS seconds_from_start INTEGER']
 
@@ -376,10 +379,18 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
     pattern_of_journey = {_text(vj, 'VehicleJourneyCode'): _text(vj, 'JourneyPatternRef')
                           for vj in journeys if _text(vj, 'JourneyPatternRef')}
     rules_by_pattern = {}
+    # Each journey's scheduled departure from the pattern's first stop, HH:MM:SS local. The feed
+    # reports a bus's OriginAimedDepartureTime; on route 15 every one of 161 distinct reported
+    # times matched one of these (20 September 2026). That, not the feed's journey reference
+    # (0 of 114 matched a VehicleJourneyCode), is how a bus is tied to a scheduled journey.
+    departures_by_pattern = {}
     for vj in journeys:
         ref = _text(vj, 'JourneyPatternRef') or pattern_of_journey.get(_text(vj, 'VehicleJourneyRef'))
         if not ref:
             continue
+        departure = _text(vj, 'DepartureTime')
+        if departure:
+            departures_by_pattern.setdefault(ref, []).append(departure)
         rules_by_pattern.setdefault(ref, []).append(
             operating_rule(vj.find('OperatingProfile'), calendars) or service_rule)
 
@@ -412,6 +423,8 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
             'validFrom': declared_from or _iso(valid_from), 'validTo': declared_to or _iso(valid_to),
             'modified': root.get('ModificationDateTime'), 'revision': root.get('RevisionNumber'),
             'rules': _unique(known) if known else None, 'journeys': len(running),
+            # Every departure time, kept with repeats: two journeys at one time are two journeys.
+            'departures': sorted(departures_by_pattern.get(journey.get('id'), [])),
         })
     return patterns
 
@@ -471,7 +484,8 @@ def load(con, run_id, patterns, stops_in_area):
                      len(set(codes)) != len(codes), run_id,
                      json.dumps(pattern['rules']) if pattern.get('rules') is not None else None,
                      pattern.get('modified'), pattern.get('revision'),
-                     pattern.get('journeys'), known))
+                     pattern.get('journeys'), known,
+                     json.dumps(pattern.get('departures') or [])))
         for sequence, stop in enumerate(pattern['stops']):
             # A stop is (atco, metres) from an older caller or (atco, metres, seconds) from the
             # parser; a missing third element is an unknown scheduled time, never zero.
@@ -485,8 +499,8 @@ def load(con, run_id, patterns, stops_in_area):
         ' service_code, operator_code, direction, destination_display, stop_count,'
         ' stops_in_area, total_distance_m, valid_from, valid_to, has_repeated_stop,'
         ' first_seen_run_id, first_seen_at, operating_rules, version_modified, version_revision,'
-        ' journey_count, distances_known)'
-        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?)', rows)
+        ' journey_count, distances_known, departure_times)'
+        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?,?)', rows)
     con.executemany('INSERT INTO service_pattern_stop VALUES (?,?,?,?,?)', stop_rows)
     return len(rows), len(stop_rows)
 
@@ -508,7 +522,7 @@ def build_published(con, coverage=None):
         SELECT pattern_id, line_name, direction, destination_display, stop_count,
                stops_in_area, total_distance_m, has_repeated_stop, dataset_sha256,
                source_file, valid_from, valid_to, operator_code, service_code, operating_rules,
-               version_modified, version_revision, journey_count, distances_known
+               version_modified, version_revision, journey_count, distances_known, departure_times
         FROM service_pattern
         WHERE stops_in_area >= {MIN_STOPS_IN_AREA}
         ORDER BY operator_code, line_name, direction, stop_count DESC""").fetchall()
@@ -538,6 +552,8 @@ def build_published(con, coverage=None):
             # Scheduled seconds from the first stop, from the links' RunTime; null past an
             # undeclared link. A time at a stop is this plus a journey's departure, never a prediction.
             'seconds': [int(s[2]) if s[2] is not None else None for s in stops],
+            # The scheduled departures of every journey on this pattern, HH:MM:SS local.
+            'departures': json.loads(row[19]) if len(row) > 19 and row[19] else [],
         })
     services = sorted({f"{p['operator'] or ''}|{p['line']}" for p in patterns})
     return {

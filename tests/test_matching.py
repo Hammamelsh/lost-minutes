@@ -350,6 +350,34 @@ class RunTimeTests(unittest.TestCase):
         self.assertEqual([s[2] for s in found['stops']], [0, 60, None, None, None])
         self.assertEqual([s[1] for s in found['stops']], [0, 300, 550, 950, 1050], 'time and distance are judged apart')
 
+    def test_every_journey_departure_is_recorded_on_its_pattern_with_repeats_kept(self):
+        from pipeline.patterns import extract_patterns
+        found = extract_patterns(txc(), 't.xml', 'sha', None, None)[0]
+        # The fixture's three journeys all run jp_1, at 07:00, 09:00 and 08:10.
+        self.assertEqual(found['departures'], ['07:00:00', '08:10:00', '09:00:00'])
+
+    def test_a_matched_bus_is_tied_to_a_scheduled_journey_by_its_reported_origin_departure(self):
+        from pipeline.match import scheduled_journey
+        patterns = [{'id': 'P', 'departures': ['07:00:00', '08:10:00', '08:10:00', '09:00:00']}]
+        # 07:10 UTC on a BST day is 08:10 local: two journeys share that departure.
+        two = scheduled_journey({'aimedDeparture': '2026-09-15T07:10:00+00:00'}, 'P', patterns)
+        self.assertEqual(two, {'departure': '08:10:00', 'journeys': 2, 'serviceDay': '2026-09-15'})
+        one = scheduled_journey({'aimedDeparture': '2026-09-15T06:00:00+00:00'}, 'P', patterns)
+        self.assertEqual(one['journeys'], 1)
+        self.assertEqual(one['departure'], '07:00:00')
+
+    def test_a_departure_the_timetable_does_not_have_names_no_journey_and_says_so(self):
+        from pipeline.match import scheduled_journey
+        patterns = [{'id': 'P', 'departures': ['07:00:00']}]
+        self.assertEqual(scheduled_journey({'aimedDeparture': '2026-09-15T06:37:00+00:00'}, 'P', patterns),
+                         {'reason': 'aimed_departure_not_in_timetable', 'aimedLocal': '07:37:00'})
+        self.assertEqual(scheduled_journey({'aimedDeparture': None}, 'P', patterns),
+                         {'reason': 'no_aimed_departure_reported'})
+        self.assertEqual(scheduled_journey({'aimedDeparture': 'yesterday'}, 'P', patterns),
+                         {'reason': 'aimed_departure_unreadable'})
+        self.assertEqual(scheduled_journey({'aimedDeparture': '2026-09-15T06:00:00+00:00'}, 'P', [{'id': 'P', 'departures': []}]),
+                         {'reason': 'pattern_has_no_departure_times'})
+
     def test_a_file_with_no_run_times_at_all_publishes_none_rather_than_zero(self):
         from pipeline.patterns import extract_patterns
         found = extract_patterns(txc(), 't.xml', 'sha', None, None)[0]

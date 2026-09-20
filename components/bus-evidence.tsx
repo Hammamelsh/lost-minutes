@@ -12,7 +12,9 @@ type Evidence={serviceDay?:string;weekday?:string;operatorChecked?:boolean;direc
  operatingDayChecked?:boolean;plausiblePaths?:number;resolvedBy?:string;destinationAgrees?:boolean|null};
 type MatchShape={patternId?:string;patternIndex?:number;nearestStop?:string;metresFromPatternStop?:number;
  unresolved?:string;explanation?:string;candidates?:{patternId:string;patternIndex:number}[];
- nearestPatternMetres?:number;evidence?:Evidence};
+ nearestPatternMetres?:number;evidence?:Evidence;
+ /** The scheduled journey named for a matched bus, or why none was: see pipeline/match.py. */
+ scheduled?:{departure:string;journeys:number;serviceDay:string}|{reason:string;aimedLocal?:string}};
 
 const BEARING:Record<FollowBus['bearingStatus'],string>={
  reported:'',absent:'not reported by the vehicle',invalid:'reported but unreadable, so not used',
@@ -79,6 +81,11 @@ export default function BusEvidence({bus,relation,patterns,mode,publishedAt,live
      :'no match attempted for this position'}</dd></div>
     {candidates.length>1&&<div><dt>Candidates kept</dt><dd>{candidates.map(p=>`${p.line} to ${p.destination??'?'} (${p.stopCount} stops, ${p.runs??'days not recorded'})`).join(' · ')}</dd></div>}
     {relation&&relation.kind!=='no_pattern_data'&&<div><dt>Against your stop</dt><dd>{relationWords(relation)}</dd></div>}
+    {match&&'patternId' in match&&<div><dt>Scheduled journey</dt><dd>{
+     !match.scheduled?'not looked up'
+     :'departure' in match.scheduled
+      ?`the ${match.scheduled.departure.slice(0,5)} departure${match.scheduled.journeys>1?` (${match.scheduled.journeys} journeys leave then, so not settled)`:''}, by the operator’s reported origin departure against the timetable`
+      :`none named: ${match.scheduled.reason.replace(/_/g,' ')}${match.scheduled.aimedLocal?` (reported ${match.scheduled.aimedLocal.slice(0,5)})`:''}`}</dd></div>}
    </dl>
   </section>}
 

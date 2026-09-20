@@ -20,6 +20,8 @@ stops; it says nothing about when it will reach any of them.
 from __future__ import annotations
 
 import json
+from zoneinfo import ZoneInfo
+from datetime import datetime
 import math
 import re
 
@@ -91,7 +93,8 @@ def load_patterns(con):
     patterns = []
     for row in con.execute("""
             SELECT pattern_id, line_name, operator_code, direction, destination_display,
-                   has_repeated_stop, stop_count, valid_from, valid_to, operating_rules
+                   has_repeated_stop, stop_count, valid_from, valid_to, operating_rules,
+                   departure_times
             FROM service_pattern""").fetchall():
         stops = sequences.get(row[0], [])
         patterns.append({
@@ -99,6 +102,7 @@ def load_patterns(con):
             'direction': (row[3] or '').lower(), 'destination': row[4], 'loop': bool(row[5]),
             'stopCount': int(row[6]), 'validFrom': parse_iso(row[7]), 'validTo': parse_iso(row[8]),
             'rules': json.loads(row[9]) if row[9] else None,
+            'departures': json.loads(row[10]) if len(row) > 10 and row[10] else [],
             'sequence': [atco for atco, _ in stops],
             'placed': [(index, atco, metres, coordinates[atco])
                        for index, (atco, metres) in enumerate(stops) if atco in coordinates]})
@@ -242,6 +246,34 @@ def match_vehicle(vehicle, patterns, day=None):
             'evidence': evidence}
 
 
+LONDON = ZoneInfo('Europe/London')
+
+
+def scheduled_journey(vehicle, pattern_id, patterns):
+    """Which scheduled journey a matched bus is running, from the operator's own reported
+    origin departure time against the pattern's timetabled departures. Returns a dict with the
+    local HH:MM:SS departure and how many journeys on this pattern share it, or a reason.
+
+    This names a journey; it predicts nothing. A time at a later stop is this departure plus the
+    pattern's scheduled seconds to that stop, and is labelled as the timetable's, not ours."""
+    aimed = vehicle.get('aimedDeparture')
+    if not aimed:
+        return {'reason': 'no_aimed_departure_reported'}
+    try:
+        when = datetime.fromisoformat(aimed.replace('Z', '+00:00')).astimezone(LONDON)
+    except ValueError:
+        return {'reason': 'aimed_departure_unreadable'}
+    local = when.strftime('%H:%M:%S')
+    pattern = next((p for p in patterns if p['id'] == pattern_id), None)
+    departures = (pattern or {}).get('departures') or []
+    if not departures:
+        return {'reason': 'pattern_has_no_departure_times'}
+    count = departures.count(local)
+    if not count:
+        return {'reason': 'aimed_departure_not_in_timetable', 'aimedLocal': local}
+    return {'departure': local, 'journeys': count, 'serviceDay': when.date().isoformat()}
+
+
 def match_all(con, vehicles):
     """Match every published vehicle, and summarise why the rest could not be matched."""
     patterns = load_patterns(con)
@@ -250,6 +282,7 @@ def match_all(con, vehicles):
         day = service_day(vehicle['observedAtMs']) if vehicle.get('observedAtMs') else None
         result = match_vehicle(vehicle, patterns, day)
         if result['matched']:
+            result['scheduled'] = scheduled_journey(vehicle, result['patternId'], patterns)
             vehicle['match'] = {k: v for k, v in result.items() if k != 'matched'}
             summary['matched'] += 1
         else:

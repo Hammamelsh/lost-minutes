@@ -406,6 +406,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const container=useRef<HTMLDivElement>(null);
  // Read by the map's one click handler: set while a starting point is being chosen, else null.
  const pickRef=useRef<((point:{lat:number;lon:number})=>void)|null>(null);
+ // Looking around in the street preview: degrees off the road ahead, set by a one-finger drag
+ // and eased back to straight ahead on release. Following never stops for it: a passenger turning
+ // their head is still on the bus. `down` is the primary pointer's last x while it is held.
+ const look=useRef({offset:0,down:null as number|null,lastT:0});
  useEffect(()=>{pickRef.current=pickingOrigin&&onPickOrigin?onPickOrigin:null;
   const canvas=map.current?.getCanvas();if(canvas)canvas.style.cursor=pickingOrigin?'crosshair':'';},[pickingOrigin,onPickOrigin]);
  const hudRef=useRef<HTMLDivElement>(null),launchRef=useRef<HTMLButtonElement>(null),lastView=useRef(view);
@@ -637,6 +641,16 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    // interrupted one's end would otherwise swallow the drag. A tap that moves nothing finishes
    // the glide quickly instead of stranding the passenger mid-way.
    const canvasBox=instance.getCanvasContainer();
+   const lookDown=(e:PointerEvent)=>{if(e.isPrimary&&ride.current.camera==='front'&&ride.current.state==='following')look.current.down=e.clientX};
+   const lookMove=(e:PointerEvent)=>{
+    const lk=look.current;if(lk.down===null||!e.isPrimary)return;
+    // A full width of drag turns the head 160°; clamped so the passenger cannot look backwards through the seat.
+    lk.offset=Math.max(-150,Math.min(150,lk.offset+(e.clientX-lk.down)/Math.max(1,canvasBox.clientWidth)*160));
+    lk.down=e.clientX;
+   };
+   const lookUp=(e:PointerEvent)=>{if(e.isPrimary)look.current.down=null};
+   canvasBox.addEventListener('pointerdown',lookDown);canvasBox.addEventListener('pointermove',lookMove);
+   canvasBox.addEventListener('pointerup',lookUp);canvasBox.addEventListener('pointercancel',lookUp);
    const pointerDown=()=>{
     const r=ride.current;
     if(viewRef.current!=='ride')return;
@@ -956,7 +970,12 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
       :turnToward(state.frontBearing,aim.bearing,1-Math.exp(-gap/400));
      state.lastFrontT=t;
     }
-    const front=input.track&&aim?frontCamera(instance,input.track,{...v,velocity:v.velocity},0,state.frontBearing??undefined):null;
+    // The head-turn: held, it stays where the finger put it; released, it eases back over ~0.6 s.
+    const lk=look.current;
+    if(lk.down===null&&lk.offset!==0){const dt=lk.lastT?t-lk.lastT:16;lk.offset*=Math.exp(-dt/600);if(Math.abs(lk.offset)<0.4)lk.offset=0}
+    lk.lastT=t;
+    const turned=state.frontBearing===null?undefined:(state.frontBearing+lk.offset+360)%360;
+    const front=input.track&&aim?frontCamera(instance,input.track,{...v,velocity:v.velocity},0,turned):null;
     if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
     else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}
    }else{
@@ -1054,6 +1073,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      :light.dark<0.5?a[k]:b[k]]));
    };
    instance.setSky(skyFor() as never);
+   // In the street preview a one-finger drag is a head-turn, not a pan: MapLibre's dragPan would
+   // move the centre the frame loop then puts back, which is the "flies away" a passenger saw.
+   // Pinch and wheel still pause following, as before. dragPan returns the moment the camera leaves.
+   if(inside)instance.dragPan.disable();else{instance.dragPan.enable();look.current.offset=0;look.current.down=null}
    // The ground drops away from the road surface in the front view, so the street reads as
    // something raised to travel on rather than as one flat wash. The map's own ground comes back
    // the moment the camera leaves.

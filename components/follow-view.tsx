@@ -316,17 +316,32 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const prog=cardRelation?progress(cardRelation,name):null;
  const items=cardRelation&&stop&&relevant?schematic(cardRelation,name,stop.id):[];
  const walked=walkRoute?walkWords(walkRoute):null;
- const notServing=stop&&shown&&assoc&&!relevant
-  ?cardStanding==='not_for_stop'?`It does not serve ${stopLabel}. ${assoc.detail}`
-   :cardStanding==='passed'?`In the timetable’s stop order its last report is already past ${stopLabel}.`
-   :`${assoc.text}. ${assoc.detail}`
-  :null;
-
  // What its own reports say about it and a stop: never the estimate, never the drawn bus.
  const matchedPattern=(bus:FollowBus)=>{
   const match=bus.match as {patternId?:string}|undefined;
   return match?.patternId?patternsById.get(match.patternId):undefined;
  };
+
+ // The stop across the road: the bus's own matched pattern calls at a stop with this stop's name
+ // and a different id. That is the pattern's evidence, not a guess about direction, and it is only
+ // offered when the two are within 120 m, which is what "across the road" means.
+ const otherSide=(()=>{
+  if(!stop||!shown||relevant||cardStanding!=='not_for_stop')return null;
+  const pattern=matchedPattern(shown);
+  if(!pattern)return null;
+  const twin=pattern.stops.map(id=>stopById.get(id)).find(s=>s&&s.id!==stop.id&&s.name===stop.name);
+  if(!twin)return null;
+  const m=Math.hypot((twin.lat-stop.lat)*111320,(twin.lon-stop.lon)*111320*Math.cos(stop.lat*Math.PI/180));
+  return m<=120?{stop:twin,metres:Math.round(m/10)*10}:null;
+ })();
+ const notServing=stop&&shown&&assoc&&!relevant
+  ?cardStanding==='not_for_stop'?otherSide
+    ?`This bus is going the other way. It calls at ${otherSide.stop.name}${otherSide.stop.indicator?` (${otherSide.stop.indicator})`:''}, across the road about ${otherSide.metres} m away, not at ${stopLabel}.`
+    :`It does not serve ${stopLabel}. ${assoc.detail}`
+   :cardStanding==='passed'?`In the timetable’s stop order its last report is already past ${stopLabel}.`
+   :`${assoc.text}. ${assoc.detail}`
+  :null;
+
  const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
  // The next few stops on the chosen bus's own pattern, for the front view's labels: real stops, at
  // most three, and your own stop left to its own label.
@@ -639,8 +654,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}
    {activityLine&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
     <span>How this is known</span></summary><p>{activityLine.detail}</p></details>}
-   {notServing&&!absent&&<div className="bus-card-explored" role="note">
+   {notServing&&!absent&&<div className="bus-card-explored" role="note" data-other-side={otherSide?otherSide.stop.id:undefined}>
     <p>{notServing}</p>
+    {otherSide&&<button className="back-to-stop" onClick={()=>selectStop(otherSide.stop)} data-use-other-side>
+     <ArrowLeft size={15}/>Use {otherSide.stop.name}{otherSide.stop.indicator?` (${otherSide.stop.indicator})`:''} instead</button>}
     <button className="back-to-stop" onClick={letGo}><ArrowLeft size={15}/>Back to buses for your stop
      {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
    </div>}

@@ -3,6 +3,10 @@
 import {test, expect} from '@playwright/test';
 import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
+// "Buses near me" needs a position; without one no nearby stop renders and Stop A cannot be
+// chosen. The same fix the walking spec uses, in Longford Park.
+test.use({permissions: ['geolocation'], geolocation: {latitude: 53.448712, longitude: -2.309487, accuracy: 30}});
+
 async function openAtStopA(page) {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);

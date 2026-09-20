@@ -236,7 +236,7 @@ export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;ground:string;s
   sky:{'sky-color':'#a8c4d4','horizon-color':'#f2e6cd','fog-color':'#e9dcc2','sky-horizon-blend':0.5,
    'horizon-fog-blend':0.65,'fog-ground-blend':0.5,'atmosphere-blend':0},
   light:{anchor:'map',color:'#fff4dc',intensity:0.62,position:[1.15,225,50]},
-  pavement:'#cfc0a0',marking:'#f7f1e2',extrusionLow:'#dcc8a2',extrusionHigh:'#b39a72',
+  pavement:'#cfc0a0',marking:'#8f7040',extrusionLow:'#dcc8a2',extrusionHigh:'#b39a72',
   twilight:{'sky-color':'#5b6f8a','horizon-color':'#e6a875','fog-color':'#c9a184','sky-horizon-blend':0.6,
    'horizon-fog-blend':0.7,'fog-ground-blend':0.55,'atmosphere-blend':0}},
  night:{extrusion:'#3c566a',kerb:'#7590a1',ground:'#0b161e',

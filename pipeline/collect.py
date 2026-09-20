@@ -34,6 +34,12 @@ from urllib.parse import urlencode, urlsplit
 from .capture import fetch
 from .core import SERVICE_AREA, parse_source, redact_url
 from .env import load_env
+# The run kinds Operations can be asked to describe. A hosted service run and someone's bounded
+# run on a laptop are different things, and the page says which it is looking at.
+COLLECTOR_KINDS = {
+    'bounded_development': 'bounded development collection',
+    'hosted_service': 'hosted service collection',
+}
 from .freshness import POLL_DEFAULT, POLL_MINIMUM
 from .live import publish_live
 from .warehouse import (DEFAULT_DB, claim_source, close_abandoned_live_runs, connect, finish_run,
@@ -267,9 +273,16 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
     for item in close_abandoned_live_runs(con):
         log({'abandonedRunClosed': item['runId'], 'lastCycleAt': item['lastCycleAt'],
              'cycles': item['cycles'], 'cause': 'not recorded'})
+    # What kind of run this is, stated rather than guessed. It is shown in Operations, so a
+    # collection running as a service on the server must not describe itself as development work.
+    # The systemd unit sets LM_COLLECTOR_KIND; anything started by hand keeps the old default.
+    kind = os.environ.get('LM_COLLECTOR_KIND', '').strip() or 'bounded_development'
+    if kind not in COLLECTOR_KINDS:
+        raise SystemExit(f'LM_COLLECTOR_KIND must be one of {", ".join(sorted(COLLECTOR_KINDS))}; '
+                         f'got {kind!r}.')
     run_id = start_run(con, 'live_capture', is_historical=False,
-                       note=f'bounded development collection, bbox {bbox}, interval {interval}s',
-                       planned_minutes=minutes, collector_kind='bounded_development')
+                       note=f'{COLLECTOR_KINDS[kind]}, bbox {bbox}, interval {interval}s',
+                       planned_minutes=minutes, collector_kind=kind)
     previous_handlers = _install_stop_handlers()
     deadline = clock() + minutes * 60
     cycle = failures = 0
@@ -421,9 +434,13 @@ def main(argv=None):
         return 2
     except (KeyboardInterrupt, CollectorStopped) as stop:
         # Already recorded on the run; say so once, without a traceback.
-        print(json.dumps({'stopped': getattr(stop, 'signal_name', 'SIGINT'),
-                          'recorded': 'interrupted'}), flush=True)
-        return 130
+        name = getattr(stop, 'signal_name', 'SIGINT')
+        print(json.dumps({'stopped': name, 'recorded': 'interrupted'}), flush=True)
+        # A service manager asking us to stop, and us stopping cleanly with the run recorded and
+        # the lock released, is a success: exit 0. Returning 130 for it put the unit into `failed`
+        # after every nightly rebuild, which stopped a real failure standing out from a routine
+        # stop. 130 is the shell's convention for Ctrl-C and is kept for exactly that.
+        return 0 if name in ('SIGTERM', 'SIGHUP') else 130
     print(json.dumps(result, indent=2))
     return 0
 

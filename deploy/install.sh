@@ -56,6 +56,42 @@ if ! grep -Eq '^BODS_API_KEY=.+' /etc/lost-minutes/collector.env; then
   echo "set LM_DOMAIN in /etc/lost-minutes/caddy.env, then run this script again."
   exit 0
 fi
+# A warehouse that has never been built has no stop table and no patterns, and the matcher then
+# refuses every bus with patterns_unavailable. The published JSON that was uploaded does not help:
+# the matcher reads the warehouse, not the files. The nightly timer would fix it at 03:40, so a
+# first deploy would otherwise serve positions with no timetable behind them until the next
+# morning. Both are safe to repeat, and both are skipped once they have been done.
+if ! "$APP/.venv/bin/python" -c "
+import pathlib, sys
+sys.path.insert(0, '$APP')
+from pipeline.warehouse import connect, DEFAULT_DB
+try:
+    con = connect(pathlib.Path('$APP') / DEFAULT_DB)
+    sys.exit(0 if con.execute('select count(*) from stop').fetchone()[0] else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+  echo "First run: importing the stop catalogue (NaPTAN)."
+  runuser -u lostminutes -- "$APP/.venv/bin/python" -m pipeline.stops import
+fi
+
 systemctl enable --now lost-minutes-collector.service lost-minutes-refresh.timer lost-minutes-health.timer
+
+if ! "$APP/.venv/bin/python" -c "
+import pathlib, sys
+sys.path.insert(0, '$APP')
+from pipeline.warehouse import connect, DEFAULT_DB
+try:
+    con = connect(pathlib.Path('$APP') / DEFAULT_DB)
+    sys.exit(0 if con.execute('select count(*) from service_pattern').fetchone()[0] else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null; then
+  echo "First run: building the timetable catalogue. This takes a few minutes and pauses collection."
+  echo "It needs some collected positions to choose which services to build, so if it selects none,"
+  echo "let the collector run for a minute and start lost-minutes-refresh.service again."
+  systemctl start lost-minutes-refresh.service
+fi
+
 echo
 echo "Collecting. Check: systemctl status lost-minutes-collector; journalctl -u lost-minutes-collector -f"

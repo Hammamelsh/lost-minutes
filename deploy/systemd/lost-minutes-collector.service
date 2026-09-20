@@ -12,6 +12,8 @@ WorkingDirectory=/srv/lost-minutes/app
 # The key and the timetable dataset URLs; never in the repository or on a command line.
 EnvironmentFile=/etc/lost-minutes/collector.env
 Environment=PYTHONDONTWRITEBYTECODE=1
+# This is a service on a server, not somebody's bounded run on a laptop, and Operations says so.
+Environment=LM_COLLECTOR_KIND=hosted_service
 # One run per day: each ends cleanly and is recorded, and systemd starts the next. A crash, an
 # out-of-memory kill or a reboot brings collection back the same way, 15 s later.
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.collect --minutes 1440

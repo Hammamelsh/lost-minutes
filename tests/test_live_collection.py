@@ -4,7 +4,9 @@ No network. The feed is replaced by a scripted fake so failures can be exercised
 repeated payloads, out-of-order reports, clock skew, expiry, malformed bodies, upstream
 errors, rejected credentials, overlapping writers and interrupted collection.
 """
+import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -322,6 +324,55 @@ class LiveCollectionTests(unittest.TestCase):
         con.close()
         self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
         self.assertIs(signal.getsignal(signal.SIGTERM), before, 'the previous handler is restored')
+
+    def test_a_service_manager_stop_exits_zero_and_a_ctrl_c_exits_130(self):
+        """A recorded, graceful stop is a success; systemd must not call it a failure.
+
+        Returning 130 for SIGTERM put the unit into `failed` after every nightly rebuild, which
+        left a real failure looking exactly like a routine stop. 130 stays for Ctrl-C, where it
+        is the shell's own convention.
+        """
+        import contextlib
+        from unittest import mock
+        from pipeline import collect as collect_module
+        from pipeline.collect import CollectorStopped
+
+        cases = [(CollectorStopped('SIGTERM'), 0), (CollectorStopped('SIGHUP'), 0),
+                 (CollectorStopped('SIGINT'), 130), (KeyboardInterrupt(), 130)]
+        for raised, expected in cases:
+            with self.subTest(stop=type(raised).__name__ + ':' + str(raised)):
+                with mock.patch.object(collect_module, 'collect', side_effect=raised), \
+                     mock.patch.object(collect_module, 'SingleWriter',
+                                       lambda *a, **k: contextlib.nullcontext()), \
+                     mock.patch.object(sys, 'argv', ['collect', '--minutes', '1']), \
+                     mock.patch.dict(os.environ, {'BODS_API_KEY': 'test-key-never-real'}), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(collect_module.main(), expected)
+
+    def test_the_run_says_whether_it_is_a_service_or_somebody_s_laptop(self):
+        """Operations shows this, so a hosted service must not describe itself as development."""
+        import os as _os
+        from unittest import mock
+        from pipeline.collect import COLLECTOR_KINDS
+
+        self.assertIn('hosted_service', COLLECTOR_KINDS)
+        with mock.patch.dict(_os.environ, {'LM_COLLECTOR_KIND': 'hosted_service'}):
+            self.run_collector([siri_document([bus(at(-30))])], cycles=1)
+        con = self.connect()
+        kind, note = con.execute(
+            'SELECT collector_kind, note FROM pipeline_run ORDER BY started_at DESC LIMIT 1'
+        ).fetchone()
+        con.close()
+        self.assertEqual(kind, 'hosted_service')
+        self.assertIn('hosted service collection', note)
+
+    def test_an_unknown_collector_kind_is_refused_rather_than_recorded(self):
+        import os as _os
+        from unittest import mock
+        with mock.patch.dict(_os.environ, {'LM_COLLECTOR_KIND': 'production-ish'}):
+            with self.assertRaises(SystemExit) as caught:
+                self.run_collector([siri_document([bus(at(-30))])], cycles=1)
+        self.assertIn('LM_COLLECTOR_KIND', str(caught.exception))
 
     # -- publication consistency ------------------------------------------------
     def test_the_published_state_is_validated_and_a_failure_keeps_the_previous_file(self):

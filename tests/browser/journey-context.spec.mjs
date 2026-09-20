@@ -28,8 +28,9 @@ test.describe('with location', () => {
     await page.locator('.service-chip', {hasText: 'Piccadilly Gardens'}).click();
     await page.locator('.waiting .follow-row', {hasText: '3 stops before yours'}).click();
     await expect(pressedRow(page)).toContainText('3 stops before yours');
-    // The address names the vehicle on its journey, so a later journey of the same vehicle is not it.
-    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound');
+    // The address names the vehicle, the journey and the operator's reference for it, so a later
+    // trip of the same vehicle on the same line is not mistaken for this one.
+    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound|FX-FX-COMING');
     const url = new URL(page.url());
     expect(url.searchParams.get('stop')).toBe(STOP_A);
     expect(url.searchParams.get('service')).toBe(MAIN);

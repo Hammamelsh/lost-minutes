@@ -234,12 +234,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const restoredPin=useMemo<Pin|null>(()=>{
   if(mode==='archive'||!initialJourney||initialJourney.source==='offer')return null;
   if(initialJourney.bus)return {bus:initialJourney.bus,via:initialJourney.source==='link'?'link':'device',
-   // A link carries the operator's own journey reference where there was one (busLinkKey), so the
-   // same vehicle's *next* trip on the same line is noticed as a change rather than followed as if
-   // it were the one the link named. An older link, or a journey the operator never referenced,
-   // arrives without one: then the journey is learned from the vehicle's next report rather than
-   // claimed, which is what `journeyKnown:false` means.
-   journeyKnown:initialJourney.source!=='link'||initialJourney.bus.journeyRef!==''};
+   // The journey is known when the link named one: a route and a direction are enough to notice
+   // the vehicle turning up on another service, and `sameJourney` compares the operator's own
+   // journey reference only where both sides carry one. New links carry it (busLinkKey), so the
+   // same vehicle's *next* trip on the same line is a change too; an older four-part link cannot
+   // tell those apart and does not pretend to.
+   journeyKnown:true};
   return initialJourney.busKey?pinFromKey(initialJourney.busKey,'link'):null;
  },[mode,initialJourney]);
  const pin=pinChoice!==undefined?pinChoice:restoredPin;
@@ -248,8 +248,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const loading=live===null&&mode!=='archive'&&mode!=='offline';
  const selection:Selection=loading?{kind:'none'}:resolveSelection(pin,buses,recall??null);
  // A link that named only a vehicle learns its journey when the vehicle is first seen, so a later
- // change of journey is noticed.
- if(selection.kind==='active'&&!selection.pin.journeyKnown)setPinChoice(adoptJourney(selection.pin,selection.bus));
+ // change of journey is noticed. So does an older four-part link, which named the route and the
+ // direction but not the operator's reference for the trip: once the vehicle is seen on that very
+ // route and direction, the trip it is on is the one the link meant, and from then on the pin is
+ // exact and the address it writes carries it.
+ if(selection.kind==='active'&&(!selection.pin.journeyKnown||(!selection.pin.bus.journeyRef&&selection.bus.journeyRef)))
+  setPinChoice(adoptJourney(selection.pin,selection.bus));
  // The suggestion: the first bus coming to your stop, or the latest report on the route, kept
  // while it stays one of them. Only a bus timetabled to call and not yet past is suggested.
  // With no stop chosen, a bus is suggested only where the passenger has pointed at something: a
@@ -591,9 +595,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // Riding or exploring a bus that is not one of this stop's: the bus leads and the stop becomes
  // secondary context (CSS `order`), rather than the page opening with a stop search the passenger
  // has already moved on from. Nothing is unchosen, and the way back is in the card.
- // Only where the bus is definitely not the stop's: one that *may* call on an unsettled branch is
- // still an answer to "what is coming here", and the stop stays in front for it.
- const exploringBus=Boolean(stop&&pinned&&!absent&&(cardStanding==='not_for_stop'||cardStanding==='passed'));
+ // Wherever the page cannot say this bus is coming to the stop: it is not an answer to "what is
+ // coming here", so the bus the passenger chose leads instead. A bus that *may* call on an
+ // unsettled branch is still such an answer, and the stop stays in front for it.
+ const exploringBus=Boolean(stop&&pinned&&!absent&&cardStanding!==null&&cardStanding!=='coming'&&cardStanding!=='maybe');
  return <section className={`follow${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
    <span className="follow-badge">{mode==='offline'?<WifiOff size={13}/>:<Radio size={13}/>}{copy.label}</span>

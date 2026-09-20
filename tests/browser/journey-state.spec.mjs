@@ -32,7 +32,7 @@ test.describe('with location', () => {
     await expect(page.locator('.your-stop')).toContainText('Stop A');
     expect(search(page)).toBe(`?stop=${STOP_A}`);
     await page.locator('.waiting .follow-row', {hasText: '3 stops before yours'}).click();
-    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound');
+    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound|FX-FX-COMING');
     let kept = await stores(page);
     expect(kept.session, 'the tab holds the journey').toContain('FX-COMING');
     expect(kept.local, 'and so does the device').toContain('FX-COMING');
@@ -111,7 +111,7 @@ test.describe('with location', () => {
     await expect(page.locator('.your-stop')).toContainText('Stop E');
     await expect(pressedRow(page)).toContainText('4 stops before yours');
     await expect(page.locator('.restore-notice')).toHaveCount(0);
-    expect(new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound');
+    expect(new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound|FX-FX-COMING');
     // Stop F is on the branch only: the bus does not call there, so it is let go, and the reason said.
     await page.getByRole('button', {name: 'Change'}).click();
     await nearby(page, 'Stop F').click();
@@ -172,14 +172,14 @@ test.describe('with location', () => {
   });
 });
 
-test('a link names a journey, not a vehicle: its filter is shown as a chip, its bus is chosen on that journey, and a filter no service has is said', async ({page}) => {
+test('a link names a journey, not a vehicle: an older four-part link still opens, its filter is a chip, and a filter no service has is said', async ({page}) => {
   await open(page, `/?stop=${STOP_A}&service=${encodeURIComponent(MAIN)}&bus=${encodeURIComponent('BNML|FX-COMING|256|inbound')}`);
   await expect(page.locator('.your-stop')).toContainText('Stop A');
   await expect(page.locator('.service-chip[aria-pressed="true"]')).toContainText('Piccadilly Gardens');
   await expect(page.locator('article.bus-card')).toHaveAttribute('data-selection', 'active', {timeout: 15_000});
   await expect(pressedRow(page)).toContainText('3 stops before yours');
   await expect(page.locator('.restore-notice')).toHaveCount(0);
-  expect(new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound');
+  expect(new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound|FX-FX-COMING');
   // The same vehicle named on a journey it is not on: kept as asked, said so, nothing chosen instead.
   await open(page, `/?stop=${STOP_A}&bus=${encodeURIComponent('BNML|FX-COMING|256|outbound')}`);
   await expect(page.locator('article.bus-card')).toContainText('This bus has started another journey', {timeout: 15_000});

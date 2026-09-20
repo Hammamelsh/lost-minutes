@@ -36,7 +36,30 @@ rewritten (`docs/JOURNEY_STATE.md`).
 - **Compaction.** A chosen bus that is not coming to the stop gets a short card (route, destination,
   "Does not serve your stop", the way back), not the full answer. The walk section is the answer,
   the hand-off and one disclosure; the ways to fix the start are in the open only while the start is
-  missing or in doubt, where the caveat that names them is.
+  missing or in doubt, where the caveat that names them is. On a 360 px phone the stop page is
+  1,818 CSS px tall where the baseline capture was about 2,800.
+- **Deployed as `5701dae`** (RELEASE on the server; collector and health timer active). Checked on
+  the live site in Chromium's phone emulation, REAL data, no physical phone: a fresh `/` stays bare
+  through publications; the Hillingdon Road link applies; a reload keeps the tab's stop with no
+  notice; New journey empties both stores and the address, and a reload brings nothing back; a
+  fresh tab only offers "Continue · Hillingdon Road (opp)", and Continue takes it up. On the served
+  publication of 21:48:45 the only inbound 15 was ten stops past the stop, so the page's "15 to
+  Piccadilly Gardens is timetabled here today, but no bus on it has a current report" was true.
+- **The browser suite, run in full once** (201 passed, 24 skipped, 19 failed on the first build),
+  then every failure re-run on a build with its fix, none failing at the end. Eight of the nineteen
+  predated this milestone and had never been re-run: six `access.spec` checks encoded the
+  location rule from before ba7d995 (the walk guide owns location once a stop is chosen), and two
+  front-view bounds in `ride.spec` encoded the fixed 32 m look-ahead from before 963633a (now 32 m
+  at rest to 80 m at speed, so the zoom reads 19.785 and the eye rests 54.5 m ahead on the fixture).
+  They are restated from the current design, with the reason beside each. Found on the way: "Change"
+  (no stop yet) must be an intermediate history entry that the next stop choice replaces, or Back
+  from a stop lands on nothing; and a link's four-part bus key must not borrow a remembered bus on
+  another journey.
+- **Still open from the brief:** with nothing chosen the home still suggests a bus on an arbitrary
+  route below the fold (the old route-browse mode); the five empty-state kinds other than
+  "filtered" are checked by wording, not in a browser; Google Maps return and backgrounding were
+  exercised as a reload in Chromium, not on a phone; the "Update my location" control folds into
+  the disclosure once the start is confident, which a passenger walking may want in the open.
 
 **20 September, later: the arrival estimate evaluated and not released, and a deployed line
 withdrawn by the evaluation that scored it.** Criteria were written first

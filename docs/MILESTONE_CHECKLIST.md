@@ -491,8 +491,11 @@ Measurements are in `docs/LOCAL_VERIFICATION.md` under the same heading.
 # Milestone checklist: journey state, navigation and the stop board (20 September 2026, evening)
 
 One row per requirement in the owner's brief. FIXTURE evidence uses test data on real stops; LIVE
-names the deployment. Browser checks ran once on the final build (`tests/browser/journey-state.spec`,
-`journey-context.spec`, `walking.spec`), desktop and phone.
+names the deployment (`5701dae`, https://lost-minutes.duckdns.org). The whole browser suite ran once
+on the first build (201 passed, 24 skipped, 19 failed); every failure was re-run on a build carrying
+its fix and passed (`journey-state`, `journey-context`, `journey`, `walking`, `access` and the
+front-view check of `ride`), desktop and phone. Eight of the nineteen predated this milestone
+(PROJECT_CONTEXT, 20 September evening).
 
 | Requirement | Implemented behaviour | Evidence | Status |
 |---|---|---|---|
@@ -510,7 +513,8 @@ names the deployment. Browser checks ran once on the final build (`tests/browser
 | All serving services by default; filters obvious and removable; hidden count stated | Chip with × and "Clear filter" name; "Show all services · N more" under the list; empty state names the filter | spec filter case; screenshot `filter-hides.png` | Done |
 | Distinguish empty states with next actions | five kinds: no reports / filtered / old / feed / no coverage, each with an aside and actions | `emptyKind` in `follow-view.tsx`; spec covers filtered; others by inspection of wording | Partial: only "filtered" browser-checked |
 | Compact hierarchy; non-serving bus not a giant card | Card for a non-serving bus drops motion, walk, claims, schematic and distances | spec: card under 420 px, `not-serving-compact.png` | Done |
-| Walk info compact; keep Update my location, sticky manual origin, Maps by coordinates | Answer, actions row, one disclosure; start controls open only while the start is missing or in doubt | `walking.spec` (all cases, opening the disclosure where the start is confident); `access.spec` one Locate me | Done |
+| Walk info compact; keep Update my location, sticky manual origin, Maps by coordinates | Answer, actions row (route button only with a location, "Google Maps" by coordinates), one disclosure; start controls open only while the start is missing or in doubt | `walking.spec` 18 passed on the final build (opening the disclosure where the start is confident); `access.spec` slow-map offer whole on the first phone screen | Done |
+| Predictable Back after "Change" | Change pushes an entry marked intermediate; the next stop choice replaces it | `journey-state.spec` Back/Back/Forward; reproduction log `outputs/probes/repro/repro-back.mjs` | Done |
 | No "leave in X minutes" | none added | — | Done |
 | No new paid services; collection, watchdog, nightly, rollback untouched | no pipeline or deploy change in this milestone | `git diff --stat` | Done |
 

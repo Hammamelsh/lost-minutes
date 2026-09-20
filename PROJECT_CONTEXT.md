@@ -7,6 +7,24 @@ strictly: **Implemented** exists in the code, **Verified** has an executed check
 Last updated: 20 September 2026 (hosted, and the passenger's two questions answered as far as the data
 allows: "when is my bus due at my stop" and "how long is my walk").
 
+**20 September, later: the arrival estimate evaluated and not released, and a deployed line
+withdrawn by the evaluation that scored it.** Criteria were written first
+(`docs/ARRIVAL_RELEASE_CRITERIA.md`). Ground truth is inferred stop passages — crossings between two
+reports, timed by interpolation, uncertainty half the gap — **4,014 scoreable on route 15 at ±10 s**,
+not "reports within 40 m". Fit on 11–14 Sep, scored once on 17–20 Sep (63,397 moments, 1,436
+passages, two weekdays): the progress baseline reads 0.59 min at 1–2 min ahead and 4.96 at 10–20;
+the delay-adjusted timetable 0.96 and 2.51 on the same moments, at under half the coverage. Median
+and p80 at 2–10 min fail the criteria; **nothing is shown**, and a nightly server unit re-scores on
+the server's own reports. The scheduled comparator's 15-minute error was real: **every inbound
+route-15 schedule is a constant +15 to +17 min early** against its own buses' passages, on all days
+held; the journey key first appears in the feed 14.5 min after its registered departure. The deployed
+"Timetabled at your stop" line was ~16 min early in the passenger's own direction and is now gated per
+pattern on a published **schedule anchor** (inbound 15 withheld, outbound 15 verified, all else
+unchecked and withheld). The "zero risk" claim on shared departures is withdrawn for the precise one:
+all retained candidate journeys agree on the scheduled time, subject to the match and the timetable;
+agreement names a time, not a journey. The controlled comparison on one publication: 117 → 156
+groups named, 0 lost.
+
 **20 September, hosted, and the first day it could be wrong in public.** The site is at
 **https://lost-minutes.duckdns.org**: Hetzner CX23 in Helsinki (€7.19 a month, the CX line being
 out of stock in Falkenstein), Ubuntu 26.04.1, a Let's Encrypt certificate on the first attempt, the

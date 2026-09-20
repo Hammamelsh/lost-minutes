@@ -410,6 +410,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // and eased back to straight ahead on release. Following never stops for it: a passenger turning
  // their head is still on the bus. `down` is the primary pointer's last x while it is held.
  const look=useRef({offset:0,down:null as number|null,lastT:0});
+ // The frame loop parks when nothing is left to draw (line ~1024: it re-arms only while `more`).
+ // A held head-turn on a standing bus draws nothing new, so the loop idled and the turn was never
+ // painted; measured 20 September: listener attached and firing, attribute stale. The pointer
+ // handlers wake it through this ref, since kick() is defined after the effect that registers them.
+ const wake=useRef<()=>void>(()=>{});
  useEffect(()=>{pickRef.current=pickingOrigin&&onPickOrigin?onPickOrigin:null;
   const canvas=map.current?.getCanvas();if(canvas)canvas.style.cursor=pickingOrigin?'crosshair':'';},[pickingOrigin,onPickOrigin]);
  const hudRef=useRef<HTMLDivElement>(null),launchRef=useRef<HTMLButtonElement>(null),lastView=useRef(view);
@@ -641,19 +646,22 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    // interrupted one's end would otherwise swallow the drag. A tap that moves nothing finishes
    // the glide quickly instead of stranding the passenger mid-way.
    const canvasBox=instance.getCanvasContainer();
-   const lookDown=(e:PointerEvent)=>{if(e.isPrimary&&ride.current.camera==='front'&&ride.current.state==='following')look.current.down=e.clientX};
+   const lookDown=(e:PointerEvent)=>{
+    if(e.isPrimary&&ride.current.camera==='front'&&ride.current.state==='following'){look.current.down=e.clientX;wake.current()}
+   };
+   const lookCancel=(e:PointerEvent)=>{if(e.isPrimary){look.current.down=null;wake.current()}};
    const lookMove=(e:PointerEvent)=>{
     const lk=look.current;if(lk.down===null||!e.isPrimary)return;
     // A full width of drag turns the head 160°; clamped so the passenger cannot look backwards through the seat.
     lk.offset=Math.max(-150,Math.min(150,lk.offset+(e.clientX-lk.down)/Math.max(1,canvasBox.clientWidth)*160));
-    lk.down=e.clientX;
+    lk.down=e.clientX;wake.current();
    };
-   const lookUp=(e:PointerEvent)=>{if(e.isPrimary)look.current.down=null};
-   // Capture phase: the canvas beneath handles pointer events itself and does not let them
-   // bubble, so a bubbling listener on its container never heard the drag (measured on
-   // 20 September: offset 0, pointer 'up', while the mouse was held).
-   canvasBox.addEventListener('pointerdown',lookDown,true);canvasBox.addEventListener('pointermove',lookMove,true);
-   canvasBox.addEventListener('pointerup',lookUp,true);canvasBox.addEventListener('pointercancel',lookUp,true);
+   const lookUp=(e:PointerEvent)=>{if(e.isPrimary){look.current.down=null;wake.current()}};
+   // On our own element, the map's container, in the capture phase, so nothing MapLibre does on
+   // its own container can precede it.
+   const lookHost=container.current;
+   lookHost.addEventListener('pointerdown',lookDown,true);lookHost.addEventListener('pointermove',lookMove,true);
+   lookHost.addEventListener('pointerup',lookUp,true);lookHost.addEventListener('pointercancel',lookCancel,true);
    const pointerDown=()=>{
     const r=ride.current;
     if(viewRef.current!=='ride')return;
@@ -999,6 +1007,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // Diagnostics a few times a second, and always on the last frame before the loop rests, so a
   // bus that has just come to a stand is described as it is.
   const more=needsFrames(e,v);
+  // A held or easing head-turn is something left to draw.
+  const headTurnLive=look.current.down!==null||look.current.offset!==0;
   if(!more||t-state.lastDiag>=200){
    state.lastDiag=t;
    diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]),medianGap(state.gaps));
@@ -1009,7 +1019,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that
   // it is eased away on time rather than leaping off.
-  if(more)state.raf=requestAnimationFrame(tick);
+  if(more||headTurnLive)state.raf=requestAnimationFrame(tick);
   else if(e.held&&e.resumeAt&&resumeTimer.current?.at!==e.resumeAt){
    if(resumeTimer.current)clearTimeout(resumeTimer.current.timer);
    const at=e.resumeAt;
@@ -1018,6 +1028,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   }
  },[]);
  const kick=useCallback(()=>{if(loop.current.raf===null)loop.current.raf=requestAnimationFrame(frame)},[frame]);
+ useEffect(()=>{wake.current=kick},[kick]);
  // Coming back from the engineering area, the drawing starts again from where the estimate is now.
  // Keeping the old drawn position would make the bus creep across everything it "missed" while
  // nobody was looking, which is a correction of a gap rather than of a report.

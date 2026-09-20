@@ -55,6 +55,53 @@ for an estimator exists — **2,025 (journey, stop) pairs** with a report within
 route-15 journeys — and the estimator with its held-out evaluation is the next step. Browser check:
 **4 of 4 pass, desktop and phone, FIXTURE** — the time renders as 06:53 from a 06:49 departure plus 247 s, labelled not a prediction, the journey named in the evidence; a bus already past the stop shows no time.
 
+**The arrival estimate: built, evaluated, and not released — by criteria fixed before the numbers.**
+`docs/ARRIVAL_RELEASE_CRITERIA.md` was written first. Ground truth is **inferred stop passages** — a
+crossing between two reports, timed by interpolation, uncertainty half the gap, scoreable only under
+60 s and first visit: **4,014 on route 15, median gap 21 s (±10 s)**, against 3,932 within-40 m pairs
+on the same journeys, which were never arrivals. Fit on 11–14 Sep; **scored once on 17–20 Sep:
+63,397 moments, 44 journeys, 1,436 passages, two weekdays.** Only reports at or before each moment
+were used; nothing from the drawing.
+
+| Horizon | Moments | Progress baseline median / p80 / p90 (min) | Delay-adjusted timetable median / p80 (coverage) |
+|---|---|---|---|
+| 1-2 min | 4,237 | 0.59 / 1.50 / 2.43 | 0.96 / 2.03 (48%) |
+| 2-5 min | 12,025 | 1.36 / 3.31 / 5.55 | 1.54 / 2.82 (48%) |
+| 5-10 min | 18,275 | 2.69 / 5.87 / 10.36 | 2.13 / 4.05 (46%) |
+| 10-20 min | 28,860 | 4.96 / 10.06 / 17.38 | 2.51 / 5.92 (43%) |
+
+At the release band (2–10 min) the progress baseline reads **median 2.08, p80 4.84**
+against thresholds of 1.5 and 3.0: **two of six criteria fail; not released.** Weekday alone:
+median 2.09, p80 4.85. At Hillingdon Road (opp): median 1.97, p80 2.85 on 334 moments.
+**The better approach, with evidence:** beyond five minutes the **delay-adjusted timetable** beats the
+progress baseline (2.13 vs 2.69 at 5–10; 2.51 vs 4.96 at 10–20) but covers under half of moments and
+misses the p80 bar. The next estimator should be that, corrected by observed progress near the stop.
+**Nothing is shown to a passenger.** A nightly unit on the server (`lost-minutes-arrival-eval`, after
+the timetable rebuild, collector paused) infers passages and re-scores on the server's own reports,
+so weekday evidence accumulates under `data/` where no page reads it. **What is missing:** more
+weekday journeys at peak — the held-out set has two weekdays — and the delay-adjusted method
+implemented as the candidate.
+
+**What the evaluation found about the line already deployed.** The scheduled comparator read
+~15 min of error, and it was not the comparator: **every inbound route-15 journey's schedule is a
+constant +15 to +17 min early from stop 0 to stop 39**, on all days held; outbound drifts +2 → +8
+in the ordinary way. The inbound journey key first appears in the feed a median **14.5 min after**
+its registered departure, standing at the origin, with no report in between; the registration holds
+no `WaitTime` at all. So the feed's origin departure and the registration's do not name the same
+moment for inbound, and the deployed "Timetabled at your stop" line was **~16 min early for every
+inbound 15 — the passenger's own direction.** It is now gated per pattern on a **schedule anchor**
+(`schedule-anchor.json`): verified only where inferred passages at the first ten stops put the
+schedule within 3 min on ≥ 20 passages. Inbound 15 withheld (+15.4 min, 290 passages); outbound 15
+verified (+2.3, 133); every other pattern unchecked and withheld. Live on the site.
+
+**Head-turn in the street preview:** a one-finger drag turns the head (160° per canvas width, clamped
+at 150°), following never stops, and the view eases back to the road ahead on release. **Browser-tested,
+2 of 2, desktop and phone, on a standing bus** — the hardest case, because the frame loop parks when
+nothing is left to draw and a held turn on a standing bus draws nothing new; the handlers now wake
+the loop and keep it running while a turn is held or easing. Six builds to find that; the listener
+was attached and firing throughout, and the attribute the test read was simply stale. Physical-phone
+check is additional.
+
 **Front view at Hillingdon Road (opp), traced.** Two inbound 15 variants serve the stop to the same
 destination: the 140-journey pattern (accepted shape) and a 5-journey Mon–Sat short working (shape
 rejected, 0 reports). On a weekday the bus is left unresolved and an unresolved bus had no road. The

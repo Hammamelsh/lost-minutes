@@ -1126,3 +1126,90 @@ where the next unit is written.
 restart during it. **Status:** fixed and re-tested against a hand-started rebuild twice; the
 unattended run is still to come.
 
+## 31. A passenger-facing number that no evaluation had ever scored
+
+**Problem and evidence.** "Timetabled at your stop 07:11" went live on 20 September as the feed's
+origin departure plus the timetable's link run times. It was reasoned, tested at the unit and
+browser level, and deployed. The first held-out evaluation of anything against inferred stop
+passages (`scripts/evaluate-arrival.py`) found it **a constant +15 to +17 minutes early for every
+inbound route-15 journey** on every day held, while outbound was within two minutes. The cause is
+upstream and invisible to the page: the inbound journey key first appears in the feed a median
+14.5 min after its registered departure, and the registration holds no `WaitTime` at all
+(`git log 02419ee`). Nothing in the unit or browser tests could have caught it, because they
+check the arithmetic, not the premise that the feed's clock and the timetable's clock start at
+the same place.
+
+**Who hits it, and the current workaround.** Any time a published figure is derived from two
+sources whose alignment is assumed. The workaround now is the schedule anchor: a per-pattern
+check of that alignment against the service's own reports, published with the site, gating the
+line exactly as `motion-evaluation.json` gates estimates. Patterns not checked are withheld.
+
+**Recurrence and effort.** One instance, found the same day, on the passenger's own direction.
+About two hours from first suspicious number to withdrawal on the live site.
+
+**Right answer.** A rule, plus the script that already exists: **no figure that depends on
+aligning two sources is shown until that alignment has been measured on held data for that
+service**, and the measurement is republished nightly. The nightly `lost-minutes-arrival-eval`
+unit does the measuring; what is missing is that the anchor file is still built locally and
+shipped, rather than produced on the server from the server's own reports and read from there.
+
+**Existing tools.** None needed beyond `scripts/schedule-anchor.py` and the systemd timer.
+
+**Smallest reusable capability.** Move the anchor's production onto the server (it is one more
+`ExecStart` line) and have the page read the server's file. Then a service whose alignment
+drifts is withdrawn the next morning without anyone noticing it first.
+
+**Next cheap validation.** After the first unattended nightly run, diff the server-built anchor
+against the local one for route 15. **Status:** the gate is live and the local anchor is shipped;
+the server-built anchor is written to `data/evaluation/` but not yet the one the page reads.
+
+## 32. An estimator whose baseline beats it past five minutes, and criteria that were written first
+
+**Problem and evidence.** The progress baseline (remaining road at observed speed) scored median
+0.59 min at 1–2 min ahead and 4.96 min at 10–20; the delay-adjusted timetable scored 0.96 and
+2.51 on the same moments. Criteria fixed before the run (`docs/ARRIVAL_RELEASE_CRITERIA.md`) failed
+on median and p80 at 2–10 min, so nothing shipped. The better method covers under half of moments
+because it needs a named journey and a passage already behind the bus.
+
+**Who hits it, and the current workaround.** The next person to build the estimator. The
+workaround is the record: the evaluation JSON, the scripts, and the nightly re-scoring.
+
+**Recurrence and effort.** First evaluation. The scripts run in about four minutes locally.
+
+**Right answer.** Implement the delay-adjusted timetable as the candidate, corrected by observed
+progress inside the last two minutes where the progress method wins, and re-run against the same
+criteria on the nightly-accumulated weekday passages. Do not lower the criteria.
+
+**Existing tools.** The evaluator and the passage audit. **Smallest reusable capability.** The
+evaluator already takes a method as a function; adding one is twenty lines.
+
+**Next cheap validation.** A week of unattended nightly runs, then the blended method scored on
+those days. **Status:** evaluated, not released, running nightly.
+
+## 33. Six builds to find that a listener was on the wrong element
+
+**Problem and evidence.** The street preview's head-turn drag did nothing. Each hypothesis
+(a pause on held pointers; the listener's phase; a `pointercancel`; the gate's values) cost a
+build and a browser run of about four minutes, and each was refuted by the next run's evidence.
+The question that would have settled it first — *is the element this listener is on the element
+in the page now?* — was only asked on the sixth build.
+
+**Who hits it, and the current workaround.** Anyone attaching DOM listeners to a library's
+internal elements from a React effect. The workaround was a spec-only probe that dispatched a
+synthetic event, which needs no build and settled "attachment versus delivery" in one minute.
+
+**Recurrence and effort.** One instance; about half an hour of builds that a first probe would
+have saved.
+
+**Right answer.** A habit and one helper: before theorising about why a listener does not fire,
+dispatch a synthetic event at the target from a spec and read a counter. `data-look` now carries
+its counters and its element identity permanently, so the next such question costs one run.
+
+**Existing tools.** Playwright `page.evaluate` with `dispatchEvent`. **Smallest reusable
+capability.** A `tests/browser/probe-listener.mjs` helper. **Next cheap validation.** None
+needed; recorded so the habit sticks. **Status:** resolved. The listener was attached and firing on
+every build; the frame loop re-arms only while there is more to draw, and a held head-turn on a
+standing bus drew nothing new, so no frame ever wrote the attribute the test read. The handlers now
+wake the loop. The decisive probe was CDP's `DOMDebugger.getEventListeners`, which showed the
+listeners in place and forced the question onto what happens *after* they run.
+

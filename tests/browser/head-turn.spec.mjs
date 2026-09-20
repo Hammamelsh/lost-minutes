@@ -34,7 +34,7 @@ test('a drag in the street preview turns the head, keeps following, and eases ba
   const held = await bearing(page);
   const look = await map(page).getAttribute('data-look');
   await expect(map(page), 'a head-turn is not exploring: following continues').toHaveAttribute('data-ride', 'following');
-  expect(Math.abs(turn(ahead, held)), `turned by ${turn(ahead, held).toFixed(0)}° (data-look=${look})`).toBeGreaterThan(25);
+  expect(Math.abs(turn(ahead, held)), `turned by ${turn(ahead, held).toFixed(0)}° `).toBeGreaterThan(25);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-head-turn-held.png`)});
 
   // Release: the view eases back to the road ahead within a couple of seconds.

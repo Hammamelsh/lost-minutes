@@ -46,9 +46,10 @@ def main():
     ap.add_argument('--line', default='15')
     ap.add_argument('--operator', default='BNML')
     ap.add_argument('--db', default=None, help='a warehouse file to read instead of the live one, e.g. a snapshot')
+    ap.add_argument('--passages', default=None, help='the passages file to judge against (default data/evaluation/passages-<line>.json)')
     ap.add_argument('--out', default=str(ROOT / 'public/data/schedule-anchor.json'))
     a = ap.parse_args()
-    passages, patterns, dep_info, reports = ev.load_everything(a.line, a.operator, a.db)
+    passages, patterns, dep_info, reports = ev.load_everything(a.line, a.operator, a.db, a.passages)
     errors = defaultdict(list)
     days = defaultdict(set)
     for p in passages:

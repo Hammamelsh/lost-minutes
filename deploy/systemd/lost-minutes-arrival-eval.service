@@ -19,7 +19,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # step before the restart failed. Nothing here reaches a passenger: results go under data/.
 ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15 --db data/evaluation/snapshot.duckdb --out data/evaluation/passages-15-server.json
 ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --params scripts/arrival-params-frozen.json --candidate blended --label nightly
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --db data/evaluation/snapshot.duckdb --out data/evaluation/schedule-anchor-server.json
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --out data/evaluation/schedule-anchor-server.json
 # Pool every night so far and read the criteria per direction; the page reads the verdict.
 ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/arrival-release-check.py --out public/data/arrival-release.json
 TimeoutStartSec=20min

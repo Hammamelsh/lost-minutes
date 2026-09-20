@@ -32,7 +32,27 @@ Positions older than 15 minutes are withheld rather than drawn (`pipeline/freshn
 **3,498 active bus stops** (NaPTAN ATCO area 180) with indicator, street and, where NaPTAN has
 one, the direction of travel.
 
-**Timetables: three TfGM TransXChange datasets** (BNML, BNSM, BNFM). The catalogue published on
+**Timetables: four TfGM TransXChange datasets**, one per operator group. Their identities were
+established rather than assumed, on 20 September 2026, because **BNFM's dataset was in the published
+catalogue but in no configuration file**: its snapshot had been downloaded on 12 September under a
+URL later dropped from `.env`, and survived only because the capture store is content-addressed and
+never deletes. A fresh server would have rebuilt without it and said nothing — 10 patterns of 576,
+far above the refusal guard's half-the-previous-size floor. BODS lists six TfGM datasets whose NOC
+lists are identical, so the NOC field cannot tell them apart; sizing the downloads found one at
+exactly 618,610 bytes, and its SHA-256 matched the stored snapshot's content-addressed name
+character for character. **BNFM is dataset 14241**, and all four now sit in `.env` and in
+`deploy/collector.env.example`:
+
+| Dataset | Group | Download |
+|---|---|---|
+| 17472 | BNML | 11.6 MB |
+| 14928 | BNSM | 10.0 MB |
+| 12769 | BNGN | 4.4 MB |
+| **14241** | **BNFM** | **0.6 MB** |
+
+Two further TfGM datasets are published and unused — **12739** (3.7 MB) and **16596** (0.3 MB).
+Whether either carries services currently refused, among them the **BNML 38** anomaly, is **not yet
+checked**. The catalogue published on
 17 September read 575 service files — every file whose declared validity touches the fortnight
 from the build day — and rejected 538 that had already expired. It published **524 patterns
 across 157 services**, selected from the 163 observed services for which a valid file is held.

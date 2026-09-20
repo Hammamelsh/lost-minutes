@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Set up (or bring up to date) a Debian 12 or Ubuntu 24.04 server for Lost Minutes. Repeatable.
+# Set up (or bring up to date) a Debian 12 or Ubuntu 24.04/26.04 server for Lost Minutes. Repeatable.
+# 26.04 (resolute) was checked on the real server on 20 September 2026: python3-venv resolves to
+# python3.14-venv, and Caddy's apt source is any-version rather than codename-keyed.
 #
 #   sudo bash /srv/lost-minutes/app/deploy/install.sh
 #

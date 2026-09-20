@@ -86,13 +86,34 @@ Why 4 GB and not something smaller: the nightly timetable rebuild peaks at **853
 artefact, not the application; the unit pins the thread count so the figure travels.) A 1 GB machine
 still cannot run the rebuild.
 
+### Done — 20 September 2026
+
+**`ubuntu-4gb-hel1-1`, CX23, Helsinki, €7.19 a month, IPv4 `204.168.246.33`.** Ubuntu **26.04.1
+LTS** was kept rather than 24.04, and the two things that could have broken were checked on the
+machine itself rather than predicted:
+
+- **`python3-venv` resolves** to `python3.14-venv 3.14.4` on `resolute`, simulated with
+  `apt-get install -s` over the exact line `install.sh` runs. (A first look said "no candidate",
+  which was my error: the fresh image's package index had not been refreshed. `install.sh` runs
+  `apt-get update` before it installs, so it never sees that state.)
+- **Caddy's apt source is `any-version`**, not keyed to a codename, and its signing key fetches and
+  dearmors on the server.
+
+The predicted Python parity held exactly: **3.14.4 on the server, 3.14.4 on the development
+machine.** The machine reports **2 cores**, which is the thread count `LM_DB_THREADS=2` and the
+376 MB collector measurement were both taken at, and 3,814 MB of RAM against the rebuild's 853 MB
+peak.
+
+Its reverse DNS is `static.33.246.168.204.clients.your-server.de` — the Hetzner name that step 2
+explains must **not** be used for the certificate.
+
 ## Yours — step 2: a free subdomain, pointed at that server
 
 Two minutes, no payment. <https://www.duckdns.org> signs in with an account you already have
 (GitHub, Google, Reddit or Twitter), then:
 
 1. choose a name — `lost-minutes.duckdns.org` if it is free;
-2. paste the server's IPv4 into the **current ip** box and press **update ip**.
+2. paste **`204.168.246.33`** into the **current ip** box and press **update ip**.
 
 The IP is static, so this is a one-off; nothing needs to keep it up to date.
 
@@ -114,7 +135,7 @@ whichever address people first use; moving later loses them.
 first time and asks for it; you put it in place yourself, then the same command again starts it:
 
 ```bash
-ssh deploy@<host>
+ssh lost-minutes                               # the alias below; deploy@204.168.246.33
 sudo install -d -m 700 /etc/lost-minutes
 sudo nano /etc/lost-minutes/collector.env      # BODS_API_KEY=… and BODS_TIMETABLE_URL=…
 sudo chmod 600 /etc/lost-minutes/collector.env
@@ -127,7 +148,18 @@ your local `.env`.
 
 ## Mine — everything else
 
-Tell me the hostname and the sudo user, and:
+**Done on 20 September 2026, before any of it could fail halfway:**
+
+- **The `deploy` user exists.** `publish.sh` and this runbook both address `deploy@your-server`, and
+  `install.sh` creates only the `lostminutes` *system* account, which has `nologin` — so the user
+  every document assumed simply was not there. It is now, holding the same SSH key.
+- **Its sudo is passwordless**, because `publish.sh` runs `sudo` through a **non-interactive** SSH
+  session (`ssh "$TARGET" 'sudo mkdir -p …'`), which cannot answer a password prompt. Verified by
+  running that exact sequence: it creates `/srv/lost-minutes/app` and chowns it.
+- **An `ssh lost-minutes` alias** on the development machine, pinned to `~/.ssh/lost-minutes` with
+  `IdentitiesOnly`, so the GitHub key is never offered to this host.
+
+Then:
 
 ```bash
 deploy/publish.sh deploy@<host>                                  # build here, upload, keep the

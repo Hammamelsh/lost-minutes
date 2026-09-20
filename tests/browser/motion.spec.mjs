@@ -4,7 +4,7 @@
 // data-camera, data-correction), sampled while the page receives several publications, so
 // continuity, zoom and turning are measured rather than assumed. Screenshots are FIXTURES.
 import {test, expect} from '@playwright/test';
-import {movingLive, servePatterns, serveLive, serveMotion, waitForPaint} from './fixtures.mjs';
+import {movingLive, servePatterns, serveLive, serveMotion, waitForPaint, FIXTURE_TRACK_LENGTH, FIXTURE_BRANCH_LEAVES_AT} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -167,11 +167,45 @@ test('a bus on an unsettled branch stays usable at its reports, with the reason'
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
-  await expect(map(page)).toHaveAttribute('data-motion-reason', /branch is not settled/);
+  // With no geometry built for the branch there is nothing to compare, and it says so.
+  await expect(map(page)).toHaveAttribute('data-motion-reason', /branch is not settled, and not every candidate has road geometry/);
   await expect(page.locator('.bus-card-motion')).toContainText('Last reported position');
   // Choosing another bus is a new drawing: nothing is said to have moved between the two.
   await expect(map(page)).toHaveAttribute('data-correction', 'none');
   await expect(page.locator('.bus-card-motion')).not.toContainText('moved');
+});
+
+// Two candidates, one road checked against reports, the other's geometry built but never accepted
+// and measured to coincide for the first 60% of the way. Which journey the bus is on stays
+// unsettled throughout; only where the roads are the same is anything drawn on a road.
+test.describe('an unsettled bus on road its candidates are measured to share', () => {
+  test('is estimated on that road, the ambiguity kept, while all of its look-ahead is shared', async ({page}) => {
+    test.setTimeout(90_000);
+    // Well inside the shared 60%: a look-ahead of 542 m (17 m/s × 30 s + 32 m) stays shared.
+    const s = FIXTURE_TRACK_LENGTH * 0.3;
+    await openAtStopA(page, {sharedAt: s}, {branch: 'shared-until'});
+    await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
+    // data-motion-reason carries the estimator's state when it is estimating ("moving along its
+    // route", "standing at its last reports") and the refusal when it is not. Asserting the
+    // reason first makes a refusal read as a diagnosis rather than a timeout.
+    await expect.poll(() => map(page).getAttribute('data-motion-reason'), {timeout: 20_000,
+      message: 'an estimate on shared road, not a refusal'}).toMatch(/moving along its route|standing at its last reports/);
+    await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+    await expect(page.locator('.bus-card')).toContainText(/every possible branch|not settled|may be coming/i);
+    await expect(page.locator('.bus-card')).not.toContainText('FX:256:main', 'no candidate is named as the answer');
+    await expect(page.locator('.your-bus-strip, .bus-card')).toContainText(/estimated/i);
+  });
+
+  test('is left at its report where the roads part within its look-ahead, and says why', async ({page}) => {
+    test.setTimeout(90_000);
+    // 200 m short of where the branch leaves: the road ahead depends on which journey it is.
+    const s = FIXTURE_TRACK_LENGTH * FIXTURE_BRANCH_LEAVES_AT - 200;
+    await openAtStopA(page, {sharedAt: s}, {branch: 'shared-until'});
+    await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
+    await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+    await expect(map(page)).toHaveAttribute('data-motion-reason', /only known to coincide further on/);
+    await expect(page.locator('.bus-card-motion')).toContainText('Last reported position');
+  });
 });
 
 test('without a published evaluation, nothing is estimated', async ({page}) => {

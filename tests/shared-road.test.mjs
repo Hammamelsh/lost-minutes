@@ -52,13 +52,32 @@ test('a bus is on shared road only if its whole look-ahead is too',()=>{
  assert.equal(withinSharedRoad([],500,500),false,'no shared road at all');
 });
 
-test('the measured route 15 case: a bus approaching Hillingdon Road is on shared road; one in the first 395 m is not',()=>{
- // The measurement of 20 September 2026: shared run 395 to 13,626 m of the accepted 15 inbound
- // shape; Hillingdon Road (opp) at 8,715 m; look-ahead 542 m (17 m/s × 30 s + 32 m).
- const shared=[{from:395,to:13626}];
+test('the measured route 15 case: a bus approaching Hillingdon Road is on shared road; one in the first 387 m is not',()=>{
+ // Measured on 20 September 2026 with this function over the two published shapes: the shared
+ // run is 387 to 13,611 m of the accepted 15 inbound shape (an earlier projection the other way
+ // gave 395 to 13,626; the difference is which track's vertices are walked). Hillingdon Road
+ // (opp) is at 8,715 m; look-ahead 542 m (17 m/s × 30 s + 32 m).
+ const shared=[{from:387,to:13611}];
  const LOOK=17*30+32;
  assert.equal(withinSharedRoad(shared,8715-2000,LOOK),true,'2 km before the stop');
  assert.equal(withinSharedRoad(shared,8715-300,LOOK),true,'300 m before the stop');
- assert.equal(withinSharedRoad(shared,100,LOOK),false,'in the unshared first 395 m');
- assert.equal(withinSharedRoad(shared,13626-100,LOOK),false,'within a look-ahead of the end');
+ assert.equal(withinSharedRoad(shared,100,LOOK),false,'in the unshared first 387 m');
+ assert.equal(withinSharedRoad(shared,13611-100,LOOK),false,'within a look-ahead of the end');
 });
+
+test('a road drawn with long straight segments is still one shared run, not pieces',()=>{
+ // Vertices 150 m apart: the first version bridged hits only within 60 m and broke this into
+ // fragments too short to hold a 542 m look-ahead. The fixture road has a 136 m straight.
+ const sparse=makeTrack('sparse',straight(3000,150));
+ const twin=makeTrack('twin',straight(3000,150));
+ const runs=sharedRoad(sparse,[twin]);
+ assert.equal(runs.length,1,JSON.stringify(runs));
+ assert.ok(runs[0].to-runs[0].from>=2900,`one run over the length, got ${JSON.stringify(runs)}`);
+ assert.equal(withinSharedRoad(runs,792,542),true,'a bus a third of the way along, looking 542 m ahead');
+ // And a dense candidate against a sparse accepted track, the fixture's real shape.
+ const dense=makeTrack('dense',straight(3000,20));
+ const mixed=sharedRoad(sparse,[dense]);
+ assert.equal(mixed.length,1);
+ assert.ok(mixed[0].to-mixed[0].from>=2900);
+});
+

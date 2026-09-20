@@ -88,35 +88,32 @@ export type SharedRoad={from:number;to:number}[];
  */
 export function sharedRoad(accepted:Track,others:Track[],toleranceMetres=10):SharedRoad{
  if(!others.length)return [{from:0,to:accepted.length}];
- // Offsets on the accepted track that each other candidate reaches within tolerance.
- const reached:number[][]=others.map(other=>{
-  const hits:number[]=[];
-  let near:number|undefined;
-  for(const point of other.points){
-   const at={lat:point[1],lon:point[0]};
-   const projection=project(accepted,at,near);
-   // Projection.s is metres along the track; Projection.offset is the distance off it.
-   if(projection.offset<=toleranceMetres){hits.push(projection.s);near=projection.s}
+ // Walk the accepted track's own vertices: each is shared road if every other candidate's road
+ // passes within tolerance of it. Runs are contiguous vertices, so the result needs no guess at
+ // how far apart hits may be. The first version projected the *other* shapes onto this one and
+ // bridged hits within 60 m; a road with a 136 m straight then fell into pieces, none long
+ // enough to hold a look-ahead, and a bus plainly on shared road was refused. Testing this
+ // track's vertices instead makes a long straight one segment, as it is.
+ const near:(number|undefined)[]=others.map(()=>undefined);
+ const sharedAt=(i:number)=>{
+  const at={lat:accepted.points[i][1],lon:accepted.points[i][0]};
+  for(let k=0;k<others.length;k++){
+   const projection=project(others[k],at,near[k]);
+   if(projection.offset>toleranceMetres)return false;
+   near[k]=projection.s;
   }
-  return hits.sort((a,b)=>a-b);
- });
- // A run is shared only where every other candidate reaches it. Runs are built from the
- // sparsest candidate's hits and then trimmed to what the others also cover.
- const gap=Math.max(60,accepted.length/Math.max(1,Math.min(...others.map(o=>o.points.length)))*3);
- const runsOf=(hits:number[])=>{
-  const runs:SharedRoad=[];
-  for(const h of hits){
-   const last=runs[runs.length-1];
-   if(last&&h-last.to<=gap)last.to=h;else runs.push({from:h,to:h});
-  }
-  return runs;
+  return true;
  };
- let runs=runsOf(reached[0]);
- for(const hits of reached.slice(1)){
-  const theirs=runsOf(hits);
-  runs=runs.flatMap(r=>theirs.map(t=>({from:Math.max(r.from,t.from),to:Math.min(r.to,t.to)})).filter(x=>x.to>x.from));
+ const runs:SharedRoad=[];
+ let open:{from:number;to:number}|null=null;
+ for(let i=0;i<accepted.points.length;i++){
+  const s=accepted.cum[i];
+  if(sharedAt(i)){
+   if(open)open.to=s;else open={from:s,to:s};
+  }else if(open){runs.push(open);open=null}
  }
- return runs;
+ if(open)runs.push(open);
+ return runs.filter(r=>r.to>r.from);
 }
 
 /** Whether a bus at `offset` metres, and the road `lookAheadMetres` beyond it, is all shared. */

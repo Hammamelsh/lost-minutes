@@ -174,6 +174,9 @@ export const FX = {
          ['1800SJ00101', 53.44888, -2.30404], ['1800SJ00111', 53.45021, -2.30272],
          ['1800SJ00121', 53.45303, -2.30002]],
   metres: [0, 209, 434, 657, 910, 1198, 1496, 1817, 2111, 2283, 2644],
+  // Scheduled seconds from the first stop, as a timetable's RunTimes would give: about 8 m/s
+  // between stops plus a 10 s call at each. Stop A (index 4) is 154 s in.
+  seconds: [0, 36, 74, 112, 154, 200, 247, 297, 344, 375, 430],
   branchTail: ['1800SJ00091', '1800SJ00431', '1800SJ00891'],
   stopA: '1800SJ00811', stopE: '1800SJ00081',
 };
@@ -187,7 +190,7 @@ export function fixtureCatalogue() {
   const mainStops = FX.main.map(s => s[0]);
   const branchStops = [...mainStops.slice(0, 7), ...FX.branchTail];
   const main = {...common, id: 'FX:256:main', destination: 'Piccadilly Gardens', stops: mainStops,
-                metres: FX.metres, stopCount: mainStops.length, stopsInArea: mainStops.length, lengthMetres: 2644};
+                metres: FX.metres, seconds: FX.seconds, stopCount: mainStops.length, stopsInArea: mainStops.length, lengthMetres: 2644};
   const branch = {...common, id: 'FX:256:branch', destination: 'Chester Road (fixture branch)',
                   stops: branchStops, metres: [...FX.metres.slice(0, 7), 1800, 2150, 2600],
                   stopCount: branchStops.length, stopsInArea: branchStops.length, lengthMetres: 2600};
@@ -220,7 +223,9 @@ export function journeyLive({nowMs = Date.now(), omit = [], publishedAgoSeconds 
       bearing, bearingStatus: bearing === null ? 'absent' : 'reported', aimedDeparture: null, match};
   };
   const vehicles = [
-    vehicle('FX-COMING', {position: at(3), bearing: 135, age: 14, match: matched(3)}),
+    // On one named scheduled journey: the 06:49 departure, the only one at that time.
+    vehicle('FX-COMING', {position: at(3), bearing: 135, age: 14,
+      match: matched(3, {scheduled: {departure: '06:49:00', journeys: 1, serviceDay: '2026-09-13'}})}),
     vehicle('FX-SHARED', {destination: '', position: at(4), bearing: 150, age: 22, match: {
       unresolved: 'ambiguous_branch',
       explanation: 'More than one branch of this route fits the position, so which one the bus is on cannot be settled from the position alone.',
@@ -271,6 +276,34 @@ const TRACK = (() => {
 })();
 export const FIXTURE_TRACK_LENGTH = TRACK.length;
 
+/** Google's encoded polyline at precision 6: the inverse of decodePolyline6, for served fixtures. */
+function encodePolyline6(points) {
+  let out = '', lastLat = 0, lastLon = 0;
+  const chunk = value => {
+    let v = value < 0 ? ~(value << 1) : value << 1;
+    while (v >= 0x20) { out += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; }
+    out += String.fromCharCode(v + 63);
+  };
+  for (const [lon, lat] of points) {
+    const la = Math.round(lat * 1e6), lo = Math.round(lon * 1e6);
+    chunk(la - lastLat); chunk(lo - lastLon); lastLat = la; lastLon = lo;
+  }
+  return out;
+}
+
+/** Where the fixture's branch road leaves the main road, as a share of the main road's length. */
+export const FIXTURE_BRANCH_LEAVES_AT = 0.6;
+
+/**
+ * A FIXTURE branch shape: the main road for the first 60% of its length, then the same
+ * heading 60 m to the north — a different street that a stop list alone could never reveal.
+ */
+function branchShape() {
+  const leave = TRACK.length * FIXTURE_BRANCH_LEAVES_AT;
+  const points = TRACK.points.map(([lon, lat], i) => TRACK.cum[i] <= leave ? [lon, lat] : [lon, lat + 60 / 111195]);
+  return {id: 'FX:256:branch', polyline6: encodePolyline6(points), stopOffsets: SHAPE.stopOffsets};
+}
+
 /** A point, and the road's heading there, s metres along the fixture road. */
 export function alongFixture(s) {
   const at = Math.max(0, Math.min(TRACK.length, s));
@@ -291,13 +324,20 @@ export const FIXTURE_MOTION = {schemaVersion: 1, version: 'FIXTURE motion evalua
   corridor: {lines: ['256'], patterns: ['FX:256:main']}};
 
 /** Serve the fixture road geometry and, unless given null, a FIXTURE motion evaluation. */
-export async function serveMotion(page, {evaluation = FIXTURE_MOTION} = {}) {
+export async function serveMotion(page, {evaluation = FIXTURE_MOTION, branch = 'none'} = {}) {
+  // branch: 'none' (no geometry was built for it) or 'shared-until' (built, never accepted, and
+  // on the main road for the first 60% of the way). Neither is ever accepted: only main's road
+  // has been checked against reports, so shared road is judged against main.
+  const branchEntry = branch === 'shared-until'
+    ? {status: 'rejected', reason: 'FIXTURE: only 0 reports on this pattern to check the shape against', file: 'FX_256_branch.json'}
+    : {status: 'rejected', reason: 'FIXTURE: no geometry built for the branch'};
   await page.route('**/data/shapes/index.json*', route => route.fulfill({json: {schemaVersion: 1,
     patterns: {'FX:256:main': {status: 'accepted', reason: null, file: 'FX_256_main.json',
       lengthMetres: Math.round(TRACK.length), validation: {reports: 120, offsetP50Metres: 6, offsetP95Metres: 18}},
-      'FX:256:branch': {status: 'rejected', reason: 'FIXTURE: no geometry built for the branch'}}}}));
+      'FX:256:branch': branchEntry}}}));
   await page.route('**/data/shapes/FX_256_main.json*', route => route.fulfill({json: {id: 'FX:256:main',
     polyline6: SHAPE.polyline6, stopOffsets: SHAPE.stopOffsets}}));
+  await page.route('**/data/shapes/FX_256_branch.json*', route => route.fulfill({json: branchShape()}));
   await page.route('**/data/motion-evaluation.json*', route => evaluation
     ? route.fulfill({json: evaluation}) : route.fulfill({status: 404, body: 'no evaluation'}));
 }
@@ -313,8 +353,28 @@ const nearestFixtureStop = s => SHAPE.stopOffsets.reduce((best, offset, i) =>
  * keeps it still; `extraAge` makes every report that much older.
  */
 export function movingLive({nowMs = Date.now(), startMs = nowMs, startS = 300, speed = 8, cadence = 10,
-                            delay = 6, wobble = 0, jump = null, standing = false, extraAge = 0} = {}) {
+                            delay = 6, wobble = 0, jump = null, standing = false, extraAge = 0,
+                            sharedAt = null} = {}) {
   const base = journeyLive({nowMs, omit: ['FX-COMING']});
+  // The unsettled bus (FX-SHARED) sits at stop 4 by default. `sharedAt` puts its last report at
+  // that many metres along the fixture road instead, so a test can place it inside or short of
+  // the stretch its two candidate roads are measured to share.
+  if (sharedAt !== null) {
+    const shared = base.vehicles.find(v => v.vehicle === 'FX-SHARED');
+    if (shared) {
+      // A moving bus, not a single report: the estimator needs a span of reports to read a speed
+      // from, so five fixes at 8 m/s every 10 s end at sharedAt, the newest `delay` seconds old.
+      const now = Math.floor(nowMs / 1000) * 1000, newestT = now - delay * 1000;
+      const fixes = [4, 3, 2, 1, 0].map(k => ({t: newestT - k * 10_000, ...alongFixture(sharedAt - k * 80)}));
+      const latest = fixes.at(-1);
+      shared.lat = latest.lat; shared.lon = latest.lon; shared.bearing = latest.bearing; shared.bearingStatus = 'reported';
+      shared.observedAtMs = latest.t; shared.recordedAt = new Date(latest.t).toISOString().replace('.000Z', '+00:00');
+      shared.ageSeconds = (now - latest.t) / 1000; shared.freshness = 'fresh'; shared.retrievedAtMs = latest.t + 3000;
+      shared.trail = fixes.slice(0, -1).map(f => [latest.t - f.t, f.lat, f.lon, f.bearing, 0]);
+      shared.match = {...shared.match, metresFromPatternStop: 40};
+    }
+  }
+  base.trailSources = base.trailSources ?? [];
   const now = Math.floor(nowMs / 1000) * 1000;
   const sAt = t => Math.min(TRACK.length - 30, startS
     + (standing ? 0 : speed * Math.max(0, (t - startMs) / 1000))

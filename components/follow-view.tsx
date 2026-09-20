@@ -330,7 +330,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
  // The next few stops on the chosen bus's own pattern, for the front view's labels: real stops, at
  // most three, and your own stop left to its own label.
- const aheadMatch=shown?.match as {patternId?:string;patternIndex?:number}|undefined;
+ // For an unsettled bus whose candidates differ only in stops behind it (sharedOnward: a fact
+ // about the stop lists, which is all a label needs), the first candidate's stops ahead are the
+ // stops ahead. Whether the road is shared is judged separately, from geometry, on the map.
+ const aheadMatch=(()=>{const m=shown?.match as {patternId?:string;patternIndex?:number;sharedOnward?:boolean;
+  candidates?:{patternId:string;patternIndex:number}[]}|undefined;
+  return m?.patternId?m:m?.sharedOnward&&m.candidates?.length?m.candidates[0]:undefined})();
  const aheadPattern=aheadMatch?.patternId?patternsById.get(aheadMatch.patternId):undefined;
  const stopsAhead=aheadPattern&&typeof aheadMatch?.patternIndex==='number'
   ?aheadPattern.stops.slice(aheadMatch.patternIndex,aheadMatch.patternIndex+4).filter(id=>id!==stop?.id)

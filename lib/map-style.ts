@@ -218,7 +218,16 @@ export function buildingExtrusion(theme:MapTheme):Layer{
  * own paint.
  */
 export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;ground:string;sky:Record<string,unknown>;
- light:{anchor:'map';color:string;intensity:number;position:[number,number,number]}}>={
+ light:{anchor:'map';color:string;intensity:number;position:[number,number,number]};
+ /** A footway either side of the carriageway, at a real width, between kerb and building line. */
+ pavement:string;
+ /** A broken centre line on primary and secondary roads: the class's convention, not this street's. */
+ marking:string;
+ /** Facades graded by the building's own recorded height: low and near read warm and light, tall
+  *  read cooler and darker, so mass is legible at a glance. Both from OSM render_height. */
+ extrusionLow:string;extrusionHigh:string;
+ /** The sky at civil twilight, blended toward by lib/daylight's darkness. */
+ twilight:Record<string,unknown>}>={
  // Daylight was the weaker of the two: road, ground and buildings sat within a few per cent of
  // each other, so the street read as a pale void with no depth. The ground is dropped away from
  // the road surface, the blocks are deepened and lit harder from one side, and the haze is
@@ -226,11 +235,17 @@ export const FRONT:Record<MapTheme,{extrusion:string;kerb:string;ground:string;s
  day:{extrusion:'#d3bd94',kerb:'#9a7c4e',ground:'#ddcfb0',
   sky:{'sky-color':'#a8c4d4','horizon-color':'#f2e6cd','fog-color':'#e9dcc2','sky-horizon-blend':0.5,
    'horizon-fog-blend':0.65,'fog-ground-blend':0.5,'atmosphere-blend':0},
-  light:{anchor:'map',color:'#fff4dc',intensity:0.62,position:[1.15,225,50]}},
+  light:{anchor:'map',color:'#fff4dc',intensity:0.62,position:[1.15,225,50]},
+  pavement:'#cfc0a0',marking:'#f7f1e2',extrusionLow:'#dcc8a2',extrusionHigh:'#b39a72',
+  twilight:{'sky-color':'#5b6f8a','horizon-color':'#e6a875','fog-color':'#c9a184','sky-horizon-blend':0.6,
+   'horizon-fog-blend':0.7,'fog-ground-blend':0.55,'atmosphere-blend':0}},
  night:{extrusion:'#3c566a',kerb:'#7590a1',ground:'#0b161e',
   sky:{'sky-color':'#0a1723','horizon-color':'#52708a','fog-color':'#1d3446','sky-horizon-blend':0.8,
    'horizon-fog-blend':0.55,'fog-ground-blend':0.32,'atmosphere-blend':0},
-  light:{anchor:'map',color:'#e8edf2',intensity:0.68,position:[1.15,245,62]}},
+  light:{anchor:'map',color:'#e8edf2',intensity:0.68,position:[1.15,245,62]},
+  pavement:'#233544',marking:'#9fb0bd',extrusionLow:'#46617a',extrusionHigh:'#2b3f52',
+  twilight:{'sky-color':'#1a2a3c','horizon-color':'#7a5a5a','fog-color':'#2e3a48','sky-horizon-blend':0.75,
+   'horizon-fog-blend':0.6,'fog-ground-blend':0.4,'atmosphere-blend':0}},
 };
 
 /** The small part of MapLibre's Map this module needs, so it stays testable without WebGL. */

@@ -14,6 +14,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
+import {daylightAt} from '@/lib/daylight';
 import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
 import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
@@ -85,7 +86,11 @@ const SETTLE_PX=40;
 // from 3.5 m a road filled the foot of the screen under an empty sky. Its paint is FRONT's.
 const EYE_HEIGHT=7.5;          // m above the road, above a double-decker's roof
 const EYE_FORWARD=4;           // m ahead of the drawn position, the middle of a 12 m bus
-const LOOK_AHEAD=32;           // m further along the road, where the eye rests: turns sweep smoothly
+const LOOK_AHEAD=32;           // m further along the road at a standstill, where the eye rests
+// The eye rests further ahead the faster the drawn bus moves, as a passenger's does: 2.5 s of
+// travel beyond the standing distance, so 70 m at 15 m/s, capped where the road would be a
+// line. A turn still sweeps smoothly because the aim point is on the road shape itself.
+const lookAhead=(velocity=0)=>Math.min(80,LOOK_AHEAD+2.5*Math.max(0,velocity));
 const FRONT_MAX_PITCH=85;      // MapLibre allows 180; the view looks about 13° below the horizon
 const OUTSIDE_MAX_PITCH=70;    // the map's own limit everywhere else
 const NO_PADDING={top:0,bottom:0,left:0,right:0};
@@ -292,11 +297,11 @@ const bearingTo=(a:{lat:number;lon:number},b:{lat:number;lon:number})=>
 
 /** The front view's eye, at the front of the drawn bus on its own road shape, and the bearing of
  *  the road LOOK_AHEAD metres ahead of it. Null off the road, or with too little road left. */
-function frontAim(track:Track,v:{lat:number;lon:number;s:number|null},lead=0){
+function frontAim(track:Track,v:{lat:number;lon:number;s:number|null;velocity?:number},lead=0){
  const placed=v.s===null?project(track,v):null;
  if(placed&&placed.offset>40)return null;
  const s=(v.s??placed?.s??0)+lead;
- const eyeS=Math.min(track.length,s+EYE_FORWARD),lookS=Math.min(track.length,eyeS+LOOK_AHEAD);
+ const eyeS=Math.min(track.length,s+EYE_FORWARD),lookS=Math.min(track.length,eyeS+lookAhead(v.velocity));
  if(lookS-eyeS<5)return null;
  const eye=pointAt(track,eyeS);
  return {eye,bearing:bearingTo(eye,pointAt(track,lookS))};
@@ -310,13 +315,13 @@ function frontAim(track:Track,v:{lat:number;lon:number;s:number|null},lead=0){
  * never travelling on its own. Null where nothing is left ahead to look along, or the drawn bus
  * is off its road.
  */
-function frontCamera(instance:MapLibreMap,track:Track,v:{lat:number;lon:number;s:number|null},lead=0,
+function frontCamera(instance:MapLibreMap,track:Track,v:{lat:number;lon:number;s:number|null;velocity?:number},lead=0,
  bearing?:number):CameraOptions|null{
  const aim=frontAim(track,v,lead);
  if(!aim)return null;
- const {eye}=aim,b=(bearing??aim.bearing)*Math.PI/180;
- const ahead={lat:eye.lat+LOOK_AHEAD*Math.cos(b)/111195,
-  lon:eye.lon+LOOK_AHEAD*Math.sin(b)/(111195*Math.cos(eye.lat*Math.PI/180))};
+ const {eye}=aim,b=(bearing??aim.bearing)*Math.PI/180,reach=lookAhead(v.velocity);
+ const ahead={lat:eye.lat+reach*Math.cos(b)/111195,
+  lon:eye.lon+reach*Math.sin(b)/(111195*Math.cos(eye.lat*Math.PI/180))};
  try{
   // MapLibre converts any [lon, lat] pair; its typings ask for its own LngLat class, which this
   // module only has once MapLibre itself has loaded.
@@ -509,6 +514,24 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    instance.on('load',()=>{
     if(cancelled)return;
     addOverlay(instance,themeRef.current);
+    // The front view's own street furniture: a footway either side of the carriageway and a
+    // broken centre line, at the road class's real widths in metres. Nothing per street is
+    // invented: a primary road gets a primary road's pavement whether or not this one has it,
+    // and the HUD still calls the whole view a preview. Hidden until the camera is inside.
+    try{
+     const fr=FRONT[themeRef.current];
+     const under=instance.getLayer('lm-minor-casing')?'lm-minor-casing':undefined;
+     instance.addLayer({id:'lm-front-pavement',type:'line',source:'openmaptiles','source-layer':'transportation',minzoom:15,
+      filter:['all',['match',['get','class'],['primary','trunk','secondary','tertiary','minor'],true,false],['!=',['get','brunnel'],'tunnel']],
+      layout:{visibility:'none','line-cap':'round','line-join':'round'},
+      paint:{'line-color':fr.pavement,'line-width':['match',['get','class'],['primary','trunk'],metresWide(9+4.4),
+       ['secondary','tertiary'],metresWide(7.5+4.4),metresWide(6+3.6)] as never}} as never,under);
+     instance.addLayer({id:'lm-front-markings',type:'line',source:'openmaptiles','source-layer':'transportation',minzoom:16,
+      filter:['all',['match',['get','class'],['primary','trunk','secondary','tertiary'],true,false],['!=',['get','brunnel'],'tunnel']],
+      layout:{visibility:'none','line-cap':'butt','line-join':'round'},
+      // A 2 m dash and a 7 m gap, in units of the 0.15 m line: the ordinary broken centre line.
+      paint:{'line-color':fr.marking,'line-opacity':0.85,'line-width':metresWide(0.15) as never,'line-dasharray':[13,47]}} as never);
+    }catch{/* an older style without these road layers: the preview simply has no furniture */}
     // One handler for every bus drawn: the one nearest the tap, among those within a finger's
     // reach of it. A handler per layer fired for each layer under the tap, and the chosen bus's
     // layer, registered last, always won, so a bus beside the chosen one could not be tapped; and
@@ -933,7 +956,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
       :turnToward(state.frontBearing,aim.bearing,1-Math.exp(-gap/400));
      state.lastFrontT=t;
     }
-    const front=input.track&&aim?frontCamera(instance,input.track,v,0,state.frontBearing??undefined):null;
+    const front=input.track&&aim?frontCamera(instance,input.track,{...v,velocity:v.velocity},0,state.frontBearing??undefined):null;
     if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
     else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}
    }else{
@@ -1008,11 +1031,29 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    if(instance.getLayer('lm-buildings-3d')){
     instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',(inside?1:extrusion['fill-extrusion-opacity']) as never);
     instance.setPaintProperty('lm-buildings-3d','fill-extrusion-color',
-     (inside?FRONT[theme].extrusion:extrusion['fill-extrusion-color']) as never);
+     (inside?['interpolate',['linear'],['coalesce',['get','render_height'],10],
+       6,FRONT[theme].extrusionLow,40,FRONT[theme].extrusionHigh]:extrusion['fill-extrusion-color']) as never);
+   }
+   for(const id of ['lm-front-pavement','lm-front-markings'])if(instance.getLayer(id)){
+    instance.setLayoutProperty(id,'visibility',inside?'visible':'none');
+    instance.setPaintProperty(id,'line-color',(id==='lm-front-pavement'?FRONT[theme].pavement:FRONT[theme].marking) as never);
    }
    // Low and to one side in the front view, so walls and roofs differ; elsewhere the map's own.
    instance.setLight((inside?FRONT[theme].light:buildStyle(theme).light) as never);
-   instance.setSky((inside?FRONT[theme].sky:SKY_OFF) as never);
+   // The sky follows the sun, not the theme: by day the theme's sky, through civil twilight a
+   // blend toward the theme's twilight palette, and at night the night palette whichever theme
+   // the passenger chose. Recomputed on each paint pass; the clock effect below re-runs it.
+   const light=daylightAt(Date.now());
+   const skyFor=()=>{
+    if(!inside)return SKY_OFF;
+    if(light.phase==='day')return FRONT[theme].sky;
+    if(light.phase==='night')return FRONT.night.sky;
+    const a=FRONT[theme].sky as Record<string,string|number>,b=FRONT[theme].twilight as Record<string,string|number>;
+    return Object.fromEntries(Object.keys(a).map(k=>[k,typeof a[k]==='number'&&typeof b[k]==='number'
+     ?(a[k] as number)*(1-light.dark)+(b[k] as number)*light.dark
+     :light.dark<0.5?a[k]:b[k]]));
+   };
+   instance.setSky(skyFor() as never);
    // The ground drops away from the road surface in the front view, so the street reads as
    // something raised to travel on rather than as one flat wash. The map's own ground comes back
    // the moment the camera leaves.
@@ -1129,7 +1170,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   if(ride.current.camera==='front'&&track&&v){
    const e=estimateRef.current;
    const lead=e?.mode==='estimated'&&!e.held&&(e.speed??0)>0?(e.speed??0)*leadSeconds:0;
-   const front=frontCamera(instance,track,v,lead);
+   const front=frontCamera(instance,track,{...v,velocity:v.velocity},lead);
    if(front?.center)return front as CameraOptions&{center:LngLatLike};
   }
   const centre=instance.getCenter();

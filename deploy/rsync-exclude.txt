@@ -4,9 +4,19 @@ node_modules/
 .next/
 test-results/
 playwright-report/
-data/
+# Anchored with a leading slash: an unanchored "data/" also matched public/data/, which is the
+# published catalogue, so the server would have had no stops, no patterns, no replay and no road
+# shapes. The warehouse and the raw captures are what this means to exclude.
+/data/
 .env
 .env.local
+.env.bak*
+# Gitignored and large: the local package cache and the probes' videos and frames are 1.5 GB and
+# 280 MB here, and the server neither builds nor reads them. Without these the upload is a few MB.
+/.pnpm-store/
+/outputs/
+*.tsbuildinfo
+/.claude/
 # Written on the server by the collector and the status job: never overwritten by a deploy.
 public/data/live.json
 public/data/config.json

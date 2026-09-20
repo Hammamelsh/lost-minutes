@@ -1214,3 +1214,31 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(max-width:860px){
  .vector-map.view-ride .ride-about summary{min-width:44px;min-height:44px}
 }
+
+/* --- the walk guide's origin: how sure we are of where you are, and how to correct it ------- */
+.walk-answer em{font-style:normal;font-weight:600;color:#f1c68a}
+.walk-caveat{margin:5px 0 0 25px;font-size:12.5px;line-height:1.35;color:#f1c68a}
+.walk-maps{margin:10px 0 0 25px;min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 15px;
+ border-radius:11px;border:1px solid #7fb8dd;background:#1e4a6b;color:#eaf6ff;font-size:13.5px;font-weight:750;
+ text-decoration:none}
+.walk-maps svg{flex-shrink:0}
+.walk-origin{margin:8px 0 0 25px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.walk-origin .walk-action{margin:0;min-height:38px;font-size:12.5px;padding:0 11px}
+.walk-origin-from{width:100%;margin:0;font-size:12.5px;color:#a9c2d2}
+.walk-origin-from strong{color:#dff0fc;font-weight:650}
+.walk-picking{margin:8px 0 0 25px;padding:8px 11px;border-radius:9px;background:#3a2f16;border:1px solid #8a6a2b;
+ color:#f6d9a4;font-size:12.5px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.walk-picking .text-action{color:#f6d9a4;font-size:12.5px}
+.walk-details{margin:8px 0 0 25px;font-size:12px;color:#8fa6b5}
+.walk-details summary{cursor:pointer;color:#9fd0f5;font-weight:600;list-style:none}
+.walk-details summary::-webkit-details-marker{display:none}
+.walk-details summary::before{content:'›';display:inline-block;margin-right:6px;transition:transform .15s}
+.walk-details[open] summary::before{transform:rotate(90deg)}
+.walk-details dl{margin:6px 0 0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.walk-details dt{color:#7f95a3}.walk-details dd{margin:0;color:#c9dae6}
+.walk-details p{margin:6px 0 0}
+@media (max-width:600px){
+ .walk-caveat,.walk-maps,.walk-origin,.walk-picking,.walk-details{margin-left:0}
+ .walk-maps{width:100%;justify-content:center}
+}
+

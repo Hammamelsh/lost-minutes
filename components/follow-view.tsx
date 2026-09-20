@@ -22,6 +22,7 @@ import {clock} from '@/lib/replay';
 import {saveTheme,subscribeTheme,themeServerSnapshot,themeSnapshot} from '@/lib/theme';
 import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
+import type {Origin} from '@/lib/origin';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
 import {journeyQuery,restoreService,writeJourney,type InitialJourney} from '@/lib/journey-context';
@@ -60,7 +61,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
                                     usingArchive,onOpenEvidence,stops,stop,onSelectStop,
                                     onLocate,locating,locationError,patterns,patternsById,
-                                    here,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
+                                    here,origin=null,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
+                                    pickingOrigin=false,onStartPicking,onCancelPicking,onChooseOrigin,
                                     clockOffsetMs=0,initialJourney}:{
  /** True while the engineering area is open in front of this page. It stays mounted, so the map
   *  must be told to stop drawing rather than paint a canvas nobody can see. */
@@ -72,6 +74,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  onLocate?:()=>void;locating?:boolean;locationError?:string;
  patterns:PatternCatalogue|null;patternsById:Map<string,ServicePattern>;
  here:Here|null;outsideArea:boolean;onClearHere:()=>void;
+ /** What `here` is: the device's fix or a start the passenger chose. */
+ origin?:Origin|null;
+ pickingOrigin?:boolean;onStartPicking?:()=>void;onCancelPicking?:()=>void;
+ onChooseOrigin?:(point:{lat:number;lon:number},label:string)=>void;
  nowMs:number;liveFingerprint?:string|null;recall?:(key:string)=>FollowBus|null;
  /** The journey left on this device or opened from a link; undefined until the page has read it. */
  initialJourney?:InitialJourney|null;
@@ -322,8 +328,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const activityLine=activity?activityWords(activity,name):null;
  // One Locate me on screen: the walk guide's while it is asking for the location, otherwise the
  // detailed map's own, or the stop's beside the simple map, which has none.
- const guideLocates=Boolean(stop&&onLocate)&&mode!=='archive'&&walk.status==='problem'
-  &&(walk.problem.code==='no_location'||walk.problem.code==='inaccurate');
+ // The walk guide carries the location controls (update, choose a start, back to the device)
+ // whenever a stop is chosen, so the map's own Locate me steps aside then: one control, one place.
+ const guideLocates=Boolean(stop&&onLocate)&&mode!=='archive';
 
  // Estimates are for live data you are watching now: never a recording, never offline, never for a
  // bus with no current report, which is shown where it last reported and not moved on, and never
@@ -443,9 +450,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        <button onClick={share} aria-label="Share this stop"><Share2 size={15}/><span>Share</span></button>
        <button onClick={()=>selectStop(null)}>Change</button>
       </div>
-      {mode!=='archive'&&<WalkGuide state={walk} config={walking} here={here} stop={stop} consent={consent}
+      {mode!=='archive'&&<WalkGuide state={walk} config={walking} here={here} origin={origin} nowMs={nowMs} stop={stop} consent={consent}
        onConsent={setConsent} onRetry={()=>setWalkAttempt(n=>n+1)} onLocate={onLocate} locating={locating}
-       locationError={locationError}/>}
+       locationError={locationError} pickingOrigin={pickingOrigin} onStartPicking={onStartPicking}
+       onCancelPicking={onCancelPicking}/>}
      </div>
    : <div className="your-stop unset">
       {/* A returning passenger's own stops and routes come first, above finding a new one. */}
@@ -506,6 +514,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       view={effectiveView} onViewChange={changeView} theme={theme} onThemeChange={saveTheme}
       fitRequest={fitRequest} onLocate={guideLocates?undefined:onLocate} locating={locating} rideOverlay={rideOverlay}
+      originKind={origin?.kind??'device'} pickingOrigin={pickingOrigin}
+      onPickOrigin={onChooseOrigin?point=>onChooseOrigin(point,'a point on the map'):undefined}
       busLabel={absent?'Your bus · no report':busNoun}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
       clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}

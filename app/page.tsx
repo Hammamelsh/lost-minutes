@@ -27,6 +27,7 @@ async function fingerprint(text:string){
   return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
  }catch{return null}
 }
+import {FRESH_POSITION_OPTIONS,fromGeolocation,type Origin} from '@/lib/origin';
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 import {initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
@@ -38,6 +39,8 @@ import {initialJourney as readInitialJourney,type InitialJourney} from '@/lib/jo
  * names the view, so a link can open one directly and Back returns to the passenger's page.
  */
 type Section='follow'|'operations'|'evidence'|'recorded';
+/** A start the passenger chose, kept for this browsing session and no longer. */
+const ORIGIN_KEY='lost-minutes.walking-origin.v1';
 const SECTION_OF:Record<string,Section>={'':'follow','#follow':'follow','#behind-the-data':'operations',
  '#operations':'operations','#evidence':'evidence','#recorded-journeys':'recorded','#workspace':'recorded'};
 const HASH_OF:Record<Section,string>={follow:'',operations:'#operations',evidence:'#evidence',recorded:'#recorded-journeys'};
@@ -95,7 +98,12 @@ export default function Home(){
  // The journey left on this device or opened from a link: undefined until the stops are known.
  const [journey,setJourney]=useState<InitialJourney|null|undefined>(undefined);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
- const [here,setHere]=useState<{lat:number;lon:number;accuracyMetres?:number}|null>(null);
+ // Where the passenger is starting from: the device's fix, with its own accuracy and timestamp, or a
+ // point they chose themselves, which outranks the device until they explicitly go back to it.
+ const [origin,setOrigin]=useState<Origin|null>(null);
+ const [pickingOrigin,setPickingOrigin]=useState(false);
+ const here=useMemo(()=>origin?{lat:origin.lat,lon:origin.lon,
+  accuracyMetres:origin.kind==='device'?origin.accuracyMetres:undefined}:null,[origin]);
  const [outsideArea,setOutsideArea]=useState(false);
  const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
@@ -106,6 +114,9 @@ export default function Home(){
   if(!value)return;
   const parsed=parseCatalogue(value);
   setCatalogue(parsed);
+  // A start the passenger chose earlier in this session is kept: their word outranks the device.
+  try{const kept=sessionStorage.getItem(ORIGIN_KEY);if(kept){const o=JSON.parse(kept);
+   if(o&&o.kind==='chosen'&&Number.isFinite(o.lat)&&Number.isFinite(o.lon))setOrigin(o)}}catch{/* nothing kept */}
   // A link wins over this device; neither ever holds where the passenger is.
   let storage:Storage|null=null;
   try{storage=window.localStorage}catch{/* a refused store: nothing to restore */}
@@ -241,6 +252,22 @@ export default function Home(){
  const seen=visibleJourneys(filtered,time);
  const count=filtered.reduce((n,j)=>n+j.points.filter(p=>p.time<=time).length,0);
  // Location is optional and never required: the search box completes the task alone.
+ const judgeArea=useCallback((point:{lat:number;lon:number})=>{
+  if(!catalogue)return;
+  // Outside the area we collect is a different answer from "nothing found", and is said so.
+  const [west,south,east,north]=catalogue.area.bbox;
+  const inside=point.lon>=west&&point.lon<=east&&point.lat>=south&&point.lat<=north;
+  const nearby=nearestStops(catalogue.stops,point,1);
+  setOutsideArea(!inside||!nearby.length||nearby[0].metres>3000);
+ },[catalogue]);
+ // A start the passenger confirmed themselves. Kept for this session until they go back to the device.
+ const chooseOrigin=useCallback((point:{lat:number;lon:number},label:string)=>{
+  const chosen:Origin={kind:'chosen',lat:point.lat,lon:point.lon,label,chosenAtMs:Date.now()};
+  setOrigin(chosen);setPickingOrigin(false);setLocationError('');judgeArea(point);
+  try{sessionStorage.setItem(ORIGIN_KEY,JSON.stringify(chosen))}catch{/* not kept, still used */}
+ },[judgeArea]);
+ // Asking for the device's position is always explicit, and always fresh: it replaces a chosen
+ // start, because pressing it is how the passenger says "use where my phone thinks I am".
  const locate=useCallback(()=>{
   if(!catalogue)return;
   if(!('geolocation' in navigator)){
@@ -249,21 +276,17 @@ export default function Home(){
   }
   setLocating(true);setLocationError('');
   navigator.geolocation.getCurrentPosition(position=>{
-   const point={lat:position.coords.latitude,lon:position.coords.longitude,
-                accuracyMetres:Number.isFinite(position.coords.accuracy)?position.coords.accuracy:undefined};
-   setLocating(false);setHere(point);
-   // Outside the area we collect is a different answer from "nothing found", and is said so.
-   const [west,south,east,north]=catalogue.area.bbox;
-   const inside=point.lon>=west&&point.lon<=east&&point.lat>=south&&point.lat<=north;
-   const nearby=nearestStops(catalogue.stops,point,1);
-   setOutsideArea(!inside||!nearby.length||nearby[0].metres>3000);
+   const point=fromGeolocation(position);
+   setLocating(false);setOrigin(point);setPickingOrigin(false);
+   try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}
+   judgeArea(point);
   },error=>{
-   setLocating(false);setHere(null);
+   setLocating(false);
    setLocationError(error.code===error.PERMISSION_DENIED
     ?'Location is off, which is fine. Search for your stop instead.'
     :'Your location could not be read. Search for your stop instead.');
-  },{enableHighAccuracy:false,timeout:10000,maximumAge:60000});
- },[catalogue]);
+  },FRESH_POSITION_OPTIONS);
+ },[catalogue,judgeArea]);
 
  const reference=nowMs||liveFetchedAt;
  const publishedAge=live?publicationAge(live,{serverReferenceMs:serverRef||live.publishedAtMs},liveFetchedAt,reference):null;
@@ -316,7 +339,10 @@ export default function Home(){
     stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
     patterns={patterns} patternsById={patternsById}
     onLocate={locate} locating={locating} locationError={locationError}
-    here={here} outsideArea={outsideArea} onClearHere={()=>{setHere(null);setOutsideArea(false)}}
+    here={here} origin={origin} outsideArea={outsideArea}
+    onClearHere={()=>{setOrigin(null);setOutsideArea(false);try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}}}
+    pickingOrigin={pickingOrigin} onStartPicking={()=>setPickingOrigin(true)} onCancelPicking={()=>setPickingOrigin(false)}
+    onChooseOrigin={chooseOrigin}
     onOpenEvidence={()=>show('evidence')}
     onUseArchive={data?()=>setUsingArchive(true):undefined}
     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}

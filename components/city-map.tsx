@@ -48,6 +48,10 @@ type Props = {
   *  bus from the list), so the camera goes to it without a further tap. */
  fitRequest?:number;
  onLocate?:()=>void;locating?:boolean;
+ /** Whether `here` is the device's fix or a start the passenger chose; the label on the map says. */
+ originKind?:'device'|'chosen';
+ /** While true, a tap on the map is a chosen starting point, not a bus. */
+ pickingOrigin?:boolean;onPickOrigin?:(point:{lat:number;lon:number})=>void;
  /** The route badge, report age and stop progress, shown over the map during a ride-along. */
  rideOverlay?:ReactNode;
  /** "Your bus" for one coming to your stop; "Selected bus" for one you are only looking at. */
@@ -390,10 +394,15 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  */
 export default function CityMap({paused=false,buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
-                                 onLocate,locating,rideOverlay,busLabel='Your bus',walk=null,
+                                 onLocate,locating,originKind='device',pickingOrigin=false,onPickOrigin,
+                                 rideOverlay,busLabel='Your bus',walk=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
+ // Read by the map's one click handler: set while a starting point is being chosen, else null.
+ const pickRef=useRef<((point:{lat:number;lon:number})=>void)|null>(null);
+ useEffect(()=>{pickRef.current=pickingOrigin&&onPickOrigin?onPickOrigin:null;
+  const canvas=map.current?.getCanvas();if(canvas)canvas.style.cursor=pickingOrigin?'crosshair':'';},[pickingOrigin,onPickOrigin]);
  const hudRef=useRef<HTMLDivElement>(null),launchRef=useRef<HTMLButtonElement>(null),lastView=useRef(view);
  const map=useRef<MapLibreMap|null>(null);
  const [ready,setReady]=useState(false);
@@ -505,6 +514,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     // layer, registered last, always won, so a bus beside the chosen one could not be tapped; and
     // a marker's 13 px disc was a small target for a finger.
     instance.on('click',(event:MapMouseEvent)=>{
+     // Choosing a starting point: the tap is a place, not a bus, and nothing else is chosen by it.
+     if(pickRef.current){pickRef.current({lat:event.lngLat.lat,lon:event.lngLat.lng});return}
      const layers=['lm-bus-marker','lm-sel-marker'].filter(id=>instance.getLayer(id));
      if(!layers.length)return;
      const {x,y}=event.point,m=TAP_MARGIN;
@@ -734,8 +745,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      geometry:{type:'Polygon' as const,coordinates:[accuracyRing(here.lat,here.lon,accuracy)]},
      properties:{kind:'accuracy'}}]:[]),
    {type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[here.lon,here.lat]},
-    properties:{kind:'point'}}]});
- },[ready,here]);
+    properties:{kind:'point',label:originKind==='chosen'?'Start':'You'}}]});
+ },[ready,here,originKind]);
 
  // --- the walking route --------------------------------------------------------------
  useEffect(()=>{

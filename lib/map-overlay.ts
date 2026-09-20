@@ -144,7 +144,7 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':2.2}},
   // Labels choose the side with room; the two reference dots draw on top of everything.
   {id:'lm-here-label',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
-   layout:{'text-field':'You','text-size':12.5,'text-radial-offset':1.35,
+   layout:{'text-field':['coalesce',['get','label'],'You'],'text-size':12.5,'text-radial-offset':1.35,
            'text-variable-anchor':['top','bottom','left','right'],'text-justify':'auto','text-font':['Noto Sans Bold']},
    paint:{'text-color':o.hereLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
   {id:'lm-stop-label',type:'symbol',source:STOP_SOURCE,

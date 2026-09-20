@@ -15,6 +15,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
+# A consistent copy of the warehouse for the arrival evaluation, taken here because the collector
+# is already stopped for the rebuild: measured 0.16 s to copy 50 MB, so it adds nothing a passenger
+# could notice. The evaluation then reads the copy and leaves collection alone.
+ExecStart=/bin/cp -f /srv/lost-minutes/app/data/warehouse/lost-minutes.duckdb /srv/lost-minutes/app/data/evaluation/snapshot.duckdb
 ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
 TimeoutStartSec=30min
 # Measured peak 853 MB on 18 September 2026 (`/usr/bin/time -v`), in 3 min 05 s. This runs with the

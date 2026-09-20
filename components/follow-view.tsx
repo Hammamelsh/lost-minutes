@@ -24,6 +24,9 @@ import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
 import type {Origin} from '@/lib/origin';
 import {scheduledAtStop} from '@/lib/scheduled';
+import {arrivalEstimate,arrivalWords,type ArrivalRelease} from '@/lib/arrival';
+import {loadTrack} from '@/lib/motion-view';
+import type {Track} from '@/lib/motion';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
 import {journeyQuery,restoreService,writeJourney,type InitialJourney} from '@/lib/journey-context';
@@ -107,6 +110,20 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [view,setView]=useState<MapView>('2d');
  const [fitRequest,setFitRequest]=useState(0);
  const [walkAttempt,setWalkAttempt]=useState(0);
+ // Which directions the arrival criteria have released on unseen journeys, if any: fetched once.
+ // Nothing is released until scripts/arrival-release-check.py writes that it is, and the page
+ // shows estimated minutes only for a released direction. Until then this stays null and the
+ // estimator computes nothing a passenger can see.
+ const [arrivalRelease,setArrivalRelease]=useState<ArrivalRelease>(null);
+ useEffect(()=>{
+  let current=true;
+  fetch('/data/arrival-release.json',{cache:'no-store'}).then(r=>r.ok?r.json():null)
+   .then(v=>{if(current)setArrivalRelease(v&&Array.isArray(v.released)?v:null)}).catch(()=>{if(current)setArrivalRelease(null)});
+  return()=>{current=false};
+ },[]);
+ // The chosen bus's road, for the arrival estimate: the same accepted shape the map uses, loaded
+ // by pattern id and cached by lib/motion-view, so the estimate and the drawing read one geometry.
+ const [arrivalTrack,setArrivalTrack]=useState<{patternId:string;track:Track|null}|null>(null);
  // Which patterns' timetable clocks have been checked against their own buses: fetched once,
  // like the motion evaluation. null until it arrives or if it cannot; a pattern absent is unchecked.
  const [scheduleAnchor,setScheduleAnchor]=useState<{patterns:Record<string,{verified:boolean;reason?:string|null;medianOffsetMinutes?:number}>}|null|undefined>(undefined);
@@ -314,6 +331,31 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // A timetabled time at the passenger's stop, from the named scheduled journey and the pattern's
  // running times: every premise checked in lib/scheduled.ts, none assumed.
  // Cheap enough to compute each render, which the card does on the clock anyway.
+ // Estimated minutes to your stop: only for a released direction, only from raw reports.
+ const arrivalPatternId=shown&&shown.match&&'patternId' in shown.match?shown.match.patternId:null;
+ useEffect(()=>{
+  // No state write here: a track kept from another pattern is ignored below by its patternId, so
+  // nothing needs clearing, and a synchronous setState in an effect cascades renders.
+  if(!arrivalPatternId||!arrivalRelease?.released.length)return;
+  let current=true;
+  loadTrack(arrivalPatternId).then(r=>{if(current)setArrivalTrack({patternId:arrivalPatternId,track:r.track})});
+  return()=>{current=false};
+ },[arrivalPatternId,arrivalRelease]);
+ const arrival=(()=>{
+  if(!shown||!stop||!shown.match||!('patternId' in shown.match)||mode==='archive')return null;
+  const pattern=patternsById.get(shown.match.patternId);
+  if(!pattern||!arrivalTrack||arrivalTrack.patternId!==pattern.id||!arrivalTrack.track)return null;
+  const stopIndex=pattern.stops.indexOf(stop.id);
+  if(stopIndex<0||shown.match.patternIndex>=stopIndex)return null;
+  const sched=shown.match.scheduled;
+  const timing=(sched&&'timing' in sched&&sched.timing!==undefined&&pattern.timings?.[sched.timing])||pattern.seconds;
+  if(!timing)return null;
+  const reports=[...(shown.trail??[]).map(f=>({at:f.at,lat:f.lat,lon:f.lon})),{at:shown.observedAtMs,lat:shown.lat,lon:shown.lon}];
+  // nowMs is the page clock, 0 before its first tick: then every report reads as in the future and
+  // the estimate correctly waits, rather than reading an impure Date.now() in render.
+  return arrivalEstimate({track:arrivalTrack.track,patternId:pattern.id,timing,stopIndex,reports,nowMs,
+   release:arrivalRelease,direction:pattern.direction??''});
+ })();
  const timetabled=(()=>{
   if(!shown||!stop||!shown.match||!('patternId' in shown.match))return null;
   const pattern=patternsById.get(shown.match.patternId);
@@ -659,6 +701,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {/* The operator's timetable, read out: the named journey's departure plus the scheduled running
        time to this stop. Shown only for a bus still before the stop on one named journey, and
        labelled as the timetable's, because a time at a stop reads as a prediction and is not one. */}
+   {/* Estimated minutes: shown only for a direction the criteria released on unseen journeys, computed
+       from the bus's own reports on its checked road, labelled as an estimate with the report age. */}
+   {shown&&!absent&&stop&&relevant&&arrival?.kind==='estimate'&&<p className="bus-card-arrival" data-arrival={arrival.minutes.toFixed(1)}>
+    <strong>Estimated {arrivalWords(arrival)} to your stop</strong>
+    <span>an estimate from its reports, last {arrival.reportAgeS} s ago · {Math.round(arrival.remainingM/100)*100} m of road left · not a promise</span></p>}
    {shown&&!absent&&stop&&relevant&&timetabled?.kind==='time'&&<p className="bus-card-scheduled" data-scheduled={timetabled.wall}>
     <strong>Timetabled at your stop {timetabled.wall}</strong>
     <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}

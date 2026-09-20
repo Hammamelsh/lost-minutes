@@ -1,7 +1,9 @@
 [Unit]
-Description=Lost Minutes: infer stop passages and score the arrival estimator on the day's reports, collector paused
+Description=Lost Minutes: score the arrival estimator on last night's snapshot of the warehouse; the collector is not touched
 Documentation=file:///srv/lost-minutes/app/docs/ARRIVAL_RELEASE_CRITERIA.md
 After=lost-minutes-refresh.service
+# No snapshot, nothing to score: the refresh writes it while the collector is already stopped.
+ConditionPathExists=/srv/lost-minutes/app/data/evaluation/snapshot.duckdb
 
 [Service]
 Type=oneshot
@@ -10,15 +12,16 @@ Group=lostminutes
 WorkingDirectory=/srv/lost-minutes/app
 EnvironmentFile=/etc/lost-minutes/collector.env
 Environment=PYTHONDONTWRITEBYTECODE=1
-# The warehouse has one writer and the evaluator only reads, but DuckDB refuses a second
-# connection either way: the collector is paused for the few minutes this takes and always
-# started again. Nothing here reaches a passenger: it writes evaluation files under data/, so the
-# weekday evidence the release criteria need accumulates without any estimate being shown.
-ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival.py --line 15 --fit-until 2026-09-14
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --out data/evaluation/schedule-anchor-server.json
-ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
+# Reads a copy of the warehouse taken by the nightly rebuild, so this can fail, hang or be
+# killed without a passenger seeing anything but the ordinary publications: it never stops the
+# collector and never opens the live file. The first version stopped the collector for the
+# duration; a hand-run copy of that design on 20 September left collection down for 119 s when a
+# step before the restart failed. Nothing here reaches a passenger: results go under data/.
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15 --db data/evaluation/snapshot.duckdb --out data/evaluation/passages-15-server.json
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --params scripts/arrival-params-frozen.json --candidate blended --label nightly
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --db data/evaluation/snapshot.duckdb --out data/evaluation/schedule-anchor-server.json
+# Pool every night so far and read the criteria per direction; the page reads the verdict.
+ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/arrival-release-check.py --out public/data/arrival-release.json
 TimeoutStartSec=20min
 Environment=LM_DB_MEMORY_LIMIT=1GB
 Environment=LM_DB_THREADS=2
@@ -27,4 +30,4 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/srv/lost-minutes/app/data
+ReadWritePaths=/srv/lost-minutes/app/data /srv/lost-minutes/app/public/data

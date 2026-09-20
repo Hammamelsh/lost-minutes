@@ -56,13 +56,17 @@ if (( age > MAX_AGE )); then
   # collector in the middle of the nightly rebuild, the collector could not take the warehouse lock
   # the rebuild was holding, and Restart=always retried it every 15 s until the rebuild finished.
   # Measured on the server on 20 September 2026: `is-active` printed activating, exit code 3.
-  refresh_state=$(systemctl is-active lost-minutes-refresh.service 2>/dev/null || true)
-  case "$refresh_state" in
-    active|activating|deactivating|reloading)
-      echo "the nightly timetable rebuild is $refresh_state, which stops the collector on purpose; leaving it"
-      exit 0
-      ;;
-  esac
+  # Both nightly maintenance units are recognised. The rebuild stops the collector on purpose; the
+  # arrival evaluation does not touch it, but if it is ever changed to, this guard is already here.
+  for unit in lost-minutes-refresh lost-minutes-arrival-eval; do
+    state=$(systemctl is-active "$unit.service" 2>/dev/null || true)
+    case "$state" in
+      active|activating|deactivating|reloading)
+        echo "nightly maintenance ($unit) is $state; leaving the collector alone"
+        exit 0
+        ;;
+    esac
+  done
   systemctl restart lost-minutes-collector.service
   echo "collector restarted"
   ping_it /fail "no publication for ${age}s (state ${state}); collector restarted"

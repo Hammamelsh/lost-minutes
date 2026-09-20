@@ -1,0 +1,15 @@
+{
+ "label": "development (fit 11-14 Sep, chosen on 17-20 Sep development days)",
+ "frozenAt": "2026-09-20",
+ "params": {
+  "dwell_s": 20,
+  "window_s": 180,
+  "standing_below": 1.0,
+  "near_m": 1000
+ },
+ "cruise": {
+  "BNML:15:inbound:9c10700c6c": 6.835152809242572,
+  "BNML:15:outbound:c9291c1aea": 6.5604698255297675
+ },
+ "note": "Parameters for the blended candidate, fixed here so that every later evaluation, nightly or final, scores unseen days without refitting. Change only with a new development set and say so."
+}

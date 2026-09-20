@@ -30,6 +30,7 @@ def main():
     args = argparse.ArgumentParser()
     args.add_argument('--line', default='15')
     args.add_argument('--operator', default='BNML')
+    args.add_argument('--db', default=None, help='a warehouse file to read instead of the live one, e.g. a snapshot')
     args.add_argument('--out', default=str(ROOT / 'data/evaluation/passages-15.json'))
     a = args.parse_args()
 
@@ -38,7 +39,7 @@ def main():
     stops_json = json.loads((ROOT / 'public/data/stops.json').read_text())
     stop_xy = {s['id']: (s['lat'], s['lon']) for s in (stops_json['stops'] if isinstance(stops_json, dict) else stops_json)}
 
-    con = connect(ROOT / DEFAULT_DB)
+    con = connect(a.db or (ROOT / DEFAULT_DB))
     rows = con.execute("""
         SELECT direction, vehicle, aimed_departure, observed_at_ms, lat, lon
         FROM v_publishable_observation

@@ -82,6 +82,35 @@ so weekday evidence accumulates under `data/` where no page reads it. **What is 
 weekday journeys at peak — the held-out set has two weekdays — and the delay-adjusted method
 implemented as the candidate.
 
+**The inbound discrepancy, traced end to end (20 September, later).** Three real journeys followed
+by *vehicle*, not by journey key, because a key's first appearance is not a departure. `MF74NNG`,
+Sunday 13 September: still driving its outbound (aimed 12:18) at 12:53, 6 km from the terminus;
+reached the terminus — 15,247 m of the outbound shape, which is the inbound's 0 m — at **13:11:30**,
+which is exactly where the registered outbound (12:18 plus running time) puts it: **the outbound
+schedule is met to the minute.** Then 22 minutes of silence from the feed, then it appeared as the
+inbound "13:18" at **13:34:06**, at the same spot, and moved off at once. Registered stand 7 min;
+observed 23. `SL63GDK` (Thu 17) and `MX13FNR` (Mon 14) show the same shape. The current
+registration carries no per-journey overrides at all — 0 `VehicleJourneyTimingLink`, 0 `WaitTime`
+in all four route-15 files, against 354 `WaitTime` tags elsewhere in the same dataset, so the
+operator does use them where they mean them. Time zones are consistent (the same code anchors
+outbound correctly), the aimed departure matches a registered inbound departure by label, and the
+passage inference places the bus at the origin.
+
+**So the ~16 minutes is neither parsing, nor matching, nor the clock.** It is a consistent gap
+between the registered inbound departure and the observed one, on every journey, every day held,
+while the same registration's outbound is exact. Whether the registration is out of date for
+inbound or the operator's running board departs later by design cannot be decided from the feed,
+and this page does not decide it: no correction is applied, and the inbound timetabled line stays
+withheld by the schedule anchor. Settling it needs the operator or TfGM; the approach drafts are
+in `docs/TFGM_APPROACH.md`.
+
+**An outage I caused, recorded.** Taking a warehouse snapshot by hand on the server, the copy
+failed on a missing directory, `set -e` aborted the script before the collector restart, and
+**collection was down for 119 s** until I restarted it. That is precisely the failure the nightly
+evaluation unit is designed against: the properly taken snapshot then stopped the collector for
+**0.16 s** with a fresh publication **10.3 s** after the stop, and the nightly unit now reads that
+copy and never touches the collector at all.
+
 **What the evaluation found about the line already deployed.** The scheduled comparator read
 ~15 min of error, and it was not the comparator: **every inbound route-15 journey's schedule is a
 constant +15 to +17 min early from stop 0 to stop 39**, on all days held; outbound drifts +2 → +8

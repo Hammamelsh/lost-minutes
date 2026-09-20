@@ -70,3 +70,25 @@ the remaining route crosses a stretch the shape does not cover.
 The arrival calculation reads raw reports and the road shape. It does not read the drawn bus,
 the eased speed, the estimate the map animates, or anything in `DRAWING`. Two passengers with
 different frame rates get the same minutes.
+
+## Amendment, 20 September 2026, after the development evaluation — applies only to data unseen then
+
+The development evaluation (17–20 September, 44 journeys) showed the blended candidate meeting both
+error thresholds **outbound** (median 1.29, p80 2.76 at 2–10 min) and missing them **inbound**
+(1.86, 3.57). Per-direction release was not a criterion above, and adopting it *because* one
+direction passed would be choosing the threshold to fit the result. So:
+
+- **The criteria are applied per direction (per pattern) from here on**, exactly as the schedule
+  anchor is, since the two directions are different roads with different behaviour.
+- **This applies only to journeys and dates not seen by 20 September 2026.** The development set
+  does not count towards any direction's release, whatever it shows.
+- The floors hold per direction: ≥ 20 journeys and ≥ 150 scored passages of unseen data, with at
+  least one weekday night among them.
+- The nightly unit scores each night's snapshot with the frozen parameters
+  (`scripts/arrival-params-frozen.json`, fixed from the development set) and appends the release-band
+  errors per direction to `data/evaluation/arrival-nightly.jsonl`; `scripts/arrival-release-check.py`
+  pools every night and writes `public/data/arrival-release.json`. **A direction is shown to
+  passengers only when that file says it passed**, and the page reads nothing else.
+
+Nothing else above is changed.
+

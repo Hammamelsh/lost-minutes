@@ -25,7 +25,7 @@ if ! command -v caddy >/dev/null; then
 fi
 
 id lostminutes >/dev/null 2>&1 || useradd --system --home-dir /srv/lost-minutes --shell /usr/sbin/nologin lostminutes
-mkdir -p "$APP/data" /etc/lost-minutes
+mkdir -p "$APP/data" "$APP/data/evaluation" /etc/lost-minutes
 chown -R lostminutes:lostminutes "$APP/data" "$APP/public/data"
 # Two writers share public/data: the collector (lostminutes) rewrites live.json every 20 s, and a
 # deploy (the account publish.sh connects as) replaces the catalogue and the road shapes. Without

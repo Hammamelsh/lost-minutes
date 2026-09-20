@@ -82,6 +82,47 @@ def observed_speed(placed, at_index, window_s):
     return max(0.0, min(MAX_SPEED, (s_now - s0) / span))
 
 
+def scheduled_seconds_at(track, timing, s):
+    """The timetable's seconds at an arbitrary offset along the road: linear between the two
+    stops that bracket it, from the pattern's per-stop seconds and the shape's stop offsets."""
+    stops = [(off, sec) for off, sec in zip(track.stop_offsets, timing) if off is not None and sec is not None]
+    if len(stops) < 2:
+        return None
+    if s <= stops[0][0]:
+        return stops[0][1]
+    for (o0, t0), (o1, t1) in zip(stops, stops[1:]):
+        if o0 <= s <= o1:
+            return t0 if o1 == o0 else t0 + (t1 - t0) * (s - o0) / (o1 - o0)
+    return stops[-1][1]
+
+
+def remaining_eta(placed, at_index, stop_index, track, timing):
+    """Scheduled running time from where the bus is now to the stop: the timetable's clock read
+    as a *difference*, so the origin departure and its anchor do not enter at all. The candidate
+    the first evaluation pointed at, and immune to the inbound discrepancy by construction."""
+    t_now, s_now = placed[at_index]
+    at_stop = timing[stop_index] if stop_index < len(timing) else None
+    here = scheduled_seconds_at(track, timing, s_now)
+    if at_stop is None or here is None or s_now >= track.stop_offsets[stop_index]:
+        return None
+    return int(t_now + max(0, at_stop - here) * 1000)
+
+
+def blended_eta(placed, at_index, stop_offset, stop_index, stop_offsets, params, cruise, track, timing):
+    """Scheduled remaining time, but inside the last NEAR_METRES the observed pace takes over,
+    which is where the first evaluation showed progress winning (0.59 vs 0.96 min at 1-2 min)."""
+    sched = remaining_eta(placed, at_index, stop_index, track, timing)
+    prog, _ = progress_eta(placed, at_index, stop_offset, stop_offsets, params, cruise)
+    t_now, s_now = placed[at_index]
+    remaining = stop_offset - s_now
+    if sched is None:
+        return prog
+    if prog is None or remaining > params['near_m']:
+        return sched
+    w = remaining / params['near_m']          # 1 far, 0 at the stop
+    return int(w * sched + (1 - w) * prog)
+
+
 def progress_eta(placed, at_index, stop_offset, stop_offsets, params, cruise):
     """ETA in ms, or None with the reason it is withheld."""
     t_now, s_now = placed[at_index]
@@ -101,12 +142,12 @@ def progress_eta(placed, at_index, stop_offset, stop_offsets, params, cruise):
 
 # ------------------------------------------------------------------ data
 
-def load_everything(line, operator):
-    passages_file = ROOT / f'data/evaluation/passages-{line}.json'
+def load_everything(line, operator, db=None, passages_file=None):
+    passages_file = Path(passages_file) if passages_file else ROOT / f'data/evaluation/passages-{line}.json'
     passages = json.loads(passages_file.read_text())['passages']
     catalogue = json.loads((ROOT / 'public/data/patterns.json').read_text())
     patterns = {p['id']: p for p in catalogue['patterns'] if p['operator'] == operator and p['line'] == line}
-    con = connect(ROOT / DEFAULT_DB)
+    con = connect(db or (ROOT / DEFAULT_DB))
     dep_info = {row[0]: _departure_info(row[1]) for row in
                 con.execute("SELECT pattern_id, departure_times FROM service_pattern WHERE line_name = ? AND operator_code = ?",
                             [line, operator]).fetchall()}
@@ -192,6 +233,13 @@ def score(passages, patterns, dep_info, reports, params, days, cruise_by_pattern
                 eta, reason = progress_eta(placed, i, target['stop_offset_m'], track.stop_offsets, params,
                                            cruise_by_pattern.get(pid, 8.0))
                 err_p = (t_arr - eta) / 60000 if eta else None
+                # the timetable's clock as a difference: named timing if any, else the pattern default
+                timing_any = (sched[0] if sched else None) or pattern.get('seconds')
+                eta_r = remaining_eta(placed, i, target['stop_index'], track, timing_any) if timing_any else None
+                err_r = (t_arr - eta_r) / 60000 if eta_r else None
+                eta_b = blended_eta(placed, i, target['stop_offset_m'], target['stop_index'], track.stop_offsets, params,
+                                    cruise_by_pattern.get(pid, 8.0), track, timing_any) if timing_any else None
+                err_b = (t_arr - eta_b) / 60000 if eta_b else None
                 # scheduled
                 err_s = None
                 if sched:
@@ -211,7 +259,8 @@ def score(passages, patterns, dep_info, reports, params, days, cruise_by_pattern
                         if sec_b is not None and sec_t is not None:
                             delay = b['passed_at_ms'] - (dep_ms + sec_b * 1000)
                             err_a = (t_arr - (dep_ms + sec_t * 1000 + delay)) / 60000
-                rows.append((pid, key, target['stop_id'], horizon, err_p, err_s, err_a, reason))
+                rows.append((pid, key, target['stop_id'], horizon, err_p, err_s, err_a, reason, err_r, err_b,
+                             pattern['direction'], target['uncertainty_s']))
     return rows
 
 
@@ -219,7 +268,7 @@ def summarise(rows, band):
     lo, hi = band
     inband = [r for r in rows if lo <= r[3] < hi]
     out = {'moments': len(inband)}
-    for name, idx in (('progress', 4), ('scheduled', 5), ('adjusted', 6)):
+    for name, idx in (('progress', 4), ('scheduled', 5), ('adjusted', 6), ('remaining', 8), ('blended', 9)):
         errs = [r[idx] for r in inband if r[idx] is not None]
         absd = [abs(e) for e in errs]
         out[name] = {'available': len(errs), 'coverage': len(errs) / len(inband) if inband else 0,
@@ -229,16 +278,38 @@ def summarise(rows, band):
     out['progressVsScheduledWhereBoth'] = {'moments': len(both),
                                           'progressMedianAbs': statistics.median(p for p, _ in both) if both else None,
                                           'scheduledMedianAbs': statistics.median(s for _, s in both) if both else None}
+    # The fair comparison: every method on the SAME moments, those where all of progress,
+    # remaining and blended exist. Coverage is reported separately above.
+    same = [r for r in inband if r[4] is not None and r[8] is not None and r[9] is not None]
+    out['identicalEligible'] = {'moments': len(same)}
+    for name, idx in (('progress', 4), ('adjusted', 6), ('remaining', 8), ('blended', 9)):
+        errs = [abs(r[idx]) for r in same if r[idx] is not None]
+        out['identicalEligible'][name] = {'n': len(errs), 'medianAbs': statistics.median(errs) if errs else None,
+                                          'p80Abs': pct(errs, .8), 'p90Abs': pct(errs, .9)}
+    # Journeys are the independent units, not moments: the median over journeys of each journey's
+    # median absolute error, so 44 journeys are 44 and not 63,397.
+    per_j = defaultdict(list)
+    for r in same:
+        per_j[(r[0], r[1])].append(r)
+    out['perJourney'] = {'journeys': len(per_j)}
+    for name, idx in (('progress', 4), ('remaining', 8), ('blended', 9)):
+        meds = [statistics.median(abs(x[idx]) for x in rs if x[idx] is not None) for rs in per_j.values() if any(x[idx] is not None for x in rs)]
+        out['perJourney'][name] = {'medianOfJourneyMedians': statistics.median(meds) if meds else None,
+                                   'p80OfJourneyMedians': pct(meds, .8), 'journeys': len(meds)}
+    # Passage uncertainty: the median half-gap of the passages scored, so no error below it is claimed as real.
+    unc = [r[11] for r in inband]
+    out['passageUncertaintySeconds'] = {'median': statistics.median(unc) if unc else None, 'p90': pct(unc, .9)}
     return out
 
 
 def fit(passages, patterns, dep_info, reports, fit_days, cruise):
-    grid = [{'dwell_s': d, 'window_s': w, 'standing_below': 1.0} for d in (0, 5, 10, 15, 20, 30) for w in (60, 120, 180)]
+    grid = [{'dwell_s': d, 'window_s': w, 'standing_below': 1.0, 'near_m': n}
+            for d in (0, 10, 20) for w in (120, 180) for n in (300, 600, 1000)]
     best = None
     for params in grid:
         rows = score(passages, patterns, dep_info, reports, params, fit_days, cruise)
         s = summarise(rows, RELEASE_BAND)
-        m = s['progress']['medianAbs']
+        m = s['blended']['medianAbs']
         if m is not None and (best is None or m < best[0]):
             best = (m, params, s)
     return best
@@ -271,21 +342,36 @@ def main():
     ap.add_argument('--line', default='15')
     ap.add_argument('--operator', default='BNML')
     ap.add_argument('--fit-until', default='2026-09-14', help='last fit day, inclusive; later days are held out')
+    ap.add_argument('--db', default=None, help='a warehouse file to read instead of the live one, e.g. a snapshot')
+    ap.add_argument('--passages', default=None, help='a passages file to score against (default data/evaluation/passages-<line>.json)')
+    ap.add_argument('--candidate', default='blended', choices=['progress', 'remaining', 'blended'], help='the method the release criteria are read against')
+    ap.add_argument('--label', default='', help='a name for this run, e.g. development or final')
+    ap.add_argument('--params', default=None, help='a previous run\'s JSON: take its params and cruise, fit nothing, score every day here as held out')
     a = ap.parse_args()
-    passages, patterns, dep_info, reports = load_everything(a.line, a.operator)
+    passages, patterns, dep_info, reports = load_everything(a.line, a.operator, a.db, a.passages)
     days = sorted({local_wall(p['passed_at_ms']).date() for p in passages if p['scoreable']})
     cut = datetime.strptime(a.fit_until, '%Y-%m-%d').date()
     fit_days, test_days = {d for d in days if d <= cut}, {d for d in days if d > cut}
+    frozen = json.loads(Path(a.params).read_text()) if a.params else None
+    if frozen:
+        # A final evaluation: nothing here is fitted. Every day in this set is held out.
+        fit_days, test_days = set(), set(days)
+        print(f'params frozen from {a.params} ({frozen.get("label") or "unlabelled"} run): {frozen["params"]}')
     print(f'fit days:  {", ".join(d.strftime("%a %d %b") for d in sorted(fit_days))}')
     print(f'test days: {", ".join(d.strftime("%a %d %b") for d in sorted(test_days))}')
 
-    fit_passages = [p for p in passages if p['scoreable'] and local_wall(p['passed_at_ms']).date() in fit_days]
-    cruise = cruise_speeds(fit_passages, patterns, reports)
-    print('cruise speed per pattern (fit days, m/s): ' + ', '.join(f'{k[-10:]} {v:.1f}' for k, v in cruise.items()))
-    best = fit(passages, patterns, dep_info, reports, fit_days, cruise)
-    m, params, fit_summary = best
-    print(f'\nchosen on fit days: dwell {params["dwell_s"]} s, speed window {params["window_s"]} s  '
-          f'(median abs error {m:.2f} min at 2-10 min, {fit_summary["moments"]} moments)')
+    if frozen:
+        cruise, params, fit_summary, m = frozen['cruise'], frozen['params'], frozen.get('fit'), None
+        print('cruise speeds frozen from the development run: ' + ', '.join(f'{k[-10:]} {v:.1f}' for k, v in cruise.items()))
+    else:
+        fit_passages = [p for p in passages if p['scoreable'] and local_wall(p['passed_at_ms']).date() in fit_days]
+        cruise = cruise_speeds(fit_passages, patterns, reports)
+        print('cruise speed per pattern (fit days, m/s): ' + ', '.join(f'{k[-10:]} {v:.1f}' for k, v in cruise.items()))
+        best = fit(passages, patterns, dep_info, reports, fit_days, cruise)
+        m, params, fit_summary = best
+    if m is not None:
+        print(f'\nchosen on fit days by the blended method: dwell {params["dwell_s"]} s, window {params["window_s"]} s, near {params["near_m"]} m  '
+              f'(blended median abs error {m:.2f} min at 2-10 min, {fit_summary["moments"]} moments)')
 
     print('\n=== HELD-OUT DAYS, scored once ===')
     rows = score(passages, patterns, dep_info, reports, params, test_days, cruise)
@@ -295,17 +381,34 @@ def main():
     result = {'line': a.line, 'fitDays': sorted(d.isoformat() for d in fit_days), 'testDays': sorted(d.isoformat() for d in test_days),
               'params': params, 'cruise': cruise, 'fit': fit_summary, 'heldOut': {}, 'moments': len(rows),
               'journeys': journeys, 'scoredPassages': stops_scored}
-    hdr = f'{"horizon":10}{"n":>7}   {"progress med/p80/p90 (cov)":30} {"scheduled med/p80 (cov)":26} {"adjusted med/p80 (cov)":24}'
-    print(hdr)
+    f = lambda x: '  -  ' if x is None else f'{x:5.2f}'
+    print('\n-- coverage over the full set, per method (share of moments with an answer) --')
     for band in HORIZONS:
         s = summarise(rows, band)
         result['heldOut'][f'{band[0]}-{band[1]}'] = s
-        f = lambda x: '   -  ' if x is None else f'{x:5.2f}'
-        p, sc, ad = s['progress'], s['scheduled'], s['adjusted']
-        print(f'{band[0]:>2}-{band[1]:<2} min {s["moments"]:>7}   {f(p["medianAbs"])}/{f(p["p80Abs"])}/{f(p["p90Abs"])} ({p["coverage"]:.0%})'
-              f'   {f(sc["medianAbs"])}/{f(sc["p80Abs"])} ({sc["coverage"]:.0%})     {f(ad["medianAbs"])}/{f(ad["p80Abs"])} ({ad["coverage"]:.0%})')
+        print(f'{band[0]:>2}-{band[1]:<2} min  n={s["moments"]:>6}  ' + '  '.join(f'{k} {s[k]["coverage"]:.0%}' for k in ('progress', 'remaining', 'blended', 'adjusted', 'scheduled')))
+    print('\n-- IDENTICAL eligible moments, all methods on the same rows: median / p80 / p90 abs minutes --')
+    print(f'{"horizon":10}{"n":>7}   {"progress":18} {"remaining":18} {"blended":18} {"adjusted (subset)":18}')
+    for band in HORIZONS:
+        s = result['heldOut'][f'{band[0]}-{band[1]}']['identicalEligible']
+        g = lambda k: f'{f(s[k]["medianAbs"])}/{f(s[k]["p80Abs"])}/{f(s[k]["p90Abs"])}'
+        print(f'{band[0]:>2}-{band[1]:<2} min {s["moments"]:>7}   {g("progress"):18} {g("remaining"):18} {g("blended"):18} {g("adjusted"):18}')
+    print('\n-- by direction, 2-10 min, identical eligible moments --')
+    for d in ('inbound', 'outbound'):
+        s = summarise([r for r in rows if r[10] == d], RELEASE_BAND)
+        result['heldOut'][d] = s
+        ie = s['identicalEligible']
+        print(f'  {d:9} n={ie["moments"]:>6}  ' + '  '.join(f'{k} {f(ie[k]["medianAbs"])}/{f(ie[k]["p80Abs"])}' for k in ('progress', 'remaining', 'blended')))
+    pj = summarise(rows, RELEASE_BAND)['perJourney']
+    result['heldOut']['perJourney'] = pj
+    print(f'\n-- per journey ({pj["journeys"]} journeys are the independent units), 2-10 min: median of journey medians / p80 --')
+    print('  ' + '  '.join(f'{k} {f(pj[k]["medianOfJourneyMedians"])}/{f(pj[k]["p80OfJourneyMedians"])}' for k in ('progress', 'remaining', 'blended')))
+    pu = summarise(rows, RELEASE_BAND)['passageUncertaintySeconds']
+    print(f'  passage uncertainty (half-gap) on scored passages: median ±{pu["median"]:.0f} s, p90 ±{pu["p90"]:.0f} s: errors below that are not resolvable')
     band = summarise(rows, RELEASE_BAND)
     result['heldOut']['releaseBand'] = band
+    result['candidate'] = a.candidate
+    result['label'] = a.label
     # weekday / weekend
     wk = [r for r in rows if local_wall(next(p['passed_at_ms'] for p in passages if p['journey_key'] == r[1] and p['stop_id'] == r[2])).weekday() < 5]
     we = [r for r in rows if r not in wk]
@@ -317,15 +420,18 @@ def main():
     hill = [r for r in rows if r[2] == '1800SJ32251']
     s = summarise(hill, RELEASE_BAND)
     result['heldOut']['hillingdonOpp'] = s
-    print(f'Hillingdon Road (opp) 2-10 min: moments {s["moments"]}, progress median {s["progress"]["medianAbs"] and round(s["progress"]["medianAbs"], 2)}, p80 {s["progress"]["p80Abs"] and round(s["progress"]["p80Abs"], 2)}')
+    ie = s['identicalEligible']
+    print(f'Hillingdon Road (opp) 2-10 min, identical eligible n={ie["moments"]}: ' + '  '.join(f'{k} {f(ie[k]["medianAbs"])}/{f(ie[k]["p80Abs"])}' for k in ('progress', 'remaining', 'blended')))
 
     # the criteria, read against the release band
-    b = band['progress']
+    b = band[a.candidate]
     vs = band['progressVsScheduledWhereBoth']
     weekday_present = any(d.weekday() < 5 for d in test_days)
     crit = {
         'medianAbs<=1.5': b['medianAbs'] is not None and b['medianAbs'] <= 1.5,
         'p80Abs<=3.0': b['p80Abs'] is not None and b['p80Abs'] <= 3.0,
+        # The scheduled comparator is unanchored inbound (see the schedule anchor), so this reads
+        # against the anchored direction only; where nothing is anchored it cannot pass.
         'betterThanScheduledBy0.5': vs['progressMedianAbs'] is not None and vs['scheduledMedianAbs'] is not None
                                     and vs['scheduledMedianAbs'] - vs['progressMedianAbs'] >= 0.5,
         'coverage>=50%': b['coverage'] >= 0.5,
@@ -333,11 +439,25 @@ def main():
         'weekdayHeldOut': weekday_present,
     }
     result['criteria'] = crit
-    print('\n=== release criteria (docs/ARRIVAL_RELEASE_CRITERIA.md) ===')
+    print(f'\n=== release criteria (docs/ARRIVAL_RELEASE_CRITERIA.md) read against: {a.candidate} ===')
     for k, v in crit.items():
         print(f'  {"PASS" if v else "FAIL"}  {k}')
     print(f'  => {"RELEASE" if all(crit.values()) else "DO NOT RELEASE: run in the background"}')
-    out = ROOT / f'data/evaluation/arrival-evaluation-{a.line}.json'
+    if a.label == 'nightly':
+        # One line per night for scripts/arrival-release-check.py to pool: per direction, the
+        # release-band absolute errors of the candidate on this night's unseen journeys.
+        night = {'scoredAt': datetime.now(LONDON).isoformat(), 'days': sorted(d.isoformat() for d in test_days),
+                 'weekday': any(d.weekday() < 5 for d in test_days), 'candidate': a.candidate, 'directions': {}}
+        idx = {'progress': 4, 'remaining': 8, 'blended': 9}[a.candidate]
+        for d in ('inbound', 'outbound'):
+            sub = [r for r in rows if r[10] == d and RELEASE_BAND[0] <= r[3] < RELEASE_BAND[1] and r[idx] is not None]
+            night['directions'][d] = {'journeys': len({(r[0], r[1]) for r in sub}),
+                                      'passages': len({(r[0], r[1], r[2]) for r in sub}),
+                                      'absErrorsReleaseBand': [round(abs(r[idx]), 3) for r in sub]}
+        with open(ROOT / 'data/evaluation/arrival-nightly.jsonl', 'a') as handle:
+            handle.write(json.dumps(night) + '\n')
+        print('appended tonight to data/evaluation/arrival-nightly.jsonl')
+    out = ROOT / f'data/evaluation/arrival-evaluation-{a.line}{"-" + a.label if a.label else ""}.json'
     out.write_text(json.dumps(result, indent=1, default=str))
     print(f'\nwritten {out}')
 

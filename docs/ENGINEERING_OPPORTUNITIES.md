@@ -1213,3 +1213,42 @@ standing bus drew nothing new, so no frame ever wrote the attribute the test rea
 wake the loop. The decisive probe was CDP's `DOMDebugger.getEventListeners`, which showed the
 listeners in place and forced the question onto what happens *after* they run.
 
+## 34. Evidence that counts itself twice, and lands exactly on the threshold
+
+**Problem and evidence.** The nightly arrival evaluation appended one line per *run* to
+`arrival-nightly.jsonl`. Four test runs of one Sunday's snapshot pooled to 20 inbound journeys —
+the release floor to the journey — from 5 journeys counted four times (`git log 2e93693..`). The
+snapshot is the whole warehouse, so every night would have re-counted every earlier day as well.
+Only the weekday floor and inbound's error thresholds stood between that and a false release.
+
+**Who hits it, and the current workaround.** Anyone pooling per-run outputs whose inputs overlap.
+Fixed: one entry per day, the latest scoring of a day replacing the earlier, days before the
+criteria amendment excluded, and a test in which four runs of one day cannot reach the floor.
+
+**Recurrence and effort.** One instance, caught by reading "nights 4" on a first night. Minutes
+to fix; the cost was the near miss.
+
+**Right answer.** A rule: pooled evidence is keyed by the independent unit (here the day, and
+journeys within it), never by the act of measuring. **Existing tools.** None needed.
+**Smallest reusable capability.** `tests/test_arrival_release.py`, which any future pooling should
+copy. **Next cheap validation.** Tomorrow's unattended run must show `nights 2`, not 5.
+**Status:** fixed and tested; the server's file is rebuilt to one day.
+
+## 35. A one-day anchor that disagrees with the eight-day one
+
+**Problem and evidence.** On the server's Sunday snapshot alone, the outbound route-15 schedule
+anchor reads **+4.9 min** at the first stops (37 passages), outside the 3-minute tolerance; on the
+eight-day local sample it reads +2.3 (133 passages) and is verified. The page reads the local,
+shipped file. Whether Sunday outbound runs later or the week's figure hides a spread is not
+knowable from one day.
+
+**Who hits it, and the current workaround.** The passenger, if the anchor drifts and the shipped
+file stays put. Workaround: the nightly unit now computes the anchor on the server nightly to
+`data/evaluation/schedule-anchor-server.json`, which nobody reads yet.
+
+**Recurrence and effort.** First observation. **Right answer.** Once the server holds a week,
+make its anchor the published one (one `--out public/data/schedule-anchor.json` and the page reads
+the same path), so a drifting anchor withdraws the line the next morning. Not before: a single
+day withdrawing a line the week supports would flap. **Next cheap validation.** Compare the two
+files after seven nights. **Status:** observed and recorded; the local gate stands.
+

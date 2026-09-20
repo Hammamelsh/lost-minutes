@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 LONDON = ZoneInfo('Europe/London')
 THRESHOLDS = {'medianAbs': 1.5, 'p80Abs': 3.0, 'minJourneys': 20, 'minPassages': 150}
+UNSEEN_FROM = '2026-09-20'   # the amendment's date: no earlier day was unseen when the criteria were set
 
 
 def pct(values, q):
@@ -35,8 +36,17 @@ def main():
     ap.add_argument('--out', default=str(ROOT / 'public/data/arrival-release.json'))
     a = ap.parse_args()
     path = Path(a.nightly)
-    nights = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    # One entry per day, the latest scoring of that day winning, and only days after the amendment
+    # (docs/ARRIVAL_RELEASE_CRITERIA.md, 20 September 2026): development days count toward nothing.
+    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
+    latest = {}
+    for e in entries:
+        day = e.get('day') or (e.get('days') or ['?'])[0]
+        if day >= UNSEEN_FROM and (day not in latest or e.get('scoredAt', '') >= latest[day].get('scoredAt', '')):
+            latest[day] = e
+    nights = [latest[d] for d in sorted(latest)]
     verdict = {'schemaVersion': 1, 'generatedAt': datetime.now(LONDON).isoformat(), 'nights': len(nights),
+               'days': [n.get('day') for n in nights], 'unseenFrom': UNSEEN_FROM,
                'thresholds': THRESHOLDS, 'directions': {}, 'released': []}
     for direction in ('inbound', 'outbound'):
         errs, journeys, passages, weekdays = [], 0, 0, 0

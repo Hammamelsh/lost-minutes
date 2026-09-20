@@ -131,6 +131,37 @@ the loop and keep it running while a turn is held or easing. Six builds to find 
 was attached and firing throughout, and the attribute the test read was simply stale. Physical-phone
 check is additional.
 
+**The candidate, evaluated properly (20 September, later still).** Two methods read the timetable
+as a *difference* — the scheduled seconds from where the bus is now to your stop, needing no origin
+departure and so immune to the inbound discrepancy — and the blended candidate hands over to
+observed pace inside the last kilometre. On **identical eligible moments** of the development days
+(17–20 Sep, 44 journeys, 1,436 passages) the blended method beats the progress baseline at every
+horizon: **0.56 / 1.00 / 2.18 / 3.79** min median at 1–2 / 2–5 / 5–10 / 10–20 against 0.79 / 1.68 /
+2.91 / 5.34, at 100% coverage; per journey — 44 journeys are the units, not 63,397 moments — **1.62 /
+2.00** against 2.25 / 2.76. Passage uncertainty is ±11 s median, so nothing under 0.2 min is real.
+Outbound meets both thresholds (1.29 / 2.76); inbound does not (1.86 / 3.57). Because those days
+informed the candidate, its parameters were frozen and the **reserved set** — the server's own
+Sunday, 10 journeys, 289 passages, never seen by the fit — scored once: the ranking holds (0.52 /
+0.89 / 1.68 / 2.49; per journey 1.39 / 1.67; outbound 1.13 / 2.06, inbound 1.68 / 3.56), both error
+thresholds pass, and **the floors fail: 10 journeys against 20, no weekday. Not released.** At
+Hillingdon Road (opp), 43 moments: 0.89 / 1.27.
+
+**Per-direction release is pre-registered from here for unseen data only** (criteria amendment):
+the page computes the blended estimate from raw reports on the accepted shape and shows it **only
+for a direction `arrival-release.json` says has passed on unseen journeys** — a data event, not a
+code change. Nightly, the rebuild copies the warehouse while the collector is already stopped
+(0.16 s), the evaluation reads the copy, scores every unseen day once, and the release check pools
+by day. **Tested on the server with the collector watched each second:** normal, forced-failure and
+forced-timeout runs; **collector never not-active, longest publication age 11 s, no restarts.**
+
+**What is needed before any direction shows minutes:** ≥ 20 unseen journeys and ≥ 150 passages in
+that direction across distinct days, at least one a weekday, meeting median ≤ 1.5 and p80 ≤ 3.0 at
+2–10 min. Monday's snapshot is the first weekday; at ~10 journeys a day per direction, outbound —
+which met the thresholds on both sets — could qualify by about Wednesday if the numbers hold, and
+the served verdict will say so before anything is shown. **A pooling defect caught on the first
+night** (four test runs of one Sunday counted as four nights, landing exactly on the 20-journey floor)
+is fixed and tested: days are the unit.
+
 **Front view at Hillingdon Road (opp), traced.** Two inbound 15 variants serve the stop to the same
 destination: the 140-journey pattern (accepted shape) and a 5-journey Mon–Sat short working (shape
 rejected, 0 reports). On a weekday the bus is left unresolved and an unresolved bus had no road. The

@@ -444,19 +444,39 @@ def main():
         print(f'  {"PASS" if v else "FAIL"}  {k}')
     print(f'  => {"RELEASE" if all(crit.values()) else "DO NOT RELEASE: run in the background"}')
     if a.label == 'nightly':
-        # One line per night for scripts/arrival-release-check.py to pool: per direction, the
-        # release-band absolute errors of the candidate on this night's unseen journeys.
-        night = {'scoredAt': datetime.now(LONDON).isoformat(), 'days': sorted(d.isoformat() for d in test_days),
-                 'weekday': any(d.weekday() < 5 for d in test_days), 'candidate': a.candidate, 'directions': {}}
+        # One entry per DAY for scripts/arrival-release-check.py to pool, keyed by the day, so a
+        # re-run of the same snapshot replaces rather than adds, and a snapshot holding many days
+        # (it is the whole warehouse) does not count yesterday again tonight. The first version
+        # wrote one line per run: four test runs of one Sunday pooled to 20 journeys, exactly the
+        # release floor, by duplication. Days are the independent unit here, as journeys are within them.
         idx = {'progress': 4, 'remaining': 8, 'blended': 9}[a.candidate]
-        for d in ('inbound', 'outbound'):
-            sub = [r for r in rows if r[10] == d and RELEASE_BAND[0] <= r[3] < RELEASE_BAND[1] and r[idx] is not None]
-            night['directions'][d] = {'journeys': len({(r[0], r[1]) for r in sub}),
-                                      'passages': len({(r[0], r[1], r[2]) for r in sub}),
-                                      'absErrorsReleaseBand': [round(abs(r[idx]), 3) for r in sub]}
-        with open(ROOT / 'data/evaluation/arrival-nightly.jsonl', 'a') as handle:
-            handle.write(json.dumps(night) + '\n')
-        print('appended tonight to data/evaluation/arrival-nightly.jsonl')
+        day_of = {}
+        for p_ in passages:
+            if p_['scoreable']:
+                day_of[(p_['pattern_id'], p_['journey_key'], p_['stop_id'])] = local_wall(p_['passed_at_ms']).date().isoformat()
+        by_day = defaultdict(list)
+        for r in rows:
+            day = day_of.get((r[0], r[1], r[2]))
+            if day:
+                by_day[day].append(r)
+        path = ROOT / 'data/evaluation/arrival-nightly.jsonl'
+        kept = {}
+        if path.exists():
+            for line in path.read_text().splitlines():
+                if line.strip():
+                    entry = json.loads(line)
+                    kept[entry['day']] = entry
+        for day, drows in sorted(by_day.items()):
+            entry = {'day': day, 'scoredAt': datetime.now(LONDON).isoformat(),
+                     'weekday': datetime.strptime(day, '%Y-%m-%d').weekday() < 5, 'candidate': a.candidate, 'directions': {}}
+            for d in ('inbound', 'outbound'):
+                sub = [r for r in drows if r[10] == d and RELEASE_BAND[0] <= r[3] < RELEASE_BAND[1] and r[idx] is not None]
+                entry['directions'][d] = {'journeys': len({(r[0], r[1]) for r in sub}),
+                                          'passages': len({(r[0], r[1], r[2]) for r in sub}),
+                                          'absErrorsReleaseBand': [round(abs(r[idx]), 3) for r in sub]}
+            kept[day] = entry
+        path.write_text(''.join(json.dumps(kept[d]) + '\n' for d in sorted(kept)))
+        print(f'nightly file now holds {len(kept)} day(s): {", ".join(sorted(kept))}')
     out = ROOT / f'data/evaluation/arrival-evaluation-{a.line}{"-" + a.label if a.label else ""}.json'
     out.write_text(json.dumps(result, indent=1, default=str))
     print(f'\nwritten {out}')

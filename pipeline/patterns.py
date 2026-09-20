@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS service_pattern_stop (
     sequence        INTEGER NOT NULL,
     atco_code       TEXT NOT NULL,
     distance_from_start_m INTEGER,  -- NULL: not declared, never zero by default
+    seconds_from_start    INTEGER,  -- scheduled seconds from the first stop; NULL past an undeclared RunTime
     PRIMARY KEY (pattern_id, sequence)
 );
 """
@@ -121,7 +122,9 @@ CREATE TABLE IF NOT EXISTS service_pattern_stop (
 # Warehouses built before operating days and versions were recorded.
 MIGRATIONS = [f'ALTER TABLE service_pattern ADD COLUMN IF NOT EXISTS {column}' for column in (
     'operating_rules TEXT', 'version_modified TEXT', 'version_revision TEXT',
-    'journey_count INTEGER', 'distances_known BOOLEAN')]
+    'journey_count INTEGER', 'distances_known BOOLEAN')] + [
+    # Scheduled seconds per stop, from the links' RunTime, recorded from 20 September 2026.
+    'ALTER TABLE service_pattern_stop ADD COLUMN IF NOT EXISTS seconds_from_start INTEGER']
 
 
 def ensure_schema(con):
@@ -232,6 +235,22 @@ def _text(node, path):
     return value.strip() if value else ''
 
 
+
+_DURATION = re.compile(r'^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$')
+
+
+def _seconds(text):
+    """An ISO 8601 duration such as PT2M or PT1H30S as whole seconds, or None when absent or
+    unreadable. TransXChange puts one on every timing link as RunTime; a link without one leaves
+    every later scheduled time on the pattern unknown, exactly as an undeclared distance does."""
+    if not text:
+        return None
+    match = _DURATION.match(text.strip())
+    if not match or not any(match.groups()):
+        return None               # 'PT' on its own names no duration at all
+    hours, minutes, seconds = (float(part) if part else 0.0 for part in match.groups())
+    return int(round(hours * 3600 + minutes * 60 + seconds))
+
 def _metres(value):
     try:
         metres = int(str(value).strip())
@@ -333,18 +352,22 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
     # Section id -> ordered [(atco, metres from the section start or None)].
     sections = {}
     for section in root.iter('JourneyPatternSection'):
-        stops, distance = [], 0
+        stops, distance, seconds = [], 0, 0
         for link in section.findall('JourneyPatternTimingLink'):
             origin, destination = link.find('From/StopPointRef'), link.find('To/StopPointRef')
             if origin is None or destination is None or not origin.text or not destination.text:
                 continue
             if not stops:
-                stops.append((origin.text.strip(), 0))
+                stops.append((origin.text.strip(), 0, 0))
             step = _metres(link.findtext('Distance'))
             # An undeclared link makes every distance after it unknown. Counting it as zero
             # would publish a shorter journey than the file describes, as though measured.
             distance = None if distance is None or step is None else distance + step
-            stops.append((destination.text.strip(), distance))
+            # The same rule for time: RunTime is the scheduled running time of this link, and
+            # a link without one leaves every later scheduled time unknown rather than early.
+            run = _seconds(link.findtext('RunTime'))
+            seconds = None if seconds is None or run is None else seconds + run
+            stops.append((destination.text.strip(), distance, seconds))
         if stops:
             sections[section.get('id')] = stops
 
@@ -368,13 +391,16 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
         refs = [r.text.strip() for r in journey.findall('JourneyPatternSectionRefs') if r.text]
         if not refs or any(ref not in sections for ref in refs):
             continue              # a section we cannot read would leave a hole in the order
-        ordered, offset = [], 0
+        ordered, offset, offset_s = [], 0, 0
         for ref in refs:
-            for atco, metres in sections[ref]:
+            for atco, metres, secs in sections[ref]:
                 if ordered and ordered[-1][0] == atco:
                     continue      # section boundaries repeat the shared stop
-                ordered.append((atco, None if offset is None or metres is None else metres + offset))
+                ordered.append((atco,
+                                None if offset is None or metres is None else metres + offset,
+                                None if offset_s is None or secs is None else secs + offset_s))
             offset = ordered[-1][1] if ordered else offset
+            offset_s = ordered[-1][2] if ordered else offset_s
         if len(ordered) < MIN_STOPS:
             continue
         known = [rule for rule in running if rule is not None]
@@ -391,7 +417,7 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
 
 
 def _declared(stops):
-    return sum(1 for _, metres in stops if metres is not None)
+    return sum(1 for _, metres, *_ in stops if metres is not None)
 
 
 def deduplicate(patterns):
@@ -404,7 +430,7 @@ def deduplicate(patterns):
     merged = {}
     for pattern in patterns:
         key = (pattern.get('operatorCode'), pattern['lineName'], pattern['direction'],
-               tuple(atco for atco, _ in pattern['stops']))
+               tuple(atco for atco, *_ in pattern['stops']))
         kept = merged.get(key)
         if kept is None:
             merged[key] = {**pattern, 'journeys': pattern.get('journeys', 0)}
@@ -421,7 +447,7 @@ def deduplicate(patterns):
 
 def pattern_key(pattern):
     """Stable across rebuilds: the same operator, line, direction and stops keep one id."""
-    stops = [atco for atco, _ in pattern['stops']]
+    stops = [atco for atco, *_ in pattern['stops']]
     digest = hashlib.sha256(json.dumps([pattern.get('operatorCode'), pattern['lineName'],
                                         pattern['direction'], stops]).encode()).hexdigest()[:10]
     return f"{pattern.get('operatorCode') or 'NOC'}:{pattern['lineName']}:{pattern['direction'] or '-'}:{digest}"
@@ -431,12 +457,12 @@ def load(con, run_id, patterns, stops_in_area):
     ensure_schema(con)
     rows, stop_rows = [], []
     for pattern in patterns:
-        codes = [atco for atco, _ in pattern['stops']]
+        codes = [atco for atco, *_ in pattern['stops']]
         inside = sum(1 for atco in codes if atco in stops_in_area)
         pattern_id = pattern_key(pattern)
         pattern['patternId'] = pattern_id
         pattern['stopsInArea'] = inside
-        known = all(metres is not None for _, metres in pattern['stops'])
+        known = all(metres is not None for _, metres, *_ in pattern['stops'])
         rows.append((pattern_id, pattern['datasetSha256'], pattern['sourceFile'],
                      pattern['lineName'], pattern.get('serviceCode'), pattern.get('operatorCode'),
                      pattern['direction'], pattern['destination'], len(codes), inside,
@@ -446,8 +472,12 @@ def load(con, run_id, patterns, stops_in_area):
                      json.dumps(pattern['rules']) if pattern.get('rules') is not None else None,
                      pattern.get('modified'), pattern.get('revision'),
                      pattern.get('journeys'), known))
-        for sequence, (atco, metres) in enumerate(pattern['stops']):
-            stop_rows.append((pattern_id, sequence, atco, metres))
+        for sequence, stop in enumerate(pattern['stops']):
+            # A stop is (atco, metres) from an older caller or (atco, metres, seconds) from the
+            # parser; a missing third element is an unknown scheduled time, never zero.
+            atco, metres = stop[0], stop[1]
+            secs = stop[2] if len(stop) > 2 else None
+            stop_rows.append((pattern_id, sequence, atco, metres, secs))
     con.execute('DELETE FROM service_pattern_stop')
     con.execute('DELETE FROM service_pattern')
     con.executemany(
@@ -457,7 +487,7 @@ def load(con, run_id, patterns, stops_in_area):
         ' first_seen_run_id, first_seen_at, operating_rules, version_modified, version_revision,'
         ' journey_count, distances_known)'
         ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?)', rows)
-    con.executemany('INSERT INTO service_pattern_stop VALUES (?,?,?,?)', stop_rows)
+    con.executemany('INSERT INTO service_pattern_stop VALUES (?,?,?,?,?)', stop_rows)
     return len(rows), len(stop_rows)
 
 
@@ -483,10 +513,10 @@ def build_published(con, coverage=None):
         WHERE stops_in_area >= {MIN_STOPS_IN_AREA}
         ORDER BY operator_code, line_name, direction, stop_count DESC""").fetchall()
     stops_by_pattern = {}
-    for pattern_id, atco, metres in con.execute(
-            'SELECT pattern_id, atco_code, distance_from_start_m FROM service_pattern_stop'
-            ' ORDER BY pattern_id, sequence').fetchall():
-        stops_by_pattern.setdefault(pattern_id, []).append((atco, metres))
+    for pattern_id, atco, metres, secs in con.execute(
+            'SELECT pattern_id, atco_code, distance_from_start_m, seconds_from_start'
+            ' FROM service_pattern_stop ORDER BY pattern_id, sequence').fetchall():
+        stops_by_pattern.setdefault(pattern_id, []).append((atco, metres, secs))
     patterns = []
     for row in usable:
         stops = stops_by_pattern.get(row[0], [])
@@ -505,6 +535,9 @@ def build_published(con, coverage=None):
             'journeys': int(row[17]) if row[17] is not None else None,
             'stops': [s[0] for s in stops],
             'metres': [int(s[1]) if s[1] is not None else None for s in stops],
+            # Scheduled seconds from the first stop, from the links' RunTime; null past an
+            # undeclared link. A time at a stop is this plus a journey's departure, never a prediction.
+            'seconds': [int(s[2]) if s[2] is not None else None for s in stops],
         })
     services = sorted({f"{p['operator'] or ''}|{p['line']}" for p in patterns})
     return {

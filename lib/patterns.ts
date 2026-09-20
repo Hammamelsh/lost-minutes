@@ -27,6 +27,9 @@ const patternSchema = z.object({
  stops:z.array(z.string()),
  // null: the timetable did not declare that distance. Unknown, never zero.
  metres:z.array(z.number().nullable()),
+ /** Scheduled seconds from the first stop, from the timetable's link run times; null past an
+  *  undeclared link, and absent from catalogues built before it was recorded. */
+ seconds:z.array(z.number().nullable()).optional(),
 });
 
 const catalogueSchema = z.object({
@@ -45,8 +48,10 @@ export type PatternCatalogue = z.infer<typeof catalogueSchema>;
 
 export function parsePatterns(value:unknown):PatternCatalogue{
  const catalogue=catalogueSchema.parse(value);
- for(const pattern of catalogue.patterns)
+ for(const pattern of catalogue.patterns){
   if(pattern.stops.length!==pattern.metres.length)throw Error(`${pattern.id}: stops and distances disagree`);
+  if(pattern.seconds&&pattern.stops.length!==pattern.seconds.length)throw Error(`${pattern.id}: stops and scheduled seconds disagree`);
+ }
  return catalogue;
 }
 

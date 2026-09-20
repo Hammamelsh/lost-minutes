@@ -130,3 +130,15 @@ test('a real stop resolves to the real patterns that call at it',()=>{
  assert.ok(calling.every(p=>p.stops.includes(sample)&&p.stops.indexOf(sample)<p.stops.length-1));
  assert.deepEqual(patternsCallingAt(published,'not-a-real-stop'),[]);
 });
+
+
+test('scheduled seconds travel with the pattern as a parallel array, and a mismatch is refused',()=>{
+ const timed={...pattern,id:'p4',seconds:[0,60,120,180,240,300]};
+ const parsed=parsePatterns({...published,patterns:[timed]});
+ assert.deepEqual(parsed.patterns[0].seconds,[0,60,120,180,240,300]);
+ const untimed=parsePatterns({...published,patterns:[pattern]});
+ assert.equal(untimed.patterns[0].seconds,undefined,'a catalogue built before run times were recorded has none');
+ const partial={...pattern,id:'p5',seconds:[0,60,null,null,null,null]};
+ assert.deepEqual(parsePatterns({...published,patterns:[partial]}).patterns[0].seconds,[0,60,null,null,null,null]);
+ assert.throws(()=>parsePatterns({...published,patterns:[{...pattern,id:'p6',seconds:[0,60]}]}),/scheduled seconds disagree/);
+});

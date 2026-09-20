@@ -308,17 +308,52 @@ TXC = """<?xml version="1.0"?>
 </TransXChange>"""
 
 
-def link(a, b, metres):
+def link(a, b, metres, run_time=None):
     distance = '' if metres is None else f'<Distance>{metres}</Distance>'
+    run = '' if run_time is None else f'<RunTime>{run_time}</RunTime>'
     return (f'<JourneyPatternTimingLink><From><StopPointRef>{a}</StopPointRef></From>'
-            f'<To><StopPointRef>{b}</StopPointRef></To>{distance}</JourneyPatternTimingLink>')
+            f'<To><StopPointRef>{b}</StopPointRef></To>{run}{distance}</JourneyPatternTimingLink>')
 
 
-def txc(operator='TST', line='142', stops=('S1', 'S2', 'S3', 'S4', 'S5'), distances=(300, 250, 400, 100)):
-    pairs = list(zip(stops, stops[1:], distances))
+def txc(operator='TST', line='142', stops=('S1', 'S2', 'S3', 'S4', 'S5'), distances=(300, 250, 400, 100),
+        run_times=(None, None, None, None)):
+    pairs = list(zip(stops, stops[1:], distances, run_times))
     return TXC.format(operator=operator, line=line,
                       links1=''.join(link(*p) for p in pairs[:2]),
                       links2=''.join(link(*p) for p in pairs[2:])).encode()
+
+
+class RunTimeTests(unittest.TestCase):
+    """Scheduled running time per link, so a time at a stop can be worked out from a journey's
+    departure. The same rule as distance: an undeclared link leaves everything after it unknown."""
+
+    def test_iso_durations_become_whole_seconds_and_anything_else_is_unknown(self):
+        from pipeline.patterns import _seconds
+        self.assertEqual(_seconds('PT1M'), 60)
+        self.assertEqual(_seconds('PT0S'), 0)
+        self.assertEqual(_seconds('PT1H2M3S'), 3723)
+        self.assertEqual(_seconds('PT90S'), 90)
+        self.assertEqual(_seconds('PT1.5S'), 2)
+        for bad in (None, '', '  ', '2 minutes', 'P1D', 'PT'):
+            self.assertIsNone(_seconds(bad), bad)
+
+    def test_seconds_accumulate_across_sections_from_the_first_stop(self):
+        from pipeline.patterns import extract_patterns
+        found = extract_patterns(txc(run_times=('PT1M', 'PT2M', 'PT0S', 'PT3M')), 't.xml', 'sha', None, None)[0]
+        self.assertEqual([s[0] for s in found['stops']], ['S1', 'S2', 'S3', 'S4', 'S5'])
+        self.assertEqual([s[1] for s in found['stops']], [0, 300, 550, 950, 1050], 'distances unchanged')
+        self.assertEqual([s[2] for s in found['stops']], [0, 60, 180, 180, 360])
+
+    def test_a_link_without_a_run_time_leaves_every_later_time_unknown(self):
+        from pipeline.patterns import extract_patterns
+        found = extract_patterns(txc(run_times=('PT1M', None, 'PT2M', 'PT1M')), 't.xml', 'sha', None, None)[0]
+        self.assertEqual([s[2] for s in found['stops']], [0, 60, None, None, None])
+        self.assertEqual([s[1] for s in found['stops']], [0, 300, 550, 950, 1050], 'time and distance are judged apart')
+
+    def test_a_file_with_no_run_times_at_all_publishes_none_rather_than_zero(self):
+        from pipeline.patterns import extract_patterns
+        found = extract_patterns(txc(), 't.xml', 'sha', None, None)[0]
+        self.assertEqual([s[2] for s in found['stops']], [0, None, None, None, None])
 
 
 @unittest.skipUnless(HAS_DUCKDB, 'DuckDB not installed; see requirements.txt')
@@ -332,9 +367,9 @@ class PatternExtractionTests(unittest.TestCase):
         self.assertEqual((found['lineName'], found['operatorCode'], found['direction']),
                          ('142', 'TST', 'inbound'))
         # The stop shared by the two sections appears once, not twice.
-        self.assertEqual([atco for atco, _ in found['stops']], ['S1', 'S2', 'S3', 'S4', 'S5'])
+        self.assertEqual([atco for atco, *_ in found['stops']], ['S1', 'S2', 'S3', 'S4', 'S5'])
         # Distances accumulate across the section boundary.
-        self.assertEqual([m for _, m in found['stops']], [0, 300, 550, 950, 1050])
+        self.assertEqual([m for _, m, *_ in found['stops']], [0, 300, 550, 950, 1050])
         # The service's own validity and version, not just the file name's.
         self.assertEqual((found['validFrom'], found['validTo']), ('2026-08-30', '2031-08-30'))
         self.assertEqual((found['modified'], found['revision']), ('2026-08-28T14:35:06', '9'))
@@ -342,7 +377,7 @@ class PatternExtractionTests(unittest.TestCase):
     def test_a_missing_link_distance_makes_the_rest_unknown_not_zero(self):
         from pipeline.patterns import extract_patterns
         found = extract_patterns(txc(distances=(300, None, 400, 100)), 't.xml', 'sha', None, None)[0]
-        self.assertEqual([m for _, m in found['stops']], [0, 300, None, None, None])
+        self.assertEqual([m for _, m, *_ in found['stops']], [0, 300, None, None, None])
 
     def test_operating_days_come_from_the_service_and_each_journey(self):
         from pipeline.patterns import extract_patterns

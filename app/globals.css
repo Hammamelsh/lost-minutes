@@ -530,6 +530,26 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .follow>.follow-notes{grid-column:1 / -1;margin-top:8px}
 }
 
+/* ---- Riding or exploring a bus that is not one of this stop's.
+   The passenger has moved on from the stop search; the page follows them. The bus they chose
+   leads, the map comes next, and the stop stays as one compact block of context below, with the
+   way back to its buses in the card. Nothing is unchosen and nothing is hidden for good: leaving
+   the bus (Back to buses for your stop) restores the ordinary order at once. `order` works in
+   both layouts, the phone's column and the desktop grid, so there is one rule for both. */
+.follow.exploring-bus>*{order:6}
+.follow.exploring-bus>.follow-bar{order:0}
+.follow.exploring-bus>.active-bus{order:1}
+.follow.exploring-bus>.bus-card{order:2}
+.follow.exploring-bus>.vector-map,.follow.exploring-bus>.follow-map,
+.follow.exploring-bus>.map-fallback-wrap{order:3}
+.follow.exploring-bus>.your-stop{order:4}
+.follow.exploring-bus>.restore-notice,.follow.exploring-bus>.follow-hint{order:5}
+.follow.exploring-bus>.follow-notes{order:9}
+/* The walk to a stop you are not walking to now is not the question; it returns with the stop. */
+.follow.exploring-bus .your-stop .walk-guide{display:none}
+.follow.exploring-bus .your-stop{opacity:.85}
+.follow.exploring-bus .your-stop:hover,.follow.exploring-bus .your-stop:focus-within{opacity:1}
+
 /* ---- Status: one slim line, never a banner. */
 .follow .follow-bar{min-height:0;padding:4px 4px 4px 12px;border-radius:999px;gap:8px;align-self:flex-start;
  max-width:100%}
@@ -606,6 +626,10 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ride-exit{position:absolute;left:11px;top:11px;min-height:44px;display:inline-flex;align-items:center;gap:6px;
  padding:0 13px;border-radius:11px;border:1px solid #c6f36a;background:#0f1b24ee;color:#e8ffc8;font-size:13.5px;font-weight:750}
 /* The viewpoint switch: front of the upper deck, or outside the bus. */
+/* A front view that cannot be given says so on the button, and steps back visually rather than
+   sitting there looking ready. It stays pressable: pressing it explains, and nothing else changes. */
+.ride-camera.unavailable{opacity:.62;border-style:dashed}
+.ride-camera.unavailable:hover{opacity:.8}
 .ride-camera{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;
  border-radius:10px;border:1px solid #3f5462;background:#0f1b24ee;color:#e4eef2;font-size:13px;font-weight:750}
 .ride-camera.on{border-color:#c6f36a;color:#e8ffc8}

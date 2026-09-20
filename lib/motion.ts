@@ -459,7 +459,28 @@ export type Visual = {
  correction: Correction;
  lastCorrection: {kind: Correction; metres: number; at: number} | null;
  provisional: boolean;         // drawn at its report only while loading
+ /** A bus shown at its reports, moving from the report it was drawn at to the one that has just
+  *  arrived. Both ends are observed positions; the line between them is not claimed to be road. */
+ glide: {fromLat: number; fromLon: number; toLat: number; toLon: number; at: number; ms: number} | null;
 };
+
+/**
+ * Moving a bus shown at its reports from one report to the next.
+ *
+ * A bus with no accepted road geometry is drawn where it reported, and until 20 September 2026
+ * that meant it stood still for twenty seconds and then teleported the 150 m its next report had
+ * moved. Nothing about that is more honest than moving it: both ends are observed positions, and
+ * the passenger reads a jump as the app losing the bus.
+ *
+ * So the drawn bus travels from the report it was drawn at to the report that has arrived, over
+ * `ms`, and then stops there. It is never carried past the newest report, so the drawn position
+ * is at worst `ms` behind what is known and never ahead of it, which is the direction to err.
+ * The straight line between the two is not claimed to be the road: this is not an estimate, the
+ * card still reads "Last reported position", and no bearing is taken from the direction of
+ * travel. A gap beyond `maxMetres` is left as a jump, because a bus that has moved that far
+ * between reports has not been followed and pretending otherwise would invent a journey.
+ */
+export const GLIDE = {ms: 900, minMetres: 1.5, maxMetres: 400};
 
 const WINDOW_STEPS = 24;
 const MAX_FRAME = 0.25;          // s: a longer gap between frames means the page was not drawing
@@ -491,7 +512,17 @@ function place(e: Estimate, now: number, trackId: string | null, correction: Cor
  const goal = track && e.mode === 'estimated' && e.s !== null ? goalAt(track, e, now, draw) : null;
  return {mode: e.mode, s: e.s, lat: e.lat, lon: e.lon, bearing: e.bearing, heading: e.bearing, offset: 0,
   velocity: goal?.speed ?? 0, goal: goal?.s ?? null, goalSpeed: goal?.speed ?? 0, trackId,
-  basisAt: e.basis.at, frame: now, correction, lastCorrection: last, provisional: e.provisional ?? false};
+  basisAt: e.basis.at, frame: now, correction, lastCorrection: last, provisional: e.provisional ?? false,
+  glide: null};
+}
+
+/** Where a gliding bus is drawn now: eased between the two reports, and never past the newer one.
+ *  The bearing is left as reported, because a bearing is never taken from movement. */
+function glideAt(v: Visual, g: NonNullable<Visual['glide']>, now: number): Visual {
+ const f = Math.max(0, Math.min(1, (now - g.at) / g.ms));
+ // Smoothstep: it leaves the old report and reaches the new one without a visible start or stop.
+ const e = f * f * (3 - 2 * f);
+ return {...v, lat: g.fromLat + (g.toLat - g.fromLat) * e, lon: g.fromLon + (g.toLon - g.fromLon) * e};
 }
 
 /**
@@ -526,11 +557,22 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
  if (!previous || e.mode !== 'estimated' || previous.mode !== 'estimated' || previous.trackId !== trackId
      || previous.s === null || e.s === null || !track) {
   // Leaving an estimate for a report is a correction, and is said; a bus shown at its reports
-  // moving to its next report is simply that report.
+  // moving to its next report is simply that report, travelled to rather than jumped to (GLIDE).
   const moved = previous?.mode === 'estimated' ? metres(previous, e) : 0;
   const kind: Correction = moved > 1 ? 'snap' : 'none';
-  return place(e, now, trackId, kind, kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null,
-   track, draw);
+  const settled = place(e, now, trackId, kind,
+   kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null, track, draw);
+  if (!previous || e.mode !== 'observed' || previous.mode !== 'observed') return settled;
+  // A glide already under way continues to the report it was aimed at, unless a newer one has
+  // arrived, which restarts it from wherever the bus is now: never two targets at once.
+  const running = previous.glide && now < previous.glide.at + previous.glide.ms ? previous.glide : null;
+  // Still the same report: carry on travelling to it, or stand at it once arrived. A finished
+  // glide is cleared rather than kept, so nothing downstream has to date it.
+  if (previous.basisAt === e.basis.at) return running ? {...glideAt(settled, running, now), glide: running} : settled;
+  const gap = metres(previous, e);
+  if (gap < GLIDE.minMetres || gap > GLIDE.maxMetres) return settled;
+  const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms: GLIDE.ms};
+  return {...glideAt(settled, glide, now), glide};
  }
  // A frame after the page stopped drawing (nothing was moving) is not one long frame: the drawn
  // bus stood where it was all that time, so the step starts just before now. Integrating the
@@ -580,7 +622,7 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   : turnToward(previous.bearing, heading, 1 - Math.exp(-dt / draw.turnSettle));
  return {mode: 'estimated', s, lat: point.lat, lon: point.lon, bearing, heading, offset: s - e.s, velocity,
   goal: to.s, goalSpeed: to.speed, trackId, basisAt: e.basis.at, frame: now, correction, lastCorrection: last,
-  provisional: false};
+  provisional: false, glide: null};
 }
 
 // ------------------------------------------------------------------ the presentation clock
@@ -608,7 +650,10 @@ export function tickClock(clock: PresentationClock | null, wall: number, target:
  * away. A standing, paused or reported-only bus costs nothing.
  */
 export function needsFrames(e: Estimate | null, v: Visual | null, draw: Drawing = DRAWING) {
- if (!e || !v || e.mode !== 'estimated') return false;
+ if (!e || !v) return false;
+ // A bus shown at its reports draws only while it is travelling to the report that arrived.
+ if (v.glide && v.frame < v.glide.at + v.glide.ms) return true;
+ if (e.mode !== 'estimated') return false;
  return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.velocity) > 0.05 || Math.abs(v.goalSpeed) > 0.05
   || (v.goal !== null && v.s !== null && Math.abs(v.s - v.goal) > 0.5)
   || (e.held === true && e.resumeAt != null && e.resumeAt - v.frame <= draw.smoothing * 1000)

@@ -126,6 +126,8 @@ export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'going to the 
  exploring:'exploring the map',returning:'returning to the bus',paused:'paused: this bus started another journey'};
 /** Around a tap, how far a bus marker may be and still be the one meant: a finger's reach. */
 const TAP_MARGIN=14;
+/** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
+const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model'];
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
  *  drawn pointing north and turned by MapLibre to the bearing. */
@@ -161,10 +163,18 @@ function ring({stroke,outline,radius}:{stroke:string;outline:string;radius:numbe
  canvas.width=size*ratio;canvas.height=size*ratio;
  const g=canvas.getContext('2d')!;
  g.scale(ratio,ratio);g.translate(size/2,size/2);
+ // A pool of light on the road under the bus, then the ring itself. The flat 7% disc and 4 px
+ // rim it replaced read as a faint ellipse at the ride-along's zoom, on pale daylight roads
+ // especially: the bus was there and did not look chosen. The gradient also gives the scene
+ // somewhere for the bus to stand, which a flat outline does not.
+ const glow=g.createRadialGradient(0,0,radius*0.15,0,0,radius);
+ glow.addColorStop(0,'rgba(198,243,106,0.30)');
+ glow.addColorStop(0.72,'rgba(198,243,106,0.16)');
+ glow.addColorStop(1,'rgba(198,243,106,0.02)');
+ g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.fillStyle=glow;g.fill();
  g.beginPath();g.arc(0,0,radius,0,2*Math.PI);
- g.lineWidth=8;g.strokeStyle=outline;g.globalAlpha=0.6;g.stroke();
- g.globalAlpha=1;g.lineWidth=4;g.strokeStyle=stroke;g.stroke();
- g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.fillStyle=stroke;g.globalAlpha=0.07;g.fill();
+ g.lineWidth=9;g.strokeStyle=outline;g.globalAlpha=0.62;g.stroke();
+ g.globalAlpha=1;g.lineWidth=5.5;g.strokeStyle=stroke;g.stroke();
  return g.getImageData(0,0,size*ratio,size*ratio);
 }
 
@@ -548,20 +558,29 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     instance.on('click',(event:MapMouseEvent)=>{
      // Choosing a starting point: the tap is a place, not a bus, and nothing else is chosen by it.
      if(pickRef.current){pickRef.current({lat:event.lngLat.lat,lon:event.lngLat.lng});return}
-     const layers=['lm-bus-marker','lm-sel-marker'].filter(id=>instance.getLayer(id));
+     // Every way a bus is drawn is a way to tap it: its flat marker, its route number beside it,
+     // and, from zoom 18, the 3D model, its ground ring and its badge. Until 20 September 2026
+     // only the two marker layers were tested, so the route number was dead to a tap and the
+     // drawn bus itself — most of the screen in a ride-along — could not be tapped at all.
+     const layers=SELECTABLE.filter(id=>instance.getLayer(id));
      if(!layers.length)return;
      const {x,y}=event.point,m=TAP_MARGIN;
      let best:string|null=null,nearest=Infinity;
      for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers})){
       const key=feature.properties?.key;
-      if(typeof key!=='string'||feature.geometry.type!=='Point')continue;
-      const at=instance.project(feature.geometry.coordinates as [number,number]);
-      const d=Math.hypot(at.x-x,at.y-y);
+      if(typeof key!=='string'||!key)continue;
+      // A point is measured from where it is drawn. A shape (the model, or a label's box) has no
+      // one point, so it is measured from the bus it belongs to where that is carried, and
+      // otherwise counts as a hit at arm's length, so a marker nearer the finger still wins.
+      const anchor=feature.geometry.type==='Point'?feature.geometry.coordinates as [number,number]
+       :typeof feature.properties?.alat==='number'?[feature.properties.alon,feature.properties.alat] as [number,number]
+       :null;
+      const d=anchor?(()=>{const at=instance.project(anchor);return Math.hypot(at.x-x,at.y-y)})():m;
       if(d<nearest){nearest=d;best=key}
      }
      if(best)onSelect(best);
     });
-    for(const layer of ['lm-bus-marker','lm-sel-marker']){
+    for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-bus-model']){
      instance.on('mouseenter',layer,()=>{instance.getCanvas().style.cursor='pointer'});
      instance.on('mouseleave',layer,()=>{instance.getCanvas().style.cursor=''});
     }
@@ -886,6 +905,18 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     :'Front view needs the road this bus is on, checked against its own reports. This service has none yet, so it is shown from outside.')
   :!patternId&&onSharedRoad===false?'Front view is shown only where every candidate journey follows the same checked road. Here, before they join, the road ahead depends on which journey this is, so it is shown from outside.'
   :null;
+ // What the button itself can say, before it is pressed. A control that looks ready and then
+ // refuses is worse than one that says what it is waiting for: "checking" is a moment, "not on
+ // this route" is the service, and "not settled here" changes as the bus goes on.
+ const frontState=!frontReason?'ready'
+  :trackFor===null?'checking'
+  :candidateKey&&!trackFor?.track?'unsettled'
+  :!trackFor?.track?'unsupported':'unsettled';
+ const FRONT_LABEL:Record<string,string>={ready:'Front view',checking:'Front view · checking',
+  unsupported:'Front view · not on this route',unsettled:'Front view · not here yet'};
+ // The button says on its face what it can do, so nothing is hidden behind pressing it; pressing
+ // it gives the whole reason in the ride's notes. It is not marked `aria-disabled`, because it
+ // does respond, and a stack of permanent notes over the map crowds out the ride card.
  const camera=view==='ride'&&cameraWish==='front'&&!frontReason?'front':'outside';
  const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
 
@@ -952,7 +983,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    }
    trailSource?.setData({type:'FeatureCollection',features} as never);
    modelSource?.setData(input.modelShown&&input.model
-    ?{type:'FeatureCollection',features:v.bearing!==null?orientedBus(input.model,v,v.bearing):unorientedToken(input.model,v)}
+    ?{type:'FeatureCollection',features:v.bearing!==null?orientedBus(input.model,v,v.bearing,input.selected.key)
+      :unorientedToken(input.model,v,input.selected.key)}
     :EMPTY);
   }
   // Model, marker and camera all follow the same drawn state. Only the centre (and in the
@@ -960,7 +992,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // set while the map is already moving (a gesture, an animated zoom, a glide of ours): a jump
   // then would cancel it. Once it ends, a camera left far from the bus glides back.
   const r=ride.current;
-  const following=input.view==='ride'?r.state==='following':input.follow&&e.mode==='estimated';
+  // Following is about the camera, not about estimation: a bus shown at its reports is followed
+  // to each report it makes (it glides there, GLIDE in lib/motion.ts). Until 20 September 2026
+  // this also required an estimate, so Follow on the map did nothing at all on a service with no
+  // accepted road geometry — which was most of them.
+  const following=input.view==='ride'?r.state==='following':input.follow;
   // Nor while fingers are on the map: between a touch and MapLibre's taking it as a pinch or a drag
   // the map counts as still, and placing the camera then stops its touch handlers, so the gesture
   // was lost before it began (a pinch in the outside ride-along did nothing). Once they lift, a
@@ -1477,8 +1513,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     {rideState==='exploring'&&<button className="ride-return" onClick={()=>returnToBus()}><Crosshair size={14}/>Return to bus</button>}
     {camera==='front'
      ? <button className="ride-camera on" onClick={chooseOutside}><Bus size={14}/>Outside view</button>
-     : <button className="ride-camera" aria-disabled={frontReason!==null} onClick={chooseFront}>
-        <Armchair size={14}/>Front view</button>}
+     : <button className={`ride-camera${frontReason?' unavailable':''}`} title={frontReason??undefined}
+        onClick={chooseFront}>
+        <Armchair size={14}/>{FRONT_LABEL[frontState]}</button>}
    </div>
   </div>}
 

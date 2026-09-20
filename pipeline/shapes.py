@@ -197,6 +197,13 @@ def assemble(responses):
 
 # ------------------------------------------------------------------ validation
 
+def usable(points):
+    """Two or more (lon, lat) pairs: the least that can be called a path."""
+    return (isinstance(points, list) and len(points) >= 2
+            and all(isinstance(p, (tuple, list)) and len(p) == 2
+                    and all(isinstance(c, (int, float)) for c in p) for p in points))
+
+
 def validate(points, reports):
     """How close the reports of buses on this pattern lie to its shape."""
     distances = [offset_from(points, (lon, lat)) for lat, lon in reports]
@@ -214,8 +221,14 @@ def decide(stats):
     return 'accepted', None
 
 
-def reports_for(con, pattern, patterns, since_ms=None):
-    """Positions of live reports that the matcher places on this very pattern."""
+def reports_by_pattern(con, line, operator, patterns, since_ms=None):
+    """Live reports of one service, matched once each and bucketed by the pattern they land on.
+
+    Until 20 September 2026 this was `reports_for`, run once per pattern, so every report of a
+    line was matched again for each of that line's patterns: line 192 has 12 patterns and 81,572
+    reports, which is a million match calls to validate one service. The matcher's answer does not
+    depend on which pattern is being validated, so it is asked once and the answers are bucketed.
+    """
     from .match import match_vehicle
     from .service_days import service_day
     rows = con.execute(
@@ -223,15 +236,29 @@ def reports_for(con, pattern, patterns, since_ms=None):
         " FROM v_publishable_observation o JOIN raw_source r USING (source_sha256)"
         " WHERE r.source_kind = 'live_positions' AND o.route = ? AND o.operator = ?"
         + (' AND o.observed_at_ms >= ?' if since_ms else ''),
-        [pattern['line'], pattern['operator']] + ([since_ms] if since_ms else [])).fetchall()
-    placed = []
-    for operator, route, direction, destination, lat, lon, observed in rows:
-        vehicle = {'operator': operator, 'route': route, 'direction': direction,
-                   'destination': destination, 'lat': lat, 'lon': lon}
-        result = match_vehicle(vehicle, patterns, service_day(observed))
-        if result.get('matched') and result['patternId'] == pattern['id']:
-            placed.append((lat, lon))
-    return placed
+        [line, operator] + ([since_ms] if since_ms else [])).fetchall()
+    buckets = {}
+    # The matcher's verdict depends on the day only through the operating profile, so identical
+    # (direction, destination, position, day) inputs give identical answers: repeated reports of a
+    # standing bus are matched once. On a busy line that is most of the rows.
+    seen = {}
+    for operator_code, route, direction, destination, lat, lon, observed in rows:
+        day = service_day(observed)
+        cached = seen.get((direction, destination, lat, lon, day))
+        if cached is None:
+            result = match_vehicle({'operator': operator_code, 'route': route, 'direction': direction,
+                                    'destination': destination, 'lat': lat, 'lon': lon}, patterns, day)
+            cached = result['patternId'] if result.get('matched') else ''
+            seen[(direction, destination, lat, lon, day)] = cached
+        if cached:
+            buckets.setdefault(cached, []).append((lat, lon))
+    return buckets
+
+
+def reports_for(con, pattern, patterns, since_ms=None):
+    """Positions of live reports that the matcher places on this very pattern."""
+    return reports_by_pattern(con, pattern['line'], pattern['operator'], patterns,
+                              since_ms).get(pattern['id'], [])
 
 
 # ------------------------------------------------------------------ build and publish
@@ -271,10 +298,15 @@ def build(root=ROOT, db_path=None, lines=('15',), router=ROUTER, fetch=None, sle
     matchable = load_patterns(con)
     built = []
     try:
+        buckets, bucket_key = {}, None
         for pattern in corridor_patterns(con, lines, bearings):
             stops = pattern['stops']
             if len(stops) < 2:
                 continue
+            # One matching pass per service, shared by all its patterns (reports_by_pattern).
+            if bucket_key != (pattern['line'], pattern['operator']):
+                bucket_key = (pattern['line'], pattern['operator'])
+                buckets = reports_by_pattern(con, pattern['line'], pattern['operator'], matchable, since_ms)
             responses, hashes, problem = [], [], None
             for window in windows(stops):
                 try:
@@ -291,8 +323,18 @@ def build(root=ROOT, db_path=None, lines=('15',), router=ROUTER, fetch=None, sle
                 status, reason = 'rejected', problem
             else:
                 points, offsets = assemble(responses)
-                stats = validate(points, reports_for(con, pattern, matchable, since_ms))
-                status, reason = decide(stats)
+                # A router answer can carry a leg with no usable geometry (a one-point shape, or
+                # none at all). That is not a road, and validating against it crashed the whole
+                # build on 20 September 2026 rather than rejecting the one pattern; a service is
+                # refused for it, and every other service is still built.
+                if not usable(points):
+                    stats = {'reports': 0, 'p50': None, 'p95': None, 'within30': None}
+                    status, reason = 'rejected', ('the router returned no usable road geometry for this pattern '
+                                                  f'({len(points)} points)')
+                    points, offsets = [], []
+                else:
+                    stats = validate(points, buckets.get(pattern['id'], []))
+                    status, reason = decide(stats)
             length = 0.0 if not offsets else offsets[-1]
             con.execute('DELETE FROM pattern_shape WHERE pattern_id = ?', [pattern['id']])
             con.execute(

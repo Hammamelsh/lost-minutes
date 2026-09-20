@@ -518,3 +518,89 @@ front-view check of `ride`), desktop and phone. Eight of the nineteen predated t
 | No "leave in X minutes" | none added | — | Done |
 | No new paid services; collection, watchdog, nightly, rollback untouched | no pipeline or deploy change in this milestone | `git diff --stat` | Done |
 
+# Milestone checklist: the ride, the front view and the map's answers (21 September 2026)
+
+One row per requirement in the owner's brief. FIXTURE is test data on real stops; RECORDED is real
+captured reports replayed; LIVE names the deployment. The browser suite was run once, whole, on the
+integrated candidate — not on a build assembled from separate reruns.
+
+## 1. Establish the state and reproduce
+
+| Requirement | What was found | Evidence | Status |
+|---|---|---|---|
+| Confirm the build the browser runs, not just RELEASE | The served page is byte-identical to the local build (`sha256` of `out/index.html` and of the fetched page match); the service worker is network-first for the page and for `/data/`, and content-hashes `/_next/static/`, so no stale client is possible from caching | `sha256sum` of both, `sw.js` read | Done |
+| The screenshot's old wording | Not an old client and not a deployment mismatch: the wording was **still in the code**. "Does not serve your stop" was emitted by four surfaces at once, so it read as repetition of something already fixed | reproduced on the current build at 1440 px | Done |
+| Reproduce the desktop scenario | Hillingdon Road (opp), a bus that does not serve it, ridden | `outputs/probes/repro/desktop-scenario.mjs`, frames in `outputs/probes/milestone/desktop-after/` | Done |
+| A continuous recording, not a still | 70 s of the deployed build riding a real bus, sampled every frame, with video | `scripts/probes/ride-smoothness.mjs` → `outputs/probes/milestone/before-live/` | Done |
+
+## 2. Front-view coverage
+
+| Requirement | What was done | Evidence | Status |
+|---|---|---|---|
+| Coverage breakdown by capability, with reasons | position / timetable / accepted road / estimate / front view / unsettled-branch-with-all-candidates-accepted, each counted apart, every refusal counted under its reason | `scripts/coverage-breakdown.mjs`; before and after in `outputs/probes/milestone/` | Done |
+| Check for hard-coded allowlists, wrong inheritance from arrival gates, stale geometry, version mismatch | No allowlist exists and the arrival gate is separate (`lib/arrival.ts` reads `arrival-release.json`, nothing else does). The restriction was **data**: the shape index held 9 patterns on 3 routes, built once on 13 September | `lib/motion-view.ts` `loadTrack`; `public/data/shapes/index.json` history | Done |
+| Expand coverage where the data supports it; investigate 263 | Built and validated every line with a timetable and live reports: 362 patterns routed, **114 accepted on 77 lines**. Route 263 accepted both ways, 10,328 and 11,573 reports, p95 17.1 and 17.0 m | `pipeline/shapes.py` build log; index.json | Done |
+| Validate candidate paths against independent recorded reports; no straight lines, no weakened thresholds | Unchanged rule: ≥30 matched reports and 95% within 35 m of the routed road. 248 patterns rejected, 136 for having no reports to check against | index.json reasons | Done |
+| Shared road only where geometries genuinely agree, with look-ahead | Unchanged from 20 September (`sharedRoad`, measured vertex by vertex, 542 m look-ahead) | `lib/motion-view.ts` | Done |
+| Unavailable front view: brief reason, bus kept, temporary vs unsupported, no dead button | The button names the state on its face ("checking" / "not on this route" / "not here yet"), is marked unavailable, and the reason is in the ride's notes — not behind a hover or a press | `ride-quality.spec` | Done |
+| Say what would unlock the rest | The unsettled branch (24 of 66 vehicles) and 136 variants with no matched reports; both need more collection, not code | this table and PROJECT_CONTEXT | Done |
+
+## 3. Smooth movement
+
+| Requirement | What was done | Evidence | Status |
+|---|---|---|---|
+| Trace source → display and identify the cause | Observed-only mode placed the bus at its latest report every frame | measured: median step 0 m, max 217 m in 70 s LIVE | Done |
+| Coherent behaviour for observed-only buses; state the delay trade-off | Bounded travel between two known reports, 900 ms, never past the newest; 3.5% of frames behind, median 37.8 m while behind | `scripts/evaluate-glide.mjs`, `tests/motion-glide.test.mjs` | Done |
+| Stopped buses, jitter, out-of-order, gaps, large corrections | Below 1.5 m is placed, not animated; over 400 m stays a jump; a newer report restarts the travel from where the bus is; out-of-order and duplicates are the history's job, unchanged | unit tests | Done |
+| Eligible prediction unchanged and bounded | The estimator and its horizon are untouched | — | Done |
+| Camera aligned to the same state; a map update must not restart the ride | Following now follows the drawn state for observed buses too; the ride's transitions are unchanged | `ride-quality.spec` | Done |
+| ETA gate kept separate | `lib/arrival.ts` alone reads the release file; motion does not | code | Done |
+| Measure frame times, discontinuities, corrections, smoothing cost | All reported by `scripts/probes/ride-smoothness.mjs` (on-page) and `scripts/evaluate-glide.mjs` (identical data) | outputs | Done |
+| Reduced motion not mistaken for a defect | Unchanged behaviour, stated in PROJECT_CONTEXT | — | Done |
+
+## 4. Map selection
+
+| Requirement | What was done | Evidence | Status |
+|---|---|---|---|
+| Identify the green dots | The chosen bus's own recent reports (`lm-trail-report`), drawn as filled lime discs and never selectable | code | Done |
+| Every visible bus marker selectable, including label and 3D model | Tap tests marker, label, model, ring and badge; shapes carry the bus key and its anchor | `ride-quality.spec` | Done |
+| Hit testing follows the rendered position | The chosen bus is drawn from its own source at the displayed position and excluded from the others' source | code, unchanged | Done |
+| Non-bus dots visually distinct | Hollow rings at half a marker's radius, latest solid | frames | Done |
+| Empty map space, and a bus beside the chosen one | Clicking empty space changes nothing; the nearest within a finger's reach wins | `ride-quality.spec`, `selection.spec` | Done |
+| Accessible list alternative | Unchanged: every bus is a row | — | Done |
+| Bunched buses: a clear way to choose | **Partial**: nearest-within-reach wins and the list disambiguates, but there is no picker for two markers at the same pixel | — | Partial |
+
+## 5. Desktop and mobile
+
+| Requirement | What was done | Evidence | Status |
+|---|---|---|---|
+| Riding gives the bus visual priority, stop kept as context | `exploring-bus` ordering: bus card, map, then the stop compactly; walk guide folded away until you go back | `ride-quality.spec`, frames | Done |
+| Communicate the mismatch once, with easy actions | Said once, with "Back to buses for your stop (N coming)" | asserted ≤1 occurrence | Done |
+| Never silently change the bus or stop | Unchanged pin rules | `selection.spec` | Done |
+| Selection-ring prominence, model readability | The ring is a graded pool of light with a thicker rim, not a 4 px outline | frames | Done |
+| Sparse scenery investigated before styling | Real: Trafford Park has few mapped buildings, and the outside ride is not the extruded view. Nothing invented | frames | Done |
+| Outside ride the dependable default | Unchanged | — | Done |
+| Day/night contrast, label hierarchy, spacing | **Partial**: the ring and the mismatch wording changed; no systematic typographic pass | — | Partial |
+
+## 6. Journey and stop board
+
+| Requirement | What was done | Evidence | Status |
+|---|---|---|---|
+| Fresh visit, favourites, Continue, refresh, links, Back, New journey | Unchanged from 20 September and still covered | `journey-state.spec` | Done |
+| "Clears both stores" must not erase saved stops or preferences | Asserted: recents and saved stops survive New journey | `journey-state.test.mjs` | Done |
+| Same vehicle, another trip on the same route | A link carries no journey reference, so the journey is learned from the next report rather than assumed | `journey-state.test.mjs` | Done |
+| Remove arbitrary home suggestions | Nothing is suggested until a stop or a route is chosen | `ride-quality.spec` | Done |
+| Filters visible and clearable; distinguish passed, opposite, filtered, stale, no coverage | Unchanged from 20 September | `journey-state.spec` | Done |
+| Exercise all five empty states in the browser | **Partial**: two of five are browser-checked — a filter hiding buses (`journey-state.spec`) and no timetable held for the stop (`journey.spec`). No reports today, only old reports, and no feed are still wording-reviewed only | — | Partial |
+| Update my location discoverable; manual origin; Maps handoff | Unchanged | `walking.spec` | Done |
+
+## 8. Verification
+
+| Requirement | What was done | Status |
+|---|---|---|
+| Focused checks during, whole suite on the candidate | One full run on the integrated build; results in PROJECT_CONTEXT | Done |
+| Preserve meaningful assertions | Two front-view bounds were restated because the look-ahead changed on 20 September, with the reason recorded; nothing was deleted | Done |
+| Protect collection, nightly, evaluation, publication, rollback | No pipeline scheduling, publication or deploy behaviour changed; `pipeline/shapes.py` gained a guard and a faster validation path | Done |
+| Credentials and raw captures out of commits | `data/` is git-ignored; nothing added | Done |
+| Physical device | **Not done**: everything is Chromium, SwiftShader | Not done |
+

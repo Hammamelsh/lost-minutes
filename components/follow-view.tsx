@@ -233,7 +233,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // in its place. A recording restores nothing.
  const restoredPin=useMemo<Pin|null>(()=>{
   if(mode==='archive'||!initialJourney||initialJourney.source==='offer')return null;
-  if(initialJourney.bus)return {bus:initialJourney.bus,via:initialJourney.source==='link'?'link':'device',journeyKnown:true};
+  if(initialJourney.bus)return {bus:initialJourney.bus,via:initialJourney.source==='link'?'link':'device',
+   // A link carries the operator's own journey reference where there was one (busLinkKey), so the
+   // same vehicle's *next* trip on the same line is noticed as a change rather than followed as if
+   // it were the one the link named. An older link, or a journey the operator never referenced,
+   // arrives without one: then the journey is learned from the vehicle's next report rather than
+   // claimed, which is what `journeyKnown:false` means.
+   journeyKnown:initialJourney.source!=='link'||initialJourney.bus.journeyRef!==''};
   return initialJourney.busKey?pinFromKey(initialJourney.busKey,'link'):null;
  },[mode,initialJourney]);
  const pin=pinChoice!==undefined?pinChoice:restoredPin;
@@ -246,7 +252,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  if(selection.kind==='active'&&!selection.pin.journeyKnown)setPinChoice(adoptJourney(selection.pin,selection.bus));
  // The suggestion: the first bus coming to your stop, or the latest report on the route, kept
  // while it stays one of them. Only a bus timetabled to call and not yet past is suggested.
- const candidates=useMemo(()=>stop?(board?.coming.map(row=>row.bus)??[]):onRoute,[stop,board,onRoute]);
+ // With no stop chosen, a bus is suggested only where the passenger has pointed at something: a
+ // route they picked, or one of their saved routes. Until 20 September 2026 the home screen
+ // suggested the latest report anywhere in Manchester — a 43 to the airport to someone who had
+ // opened the page to find their own stop — which is an answer to a question nobody asked.
+ const routeIsTheirs=Boolean(choice)||favourites.some(f=>`${f.operator}|${f.route}`===route);
+ const candidates=useMemo(()=>stop?(board?.coming.map(row=>row.bus)??[]):routeIsTheirs?onRoute:[],
+  [stop,board,onRoute,routeIsTheirs]);
  const nextSuggested=keepSuggestion(suggested,candidates);
  if(nextSuggested!==suggested)setSuggested(nextSuggested);
  const suggestion=nextSuggested?candidates.find(bus=>bus.key===nextSuggested):undefined;
@@ -534,8 +546,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </div>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
   {activityAdds&&activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
-  {stop&&cardRelation&&prog&&<p className={`ride-progress tone-${relevant?prog.tone:'bad'}`}>
-   {relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</p>}
+  {stop&&cardRelation&&prog&&relevant&&<p className={`ride-progress tone-${prog.tone}`}>{prog.text}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
  </div>:null;
 
@@ -577,7 +588,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   :emptyKind==='old'?`Reports older than ${expiryMinutes} minutes are not drawn as current.`
   :null;
 
- return <section className={`follow${stop?' has-stop':''}${riding?' riding':''}`}>
+ // Riding or exploring a bus that is not one of this stop's: the bus leads and the stop becomes
+ // secondary context (CSS `order`), rather than the page opening with a stop search the passenger
+ // has already moved on from. Nothing is unchosen, and the way back is in the card.
+ // Only where the bus is definitely not the stop's: one that *may* call on an unsettled branch is
+ // still an answer to "what is coming here", and the stop stays in front for it.
+ const exploringBus=Boolean(stop&&pinned&&!absent&&(cardStanding==='not_for_stop'||cardStanding==='passed'));
+ return <section className={`follow${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
    <span className="follow-badge">{mode==='offline'?<WifiOff size={13}/>:<Radio size={13}/>}{copy.label}</span>
    <span className="follow-bar-when">
@@ -803,9 +820,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      <button className="text-action" onClick={letGo}>Stop following it</button>
     </div>
    </div>}
-   {shown&&!absent&&stop&&prog&&<div className={`bus-card-answer tone-${relevant?prog.tone:'bad'}`}>
-    <strong>{relevant?prog.text:NOT_COMING[cardStanding??'unknown']}</strong>
-    {relevant&&prog.detail&&<span>{prog.detail}</span>}</div>}
+   {/* A bus that does not serve the stop is said so once, in the block below with the way back,
+       not here as well: the same sentence three times reads as three different problems. */}
+   {shown&&!absent&&stop&&prog&&relevant&&<div className={`bus-card-answer tone-${prog.tone}`}>
+    <strong>{prog.text}</strong>{prog.detail&&<span>{prog.detail}</span>}</div>}
    {/* The operator's timetable, read out: the named journey's departure plus the scheduled running
        time to this stop. Shown only for a bus still before the stop on one named journey, and
        labelled as the timetable's, because a time at a stop reads as a prediction and is not one. */}

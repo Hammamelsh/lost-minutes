@@ -4,7 +4,66 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 20 September 2026, evening (journey state put on a footing, and a stop that showed no
+Last updated: 21 September 2026 (the ride made to move, the road geometry the app had never built,
+and the map made answerable).
+
+**21 September: why the bus jumped, why the front view was never offered, and why green dots did
+nothing.** Three reported faults, each traced to a cause and fixed, with the fleet's coverage
+measured before and after on one publication rather than asserted.
+- **The jump was observed-only mode, and it was most of the fleet.** A bus with no accepted road
+  geometry was *placed at its latest report every frame*: it stood still for twenty seconds and
+  then teleported. Measured on the deployed build against the real feed, 70 s of riding one bus:
+  median drawn step **0 m**, maximum **217 m**, three jumps. A bus now **travels** from the report
+  it was drawn at to the report that has arrived, over 900 ms, and stops there (`GLIDE` in
+  `lib/motion.ts`). Both ends are observed positions; the line between them is not claimed to be
+  road, no bearing is taken from it, and the bus is never carried past the newest report — the
+  drawn position is at worst 0.9 s behind what is known and never ahead. A gap over 400 m is left
+  as the jump it is. Replaying 27 recorded journeys (2,107 reports) through both drawings at 60
+  fps on identical frames: single-frame steps longer than a bus fall from **138.5 an hour to 0.3**
+  (the remainder being those deliberate jumps), the largest step within the cap from **393 m to
+  10.9 m**, and the cost is that the drawn bus is behind the newest report in **3.5% of frames**,
+  by a median 37.8 m while it is (`scripts/evaluate-glide.mjs`).
+- **Follow on the map did nothing on most services.** It required an estimate, so on a service with
+  no accepted geometry the camera never followed at all. Following is about the camera, and now
+  follows whatever is drawn.
+- **The front view was never refused by the code; the data had simply never been built.** There is
+  no route allowlist: `loadTrack` reads `public/data/shapes/index.json`, which held **9 patterns on
+  3 routes**, built on 13 September with `--lines 15,250,256` and never extended. Every other
+  service was told "this service has none yet" for ever. Road geometry has now been built and
+  validated for **every line that has both a timetable and live reports**: 175 lines, **362
+  patterns routed, 114 accepted** on **77 lines**, against the unchanged rule (at least 30 matched
+  reports, 95% within 35 m). Measured on one publication of 66 vehicles, buses eligible for
+  estimated movement and the front view go from **1 (2%) to 17 (26%)**, with one more an unsettled
+  branch whose candidates are all accepted. **Route 263, the one the owner tried, was accepted both
+  ways at the first attempt** — 10,328 and 11,573 matched reports, 95% within 17.1 m and 17.0 m.
+  It had never been unsupported; nobody had asked the router for it.
+- **What is still refused, and why**: 248 patterns were routed and **rejected**, 136 of them because
+  no report in the warehouse was ever matched to that variant (a school journey, a short working);
+  a handful because the road does not fit its own reports (71–99 m at the 95th percentile) and is
+  therefore not that bus's road. The largest remaining passenger-visible gap is the **unsettled
+  branch**: 24 of 66 vehicles, where two patterns still fit the position and not all candidates
+  have accepted geometry.
+- **The green dots were the chosen bus's own past.** `lm-trail-report` drew each recent report as a
+  filled lime disc — the same colour and nearly the size of a bus marker — and the tap handler
+  tested only two layers, so they did nothing. They are now **hollow rings at half the size**, and
+  the tap tests every layer that draws a bus: its marker, **its route number**, and, from zoom 18,
+  **the 3D model itself**, which is most of the screen in a ride-along and could not be tapped at
+  all. A shape hit is measured from the bus it belongs to, so a flat marker nearer the finger
+  still wins.
+- **The sidebar now follows the passenger.** Riding a 263 from a route-15 stop, the page still led
+  with the stop, its walk guide and its empty route-15 board, and said "does not serve your stop"
+  on four surfaces. While a chosen bus is not one of the stop's, the bus leads, the map follows,
+  and the stop stays as one compact block with the way back; the mismatch is said **once**.
+- **The home page no longer suggests a bus nobody asked for** (it offered the latest report
+  anywhere in Manchester), and **a link no longer claims which trip it named**: it carries a
+  vehicle, a route and a direction, so the journey is learned from that vehicle's next report
+  rather than assumed, and the same vehicle's next trip on the same line is noticed as a change.
+- **Two faults found by this work, not reported:** a router answer with no usable geometry raised
+  out of validation and ended a whole build batch, leaving every later service unbuilt (now
+  refused per pattern, with a test); and a full-page screenshot of this layout captures the sticky
+  map wherever the scroll left it, which had me chasing a grid regression that did not exist.
+
+Before that, 20 September 2026, evening (journey state put on a footing, and a stop that showed no
 buses explained).
 
 **20 September, evening: journey state, and why a saved stop would not let go.** Two defects seen on
@@ -479,6 +538,15 @@ timetable's assumed pause, a repeated report or a single position. Near is not a
 says doors are open or that anyone can board. The evidence (each report read, its distance from
 the stop, and whether it counted) is under "How we know this".
 
+**Travelling between reports** — a bus with *no* accepted road geometry is not estimated at all: it
+is drawn at its reports, and since 21 September 2026 it travels from the report it was drawn at to
+the report that has arrived, over 900 ms, and stops there (`GLIDE` in `lib/motion.ts`). Both ends
+are observed positions. The straight line between them is not claimed to be the road, no bearing is
+taken from the direction of travel, and the drawn bus is never carried past the newest report: it
+lags what is known by at most 0.9 s and never leads it. A gap over 400 m is left as a jump, because
+a bus that moved that far between reports was not followed. This is not an estimate, is never
+stored or published, and the card still reads "Last reported position".
+
 **Estimated position** — where a selected bus has probably got to since its last report,
 computed on the device (`lib/motion.ts`) and never stored, published or treated as a report.
 Three clocks and three things are kept apart: the reports (immutable, each at its observation
@@ -800,7 +868,13 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
   nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
   shown from above as a round token.
-- **Estimated movement covers 6 patterns on 3 routes** (15, 250 and 256). The model is frozen
+- **Estimated movement covers 114 accepted patterns on 77 lines** (21 September 2026), up from 6
+  patterns on 3 routes: the geometry is built and validated per pattern against that pattern's own
+  reports, and the motion model itself is unchanged and still frozen. What the model was *fitted
+  and scored on* has not widened: routes 15, 250 and 256 only. So a bus on route 41 is now
+  estimated along checked road with settings measured on three other routes, and the measured
+  error bounds quoted below are not evidence about it. Widening the evaluation is the next
+  measurement, not a code change. The model is frozen
   (`docs/MOTION_MODEL.md`). It was fitted on one Sunday's captures, and scored on fresh captures
   from that Sunday evening (median error up to a minute 65 m, against 143 m for the last report)
   and from one Monday morning on routes 15 and 250 (62.7 m against 118.3 m, with no peak hour and no
@@ -932,8 +1006,11 @@ route number; from 18 the stylised 3D bus (`public/models/lm-bus.json`) inside a
 ring with the route number floating above it, both symbols, which MapLibre draws over every
 building, so a model behind one is still found. The HUD carries a short mode line ("Ride-along
 · following the bus") with the explanation behind "What is this?". The chosen bus's recent
-reports are drawn as small dots, and an estimate as a dashed line from its report to the drawn
-bus, captioned ESTIMATE. The walking route is dotted blue. If the model cannot load the flat
+reports are drawn as **hollow rings at half a marker's size** — its own past, not other buses, and
+not selectable — and an estimate as a dashed line from its report to the drawn bus, captioned
+ESTIMATE. A tap tests **every layer that draws a bus**: the flat marker, the route number beside it
+and, from zoom 18, the 3D model, the ground ring and the badge; a hit on a shape is measured from
+the bus it belongs to, so a marker nearer the finger still wins. The walking route is dotted blue. If the model cannot load the flat
 symbol stays; if WebGL or the basemap fails, the drawn SVG map takes over, and says why. A slow
 tile is not a failure: the start (the module, the map and its first frame) has 7 s. The tiles
 then have their own allowance:

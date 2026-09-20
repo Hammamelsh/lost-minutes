@@ -1278,3 +1278,58 @@ the Evidence view, keyed by stop.
 **Next cheap step.** Keep the script; add its table to the coverage ledger under Behind the data
 when a second passenger report needs it. Status: script written and used once (this entry).
 
+## 37. A capability that was never refused by code, only never built — and nothing said so
+
+**Problem and evidence.** The street preview and estimated movement were unavailable for all but
+three routes from 13 to 21 September 2026. No code refused them: `lib/motion-view.ts` reads
+`public/data/shapes/index.json`, and that file held 9 patterns because the one build ever run was
+`--lines 15,250,256`. Every other service was told "this service has none yet" for ever, which
+reads as a product limit rather than a job nobody had queued. Building all 175 lines that have both
+a timetable and live reports took 62 minutes of routing and moved eligibility from 2% to 26% of one
+publication's fleet; route 263, the one the owner tried, was accepted at the first attempt with
+p95 17 m on 10,328 reports.
+
+**Who hits it, workaround.** Every passenger on 172 of 175 lines, and the owner when a reported
+fault ("front view is never available") has no code to point at. Workaround: none; there was no
+sign anywhere that the geometry was simply missing rather than impossible.
+
+**Implementation bug or wider need.** Wider need. The generalisable thing is a **derived-artefact
+freshness check**: a published artefact (road geometry, here) that is an input to a user-facing
+capability should be able to say what it covers against what is currently observed, and a check
+should notice when the gap grows. `scripts/coverage-breakdown.mjs` is the smallest version of that
+and took an hour; the reusable capability is running it on the server's own publication nightly and
+recording the series, so "26% of buses can be ridden along" is a number that moves and is watched
+rather than discovered by a user report. A visual interface would help only once there is a series.
+
+**Existing tools.** Data-pipeline freshness tooling exists in general (dbt source freshness, Great
+Expectations) but is about tables, not about a capability's coverage of a live fleet; nothing
+off-the-shelf was found that maps published artefacts to user-visible features.
+
+**Next cheap step.** Add the breakdown to the nightly refresh unit and append it to a JSONL, beside
+the arrival evaluation that already runs there. Status: script written and used for this milestone's
+before/after; not yet scheduled.
+
+## 38. "Honest" quietly became "motionless", and no check would have caught it
+
+**Problem and evidence.** A bus with no road geometry was placed at its latest report every frame.
+That is defensible in principle and awful in practice: measured on the deployed build against the
+real feed, the drawn bus had a median step of 0 m and a maximum of 217 m — it stood still for
+twenty seconds and teleported. It shipped because every motion check was written about the
+*estimator* (its error, its corrections, its snapping), and a bus with no estimate had no checks at
+all. The passenger reads a teleport as the app losing the bus.
+
+**Who hits it, workaround.** Every passenger on a service without accepted geometry, which was
+almost all of them. No workaround.
+
+**Implementation bug or wider need.** Both. The fix is in this repository. The wider need is that
+**the fallback path deserves the same measurement as the main path**: the evaluation harness
+(`scripts/evaluate-*.mjs`) only ever scored the estimator, so the majority case was unmeasured.
+`scripts/evaluate-glide.mjs` now replays real reports through the drawing at 60 fps and reports the
+step distribution, which is the same shape of tool pointed at the other branch.
+
+**Existing tools.** None found: this is domain-specific replay of one app's own render state.
+
+**Next cheap step.** Done for this case. The general step is a rule of thumb rather than a tool: when
+a feature has an eligibility gate, measure both sides of it before shipping. Status: measured,
+committed, and protected by `tests/motion-glide.test.mjs`.
+

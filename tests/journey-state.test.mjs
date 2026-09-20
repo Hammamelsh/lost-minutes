@@ -29,7 +29,8 @@ test('a link wins over both stores, and its four-part bus key restores a journey
  const j=initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO%7C15%7Cinbound',local,NOW,session);
  assert.equal(j.source,'link'); assert.equal(j.stopId,'1800SJ32251');
  assert.equal(j.busKey,'BNML|MF74NPO'); assert.equal(j.bus.route,'15'); assert.equal(j.bus.direction,'inbound');
- assert.equal(busLinkKey(bus),'BNML|MF74NPO|15|inbound');
+ assert.equal(busLinkKey(bus),'BNML|MF74NPO|15|inbound|1108','the link carries the trip too');
+ assert.equal(busLinkKey({...bus,journeyRef:''}),'BNML|MF74NPO|15|inbound','and leaves it out where the operator gave none');
 });
 
 test('a link naming another journey of a remembered vehicle does not borrow the remembered journey',()=>{
@@ -44,7 +45,7 @@ test('a link naming another journey of a remembered vehicle does not borrow the 
 test('an old two-part link key restores the vehicle with no journey, so the page must check it against the stop',()=>{
  const j=initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO',store(),NOW,store());
  assert.equal(j.busKey,'BNML|MF74NPO'); assert.equal(j.bus,null);
- assert.deepEqual(parseBusKey('BNML|MF74NPO'),{key:'BNML|MF74NPO',route:null,direction:null});
+ assert.deepEqual(parseBusKey('BNML|MF74NPO'),{key:'BNML|MF74NPO',route:null,direction:null,journeyRef:''});
  assert.equal(parseBusKey('bad'),null); assert.equal(parseBusKey('a|b|c'),null,'three parts is neither form');
 });
 
@@ -70,4 +71,15 @@ test('New journey empties both journey stores and leaves recents and saved thing
  assert.equal(local.getItem(JOURNEY_STORE),null); assert.equal(session.getItem(JOURNEY_SESSION_STORE),null);
  assert.equal(readRecents(local,NOW+1).length,1); assert.equal(local.getItem('lost-minutes.stops.v1'),'["1800SJ32251"]');
  assert.equal(initialJourney('',local,NOW+1,session),null,'nothing to offer or restore: nothing resurrects');
+});
+
+test('a link carries a vehicle on a route, not a trip: the journey reference is not invented', () => {
+ const bare = initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO%7C15%7Cinbound', store(), NOW, store());
+ assert.equal(bare.bus.journeyRef, '', 'a link with no reference never claims which trip it was');
+ const named = initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO%7C15%7Cinbound%7C1108', store(), NOW, store());
+ assert.equal(named.bus.journeyRef, '1108', 'a link that carries the trip keeps it');
+ const session = store();
+ writeJourney(session, {stopId: '1800SJ32251', serviceKey: null, bus, savedAt: NOW}, JOURNEY_SESSION_STORE);
+ assert.equal(initialJourney('', store(), NOW, session).bus.journeyRef, '1108',
+  'this tab’s own journey does know the trip, so a refresh keeps it exactly');
 });

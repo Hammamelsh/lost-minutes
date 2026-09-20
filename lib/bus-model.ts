@@ -27,7 +27,9 @@ export function parseBusModel(value:unknown):BusModel{
 }
 
 type Feature={type:'Feature';geometry:{type:'Polygon';coordinates:[number,number][][]};
- properties:{part:string;base:number;height:number;colour:string}};
+ /** `key` and the anchor say which bus this part belongs to and where it stands, so a tap on
+  *  the drawn bus chooses it. */
+ properties:{part:string;base:number;height:number;colour:string;key:string;alat:number;alon:number}};
 
 const METRES_PER_DEGREE=111320;
 
@@ -42,19 +44,23 @@ function placer(lat:number,lon:number,bearing:number){
 }
 
 /** The oriented model, when a bearing was reported. */
-export function orientedBus(model:BusModel,at:{lat:number;lon:number},bearing:number):Feature[]{
+export function orientedBus(model:BusModel,at:{lat:number;lon:number},bearing:number,key=''):Feature[]{
  const place=placer(at.lat,at.lon,bearing);
  return model.parts.map(part=>{
   const [x0,x1]=part.x,[y0,y1]=part.y;
   const ring=[place(x0,y0),place(x1,y0),place(x1,y1),place(x0,y1),place(x0,y0)];
   return {type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},
-   properties:{part:part.name,base:part.z[0],height:part.z[1],colour:model.colours[part.colour]}};
+   // The bus this is, and where it stands: at the ride-along's zoom the model is most of the
+   // screen, and a click on it is a click on that bus (`anchor` keeps the tap's distance honest
+   // against a flat marker beside it).
+   properties:{part:part.name,base:part.z[0],height:part.z[1],colour:model.colours[part.colour],
+    key,alat:at.lat,alon:at.lon}};
  });
 }
 
 /** With no reported bearing there is no front to point anywhere, so the marker is a round
  *  token: the right place, and honestly no direction. */
-export function unorientedToken(model:BusModel,at:{lat:number;lon:number}):Feature[]{
+export function unorientedToken(model:BusModel,at:{lat:number;lon:number},key=''):Feature[]{
  const place=placer(at.lat,at.lon,0);
  const circle=(radius:number)=>Array.from({length:25},(_,i)=>{
   const a=(i%24)/24*2*Math.PI;return place(radius*Math.cos(a),radius*Math.sin(a));
@@ -62,8 +68,8 @@ export function unorientedToken(model:BusModel,at:{lat:number;lon:number}):Featu
  const colour=(name:string,fallback:string)=>model.colours[name]??fallback;
  return [
   {type:'Feature',geometry:{type:'Polygon',coordinates:[circle(2.6)]},
-   properties:{part:'token',base:0,height:2.6,colour:colour('body','#c6f36a')}},
+   properties:{part:'token',base:0,height:2.6,colour:colour('body','#c6f36a'),key,alat:at.lat,alon:at.lon}},
   {type:'Feature',geometry:{type:'Polygon',coordinates:[circle(1.6)]},
-   properties:{part:'token cap',base:2.6,height:2.9,colour:colour('roof','#eef4e6')}},
+   properties:{part:'token cap',base:2.6,height:2.9,colour:colour('roof','#eef4e6'),key,alat:at.lat,alon:at.lon}},
  ];
 }

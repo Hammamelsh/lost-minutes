@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from pipeline.shapes import (ACCEPT_MIN_REPORTS, ACCEPT_P95_METRES, assemble, decide,  # noqa: E402
                              decode_polyline, encode_polyline, metres, offset_from, request_body,
-                             validate, windows)
+                             usable, validate, windows)
 
 # A road running north from (-2.30, 53.45), then east: two legs through three stops.
 A, B, C = (-2.30, 53.45), (-2.30, 53.4545), (-2.2925, 53.4545)
@@ -70,3 +70,19 @@ class ValidationTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DegenerateGeometryTests(unittest.TestCase):
+    """A router answer with no usable road is refused for that pattern, not raised over the build."""
+
+    def test_a_shape_needs_two_points_to_be_a_road(self):
+        self.assertFalse(usable([]))
+        self.assertFalse(usable([(1.0, 2.0)]), 'one point is a place, not a path')
+        self.assertFalse(usable([1.0, 2.0]), 'a bare pair is not a list of points')
+        self.assertFalse(usable([(1.0, 2.0), 3.0]), 'a float among the points is not a point')
+        self.assertTrue(usable([(1.0, 2.0), (1.1, 2.1)]))
+
+    def test_validation_is_never_asked_to_measure_against_a_non_path(self):
+        # Before 21 September 2026 this raised TypeError out of offset_from and ended the whole
+        # run, so every later service in the batch was left unbuilt by one bad router answer.
+        self.assertFalse(usable([1.0, 2.0]))

@@ -93,10 +93,16 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   {id:'lm-trail-estimate',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'estimate'],
    layout:{'line-cap':'round','line-join':'round'},
    paint:{'line-color':o.ink,'line-width':['interpolate',['linear'],['zoom'],13,1.6,18,3.4],'line-dasharray':[1.2,1.2]}},
+  // Where the chosen bus reported before now: hollow rings, half the size of a bus marker and
+  // with no filled centre, because a filled lime disc is what the chosen bus itself is drawn as.
+  // Until 20 September 2026 they were filled discs, and a passenger reading them as buses tapped
+  // them and nothing happened: they are this bus's own past, not other buses, and are not
+  // selectable. The latest is drawn solid, since that one *is* where the bus last reported.
   {id:'lm-trail-report',type:'circle',source:TRAIL_SOURCE,filter:['==',['get','kind'],'report'],
-   paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,2.6,18,5],'circle-color':'#c6f36a',
-          'circle-opacity':['case',['==',['get','latest'],1],1,0.62],
-          'circle-stroke-color':o.ink,'circle-stroke-width':1.4,'circle-pitch-alignment':'map'}},
+   paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,1.8,18,3.4],
+          'circle-color':['case',['==',['get','latest'],1],'#c6f36a','rgba(0,0,0,0)'],
+          'circle-stroke-color':'#c6f36a','circle-stroke-opacity':['case',['==',['get','latest'],1],1,0.7],
+          'circle-stroke-width':1.5,'circle-pitch-alignment':'map'}},
   {id:'lm-bus-label',type:'symbol',source:BUS_SOURCE,minzoom:13.5,filter:['==',['get','selected'],0],
    layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11.5,
            'text-anchor':'left','text-offset':[0.95,0],'text-padding':2},

@@ -175,7 +175,7 @@ export const FX = {
          ['1800SJ00121', 53.45303, -2.30002]],
   metres: [0, 209, 434, 657, 910, 1198, 1496, 1817, 2111, 2283, 2644],
   // Scheduled seconds from the first stop, as a timetable's RunTimes would give: about 8 m/s
-  // between stops plus a 10 s call at each. Stop A (index 4) is 154 s in.
+  // between stops plus a 10 s call at each. Stop A is index 6, 247 s in.
   seconds: [0, 36, 74, 112, 154, 200, 247, 297, 344, 375, 430],
   branchTail: ['1800SJ00091', '1800SJ00431', '1800SJ00891'],
   stopA: '1800SJ00811', stopE: '1800SJ00081',

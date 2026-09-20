@@ -11,6 +11,58 @@ One page, kept current. What is running, what is verified, what is not, and what
 | **Collection** | one bounded run on this laptop; nothing runs when it is off |
 | **Verdict** | **Ready for invited testing, and ready to be hosted.** The one thing that looked like a blocker tonight — the collector's memory rising ~300 MB an hour — **does not reproduce at the thread count the server will run**: flat at about 376 MB over 19 minutes with two threads. Nothing else is blocking except provisioning itself. See "What stands between this and a public beta" |
 
+## 20 September: hosted, and the passenger's two questions answered as far as the data allows
+
+**Deployed.** https://lost-minutes.duckdns.org — Hetzner CX23, Helsinki, Ubuntu 26.04.1, Let's Encrypt
+on the first attempt, the collector under systemd. Everything in this section was checked on that
+server or in Chromium on the built export. **Nothing on a physical phone.**
+
+**What the first real deployment exposed, all fixed and re-checked on the server:** the upload
+excluded `public/data` (an unanchored `data/` in the exclude list) and was 1.75 GB; no `deploy`
+user existed; a fresh warehouse had no stops or patterns, so **0 of 307** buses matched until a
+rebuild; a clean SIGTERM exit returned 130 and made every nightly pause a `failed` unit; the
+watchdog's rebuild guard never fired (`is-active --quiet` exits 3 for a running one-shot) and was
+reproduced as **4 collector restarts in 3 minutes**. Recovery from `SIGKILL`: publishing again in
+**25 s**. **The unattended 03:40 rebuild has not yet fired and is left open.**
+
+**"How long is my walk?"** — the start is now judged, not assumed. A fresh fix at best accuracy,
+never cached, with its accuracy and timestamp kept; confidence in bands (under 40 m stated plainly,
+to 150 m hedged as "about" with the doubt beside it, beyond that not routed; a tight fix over five
+minutes old is stale); **Update my location**, **Choose starting point** on the map (kept for the
+session, outranking the device until given up) and **Walk to stop in Google Maps** by the boarding
+point's coordinates, never its name. The Kenwood/Norwood cause is not claimed: the page had recorded
+nothing that could establish it. **18 browser checks pass, desktop and phone, FIXTURE.**
+
+**"When will this bus reach my stop?"** — as far as the data allows, honestly labelled. The feed's
+journey reference matches **0 of 114** timetable journey codes; its origin departure time matches a
+current timetabled departure for **all 161 distinct route-15 times (16,310 of 16,310 observations)**.
+Every timing link carries a `RunTime`, now read, so **all 576 patterns publish scheduled seconds per
+stop**. The card shows **"Timetabled at your stop 07:11 · from the operator's timetable, not a
+prediction"** only for a bus on one pattern, on one journey at that departure, with running times
+declared to both stops, and still before the stop. **No estimated minutes are shown.** Ground truth
+for an estimator exists — **2,025 (journey, stop) pairs** with a report within 40 m across 91
+route-15 journeys — and the estimator with its held-out evaluation is the next step. Browser check:
+**4 of 4 pass, desktop and phone, FIXTURE** — the time renders as 06:53 from a 06:49 departure plus 247 s, labelled not a prediction, the journey named in the evidence; a bus already past the stop shows no time.
+
+**Front view at Hillingdon Road (opp), traced.** Two inbound 15 variants serve the stop to the same
+destination: the 140-journey pattern (accepted shape) and a 5-journey Mon–Sat short working (shape
+rejected, 0 reports). On a weekday the bus is left unresolved and an unresolved bus had no road. The
+stop-list inference that stood in was wrong in principle and is replaced by **measured shared road**:
+**387 → 13,611 m** of the accepted shape, Hillingdon Road at 8,715 m, placed on it only if the bus's
+report and its whole 542 m look-ahead lie inside. **24 of 24 motion checks pass**, including a bus on
+shared road estimated with no candidate named, and one short of the divergence left at its report.
+
+**The street preview**, from data it already holds: façades graded by OSM height, a footway and a
+broken centre line at the class's real widths, a look-ahead that lengthens with speed, a sky that
+follows the sun (`lib/daylight.ts`, civil twilight from date and latitude). **Judged by eye on phone
+frames, both themes, in SwiftShader**; the day centre line was found near-invisible in the first
+frame and darkened. What it cannot show: dusk (the probe's clock is not at dusk), and anything OSM
+does not hold — no windows, no signs.
+
+**Still needing the owner:** rotate the BODS key seen in a screenshot (server and local hashes still
+match it), recycle the DuckDNS token, and say whether a Healthchecks.io dead man's switch may be
+created (off until then). **Still needing a phone:** every phone claim above is emulation.
+
 ## What changed on 18 September, and what it corrected
 
 Four claims this document made on 17 September have been tested rather than asserted. Two of them

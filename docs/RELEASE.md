@@ -33,7 +33,18 @@ session, outranking the device until given up) and **Walk to stop in Google Maps
 point's coordinates, never its name. The Kenwood/Norwood cause is not claimed: the page had recorded
 nothing that could establish it. **18 browser checks pass, desktop and phone, FIXTURE.**
 
-**"When will this bus reach my stop?"** — as far as the data allows, honestly labelled. The feed's
+**"When will this bus reach my stop?"** — as far as the data allows, honestly labelled.
+
+*Correction, later on 20 September.* An earlier note said naming a journey when several share a
+departure carried "zero risk". The precise claim is narrower: **all retained candidate journeys at
+that departure agree on the scheduled time at every stop, subject to the match and the timetable
+being right.** Timing agreement establishes a time, not a unique journey. And the two live snapshots
+quoted earlier (123 of 218 named, then 163 of 224) were different fleets at different moments —
+consistent with the change, not evidence for it. The controlled comparison holds one stored
+publication (16:51:36, 215 matched vehicles) and one catalogue fixed and changes only the rule:
+**old rule 117 departure groups named, new rule 156, +39, 0 lost, 59 still refused** because their
+journeys' timings differ. Groups and vehicles coincide in that publication only because each
+vehicle's (pattern, departure) was unique there. `scripts/compare-scheduled-rules.py` reproduces it. The feed's
 journey reference matches **0 of 114** timetable journey codes; its origin departure time matches a
 current timetabled departure for **all 161 distinct route-15 times (16,310 of 16,310 observations)**.
 Every timing link carries a `RunTime`, now read, so **all 576 patterns publish scheduled seconds per

@@ -211,7 +211,9 @@ export const isOldReport=(bus:FollowBus)=>bus.freshness==='stale';
 
 export type BoardRow={bus:FollowBus;relation:StopRelation;standing:Standing;metres:number};
 export type StopBoard={coming:BoardRow[];maybe:BoardRow[];nearby:BoardRow[];passed:BoardRow[];
- old:BoardRow[];elsewhere:BoardRow[]};
+ old:BoardRow[];elsewhere:BoardRow[];
+ /** Buses coming or that may call, left out by the chosen service: counted so the page can say so. */
+ hidden:BoardRow[]};
 
 // Nearest first for someone waiting: at or near the stop, then fewest stops away.
 function waitRank(relation:StopRelation):[number,number]{
@@ -229,7 +231,7 @@ function waitRank(relation:StopRelation):[number,number]{
  */
 export function stopBoard(buses:FollowBus[],stop:Stop,relations:Map<string,StopRelation>,
                           onService?:(bus:FollowBus,relation:StopRelation)=>boolean):StopBoard{
- const board:StopBoard={coming:[],maybe:[],nearby:[],passed:[],old:[],elsewhere:[]};
+ const board:StopBoard={coming:[],maybe:[],nearby:[],passed:[],old:[],elsewhere:[],hidden:[]};
  for(const bus of buses){
   const relation=relations.get(bus.key);
   if(!relation)continue;
@@ -238,6 +240,7 @@ export function stopBoard(buses:FollowBus[],stop:Stop,relations:Map<string,StopR
   if(row.standing==='coming'||row.standing==='maybe'){
    // A chosen service narrows the boarding options; it never reclassifies a bus.
    if(!onService||onService(bus,relation))board[row.standing].push(row);
+   else board.hidden.push(row);
    continue;
   }
   if(row.metres<=AT_STOP_METRES)board.nearby.push(row);

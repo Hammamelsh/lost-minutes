@@ -140,10 +140,10 @@ test('a stop without timetable coverage says so plainly', async ({page}) => {
   await expect(page.locator('.your-stop-copy strong')).toContainText('Moss Road');
   // Said once, with what can be done next, not three times over.
   const empty = page.locator('.waiting .empty-state');
-  await expect(empty).toContainText('No timetable coverage for this stop yet');
+  await expect(empty).toContainText('No timetable is held for this stop');
   await expect(empty).toContainText('no bus can be confirmed');
   await expect(empty.getByRole('button', {name: 'Choose another stop'})).toBeVisible();
-  await expect(page.getByText('No timetable coverage for this stop yet')).toHaveCount(1);
+  await expect(page.getByText('No timetable is held for this stop')).toHaveCount(1);
 });
 
 test.describe('views and themes', () => {

@@ -487,3 +487,30 @@ Measurements are in `docs/LOCAL_VERIFICATION.md` under the same heading.
 | Requirement | Evidence | Status |
 |---|---|---|
 | Typecheck, lint and build; targeted checks; broader checks where the change risks regressions | Typecheck, lint, the build and 137 Node tests pass. The whole browser suite (208 checks) ran on the final build: 182 passed, 24 skipped by design, 2 failed. One failure was a wrong test locator; corrected, `navigation.spec` then passed 18. The other failed identically on the previous build, so it predates this milestone; its helper now brings the bus into view, and `selection.spec` then passed 23 | Verified. No physical phone, GPS, screen reader or battery check was done |
+
+# Milestone checklist: journey state, navigation and the stop board (20 September 2026, evening)
+
+One row per requirement in the owner's brief. FIXTURE evidence uses test data on real stops; LIVE
+names the deployment. Browser checks ran once on the final build (`tests/browser/journey-state.spec`,
+`journey-context.spec`, `walking.spec`), desktop and phone.
+
+| Requirement | Implemented behaviour | Evidence | Status |
+|---|---|---|---|
+| Fresh visit to the base URL shows search, favourites and recents, not a stop | A device journey is an offer chip; the address stays bare through publications | `journey-state.spec` "a fresh tab only offers…" (address `''` after 2.5 s); LIVE `/` checked after deploy | Done |
+| Saved stop must not become a permanent selection | Only a link or the tab's session applies a stop | same spec; `journey-state.test` precedence cases | Done |
+| Compact "continue previous journey" | One chip with stop, bus or filter, and a forget button | `[data-continue]` assertions; screenshot `home-offer.png` | Done |
+| Active journey preserved through refresh, Maps return, backgrounding | sessionStorage per tab; reload restores silently with no note | `journey-state.spec` reload; Maps return and backgrounding are the same tab (not exercised on a phone) | Partial: phone unchecked |
+| New journey clears selection and URL, keeps favourites and recents; cleared state must not resurrect | `clearJourney` empties both stores; page sets stop and journey to none; address `/`; reload and 3 publications later still bare | spec "New journey clears everything…" | Done |
+| Shared links honoured with filters visibly represented | Filter chip pressed and labelled "Clear filter"; a filter no service has is said in a notice | spec "a link names a journey…" | Done |
+| Predictable Back/Forward | Stop choice pushes; popstate applies the address's stop, filter and bus; hash moves leave the journey alone | spec Back/Back/Forward sequence | Done |
+| Changing stop removes incompatible filters; old bus must not dominate; never silently substitute | Filter cleared; pin kept only where it calls, else released with a notice; nothing chosen instead | spec Stop E kept / Stop F released | Done |
+| Bus in a link is a journey, not a vehicle | Four-part key `operator|vehicle|route|direction`; two-part still read | `journey-state.test`; spec outbound-link case reads "another journey" | Done |
+| Diagnose Hillingdon Road (opp) route 15 on a frozen publication | `scripts/trace-stop.mjs`: one timetabled service, the only inbound 15 six stops past | trace output in PROJECT_CONTEXT (20 Sep evening) | Done |
+| Unavailable predictions, withheld scheduled time, missing preview never remove buses | `stopBoard` reads relations only; those features read rows | by construction (`lib/journey.ts`), `journey.test` | Done |
+| All serving services by default; filters obvious and removable; hidden count stated | Chip with × and "Clear filter" name; "Show all services · N more" under the list; empty state names the filter | spec filter case; screenshot `filter-hides.png` | Done |
+| Distinguish empty states with next actions | five kinds: no reports / filtered / old / feed / no coverage, each with an aside and actions | `emptyKind` in `follow-view.tsx`; spec covers filtered; others by inspection of wording | Partial: only "filtered" browser-checked |
+| Compact hierarchy; non-serving bus not a giant card | Card for a non-serving bus drops motion, walk, claims, schematic and distances | spec: card under 420 px, `not-serving-compact.png` | Done |
+| Walk info compact; keep Update my location, sticky manual origin, Maps by coordinates | Answer, actions row, one disclosure; start controls open only while the start is missing or in doubt | `walking.spec` (all cases, opening the disclosure where the start is confident); `access.spec` one Locate me | Done |
+| No "leave in X minutes" | none added | — | Done |
+| No new paid services; collection, watchdog, nightly, rollback untouched | no pipeline or deploy change in this milestone | `git diff --stat` | Done |
+

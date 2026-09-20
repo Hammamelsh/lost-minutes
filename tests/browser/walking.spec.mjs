@@ -7,6 +7,8 @@ import {readFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
 import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
+// The start's controls fold into the disclosure once the start is confident; opened here first.
+const openStart = async guide => {const d = guide.locator('[data-walk-details]'); if (!(await d.evaluate(e => e.open))) await d.locator('summary').click()};
 const RECORDED = JSON.parse(readFileSync(
   new URL('./recorded/osrm-foot-longford-park-to-stretford-mall-stop-a.json', import.meta.url), 'utf8'));
 // A precise fix: only its rounded form may reach the router.
@@ -59,6 +61,7 @@ test.describe('with a location', () => {
     await shot(page, 'walking-route');
     // A 15 m wobble of the fix and another Locate me do not ask the router again.
     await page.context().setGeolocation({latitude: 53.44884, longitude: -2.30955, accuracy: 30});
+    await openStart(page.locator('.walk-guide'));
     await page.locator('.walk-guide [data-update-location]').click();
     await page.waitForTimeout(2000);
     expect(calls, 'location jitter is not a new route').toHaveLength(1);
@@ -102,6 +105,7 @@ test.describe('with a location', () => {
     await openAtStopA(page);
     await page.getByRole('button', {name: 'Show walking route'}).click();
     const guide = page.locator('.walk-guide');
+    await openStart(guide);
     await guide.locator('[data-choose-start]').click();
     await expect(guide.locator('[data-picking]')).toContainText('Tap the map where you are starting from');
     const map = page.locator('.vector-map canvas').first();
@@ -128,6 +132,7 @@ test.describe('with a location', () => {
     await waitForPaint(page);
     await expect(page.locator('.walk-guide')).toHaveAttribute('data-origin-kind', 'chosen');
     // Going back to the device is explicit.
+    await openStart(page.locator('.walk-guide'));
     await page.locator('.walk-guide [data-update-location]').click();
     await expect(page.locator('.walk-guide')).toHaveAttribute('data-origin-kind', 'device');
     expect(new URL(await page.locator('.walk-guide [data-maps-link]').getAttribute('href')).searchParams.get('origin')).toBeNull();

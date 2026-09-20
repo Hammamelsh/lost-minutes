@@ -1252,3 +1252,29 @@ the same path), so a drifting anchor withdraws the line the next morning. Not be
 day withdrawing a line the week supports would flap. **Next cheap validation.** Compare the two
 files after seven nights. **Status:** observed and recorded; the local gate stands.
 
+## 36. "Why does this stop show no buses?" took a script to answer, and remembered state had no written model
+
+**Problem and evidence.** On 20 September 2026 the live site showed Hillingdon Road (opp) with no
+buses on route 15 while a 15 was visibly nearby. Nothing on the page or in the logs could say which
+of six things had happened (past the stop, wrong direction, filter, stale, unmatched, no timetable).
+It took a new script, `scripts/trace-stop.mjs`, which runs the page's own pure functions
+(`busesFromLive` → `relateToStop` → `servicesAtStop` → `stopBoard`) on a frozen publication and prints
+every bus of the route with its match, relation and board group. Answer: the only inbound 15 was six
+stops past the stop. Separately, the page remembered a stop that would not let go, because the
+device restore was rewritten into the address and then read back as a link; there was no document
+saying which store wins, so the bug was invisible in review.
+
+**Who hits it, workaround.** The owner, when a passenger reports "no buses". Workaround before: read
+the code. Recurrence: twice in one week (route 256 weekday gap, then this); effort unknown.
+
+**Implementation bug or wider need.** Both. The fixes here are a repository fix (the empty-state
+taxonomy and `docs/JOURNEY_STATE.md`). The wider need is a *stop tracer*: given a publication and a
+stop, list every candidate bus and the reason it landed where it did. That is a small reusable
+capability (a CLI over pure functions), not a product; a visual version would be the same table in
+the Evidence view, keyed by stop.
+
+**Existing tools.** None found for this data; GTFS-RT validators check feeds, not a page's decisions.
+
+**Next cheap step.** Keep the script; add its table to the coverage ledger under Behind the data
+when a second passenger report needs it. Status: script written and used once (this entry).
+

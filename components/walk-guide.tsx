@@ -33,6 +33,18 @@ export default function WalkGuide({state,config,here,origin,nowMs,stop,consent,o
  const showingRoute=Boolean(words&&state.status!=='problem');
  const mapsUrl=googleMapsWalkingUrl(stop,origin);
 
+ // Compact by default: the answer, the hand-off, and one disclosure for the start and the workings.
+ // While the start is missing or in doubt, the ways to fix it are in the open row, where the
+ // caveat that names them is; once it is confident they fold away with the rest.
+ const needsStart=!origin||!confidence.mayStateConfidently;
+ const startButtons=<>
+  {onLocate&&<button className="walk-action" onClick={onLocate} disabled={locating} data-update-location>
+   {chosen?<Smartphone size={15}/>:<LocateFixed size={15} className={locating?'spin':''}/>}
+   {chosen?'Use my device location':origin?'Update my location':'Locate me'}</button>}
+  {onStartPicking&&origin&&<button className="walk-action" onClick={onStartPicking} data-choose-start>
+   <MapPinned size={15}/>{chosen?'Choose a different start':'Choose starting point'}</button>}
+ </>;
+
  return <div className={`walk-guide walk-${state.status} walk-origin-${confidence.band}`} aria-live="polite"
              data-walk={state.status} data-origin-band={confidence.band} data-origin-kind={origin?.kind??'none'}>
   <div className="walk-head">
@@ -50,14 +62,7 @@ export default function WalkGuide({state,config,here,origin,nowMs,stop,consent,o
   {/* Why the number above is hedged: one clause, beside it, while the start is in doubt. */}
   {showingRoute&&confidence.caveat&&<p className="walk-caveat" data-caveat>
    Starting point uncertain: {confidence.caveat}. Update your location or choose the start yourself.</p>}
-
-  {state.status==='idle'&&!consent&&<div className="walk-consent">
-   <p>Directions send your location, rounded to about 10 m, and this stop’s location to {provider},
-    which logs requests. Nothing is sent until you ask.
-    {config.privacyUrl&&<> <a href={config.privacyUrl} target="_blank" rel="noopener noreferrer">Their privacy statement</a></>}</p>
-   <button className="walk-action" onClick={()=>onConsent(true)} disabled={!here}>
-    <Footprints size={15}/>Show walking route</button>
-  </div>}
+  {chosen&&<p className="walk-origin-from">Starting from <strong>{origin!.label}</strong>, which you chose.</p>}
 
   {state.status==='loading'&&<p className="walk-status">Asking {config.name} for a walking route…</p>}
 
@@ -68,29 +73,30 @@ export default function WalkGuide({state,config,here,origin,nowMs,stop,consent,o
    {locationError&&state.problem.code==='no_location'&&<p className="walk-note">{locationError}</p>}
   </div>}
 
-  {/* The hand-off. Always offered once a stop is chosen: it needs neither our route nor our fix.
+  {/* The actions: our route (asked for, never sent unasked), the start while it needs fixing, and
+      the hand-off, always offered once a stop is chosen: it needs neither our route nor our fix.
       The destination is the boarding point's coordinates; the origin goes only if the passenger chose it. */}
-  <a className="walk-maps" href={mapsUrl} target="_blank" rel="noopener noreferrer" data-maps-link>
-   <MapPinned size={16}/>{googleMapsLinkLabel(origin)}<ExternalLink size={14}/></a>
-
-  {/* Where the walk starts from, and the three ways to change that. */}
   {pickingOrigin
    ? <div className="walk-picking" role="status" data-picking>
       <span>Tap the map where you are starting from.</span>
       {onCancelPicking&&<button className="text-action" onClick={onCancelPicking}>Cancel</button>}
      </div>
-   : <div className="walk-origin" data-origin-controls>
-      {chosen&&<p className="walk-origin-from">Starting from <strong>{origin!.label}</strong>, which you chose.</p>}
-      {onLocate&&<button className="walk-action" onClick={onLocate} disabled={locating} data-update-location>
-       {chosen?<Smartphone size={15}/>:<LocateFixed size={15} className={locating?'spin':''}/>}
-       {chosen?'Use my device location':origin?'Update my location':'Locate me'}</button>}
-      {onStartPicking&&<button className="walk-action" onClick={onStartPicking} data-choose-start>
-       <MapPinned size={15}/>{chosen?'Choose a different start':'Choose starting point'}</button>}
+   : <div className="walk-actions">
+      {state.status==='idle'&&!consent&&here&&<button className="walk-action" onClick={()=>onConsent(true)} data-show-route
+        aria-label="Show walking route"><Footprints size={15}/>Walking route</button>}
+      {needsStart&&startButtons}
+      <a className="walk-maps" href={mapsUrl} target="_blank" rel="noopener noreferrer" data-maps-link
+         aria-label={`Walk to this stop in Google Maps${chosen?', from your chosen start':''}`}>
+       <MapPinned size={16}/>{googleMapsLinkLabel(origin)}<ExternalLink size={14}/></a>
      </div>}
+  {state.status==='idle'&&!consent&&here&&<p className="walk-consent-note">Sends your location, rounded to about 10 m, and this
+   stop to {config.name}, which logs requests. Nothing is sent until you ask.
+   {config.privacyUrl&&<> <a href={config.privacyUrl} target="_blank" rel="noopener noreferrer">Privacy</a></>}</p>}
 
-  {/* Everything about how it was worked out, in one place, folded away. */}
-  {(route||origin)&&<details className="walk-details" data-walk-details>
-   <summary>How this walk was worked out</summary>
+  {/* The start once it is settled, and everything about how the walk was worked out, folded away. */}
+  <details className="walk-details" data-walk-details>
+   <summary>{needsStart?'How this walk is worked out':'Starting point, and how this walk is worked out'}</summary>
+   {!needsStart&&!pickingOrigin&&<div className="walk-origin">{startButtons}</div>}
    <dl>
     {origin?.kind==='device'&&<>
      <dt>Your position</dt>
@@ -106,6 +112,6 @@ export default function WalkGuide({state,config,here,origin,nowMs,stop,consent,o
    </dl>
    <p><a href={config.fixTheMapUrl} target="_blank" rel="noopener noreferrer">Fix the map</a>
     {consent&&<> · <button className="text-action" onClick={()=>onConsent(false)}>Stop sending my location</button></>}</p>
-  </details>}
+  </details>
  </div>;
 }

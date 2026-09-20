@@ -1,7 +1,7 @@
 "use client";
 
 import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
-import {ArrowLeft,Clock3,Crosshair,LocateFixed,MapPin,Radio,RefreshCw,Share2,Star,WifiOff,X} from 'lucide-react';
+import {ArrowLeft,Clock3,Crosshair,History,LocateFixed,MapPin,Play,Radio,RefreshCw,RotateCcw,Share2,Star,WifiOff,X} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState,type SelectionKind} from '@/components/city-map';
 import Nearby from '@/components/nearby';
@@ -29,7 +29,8 @@ import {loadTrack} from '@/lib/motion-view';
 import type {Track} from '@/lib/motion';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
-import {journeyQuery,restoreService,writeJourney,type InitialJourney} from '@/lib/journey-context';
+import {busLinkKey,JOURNEY_SESSION_STORE,journeyQuery,recentsServerSnapshot,recentsSnapshot,rememberRecent,
+        restoreService,subscribeRecents,writeJourney,type InitialJourney} from '@/lib/journey-context';
 import {adoptJourney,alternativesTo,keepSuggestion,pinFromKey,pinOf,resolveSelection,
         type Pin,type PinSource,type Selection} from '@/lib/selection';
 import {activityWords,stopActivity} from '@/lib/stop-activity';
@@ -67,7 +68,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
                                     onLocate,locating,locationError,patterns,patternsById,
                                     here,origin=null,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
                                     pickingOrigin=false,onStartPicking,onCancelPicking,onChooseOrigin,
-                                    clockOffsetMs=0,initialJourney}:{
+                                    clockOffsetMs=0,initialJourney,journeyEpoch=0,onNewJourney,onAddress}:{
  /** True while the engineering area is open in front of this page. It stays mounted, so the map
   *  must be told to stop drawing rather than paint a canvas nobody can see. */
  paused?:boolean;
@@ -85,6 +86,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  nowMs:number;liveFingerprint?:string|null;recall?:(key:string)=>FollowBus|null;
  /** The journey left on this device or opened from a link; undefined until the page has read it. */
  initialJourney?:InitialJourney|null;
+ /** Bumped by the page when Back or Forward applies the address over this view's own choices. */
+ journeyEpoch?:number;
+ /** New journey: the page clears its stop, the stores and the address. */
+ onNewJourney?:()=>void;
+ /** The address's query as this view wrote it, so the page knows what it has applied. */
+ onAddress?:(search:string)=>void;
  walkingConfig?:WalkingConfig|null;clockOffsetMs?:number}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
@@ -103,6 +110,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // The bus the passenger chose (a pin), or null once they let it go. It is never replaced by
  // another bus: see lib/selection.ts.
  const [pinChoice,setPinChoice]=useState<Pin|null|undefined>(undefined);
+ // Why a stop change let the chosen bus go, said once beside the stop.
+ const [changeNote,setChangeNote]=useState<string|null>(null);
+ // Back or Forward applied the address: this visit's own choices give way to what it names.
+ const [seenEpoch,setSeenEpoch]=useState(journeyEpoch);
+ if(journeyEpoch!==seenEpoch){setSeenEpoch(journeyEpoch);setPinChoice(undefined);setServiceChoice(undefined);setChangeNote(null)}
+ // Stops chosen deliberately on this device; the server renders none.
+ const recents=useSyncExternalStore(subscribeRecents,recentsSnapshot,recentsServerSnapshot);
  // The page's suggestion while nothing is pinned, kept while it stays a candidate.
  const [suggested,setSuggested]=useState<string|null>(null);
  const [shareState,setShareState]=useState<'idle'|'copied'|'failed'>('idle');
@@ -171,10 +185,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   [patterns,stop,day,buses,patternsById]);
  // A restored service filter applies only at the restored stop and once today's services are
  // known; one the stop no longer has is said so below, not silently dropped.
- const serviceRestore=serviceChoice===undefined&&patterns&&initialJourney?.serviceKey&&stop?.id===initialJourney.stopId
-  ?restoreService(initialJourney.serviceKey,services):{kind:'none' as const,key:null};
+ const serviceRestore=serviceChoice===undefined&&patterns&&initialJourney?.serviceKey&&initialJourney.source!=='offer'
+  &&stop?.id===initialJourney.stopId?restoreService(initialJourney.serviceKey,services):{kind:'none' as const,key:null};
  const serviceKey=serviceChoice!==undefined?serviceChoice:serviceRestore.kind==='chosen'?serviceRestore.key:null;
  const activeService=services.find(s=>s.key===serviceKey)??null;
+ // A filter that names no service at this stop today (from a link, or Continue) is said, not ignored.
+ const filterGone=Boolean(patterns&&stop&&(serviceRestore.kind==='gone'||(serviceKey&&!activeService)));
+ const filterGoneKey=serviceRestore.kind==='gone'?serviceRestore.key:serviceKey;
  const board=useMemo(()=>stop?stopBoard(buses,stop,relations,
   activeService?(bus,relation)=>busOnService(bus,activeService,relation):undefined):null,
   [buses,stop,relations,activeService]);
@@ -215,7 +232,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // same journey is followed again; otherwise the page says what became of it and chooses nothing
  // in its place. A recording restores nothing.
  const restoredPin=useMemo<Pin|null>(()=>{
-  if(mode==='archive'||!initialJourney)return null;
+  if(mode==='archive'||!initialJourney||initialJourney.source==='offer')return null;
   if(initialJourney.bus)return {bus:initialJourney.bus,via:initialJourney.source==='link'?'link':'device',journeyKnown:true};
   return initialJourney.busKey?pinFromKey(initialJourney.busKey,'link'):null;
  },[mode,initialJourney]);
@@ -259,31 +276,38 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
 
  // What became of a restored service or stop, said once fresh data is in.
  const restoreNotes:string[]=[];
- if(serviceRestore.kind==='gone'&&initialJourney?.serviceKey){
-  const [,line,,destination]=initialJourney.serviceKey.split('|');
-  restoreNotes.push(`${line} to ${destination} is not in today’s timetable for this stop, so every service is listed.`);
+ if(filterGone&&filterGoneKey){
+  const [,line,,destination]=filterGoneKey.split('|');
+  restoreNotes.push(`${line} to ${destination.replace(/_/g,' ')} is not in today’s timetable for this stop, so every service is listed.`);
  }
+ if(changeNote)restoreNotes.push(changeNote);
  if(initialJourney?.stopId&&!stop&&stops.length>0&&!stops.some(s=>s.id===initialJourney.stopId))
   restoreNotes.push('The stop you had chosen is not in the current stop list. Search for your stop.');
 
- // The journey as it stands, kept on this device and in the address bar (replaced, never pushed).
- // A pin that has gone missing or changed journey is kept as it was chosen, so a reload asks the
- // same question. Nothing is written until the page has read what was there, and never from a
- // recording.
+ // The journey as it stands (docs/JOURNEY_STATE.md): this tab's store holds it exactly; the device's
+ // store holds the last journey, replaced by a new one and emptied only by New journey, never by a
+ // page with nothing chosen; and the address is replaced, never pushed, from here. A pin that has
+ // gone missing or changed journey is kept as it was chosen, so a reload asks the same question.
+ // Nothing is written until the page has read what was there, and never from a recording.
  useEffect(()=>{
   if(initialJourney===undefined||mode==='archive')return;
   const bus=pin&&pin.journeyKnown?pin.bus:null;
   // A restored service the passenger has not changed is kept, even on a day it does not run.
   const service=serviceChoice!==undefined?serviceChoice
-   :initialJourney&&stop?.id===initialJourney.stopId?initialJourney.serviceKey:null;
-  let storage:Storage|null=null;
+   :initialJourney&&initialJourney.source!=='offer'&&stop?.id===initialJourney.stopId?initialJourney.serviceKey:null;
+  let storage:Storage|null=null,session:Storage|null=null;
   try{storage=window.localStorage}catch{/* a refused store still works for this visit */}
-  writeJourney(storage,{stopId:stop?.id??null,serviceKey:service,bus});
-  const query=journeyQuery({stopId:stop?.id??null,serviceKey:service,busKey:pin?.bus.key??null});
+  try{session=window.sessionStorage}catch{/* likewise */}
+  const context={stopId:stop?.id??null,serviceKey:service,bus};
+  writeJourney(session,context,JOURNEY_SESSION_STORE);
+  if(context.stopId||context.bus)writeJourney(storage,context);
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey:service,busKey:pin?pin.journeyKnown?busLinkKey(pin.bus):pin.bus.key:null});
   const next=`${window.location.pathname}${query?`?${query}`:''}${window.location.hash}`;
-  if(next!==`${window.location.pathname}${window.location.search}${window.location.hash}`)
+  if(next!==`${window.location.pathname}${window.location.search}${window.location.hash}`){
    window.history.replaceState(window.history.state,'',next);
- },[initialJourney,mode,pin,serviceChoice,stop]);
+   onAddress?.(query?`?${query}`:'');
+  }
+ },[initialJourney,mode,pin,serviceChoice,stop,onAddress]);
 
  // Before the first publication arrives nothing is known either way: not "not collecting".
  const copy=loading?{label:'CHECKING',tone:'idle'}:MODE[mode];
@@ -297,8 +321,50 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  function chooseBus(bus:FollowBus){pinBus(bus,'list');setFollow(false);setFitRequest(n=>n+1)}
  function chooseService(key:string){setServiceChoice(serviceKey===key?null:key);setFitRequest(n=>n+1)}
  function pick(next:{route:string;direction:string}){setChoice(next);setFitRequest(n=>n+1)}
- function selectStop(next:Stop|null){onSelectStop(next);setServiceChoice(null);setView('2d');setFitRequest(n=>n+1)}
+ // Choosing a stop is deliberate: it is remembered as a recent, the filter is cleared, and the
+ // chosen bus stays chosen only if it calls at the new stop, else it is let go and the reason said.
+ // The address is pushed, so Back returns to the previous stop.
+ function selectStop(next:Stop|null){
+  const live=pin?buses.find(b=>b.key===pin.bus.key):undefined;
+  const serves=pin&&next?live?['coming','maybe'].includes(standing(relateToStop(live,next.id,patternsById))):false:Boolean(pin);
+  if(pin&&next&&!serves){
+   setPinChoice(null);
+   const label=`${next.name}${next.indicator?` (${next.indicator})`:''}`;
+   setChangeNote(live
+    ?`${pin.bus.route||'The bus'} to ${destinationLabel(pin.bus.destination)}, which you had chosen, does not call at ${label}, so it is no longer chosen.`
+    :`The bus you had chosen has no current report and cannot be checked against ${label}, so it is no longer chosen.`);
+  }else setChangeNote(null);
+  onSelectStop(next);setServiceChoice(null);setView('2d');setFollow(false);setFitRequest(n=>n+1);
+  if(next)rememberRecent(next.id);
+  const kept=pin&&serves?pin:null;
+  const query=journeyQuery({stopId:next?.id??null,serviceKey:null,busKey:kept?kept.journeyKnown?busLinkKey(kept.bus):kept.bus.key:null});
+  const target=`${window.location.pathname}${query?`?${query}`:''}`;
+  if(target!==`${window.location.pathname}${window.location.search}${window.location.hash}`){
+   // A stop chosen is a place Back can return to. "Change" (no stop yet) is on the way to one: it
+   // is pushed, marked as on the way, and the stop chosen next replaces it rather than adding to
+   // it, so history reads stop, stop, stop, and a stop's own entry is never overwritten.
+   const state={...(window.history.state??{}),lmIntermediate:!next};
+   if(next&&window.history.state?.lmIntermediate)window.history.replaceState(state,'',target);
+   else window.history.pushState(state,'',target);
+   onAddress?.(query?`?${query}`:'');
+  }
+ }
  function letGo(){setPinChoice(null);setFollow(false);setView('2d');setFitRequest(n=>n+1)}
+ // The device's last journey, taken up: its stop, its filter and its bus, checked against fresh data
+ // like any restore.
+ const offer=initialJourney?.source==='offer'&&!stop?initialJourney:null;
+ const offerStop=offer?.stopId?stopById.get(offer.stopId)??null:null;
+ function continueOffer(){
+  if(!offer)return;
+  onSelectStop(offerStop);setServiceChoice(offer.serviceKey);setChangeNote(null);
+  setPinChoice(offer.bus?{bus:offer.bus,via:'device',journeyKnown:true}:offer.busKey?pinFromKey(offer.busKey,'device'):null);
+  setView('2d');setFitRequest(n=>n+1);
+ }
+ // New journey: nothing chosen, nothing filtered, nothing followed; the page clears the rest.
+ function newJourney(){
+  setPinChoice(null);setServiceChoice(null);setChoice(null);setFollow(false);setView('2d');setChangeNote(null);
+  onNewJourney?.();
+ }
  function continueJourney(){if(selection.kind==='new_journey')pinBus(selection.bus,'continue')}
  // Following or riding along starts on the bus shown, and so pins it.
  function toggleFollow(){
@@ -317,7 +383,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  }
  // A shared link names the stop, the service and the bus the passenger chose: never where they are.
  async function share(){
-  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey:pin?.bus.key??null});
+  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey:pin?pin.journeyKnown?busLinkKey(pin.bus):pin.bus.key:null});
   const url=`${window.location.origin}${window.location.pathname}${query?`?${query}`:''}`;
   try{
    if(navigator.share){await navigator.share({title:`Lost Minutes · ${stopLabel}`,url});setShareState('idle');return}
@@ -487,12 +553,29 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(open&&element instanceof HTMLDetailsElement)element.open=true;
   element?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'});
  };
- // One message when nothing is coming, with what can be done next, instead of the same news three times.
- const emptyTitle=!board||board.coming.length>0?null
-  :loading?'Checking for live positions: the buses coming to this stop appear here once they arrive.'
-  :services.length===0?'No timetable coverage for this stop yet, so no bus can be confirmed as coming here.'
-  :board.old.some(item=>item.standing==='coming')?'The buses on services calling here have only old reports.'
-  :'No bus on a service calling here has a current report. Nothing is guessed to fill the gap.';
+ // One message when nothing is coming, telling the situations apart (no reports, a filter, old
+ // reports, no feed, no coverage), each with what can be done next, instead of the same news three times.
+ const hidden=board?.hidden.length??0;
+ const runningServices=services.filter(s=>s.runsToday!==false);
+ const serviceNames=(list:typeof services)=>list.slice(0,3).map(s=>`${s.line} to ${s.destination}`).join(', ')+(list.length>3?` and ${list.length-3} more`:'');
+ const emptyKind=!board||board.coming.length>0?null
+  :loading?'loading':services.length===0?'no_coverage':hidden>0?'filtered'
+  :mode==='offline'||mode==='unavailable'?'feed'
+  :board.old.some(item=>item.standing==='coming')?'old'
+  :runningServices.length===0?'not_today':'no_reports';
+ const emptyTitle=emptyKind==='loading'?'Checking for live positions: the buses coming to this stop appear here once they arrive.'
+  :emptyKind==='no_coverage'?'No timetable is held for this stop, so no bus can be confirmed as coming here.'
+  :emptyKind==='filtered'?`Your filter, ${activeService?.line} to ${activeService?.destination}, hides ${hidden} ${hidden===1?'bus':'buses'} coming or possibly coming here.`
+  :emptyKind==='feed'?(mode==='offline'?'You are offline, so nothing can be confirmed as coming: the last positions saved here are shown.'
+                       :'Live positions are unavailable, so nothing can be confirmed as coming.')
+  :emptyKind==='old'?'The buses on services calling here have only old reports.'
+  :emptyKind==='not_today'?`No service is timetabled to call here today (${serviceNames(services)} ${services.length===1?'runs':'run'} on other days).`
+  :emptyKind==='no_reports'?`${serviceNames(runningServices)} ${runningServices.length===1?'is':'are'} timetabled here today, but no bus on ${runningServices.length===1?'it':'them'} has a current report.`
+  :null;
+ const emptyAside=emptyKind==='no_reports'?'A missing report does not mean no bus is running: the operator’s feed can leave vehicles out. Nothing is guessed to fill the gap.'
+  :emptyKind==='no_coverage'?'The timetables held cover four operators (docs under Behind the data). Buses reported nearby are still listed.'
+  :emptyKind==='old'?`Reports older than ${expiryMinutes} minutes are not drawn as current.`
+  :null;
 
  return <section className={`follow${stop?' has-stop':''}${riding?' riding':''}`}>
   <div className={`follow-bar ${copy.tone}`} role="status">
@@ -526,13 +609,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        {/* The detailed map has its own Locate me; the simple map does not, so here only with it. */}
        {onLocate&&mapFallback&&!guideLocates&&<button className="your-stop-locate" onClick={onLocate} disabled={locating} aria-label="Locate me">
         <LocateFixed size={15} className={locating?'spin':''}/><span>Locate me</span></button>}
-       <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)}
+       <button className={savedStopIds.includes(stop.id)?'on':''} aria-pressed={savedStopIds.includes(stop.id)} data-compact
         aria-label={savedStopIds.includes(stop.id)?'Saved on this device':'Save this stop'}
         onClick={()=>setBlocked(!saveStops(toggleSavedStop(savedStopIds,stop.id)))}>
         <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/>
         <span>{savedStopIds.includes(stop.id)?'Saved':'Save'}</span></button>
-       <button onClick={share} aria-label="Share this stop"><Share2 size={15}/><span>Share</span></button>
+       <button onClick={share} aria-label="Share this stop" data-compact><Share2 size={15}/><span>Share</span></button>
        <button onClick={()=>selectStop(null)}>Change</button>
+       <button onClick={newJourney} aria-label="New journey: clear the stop, filter and chosen bus" data-new-journey>
+        <RotateCcw size={15}/><span>New journey</span></button>
       </div>
       {mode!=='archive'&&<WalkGuide state={walk} config={walking} here={here} origin={origin} nowMs={nowMs} stop={stop} consent={consent}
        onConsent={setConsent} onRetry={()=>setWalkAttempt(n=>n+1)} onLocate={onLocate} locating={locating}
@@ -540,6 +625,17 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        onCancelPicking={onCancelPicking}/>}
      </div>
    : <div className="your-stop unset">
+      {/* The last journey on this device, offered and never applied: one tap takes it up, one lets it go. */}
+      {offer&&offerStop&&<section className="continue" aria-label="Continue your last journey" data-continue>
+       <button className="continue-chip" onClick={continueOffer}>
+        <Play size={15} aria-hidden="true"/>
+        <span className="continue-copy"><strong>Continue · {offerStop.name}{offerStop.indicator?` (${offerStop.indicator})`:''}</strong>
+         <small>{offer.bus?`${offer.bus.route} to ${destinationLabel(offer.bus.destination)}`
+          :offer.serviceKey?`${offer.serviceKey.split('|')[1]} to ${(offer.serviceKey.split('|')[3]??'').replace(/_/g,' ')}`
+          :'your last stop'} · from earlier today</small></span>
+       </button>
+       <button className="continue-forget" onClick={newJourney} aria-label="Forget this journey"><X size={15}/></button>
+      </section>}
       {/* A returning passenger's own stops and routes come first, above finding a new one. */}
       {(savedStops.length>0||favourites.length>0)&&<section className="saved" aria-label="Saved on this phone">
        <h3 className="saved-head">Saved on this phone<small>{savedStops.length&&favourites.length?'stops and routes'
@@ -558,6 +654,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        </div>
        <InstallHint/>
       </section>}
+      {(()=>{const recentStops=recents.map(r=>stopById.get(r.stopId)).filter((s):s is Stop=>s!==undefined&&!savedStopIds.includes(s.id));
+       return recentStops.length>0&&<section className="saved recent" aria-label="Recent stops" data-recents>
+        <h3 className="saved-head">Recent stops<small>chosen on this phone</small></h3>
+        <div className="stop-chips">{recentStops.map(recent=><button key={recent.id} className="stop-chip" onClick={()=>selectStop(recent)}>
+         <History size={14}/><span>{recent.name}{recent.indicator?` · ${recent.indicator}`:''}</span></button>)}</div>
+       </section>})()}
       <Nearby stops={stops} patterns={patterns} here={here} outsideArea={outsideArea} day={day}
        onSelect={selectStop} onLocate={onLocate??(()=>{})} locating={!!locating}
        locationError={locationError} onClearHere={onClearHere} areaLabel="Manchester"/>
@@ -610,11 +712,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       and how old its report is, then everything else listed apart with what it is. The card for
       the chosen bus follows, so the alternatives are never below a long card. */}
   {stop&&services.length>0&&<section className="services" aria-label="Services from your stop">
-   <h3 className="section-head">Services from this stop<small>timetabled · tap to filter</small></h3>
+   <h3 className="section-head">Services from this stop<small>{activeService?'filtered · tap it again to clear':'timetabled · tap to filter'}</small></h3>
    <div className="service-chips">{services.map(service=>
     <button key={service.key} aria-pressed={activeService?.key===service.key}
+     aria-label={`${activeService?.key===service.key?'Clear filter: ':''}${service.line} to ${service.destination}`}
      className={`service-chip${activeService?.key===service.key?' on':''}${service.runsToday===false?' not-today':''}`}
      onClick={()=>chooseService(service.key)}>
+     {activeService?.key===service.key&&<X size={13} className="service-chip-clear" aria-hidden="true"/>}
      <span className="route-pill">{service.line}</span>
      <span className="service-chip-copy"><strong>to {service.destination}</strong>
       <small>{service.runsToday===false?`not running today · ${service.runs}`
@@ -627,11 +731,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {emptyTitle
     ? <div className="empty-state" role="status">
        <strong>{emptyTitle}</strong>
+       {emptyAside&&<span>{emptyAside}</span>}
        {(board.maybe.length>0||board.nearby.length>0||more>0)&&<span>{[
         board.maybe.length?`${board.maybe.length} may call here (branch not settled)`:'',
         board.nearby.length?`${board.nearby.length} reported nearby, not coming here`:'',
         more?`${more} more near your stop`:''].filter(Boolean).join(' · ')}</span>}
        <div className="empty-actions">
+        {emptyKind==='filtered'&&<button className="text-action strong" onClick={()=>setServiceChoice(null)} data-clear-filter>Show all services</button>}
         {board.maybe.length>0&&<button className="text-action" onClick={()=>scrollTo('.maybe-coming')}>
          See the {board.maybe.length===1?'one':board.maybe.length} that may call</button>}
         {board.nearby.length>0&&<button className="text-action" onClick={()=>scrollTo('.nearby-reports')}>
@@ -641,6 +747,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        </div>
       </div>
     : board.coming.map(item=>row(item,standingWords(item)))}
+   {!emptyTitle&&hidden>0&&<button className="text-action filter-more" onClick={()=>setServiceChoice(null)} data-clear-filter>
+    Show all services · {hidden} more coming or possibly coming on other services</button>}
   </section>}
   {stop&&board&&board.maybe.length>0&&<section className="maybe-coming" aria-label="Buses that may call at your stop">
    <h3 className="section-head">May call at your stop<small>branch not settled</small></h3>
@@ -709,7 +817,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {shown&&!absent&&stop&&relevant&&timetabled?.kind==='time'&&<p className="bus-card-scheduled" data-scheduled={timetabled.wall}>
     <strong>Timetabled at your stop {timetabled.wall}</strong>
     <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}
-   {activityLine&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
+   {activityLine&&relevant&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
     <span>How this is known</span></summary><p>{activityLine.detail}</p></details>}
    {notServing&&!absent&&<div className="bus-card-explored" role="note" data-other-side={otherSide?otherSide.stop.id:undefined}>
     <p>{notServing}</p>
@@ -718,7 +826,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     <button className="back-to-stop" onClick={letGo}><ArrowLeft size={15}/>Back to buses for your stop
      {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
    </div>}
-   {motionWords&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
+   {motionWords&&relevant&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
     {/* The label is the claim; how an estimate is made is one tap away. Why a bus is not
         estimated stays in view. */}
     {motionInfo?.mode==='estimated'
@@ -729,9 +837,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      onClick={()=>saveMotionPreference(!estimatedMovement)}>
      {estimatedMovement?'Show reported positions only':'Show estimated movement'}</button>
    </div>}
-   {stop&&walked&&<p className="bus-card-walk"><strong>You: {walked.time} walk</strong>
+   {stop&&walked&&relevant&&<p className="bus-card-walk"><strong>You: {walked.time} walk</strong>
     <span>{walked.distance} to {stopLabel}</span></p>}
-   {shown&&!absent&&(stop&&assoc
+   {shown&&!absent&&relevant&&(stop&&assoc
     ? <dl className="claims">
        <div className="claim"><dt>Boarding point</dt><dd><strong>{stopLabel}</strong>
         <span>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')}</span></dd></div>
@@ -743,8 +851,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       </dl>
     : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageChip(shown)}`}</strong>
       Choose your stop to see whether this bus calls there and how far it has got.</p>)}
-   {shown&&!absent&&<StopProgress items={items}/>}
-   {shown&&!absent&&<ul className="distance-lines">{distanceLines({here,stop,bus:shown,relation:cardRelation,
+   {shown&&!absent&&relevant&&<StopProgress items={items}/>}
+   {shown&&!absent&&relevant&&<ul className="distance-lines">{distanceLines({here,stop,bus:shown,relation:cardRelation,
      walk:walkRoute?{metres:walkRoute.metres,seconds:walkRoute.seconds,provider:walkRoute.provider}:null}).map(line=>
     <li key={line.label}><span>{line.label}</span><strong>{line.value}</strong><small>{line.basis}</small></li>)}</ul>}
    {shown&&!absent&&(riding||!pausedJourney)&&<div className="bus-card-actions">

@@ -389,11 +389,17 @@ test('front view: a raised preview along the checked road, the bus’s outside h
   // From above the road rather than a seat: the street, not the sky, fills most of the frame.
   expect(c.pitch, 'looking along the road ahead from above it').toBeGreaterThan(70);
   expect(c.pitch, 'with the street filling most of the frame').toBeLessThan(82);
-  expect(c.zoom, 'close to the road').toBeGreaterThan(19.8);
+  // The eye is 7.5 m up and looks 32 m ahead at a standstill, lengthening to 80 m with the drawn
+  // speed (963633a). MapLibre derives the zoom from that reach, so at speed it reads below the 19.8
+  // of a standstill (19.785 measured on the fixture). 18.5 is the reach cap's zoom at 7.5 m; a
+  // street-map zoom is 16 and the outside ride 20, so the bound still tells the views apart.
+  expect(c.zoom, 'close to the road').toBeGreaterThan(18.5);
   expect(Number(await map(page).getAttribute('data-stops-ahead')), 'the next stops on its pattern, named').toBeGreaterThan(0);
   const ahead = metresApart(c, d);
   expect(ahead, `the eye rests on the road ahead of the drawn bus (${ahead.toFixed(1)} m)`).toBeGreaterThan(15);
-  expect(ahead).toBeLessThan(45);
+  // 32 m at a standstill, 2.5 m more per m/s of drawn speed, capped at 80 m (963633a), plus the
+  // 4 m the eye sits forward of the drawn position: 54.5 m measured on this fixture at about 8 m/s.
+  expect(ahead).toBeLessThan(85);
   expect(await limeInMiddle(page), 'nothing of the bus’s outside is drawn in the view').toBeLessThan(20);
   // What stays: route, destination, report age, whether it is estimated, and the way back out.
   await expect(page.locator('.ride-card')).toContainText('256');

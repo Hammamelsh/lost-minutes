@@ -28,7 +28,8 @@ test.describe('with location', () => {
     await page.locator('.service-chip', {hasText: 'Piccadilly Gardens'}).click();
     await page.locator('.waiting .follow-row', {hasText: '3 stops before yours'}).click();
     await expect(pressedRow(page)).toContainText('3 stops before yours');
-    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING');
+    // The address names the vehicle on its journey, so a later journey of the same vehicle is not it.
+    await expect.poll(() => new URL(page.url()).searchParams.get('bus')).toBe('BNML|FX-COMING|256|inbound');
     const url = new URL(page.url());
     expect(url.searchParams.get('stop')).toBe(STOP_A);
     expect(url.searchParams.get('service')).toBe(MAIN);
@@ -66,12 +67,18 @@ test('a shared link opens its stop and service; a bus it names that has gone is 
   await expect(page.locator('.selection-note')).toHaveCount(0);
 });
 
-test('a bus this device remembers, now on another journey, is explained, and followed on it only when the passenger asks', async ({page}) => {
+test('a bus this device remembers is offered, not applied; taken up and now on another journey, it is explained, and followed on it only when the passenger asks', async ({page}) => {
   const saved = {v: 1, stopId: STOP_A, serviceKey: null, savedAt: Date.now(),
     bus: {key: 'BNML|FX-COMING', operator: 'BNML', vehicle: 'FX-COMING', route: '256', direction: 'outbound',
       journeyRef: 'FX-EARLIER', destination: 'Stretford', observedAtMs: Date.now() - 600_000}};
   await page.addInitScript(([key, value]) => localStorage.setItem(key, value), [STORE, JSON.stringify(saved)]);
   await open(page);
+  // A fresh visit to the bare address: the device's journey is one chip, and nothing is chosen.
+  await expect(page.locator('.your-stop.unset')).toBeVisible();
+  await expect(page.locator('[data-continue]')).toContainText('Continue · Stretford Mall (Stop A)');
+  await expect(page.locator('[data-continue]')).toContainText('256 to Stretford');
+  expect(new URL(page.url()).search, 'the address stays bare').toBe('');
+  await page.locator('.continue-chip').click();
   await expect(page.locator('.your-stop')).toContainText('Stop A');
   const card = page.locator('article.bus-card');
   await expect(card).toContainText('This bus has started another journey', {timeout: 15_000});

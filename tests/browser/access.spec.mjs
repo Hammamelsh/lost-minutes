@@ -132,13 +132,16 @@ test('one Locate me at a time: the walk guide\'s while it asks for the location,
   await expect(locate).toHaveCount(1);
   await expect(page.locator('.walk-guide').getByRole('button', {name: 'Locate me'})).toBeVisible();
   await locate.click();
-  // Located: the walk guide stops asking, and the map's own is the one.
+  // Located: the walk guide stops asking. While a stop is chosen the guide owns location (since
+  // ba7d995 its button becomes "Update my location"), so no Locate me is left anywhere, and the
+  // map's own stays out (walking.spec asserts the same).
   await expect(page.locator('.walk-guide')).not.toContainText('Walking directions start from your location');
-  await expect(locate).toHaveCount(1);
-  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toBeVisible();
+  await expect(locate).toHaveCount(0);
+  await expect(page.locator('.walk-guide [data-update-location]')).toHaveCount(1);
+  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toHaveCount(0);
 });
 
-test('one Locate me when the stop is found near you: the detailed map\'s own', async ({page}) => {
+test('one location control when the stop is found near you: the walk guide\'s Update my location, not the map\'s', async ({page}) => {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
@@ -146,8 +149,9 @@ test('one Locate me when the stop is found near you: the detailed map\'s own', a
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall (Stop A)');
-  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(1);
-  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(0);
+  await expect(page.locator('.walk-guide [data-update-location]')).toHaveCount(1);
+  await expect(page.locator('.vector-map .map-tools').getByRole('button', {name: 'Locate me'})).toHaveCount(0);
 });
 
 test('with the simple map in place of the detailed one, Locate me is beside the stop instead', async ({page}) => {
@@ -163,8 +167,11 @@ test('with the simple map in place of the detailed one, Locate me is beside the 
   await expect(page.locator('.map-fallback-wrap')).toHaveAttribute('data-map-fallback', 'no_webgl');
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
-  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(1);
-  await expect(page.locator('.your-stop-actions').getByRole('button', {name: 'Locate me'})).toBeVisible();
+  // With a stop chosen the walk guide owns location (Update my location), so there is no Locate me
+  // beside the stop either; that button is for a stop with no guide.
+  await expect(page.getByRole('button', {name: 'Locate me'})).toHaveCount(0);
+  await expect(page.locator('.walk-guide [data-update-location]')).toHaveCount(1);
+  await expect(page.locator('.your-stop-actions').getByRole('button', {name: 'Locate me'})).toHaveCount(0);
 });
 
 test('the map can be made bigger for following a bus, and smaller again, as the same map', async ({page}) => {

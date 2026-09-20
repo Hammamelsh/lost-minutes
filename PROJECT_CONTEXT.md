@@ -4,8 +4,39 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 20 September 2026 (hosted, and the passenger's two questions answered as far as the data
-allows: "when is my bus due at my stop" and "how long is my walk").
+Last updated: 20 September 2026, evening (journey state put on a footing, and a stop that showed no
+buses explained).
+
+**20 September, evening: journey state, and why a saved stop would not let go.** Two defects seen on
+the live site were traced and fixed, and the page's remembered state was written down before it was
+rewritten (`docs/JOURNEY_STATE.md`).
+- **The cause of the stop that would not let go.** The page restored the device's last journey and
+  then wrote it into the address bar with `replaceState`; the next open of that address was a *link*,
+  and a link won over everything. Observed live: `/` became `/?stop=1800SJ32251&bus=BNML%7CMF74NPO`
+  on its own. And the link's bus key named a *vehicle*, so MF74NPO, by then a 142 near Parrs Wood,
+  was adopted as the passenger's bus on a stop it did not serve, twice on one screen.
+- **Three layers now, each in its own store, with a precedence:** a link wins; the tab's own journey
+  (sessionStorage) restores silently on refresh, on return from Google Maps and from the background;
+  the device's last journey (localStorage, 12 h) is only **offered**, one "Continue · Hillingdon Road
+  (opp)" chip on the home screen, and never written to the address. A bus in a link or a store is
+  `operator|vehicle|route|direction`: a vehicle on a journey. **New journey** clears the stop, the
+  filter, the bus, both stores and the address, and a reload cannot bring any of it back. Choosing a
+  stop pushes the address, so Back returns to the previous stop, and Forward goes on; it clears the
+  filter and keeps the chosen bus only where it calls, else lets it go and says why. Recent stops
+  (six, thirty days) are deliberate choices only.
+- **Hillingdon Road (opp), route 15, "no buses".** Traced on the frozen publication of 16:51:36
+  (`scripts/trace-stop.mjs`): the stop has one timetabled service, the 15 inbound; the only inbound
+  15 in the publication was six stops past it; the outbound one does not call. The data was right and
+  the message was useless. The empty state now tells five situations apart — no reports on a
+  service timetabled today (with "a missing report does not mean no bus is running"), a filter
+  hiding N buses (with "Show all services"), only old reports, no feed, no timetable held — and a
+  filter never hides a bus silently: the count of buses it hides is stated under the list. The
+  timetabled line, the estimate and the street preview are read from the board's rows and never
+  remove one (`stopBoard` in `lib/journey.ts` does not read them).
+- **Compaction.** A chosen bus that is not coming to the stop gets a short card (route, destination,
+  "Does not serve your stop", the way back), not the full answer. The walk section is the answer,
+  the hand-off and one disclosure; the ways to fix the start are in the open only while the start is
+  missing or in doubt, where the caveat that names them is.
 
 **20 September, later: the arrival estimate evaluated and not released, and a deployed line
 withdrawn by the evaluation that scored it.** Criteria were written first
@@ -891,8 +922,9 @@ then have their own allowance:
 
 While it waits, the map says "Drawing the map…". After 3 s it offers **Use the simple map**,
 because the bus information is already there. The simple map then says it was chosen and offers
-the detailed map back. There is one **Locate me** at a time: the walk guide's while it asks for
-the passenger's location, otherwise the map's own, or the stop panel's beside the simple map. **Make the map bigger** gives the same map most of the screen.
+the detailed map back. There is one location control at a time: with no stop chosen, the map's
+own **Locate me**; with a stop chosen, the walk guide owns it (**Locate me** while it asks, then
+**Update my location**, since ba7d995), and the map's own stays out. **Make the map bigger** gives the same map most of the screen.
 
 A tap chooses the bus drawn nearest to it within a finger's reach (14 px beyond its marker), so a
 bus beside the chosen one can be tapped. Keyboard focus is never dropped by the ride's controls

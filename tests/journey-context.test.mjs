@@ -54,7 +54,7 @@ test('a link wins over this device, and borrows its saved bus only when it names
   assert.equal(other.bus, null);
   assert.equal(other.busKey, 'BNML|OTHER');
   const device = initialJourney('', store, NOW);
-  assert.equal(device.source, 'device');
+  assert.equal(device.source, 'offer');
   assert.equal(device.busKey, 'BNML|SK74BNB');
   assert.equal(initialJourney('', memory(), NOW), null);
 });

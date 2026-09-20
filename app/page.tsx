@@ -30,7 +30,7 @@ async function fingerprint(text:string){
 import {FRESH_POSITION_OPTIONS,fromGeolocation,type Origin} from '@/lib/origin';
 import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
-import {initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
+import {clearJourney,initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
 
 /**
  * The passenger's page, and the views behind the data. A passenger needs one thing: their stop and
@@ -97,6 +97,10 @@ export default function Home(){
  const [stop,setStop]=useState<Stop|null>(null);
  // The journey left on this device or opened from a link: undefined until the stops are known.
  const [journey,setJourney]=useState<InitialJourney|null|undefined>(undefined);
+ // The address's query as last applied or written, so Back and Forward apply only a real change,
+ // and a counter the view watches to drop its own choices when the address is applied over them.
+ const appliedSearch=useRef('');
+ const [journeyEpoch,setJourneyEpoch]=useState(0);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  // Where the passenger is starting from: the device's fix, with its own accuracy and timestamp, or a
  // point they chose themselves, which outranks the device until they explicitly go back to it.
@@ -117,11 +121,14 @@ export default function Home(){
   // A start the passenger chose earlier in this session is kept: their word outranks the device.
   try{const kept=sessionStorage.getItem(ORIGIN_KEY);if(kept){const o=JSON.parse(kept);
    if(o&&o.kind==='chosen'&&Number.isFinite(o.lat)&&Number.isFinite(o.lon))setOrigin(o)}}catch{/* nothing kept */}
-  // A link wins over this device; neither ever holds where the passenger is.
-  let storage:Storage|null=null;
+  // A link wins; this tab's own journey restores silently; the device's last journey is only
+  // offered (docs/JOURNEY_STATE.md). None of them holds where the passenger is.
+  let storage:Storage|null=null,session:Storage|null=null;
   try{storage=window.localStorage}catch{/* a refused store: nothing to restore */}
-  const restored=readInitialJourney(window.location.search,storage,Date.now());
-  const found=restored?.stopId?parsed.stops.find(s=>s.id===restored.stopId)??null:null;
+  try{session=window.sessionStorage}catch{/* likewise */}
+  const restored=readInitialJourney(window.location.search,storage,Date.now(),session);
+  appliedSearch.current=window.location.search;
+  const found=restored&&restored.source!=='offer'&&restored.stopId?parsed.stops.find(s=>s.id===restored.stopId)??null:null;
   if(found)setStop(current=>current??found);
   setJourney(restored);
  }).catch(()=>{});
@@ -227,6 +234,32 @@ export default function Home(){
   addEventListener('hashchange',sync);addEventListener('popstate',sync);
   return()=>{removeEventListener('hashchange',sync);removeEventListener('popstate',sync)};
  },[go]);
+ // Back and Forward apply the journey the address names: its stop, filter and bus, or none. A
+ // hash-only move (into or out of Behind the data) leaves the journey alone.
+ useEffect(()=>{
+  const onPop=()=>{
+   if(!catalogue||window.location.search===appliedSearch.current)return;
+   appliedSearch.current=window.location.search;
+   const next=readInitialJourney(window.location.search,null,Date.now(),null);
+   setStop(next?.stopId?catalogue.stops.find(s=>s.id===next.stopId)??null:null);
+   setJourney(next);
+   setJourneyEpoch(n=>n+1);
+  };
+  addEventListener('popstate',onPop);
+  return()=>removeEventListener('popstate',onPop);
+ },[catalogue]);
+ // New journey: the stop, the filter, the bus and the address, and both journey stores, so that
+ // nothing cleared can come back. Saved stops, saved routes and recent stops stay.
+ const newJourney=useCallback(()=>{
+  setStop(null);setJourney(null);
+  let storage:Storage|null=null,session:Storage|null=null;
+  try{storage=window.localStorage}catch{}
+  try{session=window.sessionStorage}catch{}
+  clearJourney(storage,session);
+  appliedSearch.current='';
+  if(window.location.search)window.history.replaceState(window.history.state,'',window.location.pathname);
+ },[]);
+ const noteAddress=useCallback((search:string)=>{appliedSearch.current=search},[]);
  const shownSection=useRef<Section>('follow');
  useLayoutEffect(()=>{
   const was=shownSection.current;
@@ -346,7 +379,7 @@ export default function Home(){
     onOpenEvidence={()=>show('evidence')}
     onUseArchive={data?()=>setUsingArchive(true):undefined}
     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}
-    initialJourney={journey}/>
+    initialJourney={journey} journeyEpoch={journeyEpoch} onNewJourney={newJourney} onAddress={noteAddress}/>
    {usingArchive&&<button className="text-action follow-leave-archive"
     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
   </div>

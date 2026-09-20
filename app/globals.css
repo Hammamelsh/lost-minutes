@@ -731,6 +731,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .service-chip{display:flex;align-items:center;gap:9px;min-height:54px;padding:7px 9px;border-radius:11px;
  border:1px solid #33495a;background:#172935;color:#e0e9ee;text-align:left}
 .service-chip.on{border-color:#8fbf4f;background:#253524}
+.service-chip-clear{flex-shrink:0;color:#c9e9a0}
+.filter-more{display:block;margin:6px 2px 0;font-size:12.5px;min-height:40px;text-align:left}
 .service-chip.not-today{opacity:.62}
 .service-chip-copy{min-width:0}
 .service-chip-copy strong{display:block;font-size:13.5px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -887,6 +889,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .follow .your-stop-actions{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0;order:0}
 .follow .your-stop-actions button{min-height:44px;min-width:44px;padding:0 11px}
 .follow .your-stop-actions button span{font-size:13px}
+/* Save and Share keep their icons and names for assistive technology; the words go on a phone so the
+   row (Save, Share, Change, New journey) stays on one line and the map stays on the first screen. */
+.follow .your-stop-actions button[data-compact] span{display:none}
 .active-bus{position:sticky;top:8px;z-index:6;display:flex;align-items:center;gap:10px;padding:8px 10px;
  border-radius:12px;border:1px solid #4c6b39;background:#16261c;box-shadow:0 8px 22px #060f1799}
 .active-bus.suggested{border-color:#3a5060;background:#152634}
@@ -970,6 +975,15 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(max-width:900px){.data-steps{grid-template-columns:1fr 1fr}}
 @media(max-width:540px){.data-steps{grid-template-columns:1fr}.footer>span{white-space:normal}}
 /* Saved on this phone: the first thing a returning passenger sees, above finding a new stop. */
+.continue{display:flex;align-items:stretch;gap:6px;margin:0 0 12px}
+.continue-chip{flex:1;display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 12px;border-radius:12px;
+ border:1px solid #8fbf4f;background:#1d2b1b;color:#e6ffc4;text-align:left;font:inherit;cursor:pointer}
+.continue-chip:hover{background:#243722}
+.continue-copy{min-width:0}
+.continue-copy strong{display:block;font-size:14px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.continue-copy small{display:block;font-size:12px;line-height:1.4;color:#b9d99a}
+.continue-forget{flex:0 0 44px;display:grid;place-items:center;border-radius:12px;border:1px solid #375060;background:#10202b;color:#a9bcc7;cursor:pointer}
+.continue-forget:hover{color:#e6f2f5}
 .saved{margin:0 0 14px}
 .saved-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:11.5px;
  font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:#cfe8a8}
@@ -1218,6 +1232,11 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 /* --- the walk guide's origin: how sure we are of where you are, and how to correct it ------- */
 .walk-answer em{font-style:normal;font-weight:600;color:#f1c68a}
 .walk-caveat{margin:5px 0 0 25px;font-size:12.5px;line-height:1.35;color:#f1c68a}
+.walk-actions{margin:8px 0 0 25px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.walk-actions .walk-maps,.walk-actions .walk-action{margin:0;flex:0 0 auto;width:auto}
+@media(max-width:640px){.walk-actions .walk-maps,.walk-actions .walk-action{padding:0 10px;gap:6px;font-size:13px}}
+.walk-consent-note{margin:6px 0 0 25px;font-size:11.5px;line-height:1.4;color:#8fa6b5}
+.walk-consent-note a{color:#9fd0f5}
 .walk-maps{margin:10px 0 0 25px;min-height:44px;display:inline-flex;align-items:center;gap:8px;padding:0 15px;
  border-radius:11px;border:1px solid #7fb8dd;background:#1e4a6b;color:#eaf6ff;font-size:13.5px;font-weight:750;
  text-decoration:none}

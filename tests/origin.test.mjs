@@ -93,7 +93,7 @@ test('the device origin is not sent even when we hold one; only a chosen start i
 });
 
 test('the button says when a chosen start will be sent', () => {
- assert.equal(googleMapsLinkLabel(null), 'Walk to stop in Google Maps');
- assert.equal(googleMapsLinkLabel(device(5)), 'Walk to stop in Google Maps');
+ assert.equal(googleMapsLinkLabel(null), 'Google Maps');
+ assert.equal(googleMapsLinkLabel(device(5)), 'Google Maps');
  assert.match(googleMapsLinkLabel({kind: 'chosen', lat: 0, lon: 0, label: 'x', chosenAtMs: 0}), /from your chosen start/);
 });

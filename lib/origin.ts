@@ -159,6 +159,6 @@ export function googleMapsWalkingUrl(
 /** What the hand-off button should say, given whether a start point will be sent. */
 export function googleMapsLinkLabel(origin?: Origin | null) {
  return origin && origin.kind === 'chosen'
-  ? 'Walk to stop in Google Maps, from your chosen start'
-  : 'Walk to stop in Google Maps';
+  ? 'Google Maps, from your chosen start'
+  : 'Google Maps';
 }

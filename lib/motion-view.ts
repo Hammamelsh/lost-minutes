@@ -6,7 +6,7 @@
  * where it reported, with the reason.
  */
 import {z} from 'zod';
-import {DEFAULT_PARAMS,decodePolyline,historyFrom,makeTrack,type ErrorProfile,type Fix,type History,
+import {DEFAULT_PARAMS,decodePolyline,historyFrom,makeTrack,project,type ErrorProfile,type Fix,type History,
         type MotionParams,type Track} from '@/lib/motion';
 import type {FollowBus} from '@/lib/follow';
 
@@ -58,6 +58,107 @@ export function loadTrack(patternId:string|null|undefined,base='/data/shapes'):P
   return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]),reason:null};
  })().catch(()=>({track:null,reason:'its road geometry could not be read'}));
  trackRequests.set(patternId,request);
+ return request;
+}
+
+// ------------------------------------------------------------------ verified shared road
+
+/** Along the accepted track, the stretches every other candidate's road also runs down. */
+export type SharedRoad={from:number;to:number}[];
+
+/**
+ * Where two or more candidate patterns share the same road, measured, not inferred.
+ *
+ * Until 20 September 2026 an unresolved match whose candidates shared every stop ahead was
+ * given the first candidate's road, on the reasoning that identical remaining stops meant an
+ * identical road ahead. That is an inference, and a wrong one in general: two variants can call
+ * at the same stops by different streets, and a bus still before the boarding stop is on road
+ * that the candidates' later convergence says nothing about. This looks at the geometry instead.
+ *
+ * Every vertex of each other candidate's shape is projected onto the accepted track. A run of
+ * accepted-track offsets where all of them lie within `toleranceMetres` is shared road; anything
+ * else is not, whatever the stop lists say. The accepted track is the reference because it is the
+ * one checked against that service's own reports; a candidate whose shape was never accepted
+ * lends nothing but its geometry, and only where that geometry coincides with checked road.
+ *
+ * Measured on route 15 inbound on 20 September 2026: all 684 vertices of the 5-journey short
+ * working lie within 10 m of the accepted 140-journey shape, so the shared run is 395 m to
+ * 13,626 m of the accepted track, and Hillingdon Road (opp) at 8,715 m has 8,320 m of shared
+ * road before it. The first 395 m are not shared and are refused.
+ */
+export function sharedRoad(accepted:Track,others:Track[],toleranceMetres=10):SharedRoad{
+ if(!others.length)return [{from:0,to:accepted.length}];
+ // Offsets on the accepted track that each other candidate reaches within tolerance.
+ const reached:number[][]=others.map(other=>{
+  const hits:number[]=[];
+  let near:number|undefined;
+  for(const point of other.points){
+   const at={lat:point[1],lon:point[0]};
+   const projection=project(accepted,at,near);
+   // Projection.s is metres along the track; Projection.offset is the distance off it.
+   if(projection.offset<=toleranceMetres){hits.push(projection.s);near=projection.s}
+  }
+  return hits.sort((a,b)=>a-b);
+ });
+ // A run is shared only where every other candidate reaches it. Runs are built from the
+ // sparsest candidate's hits and then trimmed to what the others also cover.
+ const gap=Math.max(60,accepted.length/Math.max(1,Math.min(...others.map(o=>o.points.length)))*3);
+ const runsOf=(hits:number[])=>{
+  const runs:SharedRoad=[];
+  for(const h of hits){
+   const last=runs[runs.length-1];
+   if(last&&h-last.to<=gap)last.to=h;else runs.push({from:h,to:h});
+  }
+  return runs;
+ };
+ let runs=runsOf(reached[0]);
+ for(const hits of reached.slice(1)){
+  const theirs=runsOf(hits);
+  runs=runs.flatMap(r=>theirs.map(t=>({from:Math.max(r.from,t.from),to:Math.min(r.to,t.to)})).filter(x=>x.to>x.from));
+ }
+ return runs;
+}
+
+/** Whether a bus at `offset` metres, and the road `lookAheadMetres` beyond it, is all shared. */
+export function withinSharedRoad(shared:SharedRoad,offset:number,lookAheadMetres:number){
+ return shared.some(run=>offset>=run.from&&offset+lookAheadMetres<=run.to);
+}
+
+export type SharedTrackResult={track:Track|null;shared:SharedRoad|null;candidates:string[];reason:string|null};
+const sharedRequests=new Map<string,Promise<SharedTrackResult>>();
+
+/**
+ * The road for an unresolved bus: the accepted candidate's track, with the stretches every
+ * candidate shares. Nothing is chosen between the candidates; only where their roads coincide is
+ * used, and the caller must still check the bus's own position against `shared`.
+ */
+export function loadSharedTrack(candidateIds:string[],base='/data/shapes'):Promise<SharedTrackResult>{
+ const ids=[...new Set(candidateIds)].sort();
+ if(ids.length<2)return Promise.resolve({track:null,shared:null,candidates:ids,reason:'its branch is not settled, so the road ahead is not known'});
+ const key=ids.join('|');
+ const cached=sharedRequests.get(key);
+ if(cached)return cached;
+ const request=(async():Promise<SharedTrackResult>=>{
+  const index=await loadIndex(base);
+  if(!index)return {track:null,shared:null,candidates:ids,reason:'no road geometry has been published'};
+  const entries=ids.map(id=>({id,entry:index.patterns[id]}));
+  if(entries.some(e=>!e.entry?.file))return {track:null,shared:null,candidates:ids,reason:'its branch is not settled, and not every candidate has road geometry to compare'};
+  const accepted=entries.filter(e=>e.entry!.status==='accepted');
+  if(!accepted.length)return {track:null,shared:null,candidates:ids,reason:'its branch is not settled, and none of the candidates’ road geometry has been checked against reports'};
+  const tracks=new Map<string,Track>();
+  for(const {id,entry} of entries){
+   const response=await fetch(`${base}/${entry!.file}`,{cache:'no-store'}).catch(()=>null);
+   if(!response?.ok)return {track:null,shared:null,candidates:ids,reason:'its road geometry could not be loaded'};
+   const shape=shapeSchema.parse(await response.json());
+   tracks.set(id,makeTrack(id,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]));
+  }
+  const reference=tracks.get(accepted[0].id)!;
+  const others=ids.filter(id=>id!==reference.id).map(id=>tracks.get(id)!);
+  const shared=sharedRoad(reference,others);
+  if(!shared.length)return {track:null,shared:[],candidates:ids,reason:'its branch is not settled, and the candidates take different roads'};
+  return {track:reference,shared,candidates:ids,reason:null};
+ })().catch(()=>({track:null,shared:null,candidates:ids,reason:'its road geometry could not be read'}));
+ sharedRequests.set(key,request);
  return request;
 }
 

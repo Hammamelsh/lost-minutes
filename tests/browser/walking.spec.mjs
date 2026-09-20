@@ -90,7 +90,15 @@ test.describe('with a location', () => {
   });
 
   test('a start the passenger chose outranks the device, is sent to Google Maps, and is given up only on request', async ({page}) => {
-    await routeWalking(page, route => route.fulfill({json: RECORDED}));
+    // The recorded route is from Longford Park. A chosen start must re-ask the router from the
+    // chosen point, so the fixture answers each call from the origin that call actually carried.
+    const calls = await routeWalking(page, route => {
+      const [lon, lat] = new URL(route.request().url()).pathname.split('/').pop().split(';')[0].split(',').map(Number);
+      const body = JSON.parse(JSON.stringify(RECORDED));
+      body.routes[0].geometry.coordinates[0] = [lon, lat];
+      body.waypoints[0].location = [lon, lat];
+      return route.fulfill({json: body});
+    });
     await openAtStopA(page);
     await page.getByRole('button', {name: 'Show walking route'}).click();
     const guide = page.locator('.walk-guide');
@@ -102,6 +110,11 @@ test.describe('with a location', () => {
     await expect(guide).toHaveAttribute('data-origin-kind', 'chosen');
     await expect(guide).toHaveAttribute('data-origin-band', 'confident');
     await expect(guide).toContainText('Starting from a point on the map, which you chose');
+    await expect.poll(() => calls.length, 'our router is asked again, from the chosen start').toBe(2);
+    const chosenOrigin = new URL(calls[1]).pathname.split('/').pop().split(';')[0];
+    expect(chosenOrigin, 'the second request starts where the passenger tapped').not.toBe('-2.3095,53.4487');
+    expect(chosenOrigin, 'rounded to about 10 m; JS drops trailing zeros').toMatch(/^-2\.\d{1,4},53\.\d{1,4}$/);
+    await expect(page.locator('.map-legend-chips .legend-you'), 'the legend names a chosen start as one').toHaveText('Start');
     await expect(guide.locator('[data-caveat]')).toHaveCount(0);
     const chosenHref = await guide.locator('[data-maps-link]').getAttribute('href');
     const chosen = new URL(chosenHref);

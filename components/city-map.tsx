@@ -14,7 +14,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
-import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult} from '@/lib/motion-view';
+import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
 import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
 import type {FollowBus} from '@/lib/follow';
@@ -772,31 +772,56 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  },[view]);
 
  // --- estimated movement: its inputs -----------------------------------------------------
- // The pattern whose road the estimate follows: the matched one, or, when the candidates differ
- // only in stops behind the bus, the first of them, whose road ahead they all share.
- const patternId=!selected?.match?null:'patternId' in selected.match?selected.match.patternId
-  :selected.match.sharedOnward&&selected.match.candidates?.length?selected.match.candidates[0].patternId:null;
+ // The pattern whose road the estimate follows: the matched one. An unresolved bus with several
+ // candidates gets no pattern here: which journey it is stays open. It may still get a road, below,
+ // where the candidates' geometry is measured to coincide, never because their stop lists do.
+ const patternId=!selected?.match?null:'patternId' in selected.match?selected.match.patternId:null;
+ const candidateIds=useMemo(()=>!selected?.match||'patternId' in selected.match?null
+  :selected.match.candidates?.map(c=>c.patternId)??null,[selected]);
+ const candidateKey=candidateIds?[...new Set(candidateIds)].sort().join('|'):'';
+ const [shared,setShared]=useState<SharedRoad|null>(null);
  useEffect(()=>{
-  if(!patternId)return;
   let current=true;
-  loadTrack(patternId).then(result=>{if(current)setTrack({...result,patternId})});
+  if(patternId){
+   setShared(null);
+   loadTrack(patternId).then(result=>{if(current)setTrack({...result,patternId})});
+  }else if(candidateKey){
+   loadSharedTrack(candidateKey.split('|')).then(result=>{
+    if(!current)return;
+    // Keyed by the candidate set, so a track from one set is never read against another.
+    setTrack({track:result.track,reason:result.reason,patternId:candidateKey});
+    setShared(result.shared);
+   });
+  }else{setShared(null)}
   return()=>{current=false};
- },[patternId]);
+ },[patternId,candidateKey]);
+ // Where along the road the bus's own last report sits, and how much road the drawn estimate
+ // and the camera can reach beyond it: at most the measured horizon at the capped speed, plus
+ // the front view's look-ahead. On shared road only if the whole of that is shared.
+ const LOOK_AHEAD_METRES=17*30+32;
+ const trackKey=patternId??candidateKey;
  useEffect(()=>{
   let current=true;
   loadMotionModel().then(value=>{if(current)setMotionModel(value)});
   return()=>{current=false};
  },[]);
  const history=useMemo(()=>selected?historyOf(selected):null,[selected]);
- const trackFor=track&&track.patternId===patternId?track:null;
+ const trackFor=track&&track.patternId===trackKey?track:null;
+ const onSharedRoad=useMemo(()=>{
+  if(patternId||!trackFor?.track||!shared||!selected)return patternId?true:null;
+  const along=project(trackFor.track,{lat:selected.lat,lon:selected.lon}).s;
+  return withinSharedRoad(shared,along,LOOK_AHEAD_METRES);
+ },[patternId,trackFor,shared,selected,LOOK_AHEAD_METRES]);
  // Why no estimate is drawn, in words; null when one may be.
  const blocked=!selected?null
   :motion&&!motion.enabled?motion.reason??'reported positions only'
-  :!patternId?(selected.match&&'unresolved' in selected.match&&selected.match.unresolved==='ambiguous_branch'
+  :!patternId&&!candidateKey?(selected.match&&'unresolved' in selected.match&&selected.match.unresolved==='ambiguous_branch'
     ?'its branch is not settled, so the road ahead is not known':'it is not placed on a timetable pattern')
+  :!patternId&&trackFor&&!trackFor.track?trackFor.reason??'its branch is not settled, so the road ahead is not known'
+  :!patternId&&onSharedRoad===false?'its branch is not settled, and the candidates’ roads are only known to coincide further on'
   :motionModel===undefined?CHECKING
   :motionModel===null?'movement has not been evaluated yet'
-  :!motionModel.patterns.has(patternId)?'movement on this service has not been evaluated'
+  :!motionModel.patterns.has(patternId??trackFor?.track?.id??'')?'movement on this service has not been evaluated'
   :!trackFor?LOADING
   :!trackFor.track?trackFor.reason??'no road geometry'
   :null;
@@ -807,8 +832,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // road shape. Without one it would be guesswork at eye level, so the ride stays outside and
  // says why. Stop-to-stop straight lines are never used instead.
  const frontReason=!selected?null
-  :trackFor===null&&patternId?'Front view is waiting for this bus’s road geometry.'
-  :!trackFor?.track?'Front view needs the road this bus is on, checked against its own reports. This service has none yet, so it is shown from outside.'
+  :trackFor===null&&(patternId||candidateKey)?'Front view is waiting for this bus’s road geometry.'
+  :!trackFor?.track?(candidateKey
+    ?`Front view needs one road it can be sure of. Which journey this bus is on is not settled, and ${trackFor?.reason?.replace(/^its branch is not settled, and /,'')??'the candidates’ roads have not been compared'}. It is shown from outside.`
+    :'Front view needs the road this bus is on, checked against its own reports. This service has none yet, so it is shown from outside.')
+  :!patternId&&onSharedRoad===false?'Front view is shown only where every candidate journey follows the same checked road. Here, before they join, the road ahead depends on which journey this is, so it is shown from outside.'
   :null;
  const camera=view==='ride'&&cameraWish==='front'&&!frontReason?'front':'outside';
  const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
@@ -1322,7 +1350,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   {/* The legend and the ride button share the map's foot, stacking rather than overlapping. */}
   {view!=='ride'&&(stop||here||selected)&&<div className="vector-map-foot">
    <div className="map-legend-chips" aria-hidden="true">
-    {here&&<span className="legend-you">You</span>}
+    {here&&<span className="legend-you">{originKind==='chosen'?'Start':'You'}</span>}
     {walk&&<span className="legend-walk">Walk</span>}
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}

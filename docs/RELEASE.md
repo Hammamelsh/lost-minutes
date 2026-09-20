@@ -126,9 +126,13 @@ with any other app.
    measured and carried in the feedback report, which will settle it on the first real phone.
 5. **Route 256 cannot be placed on a weekday**, because the operator's current registration has no
    Monday-to-Friday inbound service. Upstream; not fixable here. Use route 15 for trials.
-6. **127 of 587 buses have no timetable held at all**, almost all one operator group (BNGN's 10, 37,
-   36, 8, V1). One configuration line and a rebuild would close most of it; the dataset has not been
-   identified.
+6. **Buses with no timetable held at all: fewer, and the remainder is now a scatter.** The missing
+   operator group was Go North West, dataset 12769; it is now downloaded and built. Asked of one
+   fixed capture of 653 weekday-afternoon reports, the count with no registration held falls from
+   **174 to 109** — the whole of that difference is 13 services that gained one. What is left is
+   46 services across several operators, led by **BNML 38** (a BNML line absent from the BNML
+   dataset, which deserves its own look), BNGN 10 and 8, and BPTR X43. `docs/COVERAGE.md` has the
+   method.
 7. **139 of 587 are held unresolved between branches.** A refusal, not an error, and the honest cost
    of wider coverage.
 8. **The collector's memory over *days* is still unconfirmed.** At the server's thread count it is
@@ -197,7 +201,8 @@ Optional polish, in the order I would take it.
 | Action | Why | Owner |
 |---|---|---|
 | Split the live publication (opportunity 25) | 119 KB every 20 s on mobile data is more than the job needs | assistant |
-| Add the missing operator's timetable dataset to `BODS_TIMETABLE_URL` | would move most of the 127 "no timetable held" buses into coverage; one line and a rebuild | **Hammam** to identify the dataset, assistant to add and verify |
+| ~~Add the missing operator's timetable dataset~~ | **done** — Go North West, dataset 12769; 174 → 109 uncovered reports on a fixed capture | assistant |
+| Trace **BNML 38**, a BNML line missing from the BNML dataset | 12 reports in one capture refused for a reason that should not apply | assistant |
 | Road shapes for more routes | extends estimated movement past 15, 250 and 256 | assistant |
 | Identify the timetabled journey | the last claim the app deliberately does not make | assistant |
 
@@ -212,12 +217,31 @@ for anywhere that will not play WebM; there is no ffmpeg on this machine, so not
 It runs: the first screen → searching for a stop → the stop and what is coming → riding along, full
 screen → the street ahead → back at the stop → behind the data → the coverage ledger.
 
-**The take is honest about itself, and this one is not representative.** `recording.json` records
-which bus was ridden and whether it reported a bearing. The bus available at 21:15 on a Friday
-reported **none**, so it is drawn correctly as a round token from above rather than as the 3D bus,
-and it was **26 stops away**, so the ride passes through empty streets. The probe says so in its own
-output. **Re-record during daytime service before showing it to anyone**: same command, and the
-recording will judge itself again.
+**The take is honest about itself, and it says how the bus was chosen.** The first attempt filmed
+the page's own suggestion, which happened to be a bus reporting **no bearing** — correctly drawn as
+a round token seen from above rather than as the 3D bus, and 26 stops away through empty streets.
+Honest, but not what the ride-along looks like: in **the publication that recording was made
+against** (18 September, about 23:39 BST) **154 of 197 vehicles, 78%, reported a bearing**. That is
+one late-evening publication, not a general rate. The
+probe now tries the buses coming to the stop in turn until one of those is on the card, and
+`recording.json` records the choice and the reason:
+
+> `chosen: {"key": "BNML|MF74NPJ", "bearing": 239, "row": 0}`
+> `judge: the ridden bus reported a bearing (239), so the 3D bus and its heading are shown, and it
+> was chosen from the buses coming to this stop for that reason`
+
+Nothing is staged by that: it is a real bus at its real position, and if no bus coming to the stop
+reports a bearing the page's own suggestion is filmed and the recording says so instead.
+
+**What the stills show is the drawn bus, which is an estimate, and they say so.** The ride-along
+frames carry the app's own wording — *"Estimated position · last report 43 s ago"* — because between
+reports the app draws where the bus has probably got to, on the road shape, bounded and labelled.
+The dots behind it are the observations; the dashed line is the gap between the last one and the
+drawing. Nothing in the recording is an observation of the bus being where it is drawn, and no
+frame should be captioned as one when the recording is used elsewhere.
+
+**Still worth re-recording in daytime service**, when more buses are running and the ride passes
+more of the city: same command, and the recording judges itself again.
 
 ## The demo sequence
 

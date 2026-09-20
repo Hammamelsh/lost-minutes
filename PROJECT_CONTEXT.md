@@ -652,9 +652,12 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   checked, so branches are settled only by the reported destination, and **no scheduled time at a
   stop is ever shown**. Identifying the timetabled journey is the next priority (2 below).
 - **Bank-holiday operation is recorded, not evaluated.**
-- **Coverage is limited to the timetables held:** three TfGM operator datasets (BNML, BNSM, BNFM).
-  **130 observed services have no timetable here** (18 September 2026), the largest by reports being
-  BNGN's 10, 37, 36, 8 and V1, and their buses are refused with that reason. Ambiguity grew with
+- **Coverage is limited to the timetables held:** four TfGM operator datasets (BNML, BNSM, BNFM and,
+  since 19 September 2026, Go North West's **BNGN**). **114 observed services still have no timetable
+  here** (18 September 2026), and their buses are refused with that reason. What is left is a
+  scatter across several operator groups rather than one gap: Diamond (**BNDB**: 66, 87, 79, 151, 29,
+  70, 74), **BPTR** X43, **LNUD**, **NATX**, **HIPK** — and, oddly, **BNML 38 and 150** and **BNSM 1
+  and 2**, lines whose own operator's dataset we hold, which is a separate thing to trace. Ambiguity grew with
   coverage: more patterns mean more paths that fit a position equally well, and those stay
   unresolved — 139 of 587 vehicles in one publication.
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
@@ -831,20 +834,25 @@ build-machine path and no tile ever loaded.
 
 - **3,498 active bus stops** in the service area, from NaPTAN ATCO area 180, each with its
   indicator, street and, where NaPTAN has one, the direction a bus travels there.
-- **Timetables:** three TfGM TransXChange datasets are preserved, one per operator group
-  (**BNML, BNSM, BNFM**). The collector re-downloads them while it runs and stores each distinct
+- **Timetables:** four TfGM TransXChange datasets are preserved, one per operator group
+  (**BNML, BNSM, BNFM, BNGN**). The collector re-downloads them while it runs and stores each distinct
   version by content hash; **only the newest snapshot of each is read**, because reading them all
-  counted the same service twice. On 18 September 2026, **575 files** were read — every file whose
-  declared validity touches the fortnight ahead — and 538 expired ones were not.
+  counted the same service twice. On 18 September 2026, **633 files** were read — every file whose
+  declared validity touches the fortnight ahead — and 555 expired ones were not.
 - **Selection:** every operator-and-line pair seen in the collected positions that has a valid
-  file: **157 services, 524 patterns, 522 distinct stop sequences published**. A pattern is
+  file: **183 services, 576 patterns, 574 distinct stop sequences published** (BNML 259, BNSM 255,
+  BNGN 52, BNFM 10). A pattern is
   published when it calls at a stop inside the area and has at least five stops. `--coverage all`,
   `--lines` and `--max-lines` are explicit alternatives, and whichever is used is written into
   `patterns.json` under `coverage`, with the observed services that have no timetable.
-- **130 observed services still have no timetable here**, led by BNGN's 10, 37, 36, 8 and V1
-  (20,000–27,500 observations each). That is one operator group whose dataset is not downloaded,
-  not a scatter: one line in `BODS_TIMETABLE_URL` and a rebuild would close most of it.
-- `patterns.json` is 2.04 MB (140 KB gzipped), fetched once. `docs/COVERAGE.md` audits all of this
+- **114 observed services still have no timetable here.** Adding Go North West closed the single
+  largest gap; measured on **one fixed capture of 653 weekday-afternoon reports asked of both
+  catalogues**, reports with no registration held fell from **174 to 109**, all of it 13 services
+  that gained one. The remainder is a scatter of operator groups whose datasets are not downloaded
+  (BNDB, BPTR, LNUD, NATX, HIPK), plus a handful of lines — **BNML 38** (20,808 observations),
+  BNML 150, BNSM 1 and 2 — whose own operator's dataset we do hold and which therefore need tracing
+  rather than downloading.
+- `patterns.json` is 2.06 MB (160 KB gzipped), fetched once. `docs/COVERAGE.md` audits all of this
   service by service, and the same ledger is in the app under Behind the data.
 
 ## Next priorities

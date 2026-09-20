@@ -81,13 +81,50 @@ group and cannot supersede BNML or BNSM. It covered **9 of the 11 BNGN lines the
 | `patterns.json`, fetched once | 2.04 MB / 139 KB gz | **2.16 MB / 154 KB gz** |
 | Nightly rebuild peak | 853 MB, 3 min 05 s | **845 MB, 3 min 55 s** |
 
-Measured against a live publication the same night:
+### What the import caused, measured on one fixed set of reports
 
-| | Before | After |
+The first attempt at this compared two live publications taken an hour apart — 218 vehicles before,
+197 after. That cannot support a causal claim: the traffic changed as well as the catalogue. The
+controlled version asks **one capture** the same question of **both catalogues**, so the only
+difference is the catalogue.
+
+Capture `043e9270aada`, stated **2026-09-17T15:28:29Z**, a weekday afternoon, **653 vehicles inside
+the service area**:
+
+| Asked of the same 653 reports | Before the import | After |
 |---|---|---|
-| `no_pattern_for_route` — no registration held at all | **48** | **21** |
-| BNGN vehicles placed on a pattern | **0 of 27** | **11 of 26** |
-| Matched, all operators | 86 of 218 (39%) | 93 of 197 (47%) |
+| A registration is held for this operator and line | 479 | **544** |
+| **No registration held at all** | **174** | **109** |
+
+**13 services gained a registration, accounting for 65 of those reports** — BNGN's V1 (13), 36 (10),
+37 (9), V2 (6), 163 (6), 21 (6), 35 (4), 22 (3) and smaller.
+
+**What this measures, and what it does not.** It measures exactly the refusal the import targets:
+`no_pattern_for_route`, a bus whose operator-and-line we hold no registration for. It says nothing
+about the other refusals — an unsettled branch, no journeys that day, too far from any stop — which
+depend on the position and the day and would need the full matcher over the same capture to
+compare.
+
+**Still no registration at all: 46 services, 109 of those reports**, led by **BNML 38** (12 reports —
+a BNML service missing from the BNML dataset, which is worth its own look), **BNGN 10** (10) and
+**BNGN 8** (9), **BPTR X43** (7), **BNML 150** (6) and **BNSM 1** (6).
+
+### Two live snapshots, reported as snapshots
+
+Separately, and **not** as a before-and-after: two publications either side of the import, each a
+description of its own moment and not comparable with the other, because the fleet on the road
+changed between them.
+
+| | 18 Sep, 23:32 BST | 18 Sep, ~23:47 BST |
+|---|---|---|
+| Vehicles in the publication | 218 | 197 |
+| Matched to a pattern | 86 | 93 |
+| `no_pattern_for_route` | 48 | 21 |
+| BNGN vehicles placed | 0 of 27 | 11 of 26 |
+
+Both were taken late on a Friday evening, when far fewer services run. Neither is a daytime figure,
+and the movement between them should be read as consistent with the controlled result above rather
+than as evidence for it.
 
 **What it did not fix, and was never going to.**
 

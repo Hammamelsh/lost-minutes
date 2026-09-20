@@ -49,9 +49,26 @@ await page.getByRole('option').first().click();
 await page.evaluate(() => scrollTo(0, 0));
 await beat('the stop, and what is coming', 3500);
 
-// What the feed happened to offer. A bus that reported no bearing is drawn from above as a round
-// token rather than the 3D bus, and one 26 stops away rides through empty streets: both are honest,
-// neither is representative, and a take is worth judging before it is shown to anyone.
+// Choose a bus worth filming, and say that it was chosen. A bus that reported no bearing is drawn
+// from above as a round token rather than the 3D bus — correct, and not what the ride-along looks
+// like most of the time, since 78% of vehicles report one. So the rows are tried in turn until one
+// of those is on the card, and the recording records both the choice and the reason for it. Nothing
+// is staged: the bus is a real bus, at its real position, and if none of the rows offers a bearing
+// the page's own suggestion is filmed and the recording says so.
+const bearings = await page.evaluate(async () => {
+  const live = await (await fetch('/data/live.json?demo=1', {cache: 'no-store'})).json();
+  return Object.fromEntries((live.vehicles || []).map(v => [`${v.operator}|${v.vehicle}`, v.bearing ?? null]));
+});
+const rows = page.locator('.waiting .follow-row');
+let chosen = null;
+for (let i = 0; i < Math.min(await rows.count(), 6); i++) {
+  await rows.nth(i).click();
+  const key = await page.locator('.vector-map').getAttribute('data-selected-key');
+  if (typeof bearings[key] === 'number') { chosen = {key, bearing: bearings[key], row: i}; break; }
+}
+if (chosen) console.log(`  chose row ${chosen.row}: ${chosen.key}, bearing ${chosen.bearing}`);
+else console.log('  no bus coming to this stop reported a bearing; filming the page\'s own suggestion');
+
 const ridden = await page.evaluate(async () => {
   const card = document.querySelector('.active-bus, article.bus-card');
   const key = document.querySelector('.vector-map')?.getAttribute('data-selected-key') ?? null;
@@ -99,9 +116,12 @@ mkdirSync(out, {recursive: true});
 writeFileSync(join(out, 'recording.json'), JSON.stringify(
   {base, when: new Date().toISOString(), size, data: feed.state === 'live' ? 'REAL' : `feed state ${feed.state}`,
    feed, ridden, beats,
+   chosen,
    judge: typeof ridden.bearing !== 'number'
      ? 'this bus reported no bearing, so it is drawn as a round token rather than the 3D bus: '
-       + 'a fair take, but not a representative one'
-     : 'the ridden bus reported a bearing, so the 3D bus and its heading are shown'}, null, 1));
+       + 'a fair take, but not a representative one — 78% of vehicles report one'
+     : `the ridden bus reported a bearing (${ridden.bearing}), so the 3D bus and its heading are `
+       + `shown${chosen ? ', and it was chosen from the buses coming to this stop for that reason' : ''}`},
+  null, 1));
 console.log(`\n${feed.state === 'live' ? 'REAL feed' : `feed state ${feed.state}`}, ${feed.vehicles} vehicles`);
 console.log(`video and stills in ${out}`);

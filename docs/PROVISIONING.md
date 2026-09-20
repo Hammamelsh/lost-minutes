@@ -37,13 +37,23 @@ In <https://console.hetzner.cloud> → **Add Server**:
 
 | | |
 |---|---|
-| Image | **Ubuntu 24.04 LTS** (Debian 12 also works; `deploy/install.sh` targets and was validated against those two). The console may default to a newer Ubuntu — change it; there is no reason to debug a fresh release on the first deploy |
+| Image | **Ubuntu 24.04 LTS or 26.04 LTS** — either. Debian 12 too. See the note below before changing it |
 | Location | Falkenstein, Nuremberg or Helsinki — **stock differs between them**, so if the type you want is greyed out, change this before changing the type |
 | Type | **Cost-Optimized → CX23** (2 vCPU, 4 GB, 40 GB NVMe). If no location has it, **Arm64 (Ampere) → CAX11**. Never CPX12 — 2 GB will not run the nightly rebuild |
 | Networking | **IPv4 enabled** — needed, and billed separately |
 | Backups | **leave the tick box off.** Hetzner's *Backups* (automatic, daily, 20% of the server price) and its *Snapshots* (manual, per GB) are different products; both stay off unless you say otherwise. `docs/HOSTING.md` sets out the difference |
 | SSH key | **Add SSH key**, and paste the public key below. Without one Hetzner emails a root password, which is worse in every way |
 | Name | anything; `lost-minutes` is tidy |
+
+**On the image, an overstatement corrected.** This runbook said to change a newer Ubuntu back to
+24.04 because `install.sh` "was validated against" it. That was too strong twice over: `install.sh`
+only carries 24.04 in a comment, and `deploy/validate.sh` has only ever run **on the development
+machine**, never on an Ubuntu server of any version. The two things that could actually have broken
+were checked instead, and neither does — **Caddy's apt source is `any-version`, not keyed to a
+distro codename**, and **`duckdb==1.5.5` already runs here on Python 3.14**, which is nearer 26.04's
+Python than 24.04's 3.12. Either image is fine. 24.04 remains a mild preference for a first deploy,
+on the ground that fewer novel variables make a failure easier to read, and nothing more; rebuilding
+onto the other image takes about a minute while the server holds nothing.
 
 ### The key to paste
 

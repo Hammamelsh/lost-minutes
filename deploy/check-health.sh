@@ -51,10 +51,18 @@ fi
 
 if (( age > MAX_AGE )); then
   echo "stalled: last published ${age}s ago (limit ${MAX_AGE}s), feed state ${state}"
-  if systemctl is-active --quiet lost-minutes-refresh.service; then
-    echo "the nightly timetable rebuild is running, which stops the collector on purpose; leaving it"
-    exit 0
-  fi
+  # A Type=oneshot service reads as "activating" for the whole of its ExecStart, never "active",
+  # and `is-active --quiet` exits 3 for that. So this guard never fired: the watchdog restarted the
+  # collector in the middle of the nightly rebuild, the collector could not take the warehouse lock
+  # the rebuild was holding, and Restart=always retried it every 15 s until the rebuild finished.
+  # Measured on the server on 20 September 2026: `is-active` printed activating, exit code 3.
+  refresh_state=$(systemctl is-active lost-minutes-refresh.service 2>/dev/null || true)
+  case "$refresh_state" in
+    active|activating|deactivating|reloading)
+      echo "the nightly timetable rebuild is $refresh_state, which stops the collector on purpose; leaving it"
+      exit 0
+      ;;
+  esac
   systemctl restart lost-minutes-collector.service
   echo "collector restarted"
   ping_it /fail "no publication for ${age}s (state ${state}); collector restarted"

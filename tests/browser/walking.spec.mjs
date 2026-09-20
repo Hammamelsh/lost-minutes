@@ -59,9 +59,65 @@ test.describe('with a location', () => {
     await shot(page, 'walking-route');
     // A 15 m wobble of the fix and another Locate me do not ask the router again.
     await page.context().setGeolocation({latitude: 53.44884, longitude: -2.30955, accuracy: 30});
-    await page.locator('.map-tools').getByRole('button', {name: 'Locate me'}).click();
+    await page.locator('.walk-guide [data-update-location]').click();
     await page.waitForTimeout(2000);
     expect(calls, 'location jitter is not a new route').toHaveLength(1);
+    await expect(page.locator('.map-tools').getByRole('button', {name: 'Locate me'}),
+      'one Locate me at a time: the guide has it while a stop is chosen').toHaveCount(0);
+  });
+
+  test('a tight fix is stated plainly; the hand-off goes to the boarding point by coordinates, walking, with no origin', async ({page}) => {
+    await routeWalking(page, route => route.fulfill({json: RECORDED}));
+    await openAtStopA(page);
+    await page.getByRole('button', {name: 'Show walking route'}).click();
+    const guide = page.locator('.walk-guide');
+    await expect(guide).toHaveAttribute('data-origin-band', 'confident');
+    await expect(guide).toHaveAttribute('data-origin-kind', 'device');
+    await expect(guide.locator('.walk-answer strong')).toHaveText('5 min walk');
+    await expect(guide.locator('[data-caveat]')).toHaveCount(0);
+    const href = await guide.locator('[data-maps-link]').getAttribute('href');
+    const url = new URL(href);
+    expect(url.origin + url.pathname).toBe('https://www.google.com/maps/dir/');
+    expect(url.searchParams.get('api')).toBe('1');
+    expect(url.searchParams.get('travelmode')).toBe('walking');
+    expect(url.searchParams.get('destination'), 'Stop A by its coordinates, never its name').toBe('53.44629,-2.31056');
+    expect(url.searchParams.get('origin'), 'the device decides where it is').toBeNull();
+    expect(href).not.toMatch(/Stretford|Stop%20A|Stop\+A/);
+    await guide.locator('[data-walk-details]').click();
+    await expect(guide).toContainText('accurate to about 30 m');
+    await expect(guide).toContainText('1800SJ');
+    await shot(page, 'walking-confident');
+  });
+
+  test('a start the passenger chose outranks the device, is sent to Google Maps, and is given up only on request', async ({page}) => {
+    await routeWalking(page, route => route.fulfill({json: RECORDED}));
+    await openAtStopA(page);
+    await page.getByRole('button', {name: 'Show walking route'}).click();
+    const guide = page.locator('.walk-guide');
+    await guide.locator('[data-choose-start]').click();
+    await expect(guide.locator('[data-picking]')).toContainText('Tap the map where you are starting from');
+    const map = page.locator('.vector-map canvas').first();
+    const box = await map.boundingBox();
+    await map.click({position: {x: box.width * 0.4, y: box.height * 0.6}});
+    await expect(guide).toHaveAttribute('data-origin-kind', 'chosen');
+    await expect(guide).toHaveAttribute('data-origin-band', 'confident');
+    await expect(guide).toContainText('Starting from a point on the map, which you chose');
+    await expect(guide.locator('[data-caveat]')).toHaveCount(0);
+    const chosenHref = await guide.locator('[data-maps-link]').getAttribute('href');
+    const chosen = new URL(chosenHref);
+    expect(chosen.searchParams.get('origin'), 'a chosen start is sent').toMatch(/^53\.\d+,-2\.\d+$/);
+    expect(chosen.searchParams.get('destination')).toBe('53.44629,-2.31056');
+    await expect(guide.locator('[data-maps-link]')).toContainText('from your chosen start');
+    await expect(page.locator('.your-stop-copy strong'), 'the stop is unchanged').toContainText('Stretford Mall (Stop A)');
+    await shot(page, 'walking-chosen-start');
+    // Reloading keeps the chosen start for this session.
+    await page.reload();
+    await waitForPaint(page);
+    await expect(page.locator('.walk-guide')).toHaveAttribute('data-origin-kind', 'chosen');
+    // Going back to the device is explicit.
+    await page.locator('.walk-guide [data-update-location]').click();
+    await expect(page.locator('.walk-guide')).toHaveAttribute('data-origin-kind', 'device');
+    expect(new URL(await page.locator('.walk-guide [data-maps-link]').getAttribute('href')).searchParams.get('origin')).toBeNull();
   });
 
   test('a router failure is stated and retried on request, never replaced by a straight line', async ({page}) => {
@@ -85,6 +141,25 @@ test.describe('with a location', () => {
     await page.getByRole('button', {name: 'Show walking route'}).click();
     await expect(page.locator('.walk-guide')).toContainText('found no path between you and this stop');
     await expect(page.locator('.vector-map')).toHaveAttribute('data-walk', 'none');
+  });
+});
+
+test.describe('with a loose location', () => {
+  test.use({permissions: ['geolocation'], geolocation: {latitude: 53.448712, longitude: -2.309487, accuracy: 90}});
+
+  test('the walk is routed but hedged, and says the start could be a street out', async ({page}) => {
+    await routeWalking(page, route => route.fulfill({json: RECORDED}));
+    await openAtStopA(page);
+    await page.getByRole('button', {name: 'Show walking route'}).click();
+    const guide = page.locator('.walk-guide');
+    await expect(guide).toHaveAttribute('data-origin-band', 'uncertain');
+    await expect(guide.locator('.walk-answer strong')).toContainText('about 5 min walk');
+    await expect(guide.locator('[data-caveat]')).toContainText('Starting point uncertain');
+    await expect(guide.locator('[data-caveat]')).toContainText('about 90 m out');
+    await expect(guide.locator('[data-caveat]')).toContainText('street this starts from may be wrong');
+    await expect(guide.locator('[data-update-location]')).toBeVisible();
+    await expect(guide.locator('[data-choose-start]')).toBeVisible();
+    await shot(page, 'walking-uncertain');
   });
 });
 

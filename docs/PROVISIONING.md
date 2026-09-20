@@ -3,15 +3,23 @@
 **Decided:** Hetzner Cloud, a **2 vCPU / 4 GB** shared-vCPU server, **no paid backups**, on a
 **free subdomain**.
 
-> **Checked again on 20 September 2026, before you spend anything: the CX line is not orderable.**
-> Hetzner's own cost-optimized page marks **all four CX plans — CX23, CX33, CX43, CX53 — "not
-> available"**, in the server-rendered HTML rather than as a loading placeholder, while every CPX
-> plan on the regular-performance page carries no such flag. Whether that is temporary stock or the
-> end of the line, I cannot tell from outside. **The console is the authority: if CX23 is offered,
-> take it; if it is not, take CPX22**, which is the same 2 vCPU and 4 GB with a larger disk. Every
-> number below that matters — the 853 MB rebuild peak, the 376 MB collector, `LM_DB_THREADS=2` —
-> depends on **4 GB of RAM and 2 vCPU**, which both plans give, so nothing else in this runbook
-> changes. Costs and the
+> **20 September 2026, in the console: CX23 is out of stock in Falkenstein, and the price is
+> unchanged.** The console shows **CX23 at €6.59 a month including 20% VAT, plus €0.60 for the
+> IPv4 — €7.19, about £6.10**, exactly the documented figure. Hetzner's public page flags all four
+> CX plans "not available", but the console's own tooltip is the precise version: *"Not available.
+> Please choose another location or type."* **Stock is per location.**
+>
+> **In order: try Nuremberg, then Helsinki, with CX23.** If no location has it, switch Architecture
+> to **Arm64 (Ampere)** and take **CAX11** (2 vCPU, 4 GB) — `install.sh` installs only `python3`,
+> `python3-venv`, `curl`, `gnupg`, `ufw` and Caddy from Cloudsmith's apt repository, all of which
+> publish arm64, and DuckDB ships aarch64 wheels; no Node and no compiled x86 binary runs on the
+> server, because the frontend is built here and shipped as static files.
+>
+> **Do not fall back to CPX22 without deciding to.** The console prices it at **€23.99 a month**,
+> 3.6 times the CX23 for the same 2 vCPU and 4 GB, buying only 80 GB of disk instead of 40 GB,
+> which this workload does not need. Every number below that matters — the 853 MB rebuild peak, the
+> 376 MB collector, `LM_DB_THREADS=2` — depends on **4 GB of RAM and 2 vCPU**, which CX23, CAX11 and
+> CPX22 all give. Costs and the
 reasoning are in `docs/HOSTING.md`; this page is only the doing.
 
 Everything that could be prepared without an account has been. What is left needs either your money
@@ -29,9 +37,9 @@ In <https://console.hetzner.cloud> → **Add Server**:
 
 | | |
 |---|---|
-| Location | Falkenstein, Nuremberg or Helsinki — any is fine; Falkenstein is the usual default |
-| Image | **Ubuntu 24.04** (Debian 12 also works; `deploy/install.sh` handles both) |
-| Type | **Shared vCPU → CX23** (2 vCPU, 4 GB, 40 GB NVMe) if it is offered; otherwise **CPX22** (2 vCPU, 4 GB, 80 GB NVMe). Do not drop to CPX12 — 2 GB will not run the nightly rebuild |
+| Image | **Ubuntu 24.04 LTS** (Debian 12 also works; `deploy/install.sh` targets and was validated against those two). The console may default to a newer Ubuntu — change it; there is no reason to debug a fresh release on the first deploy |
+| Location | Falkenstein, Nuremberg or Helsinki — **stock differs between them**, so if the type you want is greyed out, change this before changing the type |
+| Type | **Cost-Optimized → CX23** (2 vCPU, 4 GB, 40 GB NVMe). If no location has it, **Arm64 (Ampere) → CAX11**. Never CPX12 — 2 GB will not run the nightly rebuild |
 | Networking | **IPv4 enabled** — needed, and billed separately |
 | Backups | **leave the tick box off.** Hetzner's *Backups* (automatic, daily, 20% of the server price) and its *Snapshots* (manual, per GB) are different products; both stay off unless you say otherwise. `docs/HOSTING.md` sets out the difference |
 | SSH key | **Add SSH key**, and paste the public key below. Without one Hetzner emails a root password, which is worse in every way |
@@ -54,13 +62,13 @@ only you use.
 
 ### Read the total before you pay
 
-**The console's own figure is the one that decides.** I could not verify a current price from
-outside: Hetzner's public pages inject prices from a script, so the raw pages carry none, and I will
-not repeat a stale number as though I had checked it. What is *documented* from 15 June 2026 is
-€5.49 for the CX23 plus €0.50 for the IPv4 — €5.99 net, about €7.19 with 20% VAT, roughly **£6.10 a
-month**. **CPX22 is a different plan and will cost somewhat more.** Hetzner raised prices in June
-2026 and may have again. *If the total is not close to that, stop and tell me rather than paying
-more than you meant to.*
+**Read against the console on 20 September 2026 and unchanged:** CX23 **€6.59 a month including
+20% VAT**, IPv4 **€0.60**, **total €7.19, about £6.10**. The console prints "All prices incl. 20 %
+VAT" beneath the total, so that figure needs nothing added to it.
+
+The console's own figure still decides — stock and prices move. *If the total is not close to
+€7.19, stop and tell me rather than paying more than you meant to.* It costs nothing to check,
+and the panel shows the total before the Create & Buy now button, not after.
 
 Why 4 GB and not something smaller: the nightly timetable rebuild peaks at **853 MB**, measured on
 18 September 2026, and the collector sits at about **376 MB** at the two threads a CX23 gives it.

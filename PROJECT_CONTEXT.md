@@ -30,6 +30,20 @@ measured before and after on one publication rather than asserted.
     by a **median 54 m** while it is, and by up to 393 m in the instant a distant report lands
     before the travel starts. It is never ahead. That is the price of not teleporting on a service
     whose road we have not checked, and the card states the age of the latest report beside it.
+  - **On the real feed, watched rather than replayed** (the new build with the server's live
+    publication passed through, Chromium, SwiftShader): a route-263 bus ridden for four minutes
+    on desktop moved in **80% of its steady state** (231 s between the first and last report to
+    arrive); on a 390 px phone, **55%**, in a watch that included a genuine **135 s** gap in that
+    vehicle's reporting, during which it stood at its newest report, as it should. Reports reach
+    the page further apart than they were made, so the bus travels at the speed its two reports
+    imply and then waits — a short watch is dominated by that first wait (a 110 s watch read 26%).
+    The fleet's own cadence, measured the same day: consecutive reports a median **21 s** apart,
+    30 s at the 95th percentile, 0.6% over 45 s, which is where the travel's time cap now sits.
+  - **The estimated path, on the real feed, is not the same thing and is not claimed to be:** a
+    route-15 bus watched for 200 s produced 924 distinct drawn positions with one 8 s pause, and a
+    150 s watch caught **one snap of 187 m** and a 146 m eased correction among nine publications —
+    the documented behaviour at and below the 150 m threshold, said on the card, and no smoother
+    than that.
 - **Follow on the map did nothing on most services.** It required an estimate, so on a service with
   no accepted geometry the camera never followed at all. Following is about the camera, and now
   follows whatever is drawn.

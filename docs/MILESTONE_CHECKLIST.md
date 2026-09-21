@@ -629,3 +629,20 @@ rather than argued, and the first fix was replaced, not defended.
 | Missing coverage separated from legitimate uncertainty | Unsettled branch 156 (27%) — uncertainty; no road built for that variant 153 (27%) — ours; no timetable held 97 (17%) — upstream; accepted road but not evaluated 81 (14%) — front view works, prediction withheld; ~60 roads built and refused at 36–286 m | same | Done |
 | Thresholds not weakened after seeing results | Several patterns miss the 35 m bar by a metre or two and stay refused | index.json reasons | Done |
 
+## Route 263 end to end, and the ride on the real feed (21 September 2026, afternoon)
+
+The new build served locally with the server's live publication passed through (so real reports
+kept arriving), in Chromium with SwiftShader. `outputs/probes/repro/e2e-263.mjs`, `timeline.mjs`,
+`scripts/probes/ride-smoothness.mjs`; frames and `e2e.json` under `outputs/probes/milestone/`.
+
+| Requirement | Result | Evidence | Status |
+|---|---|---|---|
+| Geometry published for 263 | Both directions accepted: 10,328 / 11,573 reports, p95 17.1 / 17.0 m, 654 vertices over 13.6 km outbound (about 21 m apart: road, not stop-to-stop lines) | `public/data/shapes/index.json`, the shape file | Done |
+| Runtime eligibility recognised | All 8 live 263 buses placed on accepted patterns; the ride's front-view button read "Front view", not unavailable, and pressing it put the camera in `front` with 3 stops ahead labelled, on desktop and phone | `e2e.json` `front` | Done |
+| Outside ride moves | Desktop, 4 min: moving 80% of steady state, no step over a bus length, 60 fps. Phone, 4 min: 55%, with a real 135 s reporting gap stood out at the newest report | `timeline.mjs` output; `e2e.json` `ride` | Done |
+| Same bus retained throughout | YX74OKB (desktop) and YX74OKG (phone): the same vehicle at route chosen, after the ride, in the front view, outside again and after leaving | `e2e.json` `sameBusThroughout: true` | Done |
+| Several publications | 7 (desktop, 110 s) and 13 (phone, 240 s) | same | Done |
+| Estimated route runs continuously and reconciles | Route 15: 924 distinct positions in 200 s, one 8 s pause; but one **187 m snap** and a 146 m eased correction in 150 s — the documented ≥150 m behaviour, not smooth | `probes-phone-15.log` | Partial: as designed, and said |
+| Historical dots distinct from buses | Hollow lime rings at half a marker's radius, latest solid; not selectable; not in `data-bus-points` | `ride-quality.spec`; frames | Done |
+| Card wording does not imply continuous tracking | "Shown between its reports · latest N s ago", steady rather than flipping, with the reason the page actually has (on 263: the evaluation, not the geometry) | frames `2-riding.png` | Done |
+

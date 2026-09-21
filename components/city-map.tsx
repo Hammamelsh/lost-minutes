@@ -10,7 +10,7 @@ import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
-import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,observedBetween,pointAt,project,slice,stepVisual,tickClock,turnToward,
+import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
         type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
@@ -379,7 +379,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
  return {mode:e.mode,reason:e.reason,reportAge:Math.round(e.reportAge),capped:e.capped,horizon:params.horizon,
-  between:e.between===true,
+  between:v.glide!==null&&now<v.glide.at+v.glide.ms,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
@@ -951,14 +951,13 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
   const now=state.clock.now;
-  // With no accepted road geometry the bus is drawn between its own reports (observedBetween),
-  // which is movement without prediction. "Reported positions only" means exactly that: the
-  // newest report and nothing between, so that mode is left as it was.
-  const e=input.blocked||!input.track
-   ?(input.replay?observedBetween(input.history,now,input.blocked??'no road geometry',input.provisional)
-     :observedAt(input.history,now,input.blocked??'no road geometry',input.provisional))
+  const e=input.blocked||!input.track?observedAt(input.history,now,input.blocked??'no road geometry',input.provisional)
    :estimate(input.history,input.track,now,input.params);
-  const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile));
+  // With no accepted road geometry the bus travels between its own reports rather than jumping
+  // (GLIDE): movement without prediction. "Reported positions only" means exactly that — the
+  // newest report and nothing between — so the history is withheld and the travel does not start.
+  const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile),
+   input.replay?input.history:null);
   visualRef.current=v;estimateRef.current=e;
   const t=performance.now();
   // Frame intervals, over about the last second and a half of continuous animation. A gap longer

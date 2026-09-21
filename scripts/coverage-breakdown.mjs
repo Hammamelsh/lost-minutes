@@ -12,7 +12,11 @@
  *               timetable, it is two roads that both fit.
  *   geometry    a road path through that pattern's stops, accepted only where that pattern's own
  *               reports lie close to it (35 m at the 95th percentile, at least 30 reports).
- *   estimate    movement between reports: needs the geometry above, and nothing else.
+ *   estimate    prediction between reports. It needs the geometry above **and** the pattern to be
+ *               one the published motion evaluation actually scored the frozen model on
+ *               (motion-evaluation.json, `corridor.patterns`). Geometry alone does not release it:
+ *               the model was fitted and scored on routes 15, 250 and 256, and showing predicted
+ *               movement elsewhere would claim an accuracy nobody has measured.
  *   front view  needs the same geometry, and in addition the bus to be on it with its look-ahead
  *               on road every candidate shares. Arrival minutes are a separate gate again
  *               (docs/ARRIVAL_RELEASE_CRITERIA.md) and are not counted here.
@@ -26,6 +30,7 @@ const read = f => JSON.parse(readFileSync(f, 'utf8'));
 
 const live = read(arg('live', 'out/data/live.json'));
 const shapes = read(arg('shapes', 'public/data/shapes/index.json')).patterns ?? {};
+const evaluated = new Set((() => {try {return read(arg('evaluation', 'public/data/motion-evaluation.json')).corridor.patterns} catch {return []}})());
 const vehicles = live.vehicles ?? [];
 const accepted = new Set(Object.entries(shapes).filter(([, s]) => s.status === 'accepted').map(([k]) => k));
 const built = new Set(Object.keys(shapes));
@@ -51,7 +56,12 @@ for (const v of vehicles) {
   else why(m?.unresolved ?? 'no_match_recorded');
  } else {
   bump('timetable'); row.placed++;
-  if (accepted.has(pattern)) {bump('geometryAccepted'); bump('estimate'); bump('frontView'); row.withGeometry++;}
+  if (accepted.has(pattern)) {
+    bump('geometryAccepted'); bump('frontView'); row.withGeometry++;
+    // Geometry is what the front view needs. Prediction needs the evaluation to have scored the
+    // frozen model on this very pattern, which it has done for six patterns on three routes.
+    if (evaluated.has(pattern)) bump('estimate'); else why('road_accepted_but_movement_not_evaluated');
+   }
   else if (built.has(pattern)) why(`geometry_built_but_rejected:${shapes[pattern].reason?.slice(0, 48) ?? '?'}`);
   else why('no_geometry_built_for_this_pattern');
  }
@@ -67,8 +77,9 @@ console.log(JSON.stringify({
   position: pc(tally.position ?? 0),
   timetablePlaced: pc(tally.timetable ?? 0),
   roadGeometryAccepted: pc(tally.geometryAccepted ?? 0),
-  estimatedMovementEligible: pc(tally.estimate ?? 0),
   frontViewEligibleBeforeTheOnRoadCheck: pc(tally.frontView ?? 0),
+  estimatedMovementEligible: pc(tally.estimate ?? 0),
+  travelsBetweenItsReports: pc((tally.position ?? 0) - (tally.estimate ?? 0)),
   unsettledBranchWithEveryCandidateAccepted: pc(tally.sharedRoadCandidate ?? 0),
  },
  refusedAndWhy: Object.fromEntries(Object.entries(refusal).sort((a, b) => b[1] - a[1])),
@@ -78,13 +89,17 @@ console.log(JSON.stringify({
  //                     patterns or collecting until a variant has reports to check a road against.
  //   genuineUncertainty two or more patterns fit the position equally well, or the bus is not near
  //                     the road we hold. Not a gap in our data: the evidence does not say.
+ //   notEvaluated      the road IS accepted and the front view IS offered; what is withheld is
+ //                     predicted movement, because the frozen model has not been scored on this
+ //                     pattern. This is a reason for no prediction, never for no front view.
  //   notRunning        the timetable is held but nothing runs in that direction today.
- whyTheRestHaveNoFrontView: (() => {
-  const by = {missingCoverage: 0, genuineUncertainty: 0, notRunning: 0};
+ whyTheRestIsRefused: (() => {
+  const by = {missingCoverage: 0, genuineUncertainty: 0, notEvaluated: 0, notRunning: 0};
   for (const [reason, n] of Object.entries(refusal)) {
    if (reason.startsWith('geometry_built_but_rejected') || reason === 'no_geometry_built_for_this_pattern'
        || reason === 'no_pattern_for_route' || reason === 'no_pattern_for_operator') by.missingCoverage += n;
    else if (reason === 'ambiguous_branch' || reason === 'too_far_from_pattern') by.genuineUncertainty += n;
+   else if (reason === 'road_accepted_but_movement_not_evaluated') by.notEvaluated = (by.notEvaluated ?? 0) + n;
    else by.notRunning += n;
   }
   return Object.fromEntries(Object.entries(by).map(([k, n]) => [k, pc(n)]));

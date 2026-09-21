@@ -244,8 +244,6 @@ export type Estimate = {
  held?: boolean;              // standing at its last reports, and held there for now
  resumeAt?: number | null;    // ms: when a held estimate would move on, if no report comes first
  path?: EstimatePath;         // how it moves on from its report until the next one arrives
- /** A bus shown at its reports, drawn between two of them rather than at the newest. */
- between?: boolean;
 };
 
 /**
@@ -394,70 +392,6 @@ export function alongAt(track: Track, e: Estimate, when: number): number | null 
 }
 
 /** The last report itself, with the reason no estimate is drawn. `provisional` while loading. */
-/**
- * Showing a bus that has no accepted road geometry as something a passenger can watch.
- *
- * `lagMin`/`lagMax` bound how far behind the newest report the drawn bus is allowed to be; the
- * lag actually used is the service's own recent reporting interval, so a bus reporting every
- * 20 s is drawn about 20 s behind and moves the whole way between one report and the next.
- * `maxGapMetres` and `maxGapSeconds` are where that stops: two reports that far apart say
- * nothing about the way between them, so the bus waits at the earlier one instead.
- */
-export const REPLAY = {lagMinS: 8, lagMaxS: 45, maxGapS: 45, maxGapMetres: 400};
-
-/** The bus's own reports read as a path in time: where it was at `at`, between two of them. */
-function between(fixes: Fix[], at: number): {lat: number; lon: number; bearing: number | null; index: number} | null {
- for (let i = fixes.length - 1; i > 0; i--) {
-  const b = fixes[i], a = fixes[i - 1];
-  if (at < a.at || at > b.at) continue;
-  const span = b.at - a.at;
-  // Too long a gap, or too far a move, is not something to draw a line through: the bus waits
-  // at the earlier report until the later one is due, and the step to it is the honest one.
-  if (span > REPLAY.maxGapS * 1000 || metres(a, b) > REPLAY.maxGapMetres) return {...a, index: i - 1};
-  const f = span <= 0 ? 1 : (at - a.at) / span;
-  return {lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f,
-   // The bearing is the newer report's own where it has one, never taken from the direction of
-   // travel; while it is missing the older one's stands rather than inventing a turn.
-   bearing: b.bearing ?? a.bearing, index: i - 1};
- }
- return null;
-}
-
-/**
- * A bus shown at its reports, drawn *between* the last two rather than sitting at the newest.
- *
- * Until 21 September 2026 a service with no accepted road geometry was drawn at its newest report
- * and nowhere else: it stood still for twenty seconds and then jumped. Travelling to each report
- * as it arrived removed the jump but not the standing — a 900 ms hop every twenty seconds, which
- * is not a bus anyone can watch.
- *
- * So the drawn position is the bus's own reported track evaluated a little way in the past: at
- * `when` it is drawn where it was `lag` seconds ago, between two reports it actually made. It is
- * never drawn past the newest report, so nothing shown is newer than what is known; the straight
- * line between two reports is not claimed to be the road it took; no bearing is taken from the
- * direction of travel; and this is not an estimate, because it never goes beyond the evidence.
- * What it costs is stated rather than hidden: the position is `reportAge` seconds old, and the
- * card says so.
- */
-export function observedBetween(history: History, when: number, reason: string, provisional = false): Estimate {
- const fixes = history.fixes;
- const latest = fixes[fixes.length - 1];
- if (fixes.length < 2) return observedAt(history, when, reason, provisional);
- // The service's own recent cadence, as the median of its last few gaps.
- const gaps: number[] = [];
- for (let i = Math.max(1, fixes.length - 5); i < fixes.length; i++) gaps.push((fixes[i].at - fixes[i - 1].at) / 1000);
- gaps.sort((a, b) => a - b);
- const cadence = gaps[Math.floor(gaps.length / 2)] ?? REPLAY.lagMinS;
- const lag = Math.max(REPLAY.lagMinS, Math.min(REPLAY.lagMaxS, cadence));
- // Never past the newest report: when the feed falls behind its own cadence the bus catches up to
- // that report and waits there, which is all that is known.
- const at = Math.min(when - lag * 1000, latest.at);
- const point = between(fixes, at) ?? {lat: latest.lat, lon: latest.lon, bearing: latest.bearing};
- return {mode: 'observed', reason, lat: point.lat, lon: point.lon, bearing: point.bearing, s: null,
-  basis: latest, reportAge: Math.max(0, (when - at) / 1000), horizon: 0, capped: false,
-  speed: null, speedBasis: null, provisional, between: at < latest.at};
-}
-
 export function observedAt(history: History, when: number, reason: string, provisional = false): Estimate {
  const latest = history.fixes[history.fixes.length - 1];
  return {mode: 'observed', reason, lat: latest.lat, lon: latest.lon, bearing: latest.bearing, s: null,
@@ -538,15 +472,20 @@ export type Visual = {
  * moved. Nothing about that is more honest than moving it: both ends are observed positions, and
  * the passenger reads a jump as the app losing the bus.
  *
- * So the drawn bus travels from the report it was drawn at to the report that has arrived, over
- * `ms`, and then stops there. It is never carried past the newest report, so the drawn position
- * is at worst `ms` behind what is known and never ahead of it, which is the direction to err.
- * The straight line between the two is not claimed to be the road: this is not an estimate, the
- * card still reads "Last reported position", and no bearing is taken from the direction of
- * travel. A gap beyond `maxMetres` is left as a jump, because a bus that has moved that far
- * between reports has not been followed and pretending otherwise would invent a journey.
+ * The first attempt travelled the whole way in 900 ms and then waited, which removed the teleport
+ * and left a hop every twenty seconds — measured at 96% of frames standing still. So the journey
+ * between two reports now takes **the time the bus itself took to make it**: the drawn bus leaves
+ * the earlier report and arrives at the later one about when the next report is due, and waits
+ * there if it is late. It is never carried past the newest report, so what is drawn is always
+ * between two positions the bus actually reported, and always older than the newest of them —
+ * never newer, which is the direction to err.
+ *
+ * The straight line between the two is not claimed to be the road, no bearing is taken from the
+ * direction of travel, and this is not an estimate: it never goes beyond the evidence. A gap
+ * beyond `maxMetres`, or longer than `maxMs`, is left as the step it is, because a bus that moved
+ * that far or was away that long was not followed and pretending otherwise would invent a journey.
  */
-export const GLIDE = {ms: 900, minMetres: 1.5, maxMetres: 400};
+export const GLIDE = {minMs: 600, maxMs: 30_000, minMetres: 1.5, maxMetres: 400};
 
 const WINDOW_STEPS = 24;
 const MAX_FRAME = 0.25;          // s: a longer gap between frames means the page was not drawing
@@ -604,7 +543,7 @@ function glideAt(v: Visual, g: NonNullable<Visual['glide']>, now: number): Visua
  * follows it.
  */
 export function stepVisual(previous: Visual | null, e: Estimate, now: number, track: Track | null,
-                           draw: Drawing = DRAWING): Visual {
+                           draw: Drawing = DRAWING, history?: History | null): Visual {
  const trackId = track?.id ?? null;
  // Shown at its report only while the settings or geometry loaded: the first estimate is simply
  // drawn, not presented as a correction.
@@ -637,7 +576,17 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   if (previous.basisAt === e.basis.at) return running ? {...glideAt(settled, running, now), glide: running} : settled;
   const gap = metres(previous, e);
   if (gap < GLIDE.minMetres || gap > GLIDE.maxMetres) return settled;
-  const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms: GLIDE.ms};
+  // How long the bus took to make this move, by its own two timestamps: that is how long the
+  // drawing takes to show it. A report that follows another very closely still gets a visible
+  // step rather than an instant one.
+  // Without the reports there is nothing to take the time from, and nothing to travel between:
+  // that is what "reported positions only" asks for, and it is left exactly as it was.
+  const fixes = history?.fixes;
+  if (!fixes || fixes.length < 2) return settled;
+  const span = e.basis.at - fixes[fixes.length - 2].at;
+  if (span <= 0 || span > GLIDE.maxMs) return settled;
+  const ms = Math.max(GLIDE.minMs, Math.min(GLIDE.maxMs, span));
+  const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms};
   return {...glideAt(settled, glide, now), glide};
  }
  // A frame after the page stopped drawing (nothing was moving) is not one long frame: the drawn
@@ -717,10 +666,10 @@ export function tickClock(clock: PresentationClock | null, wall: number, target:
  */
 export function needsFrames(e: Estimate | null, v: Visual | null, draw: Drawing = DRAWING) {
  if (!e || !v) return false;
- // A bus shown at its reports draws while it is travelling to the report that arrived, and while
- // it is between two of its own reports (observedBetween), where its position changes every frame.
+ // A bus shown at its reports draws while it is travelling from the report it was drawn at to the
+ // one that arrived; once it is there, nothing moves until the next report and the loop rests.
  if (v.glide && v.frame < v.glide.at + v.glide.ms) return true;
- if (e.mode !== 'estimated') return e.between === true;
+ if (e.mode !== 'estimated') return false;
  return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.velocity) > 0.05 || Math.abs(v.goalSpeed) > 0.05
   || (v.goal !== null && v.s !== null && Math.abs(v.s - v.goal) > 0.5)
   || (e.held === true && e.resumeAt != null && e.resumeAt - v.frame <= draw.smoothing * 1000)

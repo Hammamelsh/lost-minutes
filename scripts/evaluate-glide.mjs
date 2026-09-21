@@ -10,8 +10,8 @@
  *
  *   before  the bus is placed at its latest report every frame, so a report arriving after 20 s
  *           of standing still moves it the whole way in one frame: the jump;
- *   after   the bus travels from the report it was drawn at to the report that arrived, over
- *           GLIDE.ms (lib/motion.ts), and then stops there.
+ *   after   the bus travels from the report it was drawn at to the report that arrived, taking
+ *           the time the bus itself took between them (GLIDE in lib/motion.ts), and waits there.
  *
  * Reported are the largest step in a single frame, how often a step is larger than a bus is long
  * (12 m), and how far behind the newest report the drawn bus is — the delay the smoothing costs.
@@ -47,8 +47,8 @@ for (const seq of data.sequences) {
   if (prevBefore) out.before.steps.push(metres(prevBefore, e));
   out.before.lag.push(0);
   prevBefore = {lat: e.lat, lon: e.lon};
-  // after: the glide.
-  vAfter = stepVisual(vAfter, e, t, null);
+  // after: travelling between the reports, which needs the reports themselves.
+  vAfter = stepVisual(vAfter, e, t, null, undefined, history);
   if (prevAfter) out.after.steps.push(metres(prevAfter, vAfter));
   out.after.lag.push(metres(vAfter, latest));
   prevAfter = {lat: vAfter.lat, lon: vAfter.lon};
@@ -62,7 +62,9 @@ const report = which => {
  // The lag is what smoothing costs: how far the drawn bus is behind the newest known report. It
  // is zero except in the moments just after a report, so it is reported over those moments.
  const lag = out[which].lag, behind = lag.filter(d => d > 1);
+ const moving = which === 'after' ? s.filter(d => d * FPS > 0.5).length : 0;
  return {stepsOverABusLength: jumps, perHour: +(jumps / (s.length / FPS / 3600)).toFixed(1),
+  framesDrawnMoving: which === 'after' ? `${(moving / s.length * 100).toFixed(0)}%` : '0%',
   largestStepMetres: +max.toFixed(1), largestStepWithinTheCapMetres: +capped.toFixed(1),
   p999StepMetres: +pct(s, 0.999).toFixed(2),
   framesBehindTheLatestReport: +(behind.length / lag.length * 100).toFixed(1) + '%',

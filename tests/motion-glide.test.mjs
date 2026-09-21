@@ -4,11 +4,12 @@
 // followed is left as the jump it is.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {GLIDE, historyFrom, metres, needsFrames, observedAt, observedBetween, stepVisual} from '../lib/motion.ts';
+import {GLIDE, historyFrom, metres, needsFrames, observedAt, stepVisual} from '../lib/motion.ts';
 
 const at = (t, lat, lon, bearing = 90) => ({at: t, lat, lon, bearing, service: 's', source: 'h' + t});
 const A = [53.45, -2.31];
-const draw = (previous, fixes, now) => stepVisual(previous, observedAt(historyFrom(fixes), now, 'no shape'), now, null);
+const draw = (previous, fixes, now) => {const h = historyFrom(fixes);
+  return stepVisual(previous, observedAt(h, now, 'no shape'), now, null, undefined, h)};
 /** The first report drawn, then a second report arriving at `t`, then frames up to `until`. */
 function run(second, {t = 20_000, until = 2000, step = 100} = {}) {
   const first = [at(0, A[0], A[1])];
@@ -19,16 +20,19 @@ function run(second, {t = 20_000, until = 2000, step = 100} = {}) {
   return {frames, last: frames[frames.length - 1].v, second};
 }
 
-test('a report that arrives is travelled to, not jumped to, and the bus stops exactly there', () => {
-  const second = at(20_000, 53.4511, -2.31);           // about 122 m on
-  const {frames, last} = run(second);
+test('a report that arrives is travelled to over the time the bus took, and the bus stops exactly there', () => {
+  const second = at(20_000, 53.4511, -2.31);           // about 122 m on, twenty seconds later
+  const {frames, last} = run(second, {until: 21_000, step: 500});
   const steps = frames.slice(1).map((f, i) => metres(frames[i].v, f.v));
-  assert.ok(Math.max(...steps) < 30, `no frame jumps the whole way: largest ${Math.max(...steps).toFixed(1)} m`);
-  assert.ok(frames.some(f => f.dt > 0 && f.dt < GLIDE.ms && metres(f.v, A_POINT) > 5 && metres(f.v, second) > 5),
+  assert.ok(Math.max(...steps) < 8, `no frame jumps the whole way: largest ${Math.max(...steps).toFixed(1)} m`);
+  const moving = steps.filter(d => d > 0.05).length;
+  assert.ok(moving > steps.length * 0.8, `it is moving for most of the interval (${moving} of ${steps.length})`);
+  assert.ok(frames.some(f => f.dt > 2000 && f.dt < 18_000 && metres(f.v, A_POINT) > 20 && metres(f.v, second) > 20),
     'it is drawn between the two reports while it travels');
   assert.equal(+last.lat.toFixed(6), +second.lat.toFixed(6), 'it ends at the report');
-  assert.equal(last.glide, null, 'and the glide is done');
+  assert.equal(last.glide, null, 'and the travel is done');
 });
+
 const A_POINT = {lat: A[0], lon: A[1]};
 
 test('it is never drawn past the newest report, so the drawn position is behind what is known, never ahead', () => {
@@ -59,10 +63,12 @@ test('a wobble smaller than the floor is not animated, and frames stop once the 
   const wobble = at(20_000, A[0] + 0.000005, A[1]);     // about 0.6 m: GPS noise at a standstill
   const {last} = run(wobble, {until: 200});
   assert.equal(last.glide, null, 'a sub-metre wobble is placed, not travelled');
-  const {frames} = run(at(20_000, 53.4511, -2.31));
-  const e = observedAt(historyFrom([at(0, A[0], A[1]), at(20_000, 53.4511, -2.31)]), 20_400, 'no shape');
-  assert.equal(needsFrames(e, frames.find(f => f.dt === 400).v), true, 'drawing while it travels');
-  assert.equal(needsFrames(e, frames[frames.length - 1].v), false, 'and parked once it has arrived');
+  const second = at(20_000, 53.4511, -2.31);
+  const {frames} = run(second, {until: 22_000, step: 500});
+  const history = historyFrom([at(0, A[0], A[1]), second]);
+  const mid = frames.find(f => f.dt === 5000).v, end = frames.at(-1).v;
+  assert.equal(needsFrames(observedAt(history, 25_000, 'no shape'), mid), true, 'drawing while it travels');
+  assert.equal(needsFrames(observedAt(history, 42_000, 'no shape'), end), false, 'and parked once it has arrived');
 });
 
 test('a newer report while travelling is taken up from where the bus is, not queued behind the old one', () => {
@@ -80,53 +86,52 @@ test('a newer report while travelling is taken up from where the bus is, not que
 
 // ---------------------------------------------------------------- between its own reports
 
-test('a bus with no road geometry is drawn between two of its own reports, and never past the newest', () => {
-  const fixes = [at(0, A[0], A[1]), at(20_000, 53.4511, -2.31), at(40_000, 53.4522, -2.31)];
-  const history = historyFrom(fixes);
-  const newest = fixes[2];
-  let moved = 0, previous = null;
-  for (let now = 42_000; now <= 58_000; now += 500) {
-    const e = observedBetween(history, now, 'no accepted road geometry');
-    // Never beyond the newest report, and never before the one before it.
-    assert.ok(e.lat <= newest.lat + 1e-9, 'never past the newest report');
-    assert.ok(e.lat >= fixes[1].lat - 1e-9, 'and not back before the previous one');
-    if (previous !== null && e.lat > previous + 1e-9) moved++;
-    previous = e.lat;
+/** Frames from `from` to `to`, feeding the whole history so the travel takes the reports' own gap. */
+function watch(fixes, from, to, step = 250) {
+  let v = null; const frames = [];
+  for (let now = from; now <= to; now += step) {
+    const known = fixes.filter(f => f.at <= now);
+    if (!known.length) continue;
+    const history = historyFrom(known);
+    v = stepVisual(v, observedAt(history, now, 'no accepted road geometry'), now, null, undefined, history);
+    frames.push({now, v});
   }
-  assert.ok(moved > 10, `it moves continuously, not in one hop (${moved} of 33 frames moved)`);
-});
+  return frames;
+}
 
-test('what it costs is stated: the drawn position is older than the newest report, never newer', () => {
+test('the travel between two reports takes the time the bus itself took, not a hop', () => {
   const fixes = [at(0, A[0], A[1]), at(20_000, 53.4511, -2.31), at(40_000, 53.4522, -2.31)];
-  const history = historyFrom(fixes);
-  const now = 45_000;
-  const between = observedBetween(history, now, 'r'), newest = observedAt(history, now, 'r');
-  assert.ok(between.reportAge > newest.reportAge, 'the shown position is older than the newest report');
-  assert.equal(between.reportAge, 20, 'by the service’s own reporting interval');
-  assert.equal(between.between, true);
-  assert.equal(newest.between, undefined, '"reported positions only" is left exactly as it was');
+  const frames = watch(fixes, 0, 44_000);
+  const moving = frames.slice(1).filter((f, i) => metres(frames[i].v, f.v) > 0.05).length;
+  assert.ok(moving / frames.length > 0.5,
+    `it is moving for most of the watch, not 5% of it (${moving} of ${frames.length} frames)`);
+  // Never past the newest report known at that moment.
+  for (const {now, v} of frames) {
+    const newest = fixes.filter(f => f.at <= now).at(-1);
+    assert.ok(metres({lat: A[0], lon: A[1]}, v) <= metres({lat: A[0], lon: A[1]}, newest) + 0.5,
+      'never drawn past the newest report');
+  }
 });
 
-test('a gap too long or too far to draw a line through is waited out at the earlier report', () => {
-  const far = historyFrom([at(0, A[0], A[1]), at(20_000, 53.49, -2.31)]);   // about 4.4 km
-  const e = observedBetween(far, 25_000, 'r');
-  assert.equal(e.lat, A[0], 'it waits at the report it knows, rather than crossing ground it does not');
-  const slow = historyFrom([at(0, A[0], A[1]), at(120_000, 53.4511, -2.31)]);  // two minutes apart
-  assert.equal(observedBetween(slow, 130_000, 'r').lat, A[0], 'a two-minute gap is not interpolated');
-});
-
-test('the bearing is the reports’ own, never taken from the direction of travel', () => {
-  const fixes = [{...at(0, A[0], A[1]), bearing: 10}, {...at(20_000, 53.4511, -2.31), bearing: 200},
-                 {...at(40_000, 53.4522, -2.31), bearing: null}];
-  const e = observedBetween(historyFrom(fixes), 45_000, 'r');
-  assert.equal(e.bearing, 200, 'the newer report’s bearing where it has one, not the way it is moving');
-});
-
-test('when the feed falls behind its own cadence the bus catches up to the newest report and waits there', () => {
+test('a report that arrives late leaves the bus waiting at the one it reached, not guessing on', () => {
   const fixes = [at(0, A[0], A[1]), at(20_000, 53.4511, -2.31)];
-  const history = historyFrom(fixes);
-  const late = observedBetween(history, 90_000, 'r');      // no new report for 70 s
-  assert.equal(late.lat, 53.4511, 'it stands at what is known');
-  assert.equal(late.between, false, 'and says it is not between reports, so the frame loop rests');
-  assert.equal(needsFrames(late, stepVisual(null, late, 90_000, null)), false);
+  const frames = watch(fixes, 0, 70_000, 1000);
+  const end = frames.at(-1).v;
+  assert.equal(+end.lat.toFixed(6), 53.4511, 'it waits at what is known');
+  assert.equal(needsFrames(observedAt(historyFrom(fixes), 70_000, 'r'), end), false, 'and stops drawing');
+});
+
+test('a gap too long to have been followed is not travelled through', () => {
+  const fixes = [at(0, A[0], A[1]), at(90_000, 53.4511, -2.31)];   // a minute and a half apart
+  const frames = watch(fixes, 88_000, 95_000, 500);
+  assert.equal(frames.at(-1).v.glide, null, 'no travel over a gap longer than GLIDE.maxMs');
+  assert.equal(+frames.at(-1).v.lat.toFixed(6), 53.4511, 'it is drawn at the report');
+});
+
+test('"reported positions only" is exactly that: no history, no travel', () => {
+  const fixes = [at(0, A[0], A[1]), at(20_000, 53.4511, -2.31)];
+  let v = stepVisual(null, observedAt(historyFrom([fixes[0]]), 0, 'r'), 0, null);
+  v = stepVisual(v, observedAt(historyFrom(fixes), 20_000, 'r'), 20_000, null);   // no history passed
+  assert.equal(v.glide, null);
+  assert.equal(v.lat, 53.4511, 'it is placed at the newest report, as before');
 });

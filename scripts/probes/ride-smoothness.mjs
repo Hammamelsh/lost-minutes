@@ -29,9 +29,11 @@ const metres = (a, b) => Math.hypot((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 18
 const pct = (xs, q) => {if (!xs.length) return null; const s = [...xs].sort((x, y) => x - y);
  const i = (s.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i); return s[lo] + (s[hi] - s[lo]) * (i - lo)};
 
+const phone = has('phone');
+const size = phone ? {width: 390, height: 844} : {width: 1280, height: 860};
 const browser = await chromium.launch(launchOptions());
-const context = await browser.newContext({viewport: {width: 1280, height: 860}, timezoneId: 'Europe/London',
- recordVideo: {dir: out, size: {width: 1280, height: 860}}});
+const context = await browser.newContext({viewport: size, isMobile: phone, hasTouch: phone,
+ timezoneId: 'Europe/London', recordVideo: {dir: out, size}});
 const page = await context.newPage();
 await page.goto(base + '/', {waitUntil: 'networkidle'});
 await page.waitForTimeout(6000);
@@ -91,6 +93,13 @@ const result = {base, label, chosen, motion: mode, reason, samples: samples.leng
   max: +Math.max(0, ...steps).toFixed(1), overABusLength: steps.filter(d => d > 12).length,
   over40: steps.filter(d => d > 40).length},
  frameMs: frameMs.length ? {median: +pct(frameMs, 0.5).toFixed(1), p95: +pct(frameMs, 0.95).toFixed(1)} : null,
+ layout: phone ? 'phone 390x844' : 'desktop 1280x860',
+ // How much of the watch the bus was actually moving, and how many publications arrived during it:
+ // a ride is watchable when it moves most of the time, not when its largest step is small.
+ movingShare: `${(steps.filter(d => d > 0.02).length / Math.max(1, steps.length) * 100).toFixed(0)}%`,
+ publications: new Set(samples.map(s => s.age)).size > 1
+  ? samples.reduce((n, s, i) => n + (i > 0 && Number(s.age) < Number(samples[i - 1].age) - 2 ? 1 : 0), 0) + 1 : 1,
+ reportAgeSeconds: samples.length ? {median: +pct(samples.map(s => Number(s.age)).filter(Number.isFinite), 0.5).toFixed(0)} : null,
  corrections: [...new Set(samples.map(s => s.correction).filter(c => c && c !== 'none'))].slice(0, 6),
  renderer: 'SwiftShader (software WebGL), not a phone GPU'};
 writeFileSync(`${out}/smoothness.json`, JSON.stringify(result, null, 1));

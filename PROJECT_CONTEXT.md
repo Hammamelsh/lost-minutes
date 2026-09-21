@@ -14,15 +14,22 @@ measured before and after on one publication rather than asserted.
   geometry was *placed at its latest report every frame*: it stood still for twenty seconds and
   then teleported. Measured on the deployed build against the real feed, 70 s of riding one bus:
   median drawn step **0 m**, maximum **217 m**, three jumps. A bus now **travels** from the report
-  it was drawn at to the report that has arrived, over 900 ms, and stops there (`GLIDE` in
-  `lib/motion.ts`). Both ends are observed positions; the line between them is not claimed to be
-  road, no bearing is taken from it, and the bus is never carried past the newest report — the
-  drawn position is at worst 0.9 s behind what is known and never ahead. A gap over 400 m is left
-  as the jump it is. Replaying 27 recorded journeys (2,107 reports) through both drawings at 60
-  fps on identical frames: single-frame steps longer than a bus fall from **138.5 an hour to 0.3**
-  (the remainder being those deliberate jumps), the largest step within the cap from **393 m to
-  10.9 m**, and the cost is that the drawn bus is behind the newest report in **3.5% of frames**,
-  by a median 37.8 m while it is (`scripts/evaluate-glide.mjs`).
+  it was drawn at to the report that has arrived, **taking the time the bus itself took between
+  them**, and waits there if the next is late (`GLIDE` in `lib/motion.ts`). Both ends are observed
+  positions; the line between them is not claimed to be road, no bearing is taken from it, and the
+  bus is never carried past the newest report. A gap over 400 m, or longer than 30 s, is left as
+  the step it is.
+  - **A first attempt travelled the whole way in 900 ms and then waited, and that was not enough.**
+    It removed the teleport and left a hop every twenty seconds: measured, the bus was still
+    standing in **96%** of frames. Taking the reports' own interval is what makes it a ride.
+  - Replaying 27 recorded journeys (2,107 reports) through both drawings at 60 fps on identical
+    frames (`scripts/evaluate-glide.mjs`): the drawn bus is **moving in 62% of frames, against 0%**;
+    single-frame steps longer than a bus fall from **138.5 an hour to 2.2**; the 99.9th-percentile
+    step is **0.66 m**.
+  - **What it costs, plainly:** the drawn position is behind the newest report in **65% of frames**,
+    by a **median 54 m** while it is, and by up to 393 m in the instant a distant report lands
+    before the travel starts. It is never ahead. That is the price of not teleporting on a service
+    whose road we have not checked, and the card states the age of the latest report beside it.
 - **Follow on the map did nothing on most services.** It required an estimate, so on a service with
   no accepted geometry the camera never followed at all. Following is about the camera, and now
   follows whatever is drawn.
@@ -37,6 +44,15 @@ measured before and after on one publication rather than asserted.
   branch whose candidates are all accepted. **Route 263, the one the owner tried, was accepted both
   ways at the first attempt** — 10,328 and 11,573 matched reports, 95% within 17.1 m and 17.0 m.
   It had never been unsupported; nobody had asked the router for it.
+- **Geometry released the front view, not prediction, and the difference matters.** Estimated
+  movement has a **second gate**: the pattern must be one the published evaluation actually scored
+  the frozen model on (`motion-evaluation.json`, six patterns on routes 15, 250 and 256). Building
+  a road does not release prediction, and it should not: the model was fitted and scored on three
+  routes, and predicting elsewhere would claim an accuracy nobody has measured. Measured on one
+  publication of **171 vehicles**: accepted road geometry and front-view eligibility go from
+  **8 (5%) to 48 (28%)**, while **estimated movement stays at 8 (5%)**. What would release more is
+  a measurement, not a code change: score the frozen model on those routes' own held-out captures
+  against the same bar (`scripts/evaluate-frozen.mjs`), and publish the result.
 - **What is still refused, and why**: 248 patterns were routed and **rejected**, 136 of them because
   no report in the warehouse was ever matched to that variant (a school journey, a short working);
   a handful because the road does not fit its own reports (71–99 m at the 95th percentile) and is
@@ -538,14 +554,18 @@ timetable's assumed pause, a repeated report or a single position. Near is not a
 says doors are open or that anyone can board. The evidence (each report read, its distance from
 the stop, and whether it counted) is under "How we know this".
 
-**Travelling between reports** — a bus with *no* accepted road geometry is not estimated at all: it
-is drawn at its reports, and since 21 September 2026 it travels from the report it was drawn at to
-the report that has arrived, over 900 ms, and stops there (`GLIDE` in `lib/motion.ts`). Both ends
-are observed positions. The straight line between them is not claimed to be the road, no bearing is
-taken from the direction of travel, and the drawn bus is never carried past the newest report: it
-lags what is known by at most 0.9 s and never leads it. A gap over 400 m is left as a jump, because
-a bus that moved that far between reports was not followed. This is not an estimate, is never
-stored or published, and the card still reads "Last reported position".
+**Travelling between reports** — a bus that is not being estimated (no accepted road geometry, or a
+service the motion evaluation has not scored) is drawn at its reports, and since 21 September 2026
+it *travels* from the report it was drawn at to the report that has arrived, taking the time the bus
+itself took between them, then waits there (`GLIDE` in `lib/motion.ts`). Both ends are observed
+positions. The straight line between them is not claimed to be the road, no bearing is taken from
+the direction of travel, and the drawn bus is never carried past the newest report: what is shown is
+always between two positions the bus really reported, and always older than the newest of them.
+Measured over 27 recorded journeys, it is behind the newest report in 65% of frames, by a median
+54 m while it is — that is the cost, and it is stated on the card, which reads "Moving between its
+reports · latest N s ago" and says plainly that the bus is not tracked continuously. A gap over
+400 m, or longer than 30 s, is left as the step it is. This is not an estimate, is never stored or
+published, and "reported positions only" still means the newest report and nothing between.
 
 **Estimated position** — where a selected bus has probably got to since its last report,
 computed on the device (`lib/motion.ts`) and never stored, published or treated as a report.
@@ -868,13 +888,11 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
   nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
   shown from above as a round token.
-- **Estimated movement covers 114 accepted patterns on 77 lines** (21 September 2026), up from 6
-  patterns on 3 routes: the geometry is built and validated per pattern against that pattern's own
-  reports, and the motion model itself is unchanged and still frozen. What the model was *fitted
-  and scored on* has not widened: routes 15, 250 and 256 only. So a bus on route 41 is now
-  estimated along checked road with settings measured on three other routes, and the measured
-  error bounds quoted below are not evidence about it. Widening the evaluation is the next
-  measurement, not a code change. The model is frozen
+- **Estimated movement still covers 6 patterns on 3 routes** (15, 250 and 256), unchanged. Road
+  geometry now covers 114 accepted patterns on 77 lines, which releases the **front view** and
+  nothing else: prediction is gated separately on the published evaluation having scored the frozen
+  model on that very pattern. Every other bus is drawn travelling between its own reports, which is
+  movement without prediction. The model is frozen
   (`docs/MOTION_MODEL.md`). It was fitted on one Sunday's captures, and scored on fresh captures
   from that Sunday evening (median error up to a minute 65 m, against 143 m for the last report)
   and from one Monday morning on routes 15 and 250 (62.7 m against 118.3 m, with no peak hour and no

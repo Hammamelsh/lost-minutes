@@ -18,7 +18,7 @@ import {daylightAt} from '@/lib/daylight';
 import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
 import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
-import type {FollowBus} from '@/lib/follow';
+import {destinationLabel,type FollowBus} from '@/lib/follow';
 import type {Stop} from '@/lib/stops';
 
 export type Here = {lat:number;lon:number;accuracyMetres?:number};
@@ -126,6 +126,8 @@ export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'going to the 
  exploring:'exploring the map',returning:'returning to the bus',paused:'paused: this bus started another journey'};
 /** Around a tap, how far a bus marker may be and still be the one meant: a finger's reach. */
 const TAP_MARGIN=14;
+/** Two buses under one finger, neither nearer than this: the passenger is asked, not guessed for. */
+const CHOOSER_MARGIN=8;
 /** How long a repositioning is traced on the map after it happens. */
 const SNAP_TRACE_MS=6000;
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
@@ -444,6 +446,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const [modelFailed,setModelFailed]=useState(false);
  const [track,setTrack]=useState<(TrackResult&{patternId:string})|null>(null);
  const [motionModel,setMotionModel]=useState<MotionModel|null|undefined>(undefined);
+ // Buses that overlapped under one tap, offered at the tap for the passenger to pick from.
+ const [chooser,setChooser]=useState<{x:number;y:number;keys:string[]}|null>(null);
+ const chooserRef=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(chooser)chooserRef.current?.querySelector('button')?.focus()},[chooser]);
  const [rideState,setRideState]=useState<RideState>('off');
  // The passenger's choice of viewpoint, kept for the visit. The front view is used only where it
  // can be drawn honestly (frontReason below), and never changes which bus is followed.
@@ -578,7 +584,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      const layers=SELECTABLE.filter(id=>instance.getLayer(id));
      if(!layers.length)return;
      const {x,y}=event.point,m=TAP_MARGIN;
-     let best:string|null=null,nearest=Infinity;
+     const hits=new Map<string,number>();
      for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers})){
       const key=feature.properties?.key;
       if(typeof key!=='string'||!key)continue;
@@ -589,10 +595,19 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
        :typeof feature.properties?.alat==='number'?[feature.properties.alon,feature.properties.alat] as [number,number]
        :null;
       const d=anchor?(()=>{const at=instance.project(anchor);return Math.hypot(at.x-x,at.y-y)})():m;
-      if(d<nearest){nearest=d;best=key}
+      if(d<(hits.get(key)??Infinity))hits.set(key,d);
      }
-     if(best)onSelect(best);
+     const ranked=[...hits].sort((a,b)=>a[1]-b[1]);
+     // Two buses under one finger and neither clearly the nearer: the passenger is asked, at the
+     // tap, rather than given whichever won by a pixel. A tap that lands on one bus still takes it.
+     if(ranked.length>=2&&ranked[1][1]-ranked[0][1]<CHOOSER_MARGIN){
+      setChooser({x,y,keys:ranked.slice(0,4).map(([key])=>key)});return;
+     }
+     setChooser(null);
+     if(ranked.length)onSelect(ranked[0][0]);
     });
+    // A drag is a change of subject; the offer at the old tap goes with it.
+    instance.on('dragstart',()=>setChooser(null));
     for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-bus-model']){
      instance.on('mouseenter',layer,()=>{instance.getCanvas().style.cursor='pointer'});
      instance.on('mouseleave',layer,()=>{instance.getCanvas().style.cursor=''});
@@ -1028,8 +1043,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    const fixes=input.history.fixes,last=fixes[fixes.length-1];
    const features:object[]=fixes.map(fix=>({type:'Feature',geometry:{type:'Point',coordinates:[fix.lon,fix.lat]},
     properties:{kind:'report',latest:fix===last?1:0}}));
-   if(state.snap&&now-state.snap.at<SNAP_TRACE_MS)
+   const tracing=state.snap!==null&&now-state.snap.at<SNAP_TRACE_MS;
+   if(tracing&&state.snap)
     features.push({type:'Feature',geometry:{type:'LineString',coordinates:[state.snap.from,state.snap.to]},properties:{kind:'snap'}});
+   // Diagnostic: the metres of the repositioning while its trace is drawn, else empty.
+   root.current?.setAttribute('data-snap-trace',tracing&&state.snap?String(Math.round(state.snap.metres)):'');
    if(e.mode==='estimated'&&input.track&&v.s!==null){
     const from=project(input.track,e.basis,v.s).s;
     if(Math.abs(v.s-from)>2)features.push(lineFeature(slice(input.track,from,v.s),'estimate'));
@@ -1496,6 +1514,19 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   <div ref={container} className="vector-map-canvas" aria-label={
    `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>
+  {chooser&&(()=>{
+   const rows=chooser.keys.map(key=>buses.find(b=>b.key===key)??(selected?.key===key?selected:null)).filter(b=>b!==null);
+   if(rows.length<2)return null;
+   const w=root.current?.clientWidth??400,h=root.current?.clientHeight??400;
+   const left=Math.max(8,Math.min(chooser.x-118,w-244)),top=Math.max(8,Math.min(chooser.y+12,h-(rows.length*48+84)));
+   return <div className="bus-chooser" role="dialog" aria-label="Which bus?" ref={chooserRef} style={{left,top}}
+     onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setChooser(null)}}}>
+    <p>{rows.length} buses here. Which one?</p>
+    {rows.map(b=><button key={b.key} type="button" onClick={()=>{setChooser(null);onSelect(b.key)}} data-choose={b.key}>
+     <span className="route-pill">{b.route}</span><strong>to {destinationLabel(b.destination)}</strong><small>{b.ageWords}</small></button>)}
+    <button type="button" className="bus-chooser-close" onClick={()=>setChooser(null)}>Neither</button>
+   </div>;
+  })()}
   {!painted&&<div className="map-loading" role="status">
    <p>Drawing the map…</p>
    {slow&&onSimpleMap&&<>

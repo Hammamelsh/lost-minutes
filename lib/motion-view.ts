@@ -41,6 +41,13 @@ function loadIndex(base:string){
  return indexRequest;
 }
 
+/** The ids of every pattern whose road geometry is accepted, from the one shared index request. */
+export async function loadAcceptedPatterns(base='/data/shapes'):Promise<Set<string>|null>{
+ const index=await loadIndex(base);
+ if(!index)return null;
+ return new Set(Object.entries(index.patterns).filter(([,entry])=>entry.status==='accepted'&&entry.file).map(([id])=>id));
+}
+
 /** The accepted road geometry of a pattern, or why there is none. */
 export function loadTrack(patternId:string|null|undefined,base='/data/shapes'):Promise<TrackResult>{
  if(!patternId)return Promise.resolve({track:null,reason:'its branch is not settled, so the road ahead is not known'});

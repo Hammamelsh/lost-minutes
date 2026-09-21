@@ -137,6 +137,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ops-measure-label{display:block;font-size:12px;letter-spacing:1px;font-weight:700;color:#94aab8;text-transform:uppercase;margin-bottom:9px}
 .ops-measures strong{display:block;font-size:19px;font-weight:500;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:#e6f0f4}
 .ops-measures small{display:block;font-size:12px;color:#94aab8;line-height:1.5;margin-top:6px}
+.ops-note{display:block;margin-top:4px;font-size:12px;line-height:1.5;color:#8aa8b9;font-weight:400}
 .ops-note-row{display:flex;gap:10px;align-items:flex-start;background:#13222d;border:1px solid #2d4250;border-radius:12px;padding:15px 17px}
 .ops-note-row svg{flex-shrink:0;margin-top:2px;color:#8aa8b9}
 .ops-note-row p{margin:0;font-size:13px;line-height:1.7;color:#a7bac5}
@@ -1296,3 +1297,19 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .bus-card-arrival strong{font-size:17px;font-weight:800;color:#c6f36a}
 .bus-card-arrival span{font-size:12px;color:#a9c2d2}
 
+
+/* Two buses under one finger: a small chooser at the tap, keyboard-reachable, one tap to dismiss. */
+.bus-chooser{position:absolute;z-index:6;width:236px;padding:8px;border-radius:12px;background:rgba(11,23,32,.95);
+ border:1px solid rgba(230,239,243,.18);box-shadow:0 8px 24px rgba(0,0,0,.35);color:#e6eff3;display:flex;flex-direction:column;gap:4px}
+.bus-chooser p{margin:0 0 4px;padding:0 4px;font-size:12px;font-weight:600;color:#a7bac5}
+.bus-chooser button{display:flex;align-items:center;gap:8px;min-height:44px;padding:4px 8px;border-radius:9px;border:1px solid transparent;
+ background:transparent;color:inherit;text-align:left;font:inherit;cursor:pointer}
+.bus-chooser button:hover,.bus-chooser button:focus-visible{background:rgba(198,243,106,.12);border-color:rgba(198,243,106,.4)}
+.bus-chooser button strong{font-size:13px}
+.bus-chooser button small{margin-left:auto;font-size:11.5px;color:#a7bac5;white-space:nowrap}
+.bus-chooser .bus-chooser-close{min-height:36px;justify-content:center;font-size:12.5px;color:#a7bac5}
+.vector-map.theme-day .bus-chooser{background:rgba(251,246,234,.97);color:#1e2b33;border-color:rgba(30,43,51,.18)}
+.vector-map.theme-day .bus-chooser p,.vector-map.theme-day .bus-chooser small,.vector-map.theme-day .bus-chooser-close{color:#4a5c66}
+/* Explore a bus with the front view: one section on the home screen, apart from any stop. */
+.explore-front .section-head svg{vertical-align:-2px;margin-right:3px}
+.explore-front .follow-hint{margin-top:6px}

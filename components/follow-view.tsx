@@ -8,6 +8,7 @@ import Nearby from '@/components/nearby';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
 import WalkGuide from '@/components/walk-guide';
+import ExploreFront from '@/components/explore-front';
 import InstallHint from '@/components/install-hint';
 import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {association,busOnService,distanceLines,progress,schematic,servicesAtStop,standing,standingWords,
@@ -574,12 +575,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  };
  // One message when nothing is coming, telling the situations apart (no reports, a filter, old
  // reports, no feed, no coverage), each with what can be done next, instead of the same news three times.
- const hidden=board?.hidden.length??0;
+ const hidden=board?.hidden.length??0,maybeN=board?.maybe.length??0;
  const runningServices=services.filter(s=>s.runsToday!==false);
  const serviceNames=(list:typeof services)=>list.slice(0,3).map(s=>`${s.line} to ${s.destination}`).join(', ')+(list.length>3?` and ${list.length-3} more`:'');
  const emptyKind=!board||board.coming.length>0?null
   :loading?'loading':services.length===0?'no_coverage':hidden>0?'filtered'
   :mode==='offline'||mode==='unavailable'?'feed'
+  :board.maybe.length>0?'unsettled'
   :board.old.some(item=>item.standing==='coming')?'old'
   :runningServices.length===0?'not_today':'no_reports';
  const emptyTitle=emptyKind==='loading'?'Checking for live positions: the buses coming to this stop appear here once they arrive.'
@@ -587,6 +589,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   :emptyKind==='filtered'?`Your filter, ${activeService?.line} to ${activeService?.destination}, hides ${hidden} ${hidden===1?'bus':'buses'} coming or possibly coming here.`
   :emptyKind==='feed'?(mode==='offline'?'You are offline, so nothing can be confirmed as coming: the last positions saved here are shown.'
                        :'Live positions are unavailable, so nothing can be confirmed as coming.')
+  :emptyKind==='unsettled'?`${maybeN===1?'One bus':`${maybeN} buses`} may call here, but ${maybeN===1?'it is':'they are'} not confirmed: which branch ${maybeN===1?'it is':'they are'} on cannot be settled from the position alone.`
   :emptyKind==='old'?'The buses on services calling here have only old reports.'
   :emptyKind==='not_today'?`No service is timetabled to call here today (${serviceNames(services)} ${services.length===1?'runs':'run'} on other days).`
   :emptyKind==='no_reports'?`${serviceNames(runningServices)} ${runningServices.length===1?'is':'are'} timetabled here today, but no bus on ${runningServices.length===1?'it':'them'} has a current report.`
@@ -594,6 +597,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const emptyAside=emptyKind==='no_reports'?'A missing report does not mean no bus is running: the operator’s feed can leave vehicles out. Nothing is guessed to fill the gap.'
   :emptyKind==='no_coverage'?'The timetables held cover four operators (docs under Behind the data). Buses reported nearby are still listed.'
   :emptyKind==='old'?`Reports older than ${expiryMinutes} minutes are not drawn as current.`
+  :emptyKind==='unsettled'?'The operator’s reported destination can settle it as the bus goes on. Nothing else is guessed.'
   :null;
 
  // Riding or exploring a bus that is not one of this stop's: the bus leads and the stop becomes
@@ -759,7 +763,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        <strong>{emptyTitle}</strong>
        {emptyAside&&<span>{emptyAside}</span>}
        {(board.maybe.length>0||board.nearby.length>0||more>0)&&<span>{[
-        board.maybe.length?`${board.maybe.length} may call here (branch not settled)`:'',
+        board.maybe.length&&emptyKind!=='unsettled'?`${board.maybe.length} may call here (branch not settled)`:'',
         board.nearby.length?`${board.nearby.length} reported nearby, not coming here`:'',
         more?`${more} more near your stop`:''].filter(Boolean).join(' · ')}</span>}
        <div className="empty-actions">
@@ -925,6 +929,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {onUseArchive&&!usingArchive&&<button className="action" onClick={onUseArchive}>Follow a bus in the recording</button>}
   </div>}
 
+  {/* For someone with no stop in mind: a bus whose ride has the front view now, from the latest
+      publication's own eligibility. Choosing one is exploring, and the page says so. */}
+  {!stop&&buses.length>0&&mode==='live'&&<ExploreFront buses={buses}
+    onChoose={bus=>{pick({route:routeId(bus),direction:bus.direction});chooseBus(bus);scrollTo('#lm-bus-card')}}/>}
   {!stop&&buses.length>0&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">Or follow a route<small>without choosing a stop</small></h3>
    <div className="follow-pickers">

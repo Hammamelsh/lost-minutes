@@ -24,7 +24,7 @@ async function chooseStopA(page) {
 async function chooseStopE(page) {
   await page.goto('/');
   await waitForPaint(page);
-  const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+  const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
   await search.fill('stretford public hall');
   await page.getByRole('option', {hasText: 'Stop E'}).first().click();
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Public Hall');

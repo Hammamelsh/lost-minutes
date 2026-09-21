@@ -7,7 +7,7 @@ import {BASEMAP_CREDITS,MAPLIBRE_MODULE_URL,prefersReducedMotion,webglAvailable}
 import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,PALETTES,type MapTheme} from '@/lib/map-style';
 import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
-import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
+import {ALL_STOPS_SOURCE,BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
@@ -39,6 +39,12 @@ type Props = {
  paused?:boolean;
  /** `reason` says which part of the start failed, so the simple map can say why it is shown. */
  follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:(reason?:string)=>void;
+ /** Every boarding point, drawn as a tappable layer; a tap on one chooses it by ATCO code. */
+ stops?:Stop[];onSelectStop?:(id:string)=>void;
+ /** After the passenger moves the map: where its centre now is, so stops there can be offered. */
+ onPanned?:(centre:{lat:number;lon:number})=>void;
+ /** Offered over the map once the passenger has moved it away from where the list is centred. */
+ findHere?:(()=>void)|null;
  /** The next few stops on the chosen bus's pattern, labelled in the front view: real stops only. */
  stopsAhead?:{id:string;lat:number;lon:number;label:string}[];
  /** Offered while the detailed map is slow to arrive: the simple map in its place. */
@@ -51,6 +57,13 @@ type Props = {
  onLocate?:()=>void;locating?:boolean;
  /** Whether `here` is the device's fix or a start the passenger chose; the label on the map says. */
  originKind?:'device'|'chosen';
+ /** The device's own position when the journey starts somewhere else: drawn as You, apart from
+  *  the starting point. */
+ device?:Here|null;
+ /** Bumped on each explicit choice of a start; a position update while walking leaves it alone. */
+ originEpoch?:number;
+ /** Where the journey being planned ends: drawn as its own mark and framed with the rest. */
+ destination?:{lat:number;lon:number;label:string}|null;
  /** While true, a tap on the map is a chosen starting point, not a bus. */
  pickingOrigin?:boolean;onPickOrigin?:(point:{lat:number;lon:number})=>void;
  /** The route badge, report age and stop progress, shown over the map during a ride-along. */
@@ -130,6 +143,8 @@ const TAP_MARGIN=14;
 const CHOOSER_MARGIN=8;
 /** How long a repositioning is traced on the map after it happens. */
 const SNAP_TRACE_MS=6000;
+/** A stable empty catalogue, so a map given no stops does not re-run its stops effect. */
+const NO_STOP_CATALOGUE:Stop[]=[];
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
 const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model'];
 
@@ -190,6 +205,11 @@ function markerImages(theme:MapTheme){
  return {
   'lm-sel-arrow':marker({fill:'#c6f36a',stroke:rim,outline:o.ink,radius:13,nose:true}),
   'lm-sel-dot':marker({fill:'#c6f36a',stroke:rim,outline:o.ink,radius:13,nose:false}),
+  // A destination: ink on paper, no reserved colour (blue is You, orange your stop, lime your bus).
+  'lm-dest-dot':marker({fill:o.busLabel,stroke:o.halo,outline:o.ink,radius:7,nose:false}),
+  // A starting point chosen for the journey: the same blue as You, but hollow, so the two are
+  // never mistaken for each other when both are drawn.
+  'lm-start-dot':marker({fill:o.halo,stroke:'#5aa9e6',outline:'#5aa9e6',radius:7,nose:false}),
   // A chosen bus with no current report: hollow, so it cannot pass for one being tracked.
   'lm-sel-lost-arrow':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:true}),
   'lm-sel-lost-dot':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:false}),
@@ -393,7 +413,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
   correction:last?{kind:last.kind,metres:last.metres,at:last.at,justNow:now-last.at<=8000,
-   standing:e.mode==='estimated'&&(e.speed??0)===0}:null,
+   standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true}:null,
   version:params.version};
 }
 
@@ -419,12 +439,18 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
 export default function CityMap({paused=false,buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
+                                 stops=NO_STOP_CATALOGUE,onSelectStop,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
-                                 onLocate,locating,originKind='device',pickingOrigin=false,onPickOrigin,
+                                 onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
                                  rideOverlay,busLabel='Your bus',walk=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
+ // Read by handlers the map registers once, so a changed callback never rebuilds the map.
+ const selectStopRef=useRef(onSelectStop);selectStopRef.current=onSelectStop;
+ const stopIdRef=useRef(stop?.id??null);stopIdRef.current=stop?.id??null;
+ const pannedRef=useRef(onPanned);pannedRef.current=onPanned;
+ const lastGesture=useRef<'drag'|'zoom'|null>(null);
  // Read by the map's one click handler: set while a starting point is being chosen, else null.
  const pickRef=useRef<((point:{lat:number;lon:number})=>void)|null>(null);
  // Looking around in the street preview: degrees off the road ahead, set by a one-finger drag
@@ -604,11 +630,24 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
       setChooser({x,y,keys:ranked.slice(0,4).map(([key])=>key)});return;
      }
      setChooser(null);
-     if(ranked.length)onSelect(ranked[0][0]);
+     if(ranked.length){onSelect(ranked[0][0]);return}
+     // No bus under the finger: a stop, if one is drawn there. The nearest ring within reach.
+     if(!instance.getLayer('lm-stops-dot')||!selectStopRef.current)return;
+     let bestStop:string|null=null,nearestStop=Infinity;
+     for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers:['lm-stops-dot']})){
+      const id=feature.properties?.id;
+      if(typeof id!=='string'||feature.geometry.type!=='Point')continue;
+      const at=instance.project(feature.geometry.coordinates as [number,number]);
+      const d=Math.hypot(at.x-x,at.y-y);
+      if(d<nearestStop){nearestStop=d;bestStop=id}
+     }
+     // The chosen stop tapped again is nothing new (and a double-tap to zoom around it must not
+     // re-fit the map); any other ring is a change of stop.
+     if(bestStop&&bestStop!==stopIdRef.current)selectStopRef.current(bestStop);
     });
     // A drag is a change of subject; the offer at the old tap goes with it.
     instance.on('dragstart',()=>setChooser(null));
-    for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-bus-model']){
+    for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-bus-model','lm-stops-dot']){
      instance.on('mouseenter',layer,()=>{instance.getCanvas().style.cursor='pointer'});
      instance.on('mouseleave',layer,()=>{instance.getCanvas().style.cursor=''});
     }
@@ -652,6 +691,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    // moving camera does not re-render the page on every frame.
    instance.on('moveend',()=>{
     const centre=instance.getCenter();
+    // A drag the passenger made (not a fit, a follow, a ride, or a zoom in on what is already
+    // there) is a place they are looking at: it is offered as somewhere to find stops.
+    if(userMoved.current&&lastGesture.current==='drag'&&viewRef.current!=='ride')pannedRef.current?.({lat:centre.lat,lon:centre.lng});
     // Centimetres and tenths of a degree: fine enough to measure how smoothly it moves per frame.
     root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(3)},${centre.lat.toFixed(7)},`
      +`${centre.lng.toFixed(7)},${instance.getPitch().toFixed(1)},${instance.getBearing().toFixed(1)}`);
@@ -680,6 +722,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    // at the passenger's zoom; either ends the glide to the bus where it is.
    const gesture=(kind:'drag'|'zoom')=>(event:{originalEvent?:unknown})=>{
     if(!event.originalEvent)return;
+    lastGesture.current=kind;
     const r=ride.current;
     if(viewRef.current==='ride'){
      r.pointer.moved=true;
@@ -814,6 +857,16 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   root.current?.setAttribute('data-stop-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
  },[ready,stop]);
 
+ // Every boarding point, once: the catalogue does not change while the page is open.
+ useEffect(()=>{
+  const instance=map.current;
+  if(!ready||!instance)return;
+  const source=instance.getSource(ALL_STOPS_SOURCE) as GeoJSONSource|undefined;
+  source?.setData({type:'FeatureCollection',features:stops.map(s=>({type:'Feature',
+   geometry:{type:'Point',coordinates:[s.lon,s.lat]},
+   properties:{id:s.id,label:s.indicator?`${s.name} (${s.indicator})`:s.name}}))});
+ },[ready,stops]);
+
  // The next stops on the chosen bus's pattern, labelled in the front view (hidden elsewhere). The
  // list is compared as text, so it is redrawn only when the stops themselves change.
  const aheadData=JSON.stringify(stopsAhead);
@@ -850,17 +903,28 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  useEffect(()=>{
   if(!ready||!map.current)return;
   const source=map.current.getSource(HERE_SOURCE) as GeoJSONSource|undefined;
-  if(!here){source?.setData(EMPTY);return}
+  root.current?.setAttribute('data-here',here?`${here.lat.toFixed(6)},${here.lon.toFixed(6)}`:'');
+  root.current?.setAttribute('data-device',device?`${device.lat.toFixed(6)},${device.lon.toFixed(6)}`:'');
+  root.current?.setAttribute('data-destination',destination?`${destination.lat.toFixed(6)},${destination.lon.toFixed(6)}`:'');
+  if(!here){source?.setData(destination?{type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Point',coordinates:[destination.lon,destination.lat]},
+   properties:{kind:'destination',label:destination.label}}]}:EMPTY);return}
   // No clamp: a phone reporting 1,500 m is drawn 1,500 m wide, because that is the claim
   // it made. A tidy small circle would suggest a precision the device never had.
-  const accuracy=here.accuracyMetres&&here.accuracyMetres>0?here.accuracyMetres:0;
+  const ring=(at:Here)=>at.accuracyMetres&&at.accuracyMetres>0?[{type:'Feature' as const,
+   geometry:{type:'Polygon' as const,coordinates:[accuracyRing(at.lat,at.lon,at.accuracyMetres)]},properties:{kind:'accuracy'}}]:[];
   source?.setData({type:'FeatureCollection',features:[
-   ...(accuracy?[{type:'Feature' as const,
-     geometry:{type:'Polygon' as const,coordinates:[accuracyRing(here.lat,here.lon,accuracy)]},
-     properties:{kind:'accuracy'}}]:[]),
+   ...ring(here),
+   // A start chosen for this journey is a starting point, never "You"; the device, if it is
+   // somewhere else and known, is drawn as You beside it, so nobody reads a friend's start as
+   // their own position.
    {type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[here.lon,here.lat]},
-    properties:{kind:'point',label:originKind==='chosen'?'Start':'You'}}]});
- },[ready,here,originKind]);
+    properties:{kind:'point',label:originKind==='chosen'?'Starting point':'You'}},
+   ...(originKind==='chosen'&&device?[...ring(device),
+    {type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[device.lon,device.lat]},properties:{kind:'point',label:'You'}}]:[]),
+   ...(destination?[{type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[destination.lon,destination.lat]},
+    properties:{kind:'destination',label:destination.label}}]:[]),
+  ]});
+ },[ready,here,device,originKind,destination]);
 
  // --- the walking route --------------------------------------------------------------
  useEffect(()=>{
@@ -1021,7 +1085,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // where its latest report put it, for a few seconds, rather than a teleport with no account.
   if(v.lastCorrection?.kind==='snap'&&v.lastCorrection.at!==state.snap?.at&&before)
    state.snap={at:v.lastCorrection.at,from:[before.lon,before.lat],to:[v.lon,v.lat],metres:v.lastCorrection.metres,
-    standing:e.mode==='estimated'&&(e.speed??0)===0};
+    standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true};
   const t=performance.now();
   // Frame intervals, over about the last second and a half of continuous animation. A gap longer
   // than a second is the loop having rested (a standing bus costs no frames) and starts a fresh
@@ -1248,8 +1312,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // The report this fit frames is seen: it must not bring the camera to itself afterwards.
   broughtTo.current=selected?`${selected.key}|${selected.observedAtMs}`:'';
   const points=journeyFocus({here,stop,bus:selected}).map(p=>[p.lon,p.lat] as [number,number]);
-  // The walking route is part of the journey: it is framed too.
+  // The walking route is part of the journey: it is framed too, and so is a destination being planned.
   if(walk)points.push(...walk.path);
+  if(destination)points.push([destination.lon,destination.lat]);
   // With nothing chosen yet, frame the buses nearest the middle of the map, not the whole
   // city: one distant bus must not shrink everything else to specks.
   if(!points.length&&buses.length){
@@ -1272,20 +1337,21 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // measured, plus room for a marker's name.
   move(m=>m.fitBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],
    {padding:fitPadding(m.getContainer()),maxZoom:16.2,...camera,duration:reduce?0:500}));
- },[here,stop,selected,buses,walk,move]);
+ },[here,stop,selected,buses,walk,destination,move]);
 
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
  // bus, a found location. It never moves on an ordinary refresh.
  const fitLatest=useRef(fitRelevant);
  useEffect(()=>{fitLatest.current=fitRelevant},[fitRelevant]);
  const haveBuses=buses.length>0;
- const hereKey=here?`${here.lat.toFixed(5)},${here.lon.toFixed(5)}`:'';
+ // A start chosen explicitly is framed; a position that merely updated while walking is not,
+ // or the camera would be dragged away from whatever the passenger is looking at.
  const stopId=stop?.id??'';
  useEffect(()=>{
   if(!ready)return;
   userMoved.current=false;
   fitLatest.current();
- },[ready,fitRequest,stopId,hereKey,haveBuses]);
+ },[ready,fitRequest,stopId,originEpoch,haveBuses]);
  // A walking route that arrives is framed once, unless the passenger has taken the camera.
  const walkKey=walk?`${walk.path.length}|${walk.path[0]?.join(',')}|${walk.path[walk.path.length-1]?.join(',')}`:'';
  useEffect(()=>{
@@ -1561,7 +1627,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   {/* The legend and the ride button share the map's foot, stacking rather than overlapping. */}
   {view!=='ride'&&(stop||here||selected)&&<div className="vector-map-foot">
    <div className="map-legend-chips" aria-hidden="true">
-    {here&&<span className="legend-you">{originKind==='chosen'?'Start':'You'}</span>}
+    {here&&<span className="legend-you">{originKind==='chosen'?'Starting point':'You'}</span>}
     {walk&&<span className="legend-walk">Walk</span>}
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}
@@ -1575,6 +1641,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
        there. Three things told apart, never one badge. */}
    {selected&&offerWords&&<p className="ride-offer" data-offer={offerWords}>{offerWords}</p>}
   </div>}
+
+  {view!=='ride'&&findHere&&<button className="map-find-here" onClick={findHere} data-find-here>Find stops around here</button>}
 
   {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along" ref={hudRef} tabIndex={-1}>
    {/* Three bands, so a phone keeps the street between them: the bar (leaving, what the camera

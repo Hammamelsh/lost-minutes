@@ -27,8 +27,8 @@ async function fingerprint(text:string){
   return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
  }catch{return null}
 }
-import {FRESH_POSITION_OPTIONS,fromGeolocation,type Origin} from '@/lib/origin';
-import {nearestStops,parseCatalogue,type Catalogue,type Stop} from '@/lib/stops';
+import {FRESH_POSITION_OPTIONS,fromGeolocation,type Origin,type DeviceOrigin,type ChosenOrigin} from '@/lib/origin';
+import {nearestStops,parseCatalogue,type Catalogue,type Stop,straightLineMetres} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 import {clearJourney,initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
 
@@ -104,10 +104,26 @@ export default function Home(){
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  // Where the passenger is starting from: the device's fix, with its own accuracy and timestamp, or a
  // point they chose themselves, which outranks the device until they explicitly go back to it.
- const [origin,setOrigin]=useState<Origin|null>(null);
+ // Three things, kept apart (21 September 2026): the device's latest measured position, the
+ // journey's starting point (the device, or a fixed place chosen for this journey or for someone
+ // else), and which of those the journey uses. Until then one value held whichever was last set,
+ // measured once per press of Locate me and never again, so a passenger who walked saw their
+ // position stay where it had been read — the fault the owner reported, reproduced from this code.
+ const [device,setDevice]=useState<DeviceOrigin|null>(null);
+ const [chosenOrigin,setChosenOrigin]=useState<ChosenOrigin|null>(null);
+ const [originMode,setOriginMode]=useState<'device'|'chosen'|null>(null);
+ const origin=useMemo<Origin|null>(()=>originMode==='chosen'?chosenOrigin:originMode==='device'?device:null,[originMode,chosenOrigin,device]);
+ // Counts explicit choices of a start (Locate me, a chosen point): what the camera may go to. A
+ // position update while walking is not one, so it never moves the camera.
+ const [originEpoch,setOriginEpoch]=useState(0);
+ const watchRef=useRef<number|null>(null);
+ const originModeRef=useRef(originMode);
+ const deviceRef=useRef(device);
+ useEffect(()=>{originModeRef.current=originMode;deviceRef.current=device},[originMode,device]);
  const [pickingOrigin,setPickingOrigin]=useState(false);
  const here=useMemo(()=>origin?{lat:origin.lat,lon:origin.lon,
   accuracyMetres:origin.kind==='device'?origin.accuracyMetres:undefined}:null,[origin]);
+ const devicePoint=useMemo(()=>device?{lat:device.lat,lon:device.lon,accuracyMetres:device.accuracyMetres,takenAtMs:device.takenAtMs}:null,[device]);
  const [outsideArea,setOutsideArea]=useState(false);
  const [nowMs,setNowMs]=useState(0);
  const [route,setRoute]=useState('BNML|142'),[direction,setDirection]=useState('inbound'),[selected,setSelected]=useState('');
@@ -120,7 +136,7 @@ export default function Home(){
   setCatalogue(parsed);
   // A start the passenger chose earlier in this session is kept: their word outranks the device.
   try{const kept=sessionStorage.getItem(ORIGIN_KEY);if(kept){const o=JSON.parse(kept);
-   if(o&&o.kind==='chosen'&&Number.isFinite(o.lat)&&Number.isFinite(o.lon))setOrigin(o)}}catch{/* nothing kept */}
+   if(o&&o.kind==='chosen'&&Number.isFinite(o.lat)&&Number.isFinite(o.lon)){setChosenOrigin(o);setOriginMode('chosen')}}}catch{/* nothing kept */}
   // A link wins; this tab's own journey restores silently; the device's last journey is only
   // offered (docs/JOURNEY_STATE.md). None of them holds where the passenger is.
   let storage:Storage|null=null,session:Storage|null=null;
@@ -294,32 +310,90 @@ export default function Home(){
   setOutsideArea(!inside||!nearby.length||nearby[0].metres>3000);
  },[catalogue]);
  // A start the passenger confirmed themselves. Kept for this session until they go back to the device.
+ // A measured position is taken up only when it says something new: the device moved further
+ // than its own accuracy makes doubtful (half the radius, at least 15 m), the fix got clearly
+ // better, or the last one is over a minute old (so its age stays honest). GPS noise inside that
+ // band changes nothing downstream: no re-sorted list, no re-routed walk, no moved marker.
+ const acceptFix=useCallback((position:GeolocationPosition)=>{
+  const next=fromGeolocation(position),previous=deviceRef.current;
+  let accept=!previous;
+  if(previous){
+   const moved=straightLineMetres(previous,next);
+   const threshold=Math.max(15,0.5*(next.accuracyMetres??50));
+   const better=(next.accuracyMetres??Infinity)<0.7*(previous.accuracyMetres??Infinity);
+   const aged=next.takenAtMs-previous.takenAtMs>60_000;
+   accept=moved>=threshold||better||aged;
+  }
+  if(!accept)return;
+  deviceRef.current=next;setDevice(next);
+  if(originModeRef.current==='device')judgeArea(next);
+ },[judgeArea]);
+ const stopWatch=useCallback(()=>{
+  if(watchRef.current!==null&&'geolocation' in navigator){navigator.geolocation.clearWatch(watchRef.current)}
+  watchRef.current=null;
+ },[]);
+ // Followed only while the journey starts from the device and the page is in front: a walk to the
+ // stop moves the marker; a fixed starting point, or a hidden tab, is not followed at all.
+ const startWatch=useCallback(()=>{
+  if(watchRef.current!==null||!('geolocation' in navigator))return;
+  watchRef.current=navigator.geolocation.watchPosition(acceptFix,()=>{/* a failed update keeps the last fix, whose age is shown */},
+   {enableHighAccuracy:true,maximumAge:5_000,timeout:30_000});
+ },[acceptFix]);
+ useEffect(()=>{
+  const onVisibility=()=>{
+   if(document.visibilityState==='hidden')stopWatch();
+   else if(deviceRef.current){
+    // Followed before: followed again, from a fresh fix, whatever the journey starts from.
+    startWatch();
+    navigator.geolocation?.getCurrentPosition(acceptFix,()=>{},FRESH_POSITION_OPTIONS);
+   }
+  };
+  document.addEventListener('visibilitychange',onVisibility);
+  return()=>{document.removeEventListener('visibilitychange',onVisibility);stopWatch()};
+ },[acceptFix,startWatch,stopWatch]);
+ // A start the passenger chose is fixed until they change it: a late fix from the device can never
+ // overwrite a friend's starting point, because the device's position is kept apart from it.
+ // The device goes on being followed (if it ever was): it is drawn as You beside the start, and
+ // only the start ignores it. Nothing here touches the device's own position.
  const chooseOrigin=useCallback((point:{lat:number;lon:number},label:string)=>{
-  const chosen:Origin={kind:'chosen',lat:point.lat,lon:point.lon,label,chosenAtMs:Date.now()};
-  setOrigin(chosen);setPickingOrigin(false);setLocationError('');judgeArea(point);
+  const chosen:ChosenOrigin={kind:'chosen',lat:point.lat,lon:point.lon,label,chosenAtMs:Date.now()};
+  setChosenOrigin(chosen);setOriginMode('chosen');setOriginEpoch(n=>n+1);setPickingOrigin(false);setLocationError('');judgeArea(point);
   try{sessionStorage.setItem(ORIGIN_KEY,JSON.stringify(chosen))}catch{/* not kept, still used */}
  },[judgeArea]);
  // Asking for the device's position is always explicit, and always fresh: it replaces a chosen
- // start, because pressing it is how the passenger says "use where my phone thinks I am".
+ // start, because pressing it is how the passenger says "use where my phone thinks I am". From
+ // then on the position is followed while the page is in front.
  const locate=useCallback(()=>{
   if(!catalogue)return;
   if(!('geolocation' in navigator)){
    setLocationError('This browser cannot share a location. Search for your stop instead.');
    return;
   }
+  // Already followed: the device's position is as fresh as the watch keeps it, so "use my
+  // location" is answered at once from it, and the watch goes on. (A one-shot request with
+  // maximumAge 0 beside an active watch never answered in Chromium's emulation, and on a phone
+  // it would wait for a fix the watch is already delivering.)
+  if(watchRef.current!==null&&deviceRef.current){
+   const point=deviceRef.current;
+   setOriginMode('device');setOriginEpoch(n=>n+1);setPickingOrigin(false);setLocationError('');
+   try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}
+   judgeArea(point);
+   return;
+  }
   setLocating(true);setLocationError('');
   navigator.geolocation.getCurrentPosition(position=>{
    const point=fromGeolocation(position);
-   setLocating(false);setOrigin(point);setPickingOrigin(false);
+   setLocating(false);setDevice(point);setOriginMode('device');setOriginEpoch(n=>n+1);setPickingOrigin(false);
    try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}
    judgeArea(point);
+   startWatch();
   },error=>{
    setLocating(false);
    setLocationError(error.code===error.PERMISSION_DENIED
     ?'Location is off, which is fine. Search for your stop instead.'
     :'Your location could not be read. Search for your stop instead.');
   },FRESH_POSITION_OPTIONS);
- },[catalogue,judgeArea]);
+ },[catalogue,judgeArea,startWatch]);
 
  const reference=nowMs||liveFetchedAt;
  const publishedAge=live?publicationAge(live,{serverReferenceMs:serverRef||live.publishedAtMs},liveFetchedAt,reference):null;
@@ -372,8 +446,8 @@ export default function Home(){
     stops={catalogue?.stops??[]} stop={stop} onSelectStop={setStop}
     patterns={patterns} patternsById={patternsById}
     onLocate={locate} locating={locating} locationError={locationError}
-    here={here} origin={origin} outsideArea={outsideArea}
-    onClearHere={()=>{setOrigin(null);setOutsideArea(false);try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}}}
+    here={here} origin={origin} device={devicePoint} originEpoch={originEpoch} outsideArea={outsideArea}
+    onClearHere={()=>{setOriginMode(null);stopWatch();setOutsideArea(false);try{sessionStorage.removeItem(ORIGIN_KEY)}catch{}}}
     pickingOrigin={pickingOrigin} onStartPicking={()=>setPickingOrigin(true)} onCancelPicking={()=>setPickingOrigin(false)}
     onChooseOrigin={chooseOrigin}
     onOpenEvidence={()=>show('evidence')}

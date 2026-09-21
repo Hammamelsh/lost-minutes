@@ -39,7 +39,7 @@ if (!real) {
 await page.goto(served.base);
 await waitForPaint(page, {timeout: 60_000});
 if (real) {
-  await page.getByRole('combobox', {name: 'Stop name, street or area'}).fill(arg('stop', 'Marston Road').toLowerCase());
+  await page.getByRole('combobox', {name: 'Bus number, stop or area'}).fill(arg('stop', 'Marston Road').toLowerCase());
   await page.getByRole('option', {name: new RegExp(`${arg('stop', 'Marston Road')}.*\\b${arg('indicator', 'nr')}\\b`, 'i')}).first().click();
   const coming = page.getByRole('region', {name: 'Buses coming to your stop'}).locator('.follow-row');
   await coming.first().waitFor({timeout: 30_000});

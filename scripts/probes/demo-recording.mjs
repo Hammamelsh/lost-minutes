@@ -43,7 +43,7 @@ const feed = await page.evaluate(async () => {
 });
 await beat('the first screen', 2500);
 
-await page.getByRole('combobox', {name: 'Stop name, street or area'}).fill('marston road');
+await page.getByRole('combobox', {name: 'Bus number, stop or area'}).fill('marston road');
 await beat('searching for a stop by name', 1400);
 await page.getByRole('option').first().click();
 await page.evaluate(() => scrollTo(0, 0));

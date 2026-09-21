@@ -126,7 +126,7 @@ test('one Locate me at a time: the walk guide\'s while it asks for the location,
   await waitForPaint(page);
   const locate = page.getByRole('button', {name: 'Locate me'});
   // Found by name before any location: the walk guide asks for one, and has the only Locate me.
-  await page.getByRole('combobox', {name: 'Stop name, street or area'}).fill('stretford mall');
+  await page.getByRole('combobox', {name: 'Bus number, stop or area'}).fill('stretford mall');
   await page.getByRole('option', {name: /Stop A/}).first().click();
   await expect(page.locator('.walk-guide')).toContainText('Walking directions start from your location');
   await expect(locate).toHaveCount(1);

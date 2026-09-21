@@ -118,7 +118,7 @@ test.describe('with a location', () => {
     const chosenOrigin = new URL(calls[1]).pathname.split('/').pop().split(';')[0];
     expect(chosenOrigin, 'the second request starts where the passenger tapped').not.toBe('-2.3095,53.4487');
     expect(chosenOrigin, 'rounded to about 10 m; JS drops trailing zeros').toMatch(/^-2\.\d{1,4},53\.\d{1,4}$/);
-    await expect(page.locator('.map-legend-chips .legend-you'), 'the legend names a chosen start as one').toHaveText('Start');
+    await expect(page.locator('.map-legend-chips .legend-you'), 'the legend names a chosen start as one').toHaveText('Starting point');
     await expect(guide.locator('[data-caveat]')).toHaveCount(0);
     const chosenHref = await guide.locator('[data-maps-link]').getAttribute('href');
     const chosen = new URL(chosenHref);
@@ -199,7 +199,7 @@ test.describe('far away', () => {
     await serveLive(page, [() => journeyLive()]);
     await page.goto('/');
     await page.getByRole('button', {name: 'Buses near me'}).click();
-    const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+    const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
     await search.fill('stretford mall');
     await page.getByRole('option', {name: /Stop A/}).first().click();
     await expect(page.locator('.walk-guide')).toContainText('too far to plan a walk here');
@@ -212,7 +212,7 @@ test('without a location, walking directions say what they need', async ({page})
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+  const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
   await search.fill('stretford mall');
   await page.getByRole('option', {name: /Stop A/}).first().click();
   await expect(page.locator('.walk-guide')).toContainText('Walking directions start from your location');

@@ -1313,3 +1313,70 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 /* Explore a bus with the front view: one section on the home screen, apart from any stop. */
 .explore-front .section-head svg{vertical-align:-2px;margin-right:3px}
 .explore-front .follow-hint{margin-top:6px}
+
+/* One search: a bus number, a stop, a street or an area. Grouped results; compact above a chosen stop. */
+.stop-search-group{padding:8px 12px 3px;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8aa8b9}
+.stop-search-option.route{display:grid;grid-template-columns:auto 1fr;column-gap:10px;align-items:center}
+.stop-search-option.route .route-pill{grid-row:span 2;display:inline-flex;align-items:center;gap:4px}
+.stop-search.compact{margin:0 0 10px}
+.stop-search.compact .stop-search-status:empty{display:none}
+.stop-search.compact .stop-search-field input{min-height:42px}
+/* The route as the timetable knows it: directions to choose, the chosen one's stops. */
+.route-panel{margin:6px 0 10px;display:flex;flex-direction:column;gap:10px}
+.route-directions{display:flex;flex-wrap:wrap;gap:8px}
+.route-directions .stop-chip{flex-direction:column;align-items:flex-start;gap:1px;min-height:44px;padding:6px 12px}
+.route-directions .stop-chip small{font-size:11px;color:#8aa8b9;font-weight:500}
+.route-stops summary{cursor:pointer;font-weight:600;font-size:13.5px;padding:6px 0}
+.route-stops summary small{font-weight:500;color:#8aa8b9}
+.route-stops ol{list-style:none;margin:4px 0 0;padding:0;max-height:min(46vh,420px);overflow:auto;border:1px solid #2d4250;border-radius:12px}
+.route-stops li+li{border-top:1px solid #1f3140}
+.route-stop{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:7px 12px;background:transparent;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.route-stop:hover,.route-stop:focus-visible{background:rgba(198,243,106,.08)}
+.route-stop strong{font-size:13.5px}.route-stop small{font-size:11.5px;color:#8aa8b9}
+.section-head .filter-clear{margin-left:auto;font-size:12.5px}
+/* Over the map after the passenger has moved it: stops where they are looking. */
+.map-find-here{position:absolute;left:50%;top:64px;transform:translateX(-50%);z-index:4;min-height:40px;padding:0 14px;border-radius:999px;
+ border:1px solid rgba(230,239,243,.18);background:rgba(11,23,32,.9);color:#e6eff3;font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.3)}
+.vector-map.theme-day .map-find-here{background:rgba(251,246,234,.95);color:#1e2b33;border-color:rgba(30,43,51,.2)}
+
+/* The board's "when": three short facts and the official board, never a paragraph. */
+.board-when{display:flex;flex-direction:column;gap:3px;margin:0 0 10px;padding:9px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:12.5px;line-height:1.5;color:#a7bac5}
+.board-when strong{color:#e6eff3;font-weight:600}
+.board-when a{color:#c6f36a;text-decoration:underline;text-underline-offset:2px}
+.getting-there{margin:6px 0 12px}
+
+/* Plan a journey: From and To as two places, the direct options as legs, the hand-offs and the share. */
+.plan-panel{margin:6px 0 14px}
+.plan-panel .section-head svg{vertical-align:-2px;margin-right:3px}
+.plan-fields{display:flex;flex-direction:column;gap:8px}
+.plan-field{display:grid;grid-template-columns:44px 1fr;gap:8px;align-items:start}
+.plan-field-label{padding-top:12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8aa8b9}
+.plan-place{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;width:100%;min-height:48px;padding:7px 12px;border-radius:12px;
+ border:1px solid #2d4250;background:#13222d;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.plan-place strong{font-size:14px}.plan-place small{grid-column:2;font-size:11.5px;color:#8aa8b9}
+.plan-place:hover,.plan-place:focus-visible{border-color:rgba(198,243,106,.5)}
+.plan-actions{display:flex;flex-wrap:wrap;gap:6px 14px;margin:2px 0 0 52px}
+.plan-actions .text-action{display:inline-flex;align-items:center;gap:5px}
+.plan-options{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.plan-option{padding:12px 14px;border-radius:14px;border:1px solid #2d4250;background:#101d27}
+.plan-option.on{border-color:rgba(198,243,106,.55)}
+.plan-option-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.plan-option-head strong{font-size:14.5px}.plan-option-head small{color:#8aa8b9;font-size:12px}
+.plan-legs{margin:8px 0 6px;padding-left:20px;font-size:13.5px;line-height:1.55}
+.plan-legs em{color:#8aa8b9;font-style:normal;font-size:12px}
+.plan-tracked{margin:0 0 6px;font-size:12.5px;line-height:1.5;color:#a7bac5}
+.plan-caution{margin:0 0 8px;padding:6px 10px;border-radius:9px;background:rgba(255,180,89,.12);border:1px solid rgba(255,180,89,.35);font-size:12.5px;color:#ffce8f}
+.plan-option .action{min-height:44px}
+.plan-handoffs{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.plan-handoffs a{display:inline-flex;align-items:center;gap:6px;color:#c6f36a;text-decoration:underline;text-underline-offset:2px}
+.plan-share{margin-top:4px}
+.plan-share-preview{margin-top:8px;padding:10px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:13px}
+.plan-share-preview pre{white-space:pre-wrap;font:inherit;margin:8px 0;padding:8px 10px;border-radius:9px;background:#0b1720;color:#e6eff3}
+.plan-attribution{margin:10px 0 0;font-size:11px;color:#6f8797}
+.plan-empty{margin:0}
+.stop-search-option.device{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center}
+.stop-search-option.device small,.place-search .stop-search-option small{grid-column:2}
+.place-search .stop-search-option{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center}
+.plan-summary{display:flex;align-items:flex-start;gap:8px;margin:0;padding:9px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:13px;line-height:1.5}
+.plan-summary svg{flex-shrink:0;margin-top:3px;color:#c6f36a}
+.plan-summary .text-action{margin-left:auto;white-space:nowrap}

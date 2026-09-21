@@ -8,7 +8,8 @@ import type {MapTheme} from '@/lib/map-style';
 
 export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',MODEL_SOURCE='lm-model',
  WALK_SOURCE='lm-walk',SELECTED_SOURCE='lm-selected',TRAIL_SOURCE='lm-trail',STOPS_AHEAD_SOURCE='lm-stops-ahead';
-export const OVERLAY_SOURCES=[BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
+export const ALL_STOPS_SOURCE='lm-all-stops';
+export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
  TRAIL_SOURCE,STOPS_AHEAD_SOURCE] as const;
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
@@ -39,7 +40,20 @@ export const RING_SIZE=['interpolate',['exponential',2],['zoom'],MODEL_MIN_ZOOM,
 export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
  const o=OVERLAY[theme];
  return [
-  // Ground geometry first: the reported accuracy is a circle on the ground, the right size at
+  // Every boarding point, from the authoritative stop catalogue (NaPTAN), under everything else:
+  // a small hollow ring from neighbourhood zooms, its name and indicator from street zooms. The
+  // two sides of a road are two rings 30–40 m apart, never one. Neither colour is a reserved one
+  // (blue is You, orange is your stop, lime is your bus): ink on paper, paper on ink.
+  {id:'lm-stops-dot',type:'circle',source:ALL_STOPS_SOURCE,minzoom:13.5,
+   paint:{'circle-radius':['interpolate',['linear'],['zoom'],13.5,2.2,15,3.4,17,5.5],
+          'circle-color':o.halo,'circle-opacity':0.95,'circle-stroke-color':o.busLabel,'circle-stroke-width':1.6,
+          'circle-pitch-alignment':'map'}},
+  {id:'lm-stops-label',type:'symbol',source:ALL_STOPS_SOURCE,minzoom:15.8,
+   layout:{'text-field':['get','label'],'text-size':11,'text-radial-offset':0.9,
+           'text-variable-anchor':['top','bottom','right','left'],'text-justify':'auto',
+           'text-font':['Noto Sans Regular'],'text-max-width':9,'text-optional':true},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.6,'text-opacity':0.9}},
+  // Ground geometry: the reported accuracy is a circle on the ground, the right size at
   // every zoom and flat in the City view.
   {id:'lm-here-accuracy',type:'fill',source:HERE_SOURCE,filter:['==',['get','kind'],'accuracy'],
    paint:{'fill-color':'#5aa9e6','fill-opacity':0.14}},
@@ -164,8 +178,15 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
            'text-font':['Noto Sans Bold'],'text-max-width':11},
    paint:{'text-color':o.stopLabel,'text-halo-color':o.halo,'text-halo-width':2.4}},
   {id:'lm-here-dot',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
-   layout:{'icon-image':'lm-here-dot','icon-allow-overlap':true,'icon-pitch-alignment':'map'}},
+   layout:{'icon-image':['case',['==',['get','label'],'Starting point'],'lm-start-dot','lm-here-dot'],
+           'icon-allow-overlap':true,'icon-pitch-alignment':'map'}},
   {id:'lm-stop-dot',type:'symbol',source:STOP_SOURCE,
    layout:{'icon-image':'lm-stop-dot','icon-allow-overlap':true,'icon-pitch-alignment':'map'}},
+  {id:'lm-dest-dot',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'destination'],
+   layout:{'icon-image':'lm-dest-dot','icon-allow-overlap':true,'icon-pitch-alignment':'map'}},
+  {id:'lm-dest-label',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'destination'],
+   layout:{'text-field':['concat','To: ',['get','label']],'text-size':12.5,'text-radial-offset':1.2,
+           'text-variable-anchor':['top','bottom','left','right'],'text-justify':'auto','text-font':['Noto Sans Bold'],'text-max-width':10},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
  ];
 }

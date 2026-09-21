@@ -110,7 +110,7 @@ test.describe('with location', () => {
 
     // A stop only one branch calls at: that is all that can be said.
     await page.getByRole('button', {name: 'Change'}).click();
-    const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+    const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
     await search.fill('stretford public hall');
     await page.getByRole('option', {name: /Stop E/}).click();
     await page.locator('.maybe-coming .follow-row', {hasText: 'possible branches'}).click();
@@ -134,7 +134,7 @@ test('a stop without timetable coverage says so plainly', async ({page}) => {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+  const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
   await search.fill('moss road derbyshire');
   await page.getByRole('option').first().click();
   await expect(page.locator('.your-stop-copy strong')).toContainText('Moss Road');

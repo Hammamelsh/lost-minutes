@@ -8,7 +8,7 @@ import {fastConfig, movingLive, serveLive, serveMotion, servePatterns, waitForPa
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
 const map = page => page.locator('.vector-map');
-const search = page => page.getByRole('combobox', {name: 'Stop name, street or area'});
+const search = page => page.getByRole('combobox', {name: 'Bus number, stop or area'});
 const dataTitle = page => page.getByRole('heading', {level: 1, name: 'How Lost Minutes is built.'});
 
 async function open(page, {replay} = {}) {

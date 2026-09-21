@@ -12,7 +12,7 @@ test('live: the map, the status and the stop search are all present', async ({pa
   await page.goto('/');
   await expect(page.locator('.follow-badge')).toContainText('LIVE');
   await waitForPaint(page);
-  await expect(page.getByRole('combobox', {name: 'Stop name, street or area'})).toBeVisible();
+  await expect(page.getByRole('combobox', {name: 'Bus number, stop or area'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Buses near me'})).toBeVisible();
   await expect(page.locator('body')).not.toContainText(/credential/i);
   await expect(page.locator('body')).not.toContainText('nearby stops or waiting times are shown');
@@ -28,7 +28,7 @@ test('unavailable: honest copy, the map stays, and the recording is a choice', a
   await expect(page.locator('body')).not.toContainText(/credential/i);
   // Geography stays available even with no vehicles at all.
   await waitForPaint(page);
-  await expect(page.getByRole('combobox', {name: 'Stop name, street or area'})).toBeVisible();
+  await expect(page.getByRole('combobox', {name: 'Bus number, stop or area'})).toBeVisible();
   await page.waitForTimeout(1000);
   await shot(page, 'unavailable');
 
@@ -94,7 +94,7 @@ test.describe('location denied', () => {
     await page.getByRole('button', {name: 'Buses near me'}).click();
     await expect(page.getByText(/Search for your stop instead/)).toBeVisible();
 
-    const search = page.getByRole('combobox', {name: 'Stop name, street or area'});
+    const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
     await search.focus();
     await search.pressSequentially('stretford mall');
     await expect(page.getByRole('listbox')).toBeVisible();

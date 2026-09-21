@@ -93,7 +93,7 @@ async function pinch(page, cdp, scaleFactor = 1.5) {
 }
 
 async function chooseStop(page) {
-  await page.getByRole('combobox', {name: 'Stop name, street or area'}).fill(stopName.toLowerCase());
+  await page.getByRole('combobox', {name: 'Bus number, stop or area'}).fill(stopName.toLowerCase());
   await page.getByRole('option', {name: new RegExp(`${stopName}.*\\b${indicator}\\b`, 'i')}).first().click();
   await page.locator('.your-stop-copy strong').waitFor();
   return page.locator('.your-stop-copy strong').innerText();

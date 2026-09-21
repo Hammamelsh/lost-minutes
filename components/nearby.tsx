@@ -4,6 +4,7 @@ import {LocateFixed,MapPin,Navigation} from 'lucide-react';
 import StopSearch from '@/components/stop-search';
 import type {PatternCatalogue} from '@/lib/patterns';
 import {patternsCallingAt} from '@/lib/patterns';
+import type {RouteHit} from '@/lib/route-search';
 import {bearingWords,distanceWords,nearestStops,stopPlace,type Stop} from '@/lib/stops';
 
 const COMPASS_DEGREES:Record<string,number>={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
@@ -16,19 +17,23 @@ const COMPASS_DEGREES:Record<string,number>={N:0,NE:45,E:90,SE:135,S:180,SW:225,
  * travel there) and which timetabled services leave from it today. Nothing here depends on
  * live vehicles, so finding your stop works when collection is down.
  */
-export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocate,locating,
-                                locationError,onClearHere,areaLabel,day}:{
+export default function Nearby({stops,patterns,here,outsideArea,onSelect,onSelectRoute,onLocate,locating,
+                                locationError,onClearHere,areaLabel,day,browseAt=null,onStopBrowsing}:{
  stops:Stop[];patterns:PatternCatalogue|null;here:{lat:number;lon:number;accuracyMetres?:number}|null;
+ /** The map's centre after the passenger moved it and asked for stops there: the list is
+  *  centred on it instead of on the device until they go back to their location. */
+ browseAt?:{lat:number;lon:number}|null;onStopBrowsing?:()=>void;onSelectRoute?:(hit:RouteHit)=>void;
  outsideArea:boolean;onSelect:(stop:Stop)=>void;onLocate:()=>void;locating:boolean;
  locationError?:string;onClearHere:()=>void;areaLabel:string;day:string}){
- const nearby=here&&!outsideArea?nearestStops(stops,here,8):[];
+ const origin=browseAt??(here&&!outsideArea?here:null);
+ const nearby=origin?nearestStops(stops,origin,8):[];
 
  return <section className="nearby">
   <div className="nearby-lead">
    <button className="nearby-action" onClick={onLocate} disabled={locating}>
     <Navigation size={19}/>{locating?'Finding you…':'Buses near me'}</button>
    <p className="nearby-or">or search, without sharing a location</p>
-   <StopSearch stops={stops} onSelect={onSelect} placeholder="Stop name, street or area"/>
+   <StopSearch stops={stops} patterns={patterns} onSelect={onSelect} onSelectRoute={onSelectRoute}/>
   </div>
 
   {locationError&&<p className="nearby-note warn">{locationError}</p>}
@@ -45,8 +50,10 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
 
   {nearby.length>0&&<div className="nearby-list">
    <div className="nearby-head">
-    <span><LocateFixed size={14}/> Stops near you</span>
-    {here?.accuracyMetres&&<small>your position is accurate to about {Math.round(here.accuracyMetres)} m</small>}
+    <span><LocateFixed size={14}/> {browseAt?'Stops around the map’s centre':'Stops near you'}</span>
+    {browseAt
+     ? <button className="text-action" onClick={onStopBrowsing}>{here?'Back to my location':'Stop browsing here'}</button>
+     : here?.accuracyMetres?<small>your position is accurate to about {Math.round(here.accuracyMetres)} m</small>:null}
    </div>
    {nearby.map(({stop,metres})=>{
     const today=patternsCallingAt(patterns,stop.id,day);

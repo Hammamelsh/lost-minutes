@@ -113,6 +113,20 @@ measured before and after on one publication rather than asserted.
   marks the report it framed as seen. A re-fit-after-resize handler, added on a wrong diagnosis of
   the same failure and kept as harmless, was then caught by the next full suite fighting the ride's
   exit (which resizes the map on purpose) and was removed.
+- **Deployed as `509ae40`**, byte-identical to the local build (`sha256 b42a6d13…` on both), the
+  previous release kept for `deploy/rollback.sh`; 363 shape files and the 362-pattern index are
+  served, the 263 shape among them; collector, health, refresh and arrival units all active. **The
+  unattended nightly rebuild has now fired on its own** — the refresh timer's last run is Monday
+  21 September, 02:42 UTC — which closes the item the 20 September record left open.
+- **The whole browser suite, in one run, on the deployed candidate: 230 passed, 24 skipped by
+  design, none failing** (35 minutes, SwiftShader, desktop and phone). Four earlier full runs on
+  the way each found real things — the stale caption, the camera competition, the resize handler —
+  and none of those runs is described here as clean. 194 Node tests, 131 Python tests, typecheck
+  and lint on the same commit.
+- **Coverage on the publication the site was serving at deploy** (16:16 UTC, the evening peak,
+  650 vehicles, 136 services): accepted road geometry and front view **105 (16%)**, estimated
+  movement 15 (2%), 635 (98%) drawn travelling between their reports; refused as missing coverage
+  348 (54%), genuine uncertainty 191 (29%), accepted-but-unevaluated 90 (14%), not running 6.
 
 Before that, 20 September 2026, evening (journey state put on a footing, and a stop that showed no
 buses explained).

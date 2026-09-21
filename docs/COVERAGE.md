@@ -197,22 +197,50 @@ Monday–Sunday, accepted road geometry in both directions, and estimated moveme
 A road shape is built by routing a bus through a pattern's stops (Valhalla, FOSSGIS) and is
 **accepted only when at least 30 matched reports lie within 35 m of it at the 95th percentile**.
 
-Nine were built; **six were accepted**, and their measured fit:
+**State on 21 September 2026, 17:41 UTC** (`public/data/shapes/index.json`): **560 patterns
+routed on 171 lines; 184 accepted on 106 lines; 376 rejected** — 267 because fewer than 30 reports
+were ever matched to that variant (a school journey, a short working, a variant nobody has been
+seen running), 109 because the reports lie too far from the routed road (41–133 m at the 95th
+percentile: the router's road is not that bus's road, or the matcher's reports for that variant
+are not that variant's). No router failure is recorded. Four lines named for building (313, 701,
+790, 818) have one stop with a position inside the area and cannot be routed.
 
-| Pattern | Reports checked | 95th-percentile offset | Runs today (Thu) |
-|---|---|---|---|
-| 15 inbound | 756 | 11.7 m | yes |
-| 15 outbound | 752 | 13.8 m | yes |
-| 250 inbound | 3,408 | 23.2 m | yes |
-| 250 outbound | 3,393 | 20.9 m | yes |
-| 256 inbound | 1,300 | 28.4 m | **no** (Sat–Sun) |
-| 256 outbound | 1,578 | 11.3 m | **no** (Fri–Sun) |
+**What the 20 September build actually did, reconciled.** It ran in nine batches of 25 lines. Two
+batches ended in `exception:TypeError` after 24 patterns each (the router-answer fault, fixed the
+same night) and were never re-run, so 36 of the lines they named had no shape at all — 192, 50,
+52, 41, 43, 53, 86, 203, 135, 18, 100, 23, 219, 67, 118, 59, 25, 85, 30, 83, 84, 197, 216, 112,
+201, 42, 17, 93, 172, 255, 76, 33, 42A among them (250, 256 and 263 were built separately). The
+index then read 362 routed, 114 accepted, and the claim "every line with a timetable and reports"
+was wrong for a day; found by joining `pipeline_run` notes against `pattern_shape` rows. The 33
+missing lines were built on 21 September: 198 patterns routed, 70 accepted on 29 of the 33 lines;
+none accepted on 67, 93, 100 and 203 (too few reports, or 41–133 m off).
 
-The three rejected shapes were rejected for having too few matched reports to check against, not
-for being wrong; the rule refuses to accept what it cannot test.
+**Measured on one served publication** (17:13 UTC, 623 vehicles), before and after that build,
+same file, same rule (`scripts/coverage-breakdown.mjs`):
 
-Every accepted shape's pattern id survived the 17 September rebuild unchanged, because a pattern
-id is a hash of its stop sequence. That was checked, not assumed.
+| | before | after |
+|---|---|---|
+| placed on a timetable pattern | 331 (53%) | 331 (53%) |
+| road accepted → front view eligible | 97 (16%) | **191 (31%)** |
+| estimated movement (second gate: evaluated pattern) | 14 (2%) | 14 (2%) |
+| placed, no road built (build not attempted) | 171 | **18** |
+| placed, road built but rejected: reports too far | 62 | 121 |
+| placed, road built but rejected: too few reports | 1 | 1 |
+| unsettled branch, no candidate road accepted | 143 | 83 |
+| unsettled branch, some candidates accepted | 32 | 91 |
+| no timetable held for the route | 104 | 104 |
+| catalogue patterns with no shape entry | 214 | 16 |
+
+Estimated movement did not move, and should not have: geometry releases the front view; prediction
+needs the published evaluation to have scored the frozen model on that pattern (six patterns on
+routes 15, 250 and 256). The largest remaining gap is now "reports too far from the routed road"
+(121 vehicles, e.g. BNSM 192's main patterns at 100–120 m), which is a routing or matching question
+per line, not a build that was never run.
+
+Every accepted shape's pattern id survives a rebuild unchanged, because a pattern id is a hash of
+operator, line, direction and the stop sequence. The served catalogue and the served index are
+compared by the coverage script (`catalogueAndShapes`): on 21 September, 0 accepted entries name a
+pattern the catalogue lacks.
 
 The **street preview** is offered only on these patterns. Everywhere else the button says why and
 the ride stays outside.
@@ -248,8 +276,17 @@ Not by a one-time import.
   a withdrawn service look identical from inside; the wrong reading would tell passengers their
   bus does not run. `--allow-shrink` is the deliberate override.
 * Whatever is published carries its own `generatedAt`, so an old catalogue is visibly old.
+* **The server owns its catalogue.** On 21 September a deploy uploaded this machine's
+  `patterns.json` (generated 18 September, 576 patterns, 175 services) over the one the server's
+  own 02:45 rebuild had written (400 patterns, 94 services, from what the server had observed in
+  its first day); `/srv/lost-minutes/previous` still holds the overwritten file. Since then
+  `deploy/rsync-exclude.txt` keeps `public/data/patterns.json` out of every deploy, and
+  `deploy/publish.sh` sends it only to a server that has none (a first install). The road-shape
+  index is still built here and uploaded; its keys are pattern ids, which are stable across
+  rebuilds, so a shape follows its pattern into the server's next catalogue, and a pattern the
+  server's catalogue does not hold simply has a dormant entry.
 
-Regression tests for the last three: `tests/test_timetable_catalogue.py`.
+Regression tests for the "half" rule and the two before it: `tests/test_timetable_catalogue.py`.
 
 ## 7. The supported beta scope, stated plainly
 

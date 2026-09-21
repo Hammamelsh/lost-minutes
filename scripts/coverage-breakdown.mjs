@@ -30,6 +30,7 @@ const read = f => JSON.parse(readFileSync(f, 'utf8'));
 
 const live = read(arg('live', 'out/data/live.json'));
 const shapes = read(arg('shapes', 'public/data/shapes/index.json')).patterns ?? {};
+const catalogue = new Set((read(arg('patterns', 'public/data/patterns.json')).patterns ?? []).map(p => p.id));
 const evaluated = new Set((() => {try {return read(arg('evaluation', 'public/data/motion-evaluation.json')).corridor.patterns} catch {return []}})());
 const vehicles = live.vehicles ?? [];
 const accepted = new Set(Object.entries(shapes).filter(([, s]) => s.status === 'accepted').map(([k]) => k));
@@ -52,8 +53,13 @@ for (const v of vehicles) {
   // its whole look-ahead are inside it (lib/motion-view.ts). Whether this bus is inside it right
   // now is geometry this summary does not do, so they are counted as candidates, not as covered.
   const ids = m && 'candidates' in m ? (m.candidates ?? []).map(c => c.patternId) : [];
-  if (ids.length && ids.every(id => accepted.has(id))) bump('sharedRoadCandidate');
-  else why(m?.unresolved ?? 'no_match_recorded');
+  if (m?.unresolved === 'ambiguous_branch') {
+   if (ids.length && ids.every(id => accepted.has(id))) bump('sharedRoadCandidate');
+   else why(ids.some(id => accepted.has(id)) ? 'unsettled_branch_some_candidates_accepted' : 'unsettled_branch_no_candidate_accepted');
+  }
+  else if (m?.unresolved === 'no_pattern_for_route' || m?.unresolved === 'no_pattern_for_operator') why('no_timetable_held');
+  else if (m?.unresolved === 'too_far_from_pattern') why('too_far_from_pattern');
+  else why(m?.unresolved ? `timetable_held_but_${m.unresolved}` : 'no_match_recorded');
  } else {
   bump('timetable'); row.placed++;
   if (accepted.has(pattern)) {
@@ -62,8 +68,21 @@ for (const v of vehicles) {
     // frozen model on this very pattern, which it has done for six patterns on three routes.
     if (evaluated.has(pattern)) bump('estimate'); else why('road_accepted_but_movement_not_evaluated');
    }
-  else if (built.has(pattern)) why(`geometry_built_but_rejected:${shapes[pattern].reason?.slice(0, 48) ?? '?'}`);
-  else why('no_geometry_built_for_this_pattern');
+  else if (built.has(pattern)) {
+   // Built and refused, and the two refusals mean different things: too few matched reports is a
+   // variant nobody has been seen running (a school journey, a short working); reports too far is a
+   // road that is not that bus's road; a router failure is no road at all.
+   const reason = shapes[pattern].reason ?? '';
+   why(reason.includes('router') ? 'placed_routing_failed'
+     : /^only \d+ reports/.test(reason) ? 'placed_road_rejected_too_few_matched_reports'
+     : reason.startsWith('95%') ? 'placed_road_rejected_reports_too_far_from_it'
+     : `placed_road_rejected_other:${reason.slice(0, 40)}`);
+  }
+  // The matcher placed the bus on a pattern the catalogue does not hold: the two files disagree.
+  else if (!catalogue.has(pattern)) why('placed_on_pattern_not_in_catalogue_runtime_mismatch');
+  // In the catalogue, never routed: the build was not attempted for it (or a batch failed before
+  // reaching it, which is what happened to 36 lines on 20 September 2026).
+  else why('placed_no_road_built_build_not_attempted');
  }
  services.set(key, row);
 }
@@ -96,14 +115,19 @@ console.log(JSON.stringify({
  whyTheRestIsRefused: (() => {
   const by = {missingCoverage: 0, genuineUncertainty: 0, notEvaluated: 0, notRunning: 0};
   for (const [reason, n] of Object.entries(refusal)) {
-   if (reason.startsWith('geometry_built_but_rejected') || reason === 'no_geometry_built_for_this_pattern'
-       || reason === 'no_pattern_for_route' || reason === 'no_pattern_for_operator') by.missingCoverage += n;
-   else if (reason === 'ambiguous_branch' || reason === 'too_far_from_pattern') by.genuineUncertainty += n;
-   else if (reason === 'road_accepted_but_movement_not_evaluated') by.notEvaluated = (by.notEvaluated ?? 0) + n;
+   if (reason.startsWith('placed_') || reason === 'no_timetable_held') by.missingCoverage += n;
+   else if (reason.startsWith('unsettled_') || reason === 'too_far_from_pattern') by.genuineUncertainty += n;
+   else if (reason === 'road_accepted_but_movement_not_evaluated') by.notEvaluated += n;
    else by.notRunning += n;
   }
   return Object.fromEntries(Object.entries(by).map(([k, n]) => [k, pc(n)]));
  })(),
+ // The catalogue and the shape index are two files, keyed by pattern id (stable across rebuilds:
+ // operator, line, direction, stops). Where they disagree the front view is refused, never wrong.
+ catalogueAndShapes: {cataloguePatterns: catalogue.size, shapeEntries: Object.keys(shapes).length, accepted: accepted.size,
+  acceptedEntriesNotInCatalogue: [...accepted].filter(id => !catalogue.has(id)).length,
+  acceptedEntriesWithoutFile: Object.values(shapes).filter(s => s.status === 'accepted' && !s.file).length,
+  cataloguePatternsWithNoEntry: [...catalogue].filter(id => !built.has(id)).length},
  shapeIndex: {patterns: Object.keys(shapes).length, accepted: accepted.size},
  servicesWithNoGeometry: rows.filter(r => r.placed > 0 && r.withGeometry === 0).slice(0, 15)
   .map(r => `${r.key}: ${r.reporting} reporting, ${r.placed} placed, no accepted road`),

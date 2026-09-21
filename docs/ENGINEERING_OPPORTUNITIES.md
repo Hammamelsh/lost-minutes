@@ -1363,3 +1363,85 @@ published data artefacts to user-visible capability.
 series, so a claim about coverage is a number with a date rather than a memory. Status: script
 written and used for this milestone's before and after; not scheduled.
 
+
+## 40. A build batch that failed half-way left no visible gap, and a coverage claim stood for a day
+
+**Problem and evidence.** The road-shape build of 20 September 2026 ran in nine batches of 25 lines.
+Two batches (`20260920T224945-shape_build-ab1661`, `20260920T225207-shape_build-1087a8`) ended in
+`exception:TypeError` after 24 patterns each — the "router answer with no usable geometry" fault,
+fixed the same night — and were never re-run: 36 of the lines they named (192, 50, 52, 41, 43, 53,
+86, 203, 18, 135, 100, 23, 219, 67, 118, 59, 25, 85, 30, 83, 84, 197, 216, 112, 201, 42, 17, 93,
+172, 255, 76, 33, 42A among them) have no shape row at all. `shapes/index.json` carries only the
+patterns that were routed, so the index looked complete and the report said "every line that has
+both a timetable and live reports". On the served publication of 17:13 UTC on 21 September that gap
+is **337 of 623 vehicles (54%)**: 171 placed with no road built, 132 on an unsettled branch with no
+candidate road. Found by joining `pipeline_run` notes against `pattern_shape` rows, which nothing
+had done. The build also prints per-pattern JSON through a block-buffered stdout, so a log tailed
+during a 20-minute run shows nothing, and progress could only be read from the WAL's size.
+
+**Who hits it, workaround.** The owner reading a coverage claim; a passenger on the 192 told "no
+road built for this service" for a day for no data reason. Workaround: none; the reconciliation is
+a query.
+
+**Implementation bug or wider need.** Both. Here: the batches are re-run (this milestone) and the
+coverage script names "build not attempted" as its own category. The wider need is that **a batch
+job over named items must record the items it was asked for, not only the ones it finished**, so
+"attempted and failed before reaching" is a count and not an inference. The index could carry
+`linesRequested` per run and the script could diff them.
+
+**Existing tools.** Workflow engines (Airflow, Prefect) track task state per item when the items are
+modelled as tasks; here the batch was one task. Not researched further.
+
+**Next cheap step.** Make `pipeline.shapes build` write the lines it was asked for into the run note
+*and* the index, and have `scripts/coverage-breakdown.mjs` report lines requested but without rows.
+Flush the build's log per pattern (`print(..., flush=True)`). Status: categories added to the
+script; the per-run record and the flush are not done.
+
+## 41. Two writers of one published file, with different inputs, and the deploy won
+
+**Problem and evidence.** `public/data/patterns.json` was written by the server's nightly refresh at
+02:45 UTC on 21 September (400 patterns, 94 services, from what the server had observed in its first
+day) and then replaced at 16:15 by the deploy's rsync of this machine's copy (576 patterns, 175
+services, generated 18 September). `/srv/lost-minutes/previous` still holds the 02:45 file; the
+mtime on the live one is 20 September because rsync preserves it. Nothing detected the regression;
+the shape index (built here, keyed by pattern ids stable across rebuilds) happened to agree with the
+copy that won.
+
+**Who hits it, workaround.** Whoever deploys after a nightly rebuild; the effect is a catalogue
+silently older than the one the server made. Workaround: none.
+
+**Implementation bug or wider need.** A fix here: the catalogue is excluded from deploys and sent
+only to a server that has none (`deploy/publish.sh`, `deploy/rsync-exclude.txt`). The wider need is
+plain: **every generated artefact needs one declared owner**, and an upload that would overwrite a
+file the host itself regenerates should refuse or say so.
+
+**Existing tools.** rsync `--ignore-existing`, `--update` (mtime, wrong basis here); nothing that
+reads a `generatedAt` inside the file. Not researched further.
+
+**Next cheap step.** After each deploy, print the served catalogue's `generatedAt` and services
+beside the local one's; after each refresh, the same. Status: exclusion done; the print is not.
+
+## 42. Evidence checks that assumed a workflow the host never ran
+
+**Problem and evidence.** The Operations view on the live site showed **2 checks UNBALANCED** —
+"the snapshot on disk is the publishable set inside the capture window: 3,710 vs 343,146" and "the
+file being served is the publication we recorded: sha vs null" — because both identities are about
+the archive replay this warehouse published, and the server never ran the archive import: its
+`replay.json` arrived with a deploy. Every count that was ours balanced. The page's verdict said
+the published counts were not reconciled, which was false about the counts and true about the
+premise.
+
+**Who hits it, workaround.** Anyone reading the live Operations view as evidence, which is its
+purpose. Workaround: none.
+
+**Implementation bug or wider need.** Here: the two rows are marked `applicable: false` with the
+reason, and the verdict counts only applicable rows (`pipeline/operations.py`,
+`components/operations-view.tsx`). Wider: **a reconciliation identity needs a precondition it can
+state**, or a host on which the precondition fails reports a broken count where there is none.
+
+**Existing tools.** Data-quality frameworks (Great Expectations, dbt tests) have "skip when" clauses
+for this. Not adopted; the rows are few.
+
+**Next cheap step.** Run the archive import on the server once, collector paused, so the rows become
+checkable there too. Status: marking done; import not run (needs a pause of collection and the
+11-snapshot download on the server).

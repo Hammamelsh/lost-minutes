@@ -380,10 +380,11 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
  return {mode:e.mode,reason:e.reason,reportAge:Math.round(e.reportAge),capped:e.capped,horizon:params.horizon,
-  // Whether this bus is *drawn between its reports at all*, not whether it happens to be moving in
-  // this frame: a label that flips to "Last reported position" each time it reaches a report and
-  // back when the next arrives reads as two states, and it is one.
-  between:e.mode==='observed'&&travelling,
+  // `between` is this instant (a travel in flight); `travels` is the mode. The label follows the
+  // instant and the explanation follows the mode (describeMotion), so a bus standing at a report
+  // is never captioned as moving, and the flip between the two labels is explained once.
+  between:e.mode==='observed'&&v.glide!==null&&now<v.glide.at+v.glide.ms,
+  travels:e.mode==='observed'&&travelling,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,

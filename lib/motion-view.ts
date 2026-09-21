@@ -193,8 +193,11 @@ export function loadMotionModel(url='/data/motion-evaluation.json'):Promise<Moti
 
 /** What the map's clock reports to the page, a few times a minute rather than every frame. */
 export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:number;capped:boolean;horizon:number;
- /** Observed, and drawn between two of its own reports rather than at the newest. */
+ /** Observed, and at this moment travelling between two of its own reports (GLIDE). */
  between?:boolean;
+ /** Observed, with the reports to travel between as they arrive: the mode, whether or not it is
+  *  moving in this frame. Off under "reported positions only", or with a single report. */
+ travels?:boolean;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
  correction:{kind:string;metres:number;at:number}|null;version:string};
 
@@ -206,19 +209,21 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // When an estimate is withdrawn the drawn bus goes back to the report, and says how far.
   const moved=info.correction?.kind==='snap'&&info.correction.metres>=5
    ?` The drawn bus moved ${Math.round(info.correction.metres)} m to that report.`:'';
-  // Drawn between two of its own reports: the honest number is the age of what is shown, which is
-  // older than the newest report, never newer. The wording has to keep three things clear — that
-  // this is not live tracking, that the line between two reports is not the road the bus took,
-  // and that nothing here is a guess about where it is now.
-  if(info.between)return {label:`Shown between its reports · latest ${ageWords(info.reportAge)} ago`,
-   // The reason is the reason: on route 263 the road *is* checked and what is withheld is the
-   // evaluation, and a fixed clause about geometry was false there.
-   detail:`The bus is not estimated: ${info.reason}. `
-    +'It is drawn travelling from one of its own reports to the next, at the speed those two reports imply, '
-    +'and then waits at the newest one until another arrives — so what you see is always between two '
-    +'positions it really reported, and never ahead of the newest. It is not tracked continuously, and the '
-    +`straight line between two reports is not the road it took.${moved}`};
-  return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${moved}`};
+  // The label says what is drawn at this instant — travelling between two of its own reports, or
+  // standing at the newest — and one sentence under both explains the cycle, so the two read as
+  // one story rather than two features. Labelling the *mode* instead captioned a bus standing at a
+  // report three minutes old as "between its reports", which it was not. The reason is the reason:
+  // on route 263 the road is checked and what is withheld is the evaluation, and a fixed clause
+  // about geometry was false there. Nothing here is a guess about where the bus is now.
+  const cycle=info.travels
+   ?' It is drawn travelling from one of its own reports to the next, at the speed those two reports imply, '
+    +'and then waits at the newest until another arrives — always between two positions it really reported, '
+    +'never ahead of the newest. It is not tracked continuously, and the straight line between two reports is '
+    +'not the road it took.'
+   :'';
+  if(info.between)return {label:`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
+  return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
  }
  const parts=[info.speedKmh?`moving about ${info.speedKmh} km/h by its recent reports${info.eased?', eased off as the report ages':''}`
   :'standing at its last reports'];

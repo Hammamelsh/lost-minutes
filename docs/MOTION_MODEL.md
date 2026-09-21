@@ -199,3 +199,55 @@ two weekdays that were not used to fit it (held out by day, not by later journey
 
 Then the fit is published with `--replace-frozen yes` under a new version, and this file records
 the new settings hash, the data it was fitted and scored on, and the report that justified it.
+
+## Candidate motion-4: a standing hold — criteria fixed on 21 September 2026, before any result
+
+**Why a candidate at all.** The route-15 correction of 13:31:03 UTC on 21 September was reproduced
+from the raw captures (`outputs/probes/repro/replay-snap.mjs`): BU25YWF reported the same position
+at 13:36:10 and 13:36:29 — 0 m in 20 s, standing — and the frozen model, reading speed over 75 s
+with `standingHold: 0`, still carried the drawn bus 81 m and 103 m past it; when it read
+"standing" it snapped back 179 m, and when the bus moved off it snapped forward 177 m. Two large
+jumps around one stop. Not matching, identity or geometry: the journey was 1158 throughout, the
+shared road is the accepted pattern's own track, and the served polyline is byte-identical to the
+evaluated one.
+
+**The candidate.** `standingHold` > 0 — a parameter the model already has, switched off in
+motion-3 — with nothing else changed: when the last reports show the bus standing (steps under
+`standingMetres`, 8 m), it is held at its report for that many seconds before being moved on.
+Values to score: 15, 20 and 30 s. No other parameter is touched.
+
+**The data.** The replacement rule above asks for at least two weekdays not used to fit the model,
+held out by day. They are Monday 14 September (`motion-reports-monday.json`, used once to *score*
+motion-3, never to fit it) and Monday 21 September, 12:00–17:10 UTC, restored from the server's raw
+captures into `data/evaluation/scratch-2026-09-21.duckdb` and exported for routes 15, 250 and 256.
+
+**The criteria are the replacement rule's, unchanged**, applied per age bin up to 60 s with at
+least 100 cases: error (median and p80) within 5% of motion-3's in every bin and better overall
+up to a minute; pull-backs over 35 m and snaps no more often; band coverage 75–85% in every bin;
+abstention no more often. Plus one that the reproduction makes specific: **corrections over 150 m
+per hour must fall**, since that is the fault being addressed, and a candidate that cuts them by
+worsening error elsewhere has moved the problem, not solved it.
+
+**What happens on the result.** If a value qualifies on both weekdays, the side-by-side report is
+written here and put to the owner; rule 5 says the owner agrees before anything replaces motion-3,
+so nothing is released in the milestone that ran the evaluation. If none qualifies, the reason is
+recorded (evidence, matching, geometry or the model) and motion-3 stays.
+
+## Route 263: scoring the frozen model where it has never run
+
+Route 263's road geometry was accepted in both directions on 21 September (10,328 and 11,573
+reports, 95% within 17 m). Geometry agreement is not evidence about predicted movement, so
+motion-3 is scored on 263's own journeys **exactly as it was on the corridor**, with nothing
+refitted and these criteria fixed first:
+
+- **Data:** every 263 journey in the 21 September afternoon captures, and the verified 17 September
+  journey of YX74OKP (`tests/browser/recorded/journey-263.json`, 263 reports, each present in the
+  warehouse with identical time and position; its exporter was not recorded).
+- **Comparators on the same moments:** the last report itself, and constant speed.
+- **Release per direction** only if, on at least 20 journeys and 1,000 held-out cases per direction:
+  median error up to a minute at least 20% better than the last report's; p80 no worse than the
+  corridor's p80 by more than 10%; band coverage 75–85%; snaps no more frequent per hour than the
+  corridor's. A direction that misses is recorded with which criterion it missed and why.
+- **Separate from arrival minutes:** `docs/ARRIVAL_RELEASE_CRITERIA.md` is untouched; releasing
+  movement on 263 releases no arrival estimate.
+

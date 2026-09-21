@@ -484,8 +484,15 @@ export type Visual = {
  * direction of travel, and this is not an estimate: it never goes beyond the evidence. A gap
  * beyond `maxMetres`, or longer than `maxMs`, is left as the step it is, because a bus that moved
  * that far or was away that long was not followed and pretending otherwise would invent a journey.
+ * `maxMs` is 45 s from the fleet's own measured cadence on 21 September 2026: consecutive reports
+ * are a median 21 s apart, 30 s at the 95th percentile, and only 0.6% of intervals exceed 45 s.
+ *
+ * The bus is drawn at the speed its own two reports imply. Reports reach the page further apart
+ * than they were made — the collector has to publish them and the page has to poll — so the bus
+ * arrives at the newest report and waits there until the next comes. It moves at a true speed and
+ * then stands, rather than at an invented one stretched to fill the wait.
  */
-export const GLIDE = {minMs: 600, maxMs: 30_000, minMetres: 1.5, maxMetres: 400};
+export const GLIDE = {minMs: 600, maxMs: 45_000, minMetres: 1.5, maxMetres: 400};
 
 const WINDOW_STEPS = 24;
 const MAX_FRAME = 0.25;          // s: a longer gap between frames means the page was not drawing

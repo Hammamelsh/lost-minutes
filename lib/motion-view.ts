@@ -210,11 +210,14 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // older than the newest report, never newer. The wording has to keep three things clear — that
   // this is not live tracking, that the line between two reports is not the road the bus took,
   // and that nothing here is a guess about where it is now.
-  if(info.between)return {label:`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
-   detail:`This service has no road geometry we have checked (${info.reason}), so the bus is not estimated. `
-    +'It is drawn travelling from one of its own reports to the next, taking the time the bus itself took, '
-    +'so what you see is always between two positions it really reported and never ahead of the newest. '
-    +`It is not tracked continuously, and the straight line between two reports is not the road it took.${moved}`};
+  if(info.between)return {label:`Shown between its reports · latest ${ageWords(info.reportAge)} ago`,
+   // The reason is the reason: on route 263 the road *is* checked and what is withheld is the
+   // evaluation, and a fixed clause about geometry was false there.
+   detail:`The bus is not estimated: ${info.reason}. `
+    +'It is drawn travelling from one of its own reports to the next, at the speed those two reports imply, '
+    +'and then waits at the newest one until another arrives — so what you see is always between two '
+    +'positions it really reported, and never ahead of the newest. It is not tracked continuously, and the '
+    +`straight line between two reports is not the road it took.${moved}`};
   return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${moved}`};
  }
  const parts=[info.speedKmh?`moving about ${info.speedKmh} km/h by its recent reports${info.eased?', eased off as the report ages':''}`

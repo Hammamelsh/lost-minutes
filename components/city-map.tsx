@@ -374,12 +374,16 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
  el.setAttribute('data-frame-ms',frameMs===null?'':frameMs.toFixed(1));
 }
 
-function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number):MotionInfo{
+function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number,
+                    travelling=false):MotionInfo{
  const band=e.mode==='estimated'?uncertaintyAt(profile,e.reportAge):null;
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
  return {mode:e.mode,reason:e.reason,reportAge:Math.round(e.reportAge),capped:e.capped,horizon:params.horizon,
-  between:v.glide!==null&&now<v.glide.at+v.glide.ms,
+  // Whether this bus is *drawn between its reports at all*, not whether it happens to be moving in
+  // this frame: a label that flips to "Last reported position" each time it reaches a report and
+  // back when the next arrives reads as two states, and it is one.
+  between:e.mode==='observed'&&travelling,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
@@ -1054,7 +1058,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    state.lastDiag=t;
    diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]),medianGap(state.gaps));
   }
-  const info=motionInfo(e,v,input.profile,input.params,now);
+  const info=motionInfo(e,v,input.profile,input.params,now,
+   Boolean(input.replay&&input.history&&input.history.fixes.length>1));
   const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.

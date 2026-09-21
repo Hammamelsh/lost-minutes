@@ -1333,3 +1333,33 @@ step distribution, which is the same shape of tool pointed at the other branch.
 a feature has an eligibility gate, measure both sides of it before shipping. Status: measured,
 committed, and protected by `tests/motion-glide.test.mjs`.
 
+## 39. Two gates on one capability, and a coverage claim that was wrong for a day
+
+**Problem and evidence.** Estimated movement needs two independent things: an accepted road shape
+*and* the pattern being one the published evaluation scored the frozen model on. Only the first is
+visible in the data a reviewer would look at (`shapes/index.json`); the second lives in
+`motion-evaluation.json` and is applied in one clause of `components/city-map.tsx`. After building
+road geometry for 114 patterns I reported estimated movement as rising from 2% to 26% of the fleet.
+It had not moved at all: 11 of 569 vehicles before and after. The front view rose, 11 → 92. I found
+it only because a live watch of route 142 — which now has an accepted road — still read
+`movement on this service has not been evaluated`.
+
+**Who hits it, workaround.** Anyone reasoning about what the app can do, including the owner reading
+a milestone report. There was no workaround; the claim was simply wrong until a measurement
+contradicted it.
+
+**Implementation bug or wider need.** Wider need, and a small one in this repository. The general
+shape is that **a user-visible capability with more than one gate needs the gates enumerated in one
+place and counted separately**, or a report will quietly conflate them. `scripts/coverage-breakdown.mjs`
+now counts each capability against its own gates and groups every refusal as missing coverage,
+genuine uncertainty, not evaluated, or not running. That is the reusable idea: not a dashboard, a
+discipline — one row per capability, one column per gate, counted from the published artefacts a
+browser would actually fetch.
+
+**Existing tools.** Feature-flag platforms model gates but not evidence; nothing found that maps
+published data artefacts to user-visible capability.
+
+**Next cheap step.** Run the breakdown against the server's own publication nightly and keep the
+series, so a claim about coverage is a number with a date rather than a memory. Status: script
+written and used for this milestone's before and after; not scheduled.
+

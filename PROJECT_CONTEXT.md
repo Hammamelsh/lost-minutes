@@ -39,26 +39,38 @@ measured before and after on one publication rather than asserted.
   service was told "this service has none yet" for ever. Road geometry has now been built and
   validated for **every line that has both a timetable and live reports**: 175 lines, **362
   patterns routed, 114 accepted** on **77 lines**, against the unchanged rule (at least 30 matched
-  reports, 95% within 35 m). Measured on one publication of 66 vehicles, buses eligible for
-  estimated movement and the front view go from **1 (2%) to 17 (26%)**, with one more an unsettled
-  branch whose candidates are all accepted. **Route 263, the one the owner tried, was accepted both
-  ways at the first attempt** — 10,328 and 11,573 matched reports, 95% within 17.1 m and 17.0 m.
-  It had never been unsupported; nobody had asked the router for it.
+  reports, 95% within 35 m). **Route 263, the one the owner tried, was accepted both
+  ways at the first attempt** — 10,328 and 11,573 matched reports, 95% within 17.1 m and 17.0 m,
+  13.6 km each way. It had never been unsupported; nobody had asked the router for it.
 - **Geometry released the front view, not prediction, and the difference matters.** Estimated
   movement has a **second gate**: the pattern must be one the published evaluation actually scored
   the frozen model on (`motion-evaluation.json`, six patterns on routes 15, 250 and 256). Building
   a road does not release prediction, and it should not: the model was fitted and scored on three
   routes, and predicting elsewhere would claim an accuracy nobody has measured. Measured on one
-  publication of **171 vehicles**: accepted road geometry and front-view eligibility go from
-  **8 (5%) to 48 (28%)**, while **estimated movement stays at 8 (5%)**. What would release more is
-  a measurement, not a code change: score the frozen model on those routes' own held-out captures
+  **weekday publication of 569 vehicles** (Monday 21 September, 12:11 UTC, 126 distinct
+  services), asked of the old shape index and the new one: accepted road geometry and front-view
+  eligibility go from **11 (2%) to 92 (16%)**, while **estimated movement stays at 11 (2%)**. (An
+  evening publication of 171 vehicles gives 8 → 48, 5% → 28%: the share depends on which services
+  are running, so the denominator is always stated.) What would release prediction more widely is a
+  measurement, not a code change: score the frozen model on those routes' own held-out captures
   against the same bar (`scripts/evaluate-frozen.mjs`), and publish the result.
 - **What is still refused, and why**: 248 patterns were routed and **rejected**, 136 of them because
   no report in the warehouse was ever matched to that variant (a school journey, a short working);
   a handful because the road does not fit its own reports (71–99 m at the 95th percentile) and is
-  therefore not that bus's road. The largest remaining passenger-visible gap is the **unsettled
-  branch**: 24 of 66 vehicles, where two patterns still fit the position and not all candidates
-  have accepted geometry.
+  therefore not that bus's road. On the 569-vehicle weekday publication the rest divides, each bus
+  counted once under the first thing that stops it:
+  - **156 (27%) an unsettled branch** — two patterns still fit the position. Not a gap in our data:
+    the evidence does not say which road it is on. This is now the largest single reason.
+  - **153 (27%) no road built for that variant** — the pattern is published but was not among those
+    routed. Ours to close.
+  - **97 (17%) no timetable held for the route at all** — an operator dataset we do not download.
+    Upstream.
+  - **81 (14%) road accepted, movement not evaluated** — these buses *do* get the front view; only
+    prediction is withheld.
+  - **about 60 the road was built and refused**, because that pattern's own reports lie 36–286 m
+    from it at the 95th percentile. Several miss by a metre or two, and the threshold has not been
+    moved to let them in.
+  - 6 too far from any pattern stop, 3 with no journeys in that direction today, 3 loop patterns.
 - **The green dots were the chosen bus's own past.** `lm-trail-report` drew each recent report as a
   filled lime disc — the same colour and nearly the size of a bus marker — and the tap handler
   tested only two layers, so they did nothing. They are now **hollow rings at half the size**, and

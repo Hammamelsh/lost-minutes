@@ -604,3 +604,28 @@ integrated candidate — not on a build assembled from separate reruns.
 | Credentials and raw captures out of commits | `data/` is git-ignored; nothing added | Done |
 | Physical device | **Not done**: everything is Chromium, SwiftShader | Not done |
 
+## 3a. Smooth movement, second pass (21 September 2026)
+
+The owner's reading was right: removing the teleport is not the same as producing a ride. Measured
+rather than argued, and the first fix was replaced, not defended.
+
+| Requirement | What was found or done | Evidence | Status |
+|---|---|---|---|
+| A 900 ms transition followed by a long wait is not a convincing ride | True, and measured: with the hop, the drawn bus was still standing in **96%** of frames. The travel now takes the interval the bus itself took between the two reports | `outputs/probes/repro/replay-check.mjs`, 12 journeys, 340,049 frames | Done |
+| Observed-only buses run continuously between reports | Drawn moving in **63% of frames** (was 0%), travelling between two reports in **70%**; 99th-percentile step 1.2 m | same | Done |
+| …and are understandable without implying continuous tracking | Card reads "Moving between its reports · latest N s ago" and says the bus is not tracked continuously, that the straight line between two reports is not the road it took, and that this is not an estimate | `lib/motion-view.ts`; `ride.spec` asserts it never says "Estimated position" | Done |
+| …without inventing their road | Straight line between two observed positions only; no bearing from the direction of travel; never past the newest report; a gap over 400 m or 30 s is left as a step | `tests/motion-glide.test.mjs` (10 cases) | Done |
+| The cost, stated | The drawn position is behind the newest report in **65% of frames**, by a **median 54 m** while it is, up to 393 m in the instant a distant report lands | `scripts/evaluate-glide.mjs` | Done |
+| A wall-clock lag was tried first and rejected | Reading the track a fixed lag behind `now` failed whenever the newest report was already older than the reporting interval — common, since the age a passenger sees includes the publish cycle — and the bus stood still. Anchoring to the report's own arrival needs no assumption about feed delay | this table | Done |
+| Eligible routes still estimate and reconcile as before | The estimated path is untouched; re-scored on the same captures, median error **61.3 m**, matching the 61 m on record | `scripts/evaluate-drawing.mjs`, label `glide-check` | Done |
+| "Reported positions only" unchanged | With the preference off the history is withheld, so the bus is placed at the newest report exactly as before | unit test | Done |
+
+## 2a. Front-view coverage, corrected (21 September 2026)
+
+| Requirement | What was found | Evidence | Status |
+|---|---|---|---|
+| Eligibility inherited from another gate | **Yes, and I reported it wrongly first.** Estimated movement needs the pattern to be in `motion-evaluation.json`'s `corridor.patterns` — six patterns on three routes — as well as having a road. Building roads released the **front view**, not prediction | `components/city-map.tsx` `blocked`; corrected in PROJECT_CONTEXT | Done |
+| Coverage before and after, comparable denominators | One weekday publication, **569 vehicles**, asked of both indexes: road geometry and front view **11 (2%) → 92 (16%)**; estimated movement **11 (2%) → 11 (2%)** | `scripts/coverage-breakdown.mjs`; `outputs/probes/milestone/coverage-after-weekday.json` | Done |
+| Missing coverage separated from legitimate uncertainty | Unsettled branch 156 (27%) — uncertainty; no road built for that variant 153 (27%) — ours; no timetable held 97 (17%) — upstream; accepted road but not evaluated 81 (14%) — front view works, prediction withheld; ~60 roads built and refused at 36–286 m | same | Done |
+| Thresholds not weakened after seeing results | Several patterns miss the 35 m bar by a metre or two and stay refused | index.json reasons | Done |
+

@@ -1,0 +1,79 @@
+# Physical-device checklist
+
+Everything in this repository has been checked in Chromium on a Linux laptop: desktop and phone
+*emulation* (390 × 844, touch events, device scale 3), WebGL through SwiftShader (a software
+renderer), and real publications from the server through a local proxy or the served site. No
+check below has been run on a physical phone. Each is written so that whoever holds the phone can
+answer it in a minute and write the answer next to it, with the phone model, OS version and
+browser.
+
+Status words: **unchecked** (nobody has held a phone), **passed**, **failed** (with what was seen).
+
+## Before starting
+
+- [ ] Phone model, OS and browser: ____________________. Location permission state before the
+      test: ____________________.
+- [ ] Open https://lost-minutes.duckdns.org over mobile data, not Wi-Fi, once; note the time to the
+      first map paint: ____ s. (Emulation: 2–4 s on a fast connection; a slow tile is waited for up
+      to 40 s and the simple map is offered after 3 s.)
+
+## Location and the walk (needs a real GPS fix)
+
+- [ ] **Buses near me** on a street: the nearest stops are the right ones, on the right side of the
+      road, and the "about … m" hedge appears only when the fix is coarse. *unchecked*
+- [ ] Choose a stop; the walk guide's distance and minutes are plausible against the street.
+      "Update my location" after walking 50 m moves the start. *unchecked*
+- [ ] **Walk to stop in Google Maps** opens Maps at the boarding point's coordinates, and coming
+      back to the browser keeps the stop and the chosen bus (the tab's own state). *unchecked*
+- [ ] Indoors or under cover: the fix is refused as too coarse (over 150 m) rather than routed;
+      "Choose starting point" on the map works with a finger. *unchecked*
+
+## Touch
+
+- [ ] Every control is reachable with a thumb; nothing under 44 px is missed twice in a row
+      (the header wordmark is the one known exception). *unchecked*
+- [ ] A tap on a bus marker chooses it; a tap where two buses overlap opens the small chooser at
+      the finger, and "Neither" closes it. *unchecked*
+- [ ] In the ride-along a pinch zooms and keeps following; a one-finger drag pauses following and
+      **Return to bus** resumes it; in the front view a pinch pauses. *unchecked*
+- [ ] Search results stay above the keyboard while typing a stop name. *unchecked*
+
+## The ride on a real GPU and screen
+
+- [ ] Outside view at zoom 20 with the 3D bus: frame rate feels continuous (the ride card's
+      `data-frame-ms` is in the feedback report; note it: ____ ms). *unchecked*
+- [ ] Front view (street preview): the buildings, kerbs and names draw; the camera does not stall
+      while the bus is drawn moving; the phone does not become hot within five minutes; battery
+      drop over ten minutes of riding: ____ %. *unchecked*
+- [ ] Day theme in direct sunlight: the lime chosen-bus marker, the orange stop and the blue "You"
+      are still distinguishable; the ride card's text is readable. *unchecked*
+- [ ] Night theme at night: same. *unchecked*
+- [ ] Landscape: the ride card does not cover **Front view** / **Outside view**. *unchecked*
+
+## Movement, watched for two full minutes on one bus
+
+- [ ] A bus with **Estimated movement**: it moves continuously between reports and a new report
+      corrects it without a visible jump; a large correction shows the dashed trace and the card's
+      "Moved N m to its latest report" line for a few seconds. *unchecked*
+- [ ] A bus with **Reported positions · may pause**: it travels between its reports and waits at
+      the newest; the card's "latest N s ago" keeps counting while it waits; it never runs ahead
+      of the marker ring of its newest report. *unchecked*
+- [ ] After 30 s with the phone locked and unlocked again: the bus is where its newest report is,
+      the age is right, no stale animation plays out. *unchecked*
+
+## Returning and installing
+
+- [ ] Add to home screen (iOS Safari "Add to Home Screen"; Android Chrome "Install"): the icon,
+      name and splash are right; opening from the icon restores the last stop as an *offer*
+      ("Continue · …"), not silently. *unchecked*
+- [ ] Airplane mode with the page open: the badge says OFFLINE; the last positions stay listed as
+      old; turning data back on resumes within one poll. *unchecked*
+- [ ] A shared link (`?stop=…&bus=…`) opened on a second phone lands on that stop and that bus,
+      or says what became of the bus. *unchecked*
+
+## When something looks wrong
+
+Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report
+with the publication hash, the map's frame time and the state of the ride to the clipboard. Paste
+it into an issue with the phone model. Do not describe an emulation result as a phone result, and do not describe a phone
+result without the phone.

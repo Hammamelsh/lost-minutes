@@ -93,6 +93,7 @@ def main(argv=None):
     out.add_argument('--out', default=str(TARGET))
     out.add_argument('--since', help='ISO time: only journeys that began at or after it (UTC if no offset)')
     out.add_argument('--until', help='ISO time: only journeys that began before it')
+    out.add_argument('--db', default=str(DEFAULT_DB), help='warehouse to read (default: the main one)')
     args = parser.parse_args(argv)
     from datetime import datetime, timezone
 
@@ -102,7 +103,7 @@ def main(argv=None):
         moment = datetime.fromisoformat(text.replace('Z', '+00:00'))
         return int((moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).timestamp() * 1000)
     from .warehouse import connect
-    con = connect(ROOT / DEFAULT_DB)
+    con = connect(ROOT / args.db)
     try:
         payload = export(con, [line.strip() for line in args.lines.split(',') if line.strip()],
                          ms(args.since), ms(args.until))

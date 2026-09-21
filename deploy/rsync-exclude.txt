@@ -21,3 +21,7 @@ playwright-report/
 public/data/live.json
 public/data/config.json
 public/data/operations.json
+# Rebuilt nightly on the server from what the server itself has observed (lost-minutes-refresh).
+# On 21 September 2026 a deploy put this machine's three-day-old copy over that morning's rebuild;
+# publish.sh now sends it only to a server that has none yet (a first install).
+public/data/patterns.json

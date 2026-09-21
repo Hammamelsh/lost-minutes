@@ -36,6 +36,16 @@ ssh "$TARGET" 'sudo mkdir -p /srv/lost-minutes/app && sudo chown "$(id -un)" /sr
 # Ownership is then set once, explicitly, to what install.sh asks for.
 rsync -az --no-owner --no-group --rsync-path="sudo rsync" --delete \
   --exclude-from=deploy/rsync-exclude.txt ./ "$TARGET:/srv/lost-minutes/app/"
+# The timetable catalogue is the server's own: rebuilt nightly from what it has observed, and
+# excluded above so a deploy cannot put an older copy back (it did, on 21 September 2026). A server
+# that has none yet — a first install, or a rebuild refused before its first success — gets this
+# machine's, so the site never runs without stops to place buses on. The road-shape index, keyed by
+# pattern ids that are stable across rebuilds (operator, line, direction, stops), is uploaded as usual.
+if ! ssh "$TARGET" 'test -s /srv/lost-minutes/app/public/data/patterns.json'; then
+  rsync -az --no-owner --no-group --rsync-path="sudo rsync" \
+    public/data/patterns.json "$TARGET:/srv/lost-minutes/app/public/data/patterns.json"
+  echo "sent the catalogue: the server had none"
+fi
 ssh "$TARGET" 'sudo chown -R lostminutes:lostminutes /srv/lost-minutes/app/public/data
   sudo chmod -R g+w /srv/lost-minutes/app/public/data
   sudo find /srv/lost-minutes/app/public/data -type d -exec chmod g+s {} +'

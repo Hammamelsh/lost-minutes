@@ -346,6 +346,15 @@ export function estimate(history: History, track: Track | null, when: number, pa
  if (reportAge > params.stale) return observed('its last report is too old to estimate from');
  const speed = speedAlong(history, track, params, place.s);
  if (speed.speed === null) return observed(speed.basis);
+ // Its last two reports lie within standingMetres of each other along the road while the window
+ // still reads a moving speed: a bus at a stop or at lights whose earlier reports were moving.
+ // Projecting it forward was the fault reproduced on 21 September 2026 (81–103 m past a standing
+ // route-15 bus, then a 179 m snap back), and no hold length cured it. With no hold configured
+ // it is not projected at all: it stands at its report, in observed mode, and estimation resumes
+ // at its first moving report. The cost, stated: that first moving report is a whole interval of
+ // travel away, and the drawn bus catches it up as a correction — eased under 150 m, a snap above.
+ if (speed.standingNow && speed.speed > 0 && params.standingHold === 0)
+  return {...observed('its last reports show it standing'), held: true};
  const horizon = Math.min(reportAge, params.horizon);
  let s = place.s, held = false, resumeAt: number | null = null, applied = speed.speed, wait = 0;
  if (speed.standingNow && params.standingHold > 0 && speed.speed > 0) {
@@ -571,6 +580,14 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // Leaving an estimate for a report is a correction, and is said; a bus shown at its reports
   // moving to its next report is simply that report, travelled to rather than jumped to (GLIDE).
   const moved = previous?.mode === 'estimated' ? metres(previous, e) : 0;
+  // An estimate that had rolled on past a bus now read as standing eases back to the report over
+  // a second or two, a correction like any other under 150 m; only a larger one snaps.
+  if (previous?.mode === 'estimated' && e.mode === 'observed' && e.held && moved > 1 && moved <= draw.largeCorrection) {
+   const eased = place(e, now, trackId, 'smooth', {kind: 'smooth', metres: moved, at: now}, track, draw);
+   const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now,
+    ms: Math.max(500, Math.min(2500, moved * 25))};
+   return {...glideAt(eased, glide, now), glide};
+  }
   const kind: Correction = moved > 1 ? 'snap' : 'none';
   const settled = place(e, now, trackId, kind,
    kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null, track, draw);

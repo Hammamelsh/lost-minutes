@@ -281,12 +281,16 @@ test('stops: with a dwell time the estimate pauses at each timetabled stop it re
 });
 
 test('speed: cruise reads the moving stretches only, and standing reports are seen as standing', () => {
- // Moved 160 m in 20 s, then stood for 30 s (two reports at the same place).
+ // Moved 160 m in 20 s, then stood for 30 s (two reports at the same place). With no hold a
+ // standing bus is not projected at all (below); the speed readings are seen through a long hold,
+ // which keeps the estimate at its report while still reading the speed it would move on at.
  const h = historyFrom([fix(200, 0), fix(360, 20_000), fix(362, 35_000), fix(361, 50_000)]);
- const windowed = estimate(h, L, 60_000, {...P, speedWindow: 75});
- const cruising = estimate(h, L, 60_000, {...P, speedWindow: 75, cruise: true});
+ const windowed = estimate(h, L, 60_000, {...P, speedWindow: 75, standingHold: 120});
+ const cruising = estimate(h, L, 60_000, {...P, speedWindow: 75, cruise: true, standingHold: 120});
  assert.ok(windowed.speed > 2 && windowed.speed < 4, `the window average is dragged down by standing (${windowed.speed})`);
  assert.ok(Math.abs(cruising.speed - 8) < 0.3, `cruise is the speed while moving (${cruising.speed})`);
+ for (const e of [estimate(h, L, 60_000, {...P, speedWindow: 75}), estimate(h, L, 60_000, {...P, speedWindow: 75, cruise: true})])
+  assert.ok(e.mode === 'observed' && e.held === true && /standing/.test(e.reason), 'with no hold, a standing bus stands at its report');
 });
 
 test('standing hold: a bus its reports show standing is held, then moves on at cruise speed', () => {
@@ -304,8 +308,10 @@ test('standing hold: a bus its reports show standing is held, then moves on at c
  const moving = estimate(h, L, 80_000, Q);
  assert.equal(moving.held, false);
  assert.ok(Math.abs(moving.s - (project(L, h.fixes.at(-1)).s + 8 * 10)) < 1, `10 s on at 8 m/s (${moving.s})`);
+ // Without a hold it is not projected at all: it stands at its report until a moving report comes
+ // (authorised 21 September 2026; every hold length had traded the backward snap for a forward one).
  const off = estimate(h, L, 80_000, {...Q, standingHold: 0});
- assert.ok(off.s > moving.s, 'without a hold it moves off from the report at once');
+ assert.equal(off.mode, 'observed'); assert.equal(off.held, true);
 });
 
 test('the estimate’s path: read at any moment it covers, it is the estimate itself', () => {
@@ -383,14 +389,17 @@ test('visual: within the estimate’s measured error a report ahead of the drawn
  assert.equal(drawingFor(estimate(h, L, 25_000, P), profile).holdBack, 49);
  assert.equal(drawingFor(estimate(h, L, 45_000, P), profile).holdBack, 110);
  assert.equal(drawingFor(estimate(h, L, 25_000, P), null).holdBack, DRAWING.holdBack, 'no measured error: the fixed hold');
- // Drawn 45 m ahead of where a moving bus turns out to be.
+ // Drawn 45 m ahead of where a moving bus turns out to be, twelve seconds after its last report:
+ // the bus moved 11 m on from it (a report under 8 m on would read as standing, and a standing
+ // bus is not projected at all).
  const h1 = historyFrom([fix(200, 0), fix(300, 20_000)]);   // 5 m/s
  const furthestBack = draw => {
-  let v = stepVisual(null, estimate(h1, L, 29_000, P), 29_000, L);
-  v = stepVisual(v, estimate(h1, L, 30_000, P), 30_000, L);
-  const h2 = addFix(h1, fix(v.s - 45, 30_000 - 1)).history;
+  let v = stepVisual(null, estimate(h1, L, 31_000, P), 31_000, L);
+  v = stepVisual(v, estimate(h1, L, 32_000, P), 32_000, L);
+  const h2 = addFix(h1, fix(v.s - 45, 32_000 - 1)).history;
+  assert.equal(estimate(h2, L, 32_050, P).mode, 'estimated', 'the report reads as a moving bus');
   let back = 0, previous = v.s;
-  for (let t = 30_050; t <= 50_000; t += 50) {
+  for (let t = 32_050; t <= 52_000; t += 50) {
    const e = estimate(h2, L, t, P);
    v = stepVisual(v, e, t, L, draw(e));
    back = Math.max(back, previous - v.s); previous = v.s;
@@ -443,4 +452,53 @@ test('visual: a new report that changes the speed changes the drawn speed gradua
  }
  assert.ok(Math.abs(v.velocity - 5) < 0.1 && Math.abs(v.offset) < 0.5,
   `it settles on the new speed (${v.velocity.toFixed(2)} m/s, ${v.offset.toFixed(2)} m)`);
+});
+
+// The standing fallback, authorised on 21 September 2026: a bus whose last two reports stand
+// still while its speed window still reads movement is not projected forward.
+test('estimate: a bus whose last two reports stand still is not projected forward, and resumes when it moves', () => {
+ // 8 m/s for a minute, then a report 2 m on from the last: standing, with a moving window speed.
+ const h = historyFrom([fix(0, 0), fix(160, 20_000), fix(320, 40_000), fix(480, 60_000), fix(482, 80_000)]);
+ const standing = estimate(h, L, 95_000, P);
+ assert.equal(standing.mode, 'observed');
+ assert.match(standing.reason, /standing/);
+ assert.equal(standing.held, true);
+ assert.ok(metres(standing, along(482)) < 0.01, 'at its report, not past it');
+ // Another standing report keeps it there (by then the window itself reads standing: speed 0 at
+ // the report, which is also not a projection); the first moving report resumes estimation.
+ const h2 = addFix(h, fix(483, 100_000)).history;
+ const again = estimate(h2, L, 110_000, P);
+ assert.ok(again.mode === 'observed' || again.speed === 0, `not projected (${again.mode}, ${again.speed})`);
+ assert.ok(metres(again, along(483)) < 0.5, 'at its report');
+ const h3 = addFix(h2, fix(600, 120_000)).history;
+ const moving = estimate(h3, L, 130_000, P);
+ assert.equal(moving.mode, 'estimated');
+ assert.ok(moving.s > 600, `moving on from the report that moved (${moving.s.toFixed(0)} m)`);
+ // Where a hold is configured the hold's own rule applies instead.
+ assert.equal(estimate(h, L, 95_000, {...P, standingHold: 15}).mode, 'estimated');
+ // A bus standing from its first reports has no moving window speed: estimated, speed 0, as before.
+ const still = estimate(historyFrom([fix(300, 0), fix(302, 20_000), fix(301, 40_000)]), L, 70_000, P);
+ assert.equal(still.mode, 'estimated'); assert.equal(still.speed, 0);
+});
+
+test('visual: an estimate that had rolled past a standing bus eases back to its report, no frame jumping', () => {
+ const h = historyFrom([fix(0, 0), fix(160, 20_000), fix(320, 40_000), fix(480, 60_000)]);
+ let v = stepVisual(null, estimate(h, L, 66_000, P), 66_000, L);
+ for (let t = 66_050; t <= 80_000; t += 50) v = stepVisual(v, estimate(h, L, t, P), t, L);
+ assert.ok(v.s > 480 + 60, `rolled on past the report (${v.s.toFixed(0)} m)`);
+ const from = {lat: v.lat, lon: v.lon};
+ const h2 = addFix(h, fix(482, 80_000)).history;
+ const e = estimate(h2, L, 80_050, P);
+ assert.equal(e.mode, 'observed');
+ v = stepVisual(v, e, 80_050, null, DRAWING, h2);
+ assert.equal(v.lastCorrection?.kind, 'smooth');
+ assert.ok(metres(v, from) < 5, 'the first frame stays where the bus was drawn');
+ assert.ok(needsFrames(e, v), 'frames are needed while it eases back');
+ let last = v;
+ for (let t = 80_100; t <= 84_000; t += 50) {
+  v = stepVisual(v, estimate(h2, L, t, P), t, null, DRAWING, h2);
+  assert.ok(metres(v, last) < 8, `no frame jumps (${metres(v, last).toFixed(1)} m)`);
+  last = v;
+ }
+ assert.ok(metres(v, along(482)) < 2, 'settled at the standing report');
 });

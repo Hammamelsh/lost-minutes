@@ -100,10 +100,18 @@ measured before and after on one publication rather than asserted.
   anywhere in Manchester), and **a link no longer claims which trip it named**: it carries a
   vehicle, a route and a direction, so the journey is learned from that vehicle's next report
   rather than assumed, and the same vehicle's next trip on the same line is noticed as a change.
-- **Two faults found by this work, not reported:** a router answer with no usable geometry raised
-  out of validation and ended a whole build batch, leaving every later service unbuilt (now
-  refused per pattern, with a test); and a full-page screenshot of this layout captures the sticky
-  map wherever the scroll left it, which had me chasing a grid regression that did not exist.
+- **Three faults found by this work, not reported.** A router answer with no usable geometry
+  raised out of validation and ended a whole build batch, leaving every later service unbuilt (now
+  refused per pattern, with a test). A full-page screenshot of this layout captures the sticky map
+  wherever the scroll left it, which had me chasing a grid regression that did not exist. And
+  **camera competition**: the effect that brings the frame to a report outside it re-ran on every
+  re-render that gave the chosen bus a new object identity — a poll, or a theme switch — with the
+  *same* report, and after a Fit that report sat a few pixels outside the padding the fit had placed
+  it on, so it panned the bus to the exact centre of the canvas and the stop off the map. Found
+  because the full suite failed the fitted-map check, and settled only when the check was made to
+  report the camera's recorded stops. The frame is now brought only to a *new* report, and a fit
+  marks the report it framed as seen. The map also frames the journey again after a resize settles
+  (a phone turning), unless the passenger has taken the camera.
 
 Before that, 20 September 2026, evening (journey state put on a footing, and a stop that showed no
 buses explained).

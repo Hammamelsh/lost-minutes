@@ -393,8 +393,16 @@ test('before riding, a fitted map keeps your stop, its name and your bus clear o
               bus: bus && {inside: inside(bus), under: clear(bus, 26, 30), at: at(bus)},
               chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.right), Math.round(chip.bottom)],
               canvas: [Math.round(canvas.left), Math.round(canvas.top), Math.round(canvas.right), Math.round(canvas.bottom)],
-              zoom: el.getAttribute('data-camera')?.split(',')[0]};
+              zoom: el.getAttribute('data-camera')?.split(',')[0],
+              // The fit's own inputs, so a wrong fit says which input was wrong.
+              camera: el.getAttribute('data-camera'), padding: el.getAttribute('data-padding'), moves: el.getAttribute('data-moves'),
+              pads: Object.fromEntries(['.map-views', '.map-tools', '.vector-map-foot', '.map-legend-chips'].map(sel => {
+                const q = el.querySelector(sel)?.getBoundingClientRect();
+                return [sel, q && q.width ? [Math.round(q.left), Math.round(q.top), Math.round(q.right), Math.round(q.bottom)] : null];
+              })),
+              box: (() => {const b = el.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.right), Math.round(b.bottom)]})()};
     });
+    console.log(`fit ${theme}: ${JSON.stringify(seen)}`);
     expect(seen.stop?.inside && seen.stop.under.length === 0, `${theme}: your stop and its name are clear (${JSON.stringify(seen)})`).toBe(true);
     expect(seen.bus?.inside && seen.bus.under.length === 0, `${theme}: your bus is clear (${JSON.stringify(seen)})`).toBe(true);
     await shot(page, `fit-${theme}`);

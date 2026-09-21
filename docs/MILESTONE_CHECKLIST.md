@@ -646,3 +646,14 @@ kept arriving), in Chromium with SwiftShader. `outputs/probes/repro/e2e-263.mjs`
 | Historical dots distinct from buses | Hollow lime rings at half a marker's radius, latest solid; not selectable; not in `data-bus-points` | `ride-quality.spec`; frames | Done |
 | Card wording does not imply continuous tracking | "Shown between its reports · latest N s ago", steady rather than flipping, with the reason the page actually has (on 263: the evaluation, not the geometry) | frames `2-riding.png` | Done |
 
+## 8a. What the final full suite turned up (21 September 2026, afternoon)
+
+The whole suite on the candidate build failed two desktop checks, both in `ride.spec`, both of
+which had passed on the same build in a targeted run minutes before. Neither was waved through.
+
+| Check | What it was | What was done | Status |
+|---|---|---|---|
+| reduced motion: Return to bus is a jump | A drag swallowed under two-worker SwiftShader load (`data-ride` stayed `following`); passed 3 of 3 alone on the same build | Left as is: load timing, not the product | Timing |
+| a fitted map keeps the stop clear of the Ride along button, by night | **A real defect — camera competition — found by making the check report its own numbers.** The stop at (800, 724) with the canvas ending at 663, the bus at (426, 339): the exact centre of the canvas, on every failing run, desktop and mobile. The camera's recorded stops showed the fit landing *correctly* and then one more move at the same zoom. That move is the data effect that "brings the frame to a new report outside it": it re-runs whenever `selected` gets a new object identity — a poll, or the re-render a theme switch causes — with the **same** report, and after a fit that report sits a few pixels outside the padding the fit placed it on, so it panned the bus to the centre and the stop off the map. By day the next re-render was a poll two seconds later, after the check had measured. Fix: the frame is brought only to a *new* report (bus and observation time), and a fit marks the report it framed as seen. 8 of 8 afterwards, both projects | Fixed |
+| Three wrong turns on the way, recorded so they are not taken twice | (1) A settle-then-read change to the check: the fit was settled, at the wrong place. (2) Ad-hoc probes appeared to show a theme switch dropping the suggested bus; a no-switch control collapsed at the same moment; the cause was the probe context letting the service worker install and bypass `page.route`. (3) A transient-resize theory, and a re-fit-after-resize handler built on it: the spec's screenshot is a viewport one and resizes nothing. The handler is kept — a phone turning should keep the journey framed, it re-fits only when the passenger has not taken the camera, and the resize specs pass with it — but it was not the fix, and is recorded as such | — | Noted |
+

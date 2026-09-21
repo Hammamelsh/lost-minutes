@@ -452,6 +452,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  useEffect(()=>{leaveFront.current=note=>{setCameraWish('outside');setFrontNote(note)}},[]);
  // Once the passenger drags, pinches or zooms, the view is theirs until they ask again.
  const userMoved=useRef(false);
+ // The last report the camera was brought to, or that a fit framed: `${key}|${observedAtMs}`.
+ const broughtTo=useRef('');
  // The theme the map is created in; later changes are applied in place, never by rebuilding.
  const themeRef=useRef(theme);
  const modelRequested=useRef(false);
@@ -633,6 +635,15 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     // Centimetres and tenths of a degree: fine enough to measure how smoothly it moves per frame.
     root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(3)},${centre.lat.toFixed(7)},`
      +`${centre.lng.toFixed(7)},${instance.getPitch().toFixed(1)},${instance.getBearing().toFixed(1)}`);
+    // The map's own padding, as MapLibre holds it: a fit that lands wrong with the right bounds
+    // is a padding that was not what the fit assumed, and this is the only way to see it.
+    const p=instance.getPadding();
+    root.current?.setAttribute('data-padding',`${Math.round(p.top??0)},${Math.round(p.right??0)},${Math.round(p.bottom??0)},${Math.round(p.left??0)}`);
+    // The last few places the camera stopped, in order, so a wrong final position can be told
+    // apart from a right one that something moved afterwards.
+    const trail=(root.current?.getAttribute('data-moves')??'').split(';').filter(Boolean);
+    trail.push(`${instance.getZoom().toFixed(2)}@${centre.lat.toFixed(5)},${centre.lng.toFixed(5)}`);
+    root.current?.setAttribute('data-moves',trail.slice(-6).join(';'));
    });
    instance.on('idle',()=>busPoints.current());
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
@@ -751,6 +762,16 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // Until the passenger has taken the camera, a new report that lands outside the frame
   // brings the frame to it; a journey the passenger has not chosen to go on with is not chased.
   if(!selected||follow||view==='ride'||userMoved.current||selectionKind==='new_journey')return;
+  // A *new* report, by the bus and the moment it reported: this effect runs on every re-render
+  // that gives `selected` a new identity, and a theme switch or a poll does that with the same
+  // report as before. Until 21 September 2026 the same report, sitting a few pixels outside the
+  // padding a fit had just placed it on, then pulled the camera onto the bus and the stop off the
+  // map — measured as the bus landing on the exact centre of the canvas in every failing run of
+  // the fitted-map check. A fit marks the report it framed as seen (fitRelevant), so what the
+  // passenger just asked for is never undone by the report they asked for it with.
+  const reportKey=`${selected.key}|${selected.observedAtMs}`;
+  if(reportKey===broughtTo.current)return;
+  broughtTo.current=reportKey;
   const point=instance.project([selected.lon,selected.lat]);
   const {clientWidth:width,clientHeight:height}=instance.getContainer();
   // Under a control counts as outside: a bus behind the Ride along button is not in view.
@@ -1182,6 +1203,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // `camera` is the tilt and heading to end at; without it the current tilt is kept.
  const fitRelevant=useCallback((camera?:{pitch:number;bearing:number})=>{
   if(!map.current)return;
+  // The report this fit frames is seen: it must not bring the camera to itself afterwards.
+  broughtTo.current=selected?`${selected.key}|${selected.observedAtMs}`:'';
   const points=journeyFocus({here,stop,bus:selected}).map(p=>[p.lon,p.lat] as [number,number]);
   // The walking route is part of the journey: it is framed too.
   if(walk)points.push(...walk.path);

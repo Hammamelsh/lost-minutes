@@ -25,3 +25,6 @@ public/data/operations.json
 # On 21 September 2026 a deploy put this machine's three-day-old copy over that morning's rebuild;
 # publish.sh now sends it only to a server that has none yet (a first install).
 public/data/patterns.json
+# Written nightly on the server by lost-minutes-arrival-eval; a deploy's --delete removed it
+# (found 21 September: served 404 after the 16:15 deploy, written again at 03:12).
+public/data/arrival-release.json

@@ -110,8 +110,9 @@ measured before and after on one publication rather than asserted.
   it on, so it panned the bus to the exact centre of the canvas and the stop off the map. Found
   because the full suite failed the fitted-map check, and settled only when the check was made to
   report the camera's recorded stops. The frame is now brought only to a *new* report, and a fit
-  marks the report it framed as seen. The map also frames the journey again after a resize settles
-  (a phone turning), unless the passenger has taken the camera.
+  marks the report it framed as seen. A re-fit-after-resize handler, added on a wrong diagnosis of
+  the same failure and kept as harmless, was then caught by the next full suite fighting the ride's
+  exit (which resizes the map on purpose) and was removed.
 
 Before that, 20 September 2026, evening (journey state put on a footing, and a stop that showed no
 buses explained).

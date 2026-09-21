@@ -1244,27 +1244,6 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   userMoved.current=false;
   fitLatest.current();
  },[ready,fitRequest,stopId,hereKey,haveBuses]);
- // The map resized under a fitted journey: a phone turned, a window resized. The fit was computed
- // for the old size and its padding, so the stop can now sit under a control or below the canvas
- // — measured on 21 September 2026 as a stop 61 px off the bottom of the map after a fit had
- // been asked for during a transient resize. Once the size settles, what the passenger last asked
- // for is framed again, unless they have taken the camera since, in which case it is theirs. The
- // ride has its own band and its own resize handling and is left alone.
- useEffect(()=>{
-  const instance=map.current;
-  if(!ready||!instance)return;
-  let timer:ReturnType<typeof setTimeout>|null=null;
-  const onResize=()=>{
-   if(timer)clearTimeout(timer);
-   timer=setTimeout(()=>{
-    timer=null;
-    if(viewRef.current==='ride'||userMoved.current)return;
-    fitLatest.current();
-   },250);
-  };
-  instance.on('resize',onResize);
-  return()=>{if(timer)clearTimeout(timer);instance.off('resize',onResize)};
- },[ready]);
  // A walking route that arrives is framed once, unless the passenger has taken the camera.
  const walkKey=walk?`${walk.path.length}|${walk.path[0]?.join(',')}|${walk.path[walk.path.length-1]?.join(',')}`:'';
  useEffect(()=>{

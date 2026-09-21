@@ -57,6 +57,8 @@ const operationsSchema = z.object({
   left: z.union([z.number(), z.string(), z.null()]),
   right: z.union([z.number(), z.string(), z.null()]),
   balanced: z.boolean(),
+  /** False where this warehouse has nothing to check the row against (see pipeline/operations.py). */
+  applicable: z.boolean().optional(), note: z.string().optional(),
  })),
  rejections: z.array(z.object({reason: z.string(), count: count})),
  runs: z.array(runSchema),
@@ -68,10 +70,13 @@ const operationsSchema = z.object({
 export type Operations = z.infer<typeof operationsSchema>;
 export type PipelineRun = z.infer<typeof runSchema>;
 
+/** The published pipeline record. Live collection runs are part of it since 12 September 2026 and
+ *  are labelled as such in the view; until 21 September this refused any record holding one — a
+ *  guard from the archive-only release — so the served site's Operations view showed no record at
+ *  all from the day it was deployed, while the local file, from an archive-only status run,
+ *  passed every check. */
 export function parseOperations(value:unknown):Operations{
- const data = operationsSchema.parse(value);
- if(data.runs.some(r=>!r.isHistorical))throw Error('A run claims live collection; this release is archive replay only.');
- return data;
+ return operationsSchema.parse(value);
 }
 
 /** Human duration for a source age. Deliberately blunt: days matter on an archive. */

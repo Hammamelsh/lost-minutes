@@ -34,11 +34,14 @@ test('processing outcome and publication outcome are recorded separately',()=>{
  assert.ok(ops.publications.length>=1);
 });
 
-test('nothing in the record claims live operation or service coverage',()=>{
+test('the record labels each run archive or live, and a live run is read, not refused',()=>{
  assert.equal(ops.mode,'historical_archive');
- assert.ok(ops.runs.every(r=>r.isHistorical));
  assert.throws(()=>parseOperations({...ops,mode:'live'}));
- assert.throws(()=>parseOperations({...ops,runs:[{...ops.runs[0],isHistorical:false}]}));
+ // Until 21 September 2026 a record with one live run was refused outright, so the served site's
+ // Operations view showed nothing from the day it was deployed. A live run is a run.
+ const withLive=parseOperations({...ops,runs:[{...ops.runs[0],runId:'live-1',mode:'live_collection',isHistorical:false},...ops.runs]});
+ assert.equal(withLive.runs[0].isHistorical,false);
+ assert.equal(withLive.runs.length,ops.runs.length+1);
  const text=JSON.stringify(ops).toLowerCase();
  assert.ok(!text.includes('scheduledcoverage'));
  assert.ok(!text.includes('punctual'));

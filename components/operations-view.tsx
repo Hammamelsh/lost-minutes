@@ -14,7 +14,8 @@ function StatusChip({status}:{status:string|null|undefined}){
 
 export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;servedSnapshotId?:string}){
  const {totals,freshness,servedSnapshot,recordedPublication}=ops;
- const unbalanced=ops.reconciliation.filter(r=>!r.balanced);
+ const unbalanced=ops.reconciliation.filter(r=>r.applicable!==false&&!r.balanced);
+ const unchecked=ops.reconciliation.filter(r=>r.applicable===false);
  const latestRun=ops.runs[0];
  // The page can only vouch for the file it actually loaded.
  const agreesWithPage=!servedSnapshotId||!servedSnapshot.snapshotId||servedSnapshotId===servedSnapshot.snapshotId;
@@ -109,14 +110,17 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
      <TableHead>Left</TableHead><TableHead>Right</TableHead><TableHead>Result</TableHead>
     </TableRow></TableHeader>
     <TableBody>{ops.reconciliation.map(r=><TableRow key={r.expression}>
-     <TableCell>{r.label}</TableCell>
+     <TableCell>{r.label}{r.applicable===false&&r.note&&<><br/><small className="ops-note">{r.note}</small></>}</TableCell>
      <TableCell className="mono small">{r.expression}</TableCell>
      <TableCell className="mono">{typeof r.left==='number'?n(r.left):shortId(r.left,14)}</TableCell>
      <TableCell className="mono">{typeof r.right==='number'?n(r.right):shortId(r.right,14)}</TableCell>
-     <TableCell><span className={`ops-chip ${r.balanced?'done':'bad'}`}>{r.balanced?'balanced':'UNBALANCED'}</span></TableCell>
+     <TableCell><span className={`ops-chip ${r.applicable===false?'idle':r.balanced?'done':'bad'}`}>
+      {r.applicable===false?'not checked here':r.balanced?'balanced':'UNBALANCED'}</span></TableCell>
     </TableRow>)}</TableBody></Table>
    {unbalanced.length>0&&<p className="ops-verdict bad"><AlertTriangle size={15}/> {unbalanced.length} check(s)
     did not balance. The published counts are not reconciled.</p>}
+   {unbalanced.length===0&&unchecked.length>0&&<p className="ops-verdict"><Info size={15}/> Every check this
+    warehouse can make balances; {unchecked.length} about the archive replay cannot be made here, and say so.</p>}
    {ops.rejections.length>0&&<div className="ops-rejections">
     <h4>Records refused, by reason</h4>
     <ul>{ops.rejections.map(r=><li key={r.reason}><strong>{n(r.count)}</strong> {r.reason.replaceAll('_',' ')}</li>)}</ul>

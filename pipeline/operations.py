@@ -177,6 +177,17 @@ def build_operations(con, replay_target=REPLAY_TARGET):
     ]
     for item in reconciliation:
         item['balanced'] = item['left'] == item['right']
+        item['applicable'] = True
+    # The last two identities are about the archive replay this warehouse published. A server
+    # that never ran the archive import serves a replay.json that arrived with a deploy, and has
+    # no publication of it to compare against: those two rows cannot be checked here, and saying
+    # UNBALANCED would claim a broken count where there is no count of ours to break.
+    if active is None and served['present']:
+        for item in reconciliation[3:]:
+            item['applicable'] = False
+            item['note'] = ('Not checked on this machine: the replay on disk was not published from '
+                            'this warehouse (no archive publication is recorded here; the file arrived '
+                            'with a deploy). Running the archive import here would make it checkable.')
 
     return {
         'schemaVersion': 1,

@@ -4,8 +4,55 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 21 September 2026 (the ride made to move, the road geometry the app had never built,
-and the map made answerable).
+Last updated: 21 September 2026, evening (the ride said before it is entered, the roads two failed
+batches never built, and four defects on the live site).
+
+**21 September, evening — deployed as `dbdf2e3`.** A short batch; the detail is in
+`docs/MILESTONE_2026-09-21_EVENING.md`.
+- **Before Ride along is pressed, one line says what the ride will be**: `Estimated movement`, or
+  `Reported positions · may pause`, or `Last report is old · may pause`, with `· Front view` only
+  where the street preview is there; the button's accessible name says the same. Inside the ride
+  the card keeps one label with the report's age. A correction over 150 m is drawn as a dashed
+  trace to the new report for six seconds and the card says "Moved N m to its latest report".
+- **Two of the nine shape-build batches of 20 September had failed after 24 patterns and were never
+  re-run**, so 36 named lines (192, 50, 52, 41, 53, 86, 203 among them) had no road at all while the
+  index looked complete and the claim "every line with a timetable and reports" stood for a day;
+  found by joining `pipeline_run` notes against `pattern_shape` rows. Built now under the unchanged
+  rule: 198 patterns routed, 70 accepted on 29 of 33 lines; the index holds **560 patterns on 171
+  lines, 184 accepted on 106**. On one served publication (17:13 UTC, 623 vehicles) the front view
+  goes from **97 (16%) to 191 (31%)**; estimated movement stays 14 (2%) by its second gate;
+  "placed, no road built" falls from 171 to 18. `scripts/coverage-breakdown.mjs` now counts every
+  refusal by its cause. `docs/COVERAGE.md` §4.
+- **Two buses under one finger** open a small chooser at the tap (pointer, touch, keyboard, flat
+  and tilted); **Explore a bus with the front view** on the home screen lists up to three buses
+  from the latest publication's own eligibility, saying which kind of ride each is; a stop whose
+  only candidates are on an unsettled branch no longer reads "no bus has a current report"; a
+  backlog of two reports is no longer drawn at double speed (timed from the report the bus was
+  drawn at; moving in 63% of frames, steps over a bus length 0.3 an hour).
+- **Four defects on the live site, none found by a local check:** the served Operations view had
+  shown "No pipeline record is published" since the first deploy (`parseOperations` refused any
+  record with a live run — a guard from the archive-only release; the local file passed); two
+  reconciliation rows about the archive replay read UNBALANCED on a server that never ran the
+  archive import (now "not checked here", with the reason); the 16:15 deploy had overwritten the
+  server's 02:45 nightly catalogue with this machine's 18 September copy (the catalogue is now the
+  server's own, excluded from deploys, sent only to a server with none); and the empty state
+  above.
+- **The route-15 snap of 187 m, reproduced from the raw captures**: BU25YWF reported the same
+  position twice, 19 s apart; motion-3 (`standingHold: 0`) carried the drawn bus 81–103 m past it
+  and snapped back 179 m, then forward 177 m. The candidate is the model's own `standingHold`;
+  its criteria were fixed in `docs/MOTION_MODEL.md` (82a3605) before any result, and it is not
+  scored yet (the restore of the day's captures was still running at deploy). Nothing is released
+  without the owner's agreement.
+- **Verified:** 264 browser checks passed, 24 skipped by design, none failing, in one 39-minute run
+  on the deployed commit (Chromium, SwiftShader, desktop and phone emulation; no physical phone);
+  194 Node, 131 Python, typecheck and lint. Served after deploy: RELEASE `dbdf2e3`, the page chunk
+  identical to the local build's, the 560-pattern index and a shape built that day, a browser
+  profile primed on the old release taking the new one on its first load, the offer line and the
+  explore entry on real data at both widths. `docs/PHYSICAL_DEVICE_CHECKLIST.md` lists what only a
+  phone in hand can answer.
+
+Before that, 21 September, afternoon (the ride made to move, the road geometry the app had never
+built, and the map made answerable).
 
 **21 September: why the bus jumped, why the front view was never offered, and why green dots did
 nothing.** Three reported faults, each traced to a cause and fixed, with the fleet's coverage

@@ -70,10 +70,15 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
      <div><dt>Recorded publication</dt><dd className="mono">{shortId(recordedPublication?.publicationId,22)}</dd></div>
      <div><dt>Journeys recorded</dt><dd>{n(recordedPublication?.journeyCount??0)}</dd></div>
     </dl>
-    <p className={servedSnapshot.matchesRecordedPublication?'ops-verdict ok':'ops-verdict bad'}>
+    {/* Three cases, not two: no archive publication recorded here is not a mismatch. A server
+        that never ran the archive import serves a replay that arrived with a deploy; that file is
+        not vouched for by this warehouse, and saying it "does not match" would invent a check. */}
+    <p className={servedSnapshot.matchesRecordedPublication?'ops-verdict ok':recordedPublication?'ops-verdict bad':'ops-verdict'}>
      {servedSnapshot.matchesRecordedPublication
       ? <><Check size={15}/> The file on disk matches the publication recorded in the warehouse, by hash and by id.</>
-      : <><ShieldAlert size={15}/> The file on disk does not match the last recorded publication. Treat the served data as unverified until the pipeline is run again.</>}
+      : recordedPublication
+      ? <><ShieldAlert size={15}/> The file on disk does not match the last recorded publication. Treat the served data as unverified until the pipeline is run again.</>
+      : <><Info size={15}/> No archive publication is recorded in this warehouse: the replay on disk arrived with a deploy and is not vouched for here. Running the archive import on this machine would make it checkable.</>}
     </p>
     {!agreesWithPage&&<p className="ops-verdict bad"><ShieldAlert size={15}/> This page loaded
      snapshot {shortId(servedSnapshotId,20)}, but Operations describes{' '}

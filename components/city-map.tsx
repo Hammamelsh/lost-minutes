@@ -126,6 +126,8 @@ export const RIDE_WORDS:Record<RideState,string>={off:'',entering:'going to the 
  exploring:'exploring the map',returning:'returning to the bus',paused:'paused: this bus started another journey'};
 /** Around a tap, how far a bus marker may be and still be the one meant: a finger's reach. */
 const TAP_MARGIN=14;
+/** How long a repositioning is traced on the map after it happens. */
+const SNAP_TRACE_MS=6000;
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
 const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model'];
 
@@ -388,7 +390,8 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
-  correction:last?{kind:last.kind,metres:last.metres,at:last.at}:null,
+  correction:last?{kind:last.kind,metres:last.metres,at:last.at,justNow:now-last.at<=8000,
+   standing:e.mode==='estimated'&&(e.speed??0)===0}:null,
   version:params.version};
 }
 
@@ -466,7 +469,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const rideKey=useRef('');
  const returnRef=useRef<(fast?:boolean,as?:'entering'|'returning')=>void>(()=>{});
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
- const loop=useRef({raf:null as number|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
+ const loop=useRef({raf:null as number|null,
+  // The last repositioning, traced on the map while it is recent.
+  snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean}|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
   frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,
   // How long the last few frames took, so a view that has become a slideshow can say so rather
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
@@ -944,6 +949,17 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // The button says on its face what it can do, so nothing is hidden behind pressing it; pressing
  // it gives the whole reason in the ride's notes. It is not marked `aria-disabled`, because it
  // does respond, and a stack of permanent notes over the map crowds out the ride card.
+ // What the ride will actually be, before it is entered, from the same facts the ride itself
+ // uses. Three things are told apart, never one badge: whether movement between reports is an
+ // estimate on a checked road (a qualified model) or the bus travelling between its own reports,
+ // which can pause; whether the latest report is old; and whether the street preview is there.
+ // The words are the app's own: "Reported positions" is what the preference already calls that
+ // mode, and "Front view" is what the button in the ride is called.
+ const rideOffer=!selected?null
+  :selected.freshness==='stale'?{motion:'Last report is old · may pause',front:false}
+  :!blocked?{motion:'Estimated movement',front:frontState==='ready'}
+  :{motion:'Reported positions · may pause',front:frontState==='ready'};
+ const offerWords=rideOffer?`${rideOffer.motion}${rideOffer.front?' · Front view':''}`:'';
  const camera=view==='ride'&&cameraWish==='front'&&!frontReason?'front':'outside';
  const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
 
@@ -982,9 +998,15 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // With no accepted road geometry the bus travels between its own reports rather than jumping
   // (GLIDE): movement without prediction. "Reported positions only" means exactly that — the
   // newest report and nothing between — so the history is withheld and the travel does not start.
+  const before=visualRef.current;
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile),
    input.replay?input.history:null);
   visualRef.current=v;estimateRef.current=e;
+  // A snap is a repositioning, and it is shown as one: a trace from where the bus was drawn to
+  // where its latest report put it, for a few seconds, rather than a teleport with no account.
+  if(v.lastCorrection?.kind==='snap'&&v.lastCorrection.at!==state.snap?.at&&before)
+   state.snap={at:v.lastCorrection.at,from:[before.lon,before.lat],to:[v.lon,v.lat],metres:v.lastCorrection.metres,
+    standing:e.mode==='estimated'&&(e.speed??0)===0};
   const t=performance.now();
   // Frame intervals, over about the last second and a half of continuous animation. A gap longer
   // than a second is the loop having rested (a standing bus costs no frames) and starts a fresh
@@ -1006,6 +1028,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    const fixes=input.history.fixes,last=fixes[fixes.length-1];
    const features:object[]=fixes.map(fix=>({type:'Feature',geometry:{type:'Point',coordinates:[fix.lon,fix.lat]},
     properties:{kind:'report',latest:fix===last?1:0}}));
+   if(state.snap&&now-state.snap.at<SNAP_TRACE_MS)
+    features.push({type:'Feature',geometry:{type:'LineString',coordinates:[state.snap.from,state.snap.to]},properties:{kind:'snap'}});
    if(e.mode==='estimated'&&input.track&&v.s!==null){
     const from=project(input.track,e.basis,v.s).s;
     if(Math.abs(v.s-from)>2)features.push(lineFeature(slice(input.track,from,v.s),'estimate'));
@@ -1512,8 +1536,13 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     {selected&&<span className="legend-bus">{busLabel}</span>}
    </div>
    {selected&&<button className="ride-launch" ref={launchRef} onClick={startRide}
-     aria-label={`Ride along with route ${selected.route}`}>
+     aria-label={`Ride along with route ${selected.route}${offerWords?`: ${offerWords.replace(/ · /g,', ')}`:''}`}
+     data-offer={offerWords||undefined}>
     <span className="ride-launch-route">{selected.route}</span>Ride along</button>}
+   {/* What the ride will be, in one quiet line under the row: the same facts the ride uses, so
+       nobody enters expecting prediction on a service that has none, or a front view that is not
+       there. Three things told apart, never one badge. */}
+   {selected&&offerWords&&<p className="ride-offer" data-offer={offerWords}>{offerWords}</p>}
   </div>}
 
   {view==='ride'&&<div className="ride-hud" role="region" aria-label="Ride-along" ref={hudRef} tabIndex={-1}>

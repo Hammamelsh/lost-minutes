@@ -90,6 +90,11 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   {id:'lm-trail-band',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'band'],
    layout:{'line-cap':'round','line-join':'round'},
    paint:{'line-color':'#c6f36a','line-opacity':0.28,'line-width':['interpolate',['linear'],['zoom'],13,7,18,22]}},
+  // A repositioning, traced for a few seconds: from where the bus was drawn to where its latest
+  // report put it. Ink, dashed and heavier than the estimate's line, so it reads as a correction.
+  {id:'lm-trail-snap',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'snap'],
+   layout:{'line-cap':'round'},
+   paint:{'line-color':o.ink,'line-opacity':0.8,'line-width':['interpolate',['linear'],['zoom'],13,2.2,18,4.5],'line-dasharray':[0.6,1.4]}},
   {id:'lm-trail-estimate',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'estimate'],
    layout:{'line-cap':'round','line-join':'round'},
    paint:{'line-color':o.ink,'line-width':['interpolate',['linear'],['zoom'],13,1.6,18,3.4],'line-dasharray':[1.2,1.2]}},

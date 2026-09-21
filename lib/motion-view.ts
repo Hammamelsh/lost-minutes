@@ -199,7 +199,7 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
   *  moving in this frame. Off under "reported positions only", or with a single report. */
  travels?:boolean;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
- correction:{kind:string;metres:number;at:number}|null;version:string};
+ correction:{kind:string;metres:number;at:number;justNow?:boolean;standing?:boolean}|null;version:string};
 
 const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds/60)} min`;
 
@@ -216,10 +216,8 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // on route 263 the road is checked and what is withheld is the evaluation, and a fixed clause
   // about geometry was false there. Nothing here is a guess about where the bus is now.
   const cycle=info.travels
-   ?' It is drawn travelling from one of its own reports to the next, at the speed those two reports imply, '
-    +'and then waits at the newest until another arrives — always between two positions it really reported, '
-    +'never ahead of the newest. It is not tracked continuously, and the straight line between two reports is '
-    +'not the road it took.'
+   ?' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
+    +'little behind, never ahead, and may pause. The line between two reports is not its road.'
    :'';
   if(info.between)return {label:`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};

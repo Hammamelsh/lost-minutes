@@ -551,6 +551,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
   </div>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
+  {motionInfo?.correction?.kind==='snap'&&motionInfo.correction.justNow&&<p className="ride-status-line warn" data-snap>
+   Moved {Math.round(motionInfo.correction.metres)} m to its latest report{motionInfo.correction.standing?' · it had stopped':''}</p>}
   {activityAdds&&activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&relevant&&<p className={`ride-progress tone-${prog.tone}`}>{prog.text}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}

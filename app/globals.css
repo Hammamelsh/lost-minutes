@@ -628,6 +628,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 /* The viewpoint switch: front of the upper deck, or outside the bus. */
 /* A front view that cannot be given says so on the button, and steps back visually rather than
    sitting there looking ready. It stays pressable: pressing it explains, and nothing else changes. */
+/* What the ride will be: one quiet line across the map's foot, under the legend and the button. */
+.vector-map-foot{flex-wrap:wrap}
+.ride-offer{flex:0 0 auto;margin:4px 0 0 auto;padding:3px 10px;border-radius:999px;font-size:11.5px;line-height:1.3;
+ font-weight:600;letter-spacing:.1px;color:#e6eff3;background:rgba(11,23,32,.74);
+ border:1px solid rgba(230,239,243,.14);backdrop-filter:blur(2px)}
+.vector-map.theme-day .ride-offer{color:#1e2b33;background:rgba(251,246,234,.82);border-color:rgba(30,43,51,.16)}
 .ride-camera.unavailable{opacity:.62;border-style:dashed}
 .ride-camera.unavailable:hover{opacity:.8}
 .ride-camera{align-self:flex-start;min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;

@@ -155,6 +155,14 @@ have one answer on that screen or on the button that offers the action.
 `docs/PHYSICAL_DEVICE_CHECKLIST.md`: every item unchecked on a phone. Emulation says nothing
 about a real GPU's frame rate, battery, sunlight legibility or a real GPS fix.
 
-## 6. Route 263 and the standing hold (filled when the evaluation has run)
+## 6. Route 263 and the standing hold
 
-_Criteria: `docs/MOTION_MODEL.md`, fixed in 82a3605 before any result._
+Criteria fixed in `docs/MOTION_MODEL.md` (82a3605) before any result; the results and tables are
+there. In short: **no `standingHold` value qualifies** — every one raises corrections over 150 m
+(9.9–12.1% against 8.8–10.3%), because holding a standing bus trades the backward snap for a
+forward one when it moves off; motion-3 stays, the faulty forward prediction in that case remains,
+and the new dashed trace and card line explain the correction without removing it. The smallest
+safe withholding is an abstention while the bus's own reports show it standing (backlog 10).
+**Route 263 is not released** in either direction: 45–46% better than the last report at the
+median, but more snaps than the same-day corridor (10.0% and 9.4% against 8.8%), inbound 10.8%
+worse at p80, outbound 0.2 points short on one band. It keeps the front view.

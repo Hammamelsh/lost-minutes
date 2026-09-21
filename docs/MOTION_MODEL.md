@@ -233,6 +233,48 @@ written here and put to the owner; rule 5 says the owner agrees before anything 
 so nothing is released in the milestone that ran the evaluation. If none qualifies, the reason is
 recorded (evidence, matching, geometry or the model) and motion-3 stays.
 
+### Result, 21 September 2026, evening: no hold value qualifies
+
+Scored exactly as fixed above, on Monday 14 September (86 journeys, 6,745 reports, the set that
+scored motion-3 on the day) and Monday 21 September 12:00–16:55 UTC (109 journeys, 16,205 reports,
+restored from the server's raw captures into a scratch warehouse), nothing refitted. The 14
+September rerun reproduces that day's published figures to the decimal (median 62.7 m, snaps
+10.3%, same params hash), so the two runs are comparable.
+
+| candidate | day | median ≤60 s | mean | pull-backs >35 m | forward >35 m | snaps >150 m | verdict |
+|---|---|---|---|---|---|---|---|
+| motion-3 (frozen) | 14 Sep | 62.7 m | 87.7 m | 25.2% | 36.5% | 10.3% | — |
+| standingHold 15 s | 14 Sep | 61.6 m | 86.6 m | 25.6% | 38.1% | **11.1%** | fails: pull-backs and snaps more often |
+| standingHold 20 s | 14 Sep | 61.8 m | 86.7 m | 24.2% | 39.2% | **11.2%** | fails: snaps more often |
+| standingHold 30 s | 14 Sep | 62.6 m | 87.4 m | 21.4% | 40.8% | **12.1%** | fails: snaps more often |
+| motion-3 (frozen) | 21 Sep | 59.2 m | 82.6 m | 26.2% | 33.8% | 8.8% | — |
+| standingHold 15 s | 21 Sep | 58.1 m | 81.7 m | 26.8% | 35.7% | **9.9%** | fails: pull-backs and snaps more often |
+| standingHold 20 s | 21 Sep | 58.4 m | 81.8 m | 25.3% | 36.8% | **10.1%** | fails: snaps more often |
+| standingHold 30 s | 21 Sep | 59.0 m | 82.8 m | 22.4% | 38.6% | **10.9%** | fails: not better overall; snaps more often |
+
+Per age bin up to 60 s every candidate stays within 5% of motion-3's median and p80 and keeps
+band coverage between 75% and 85%; abstention is identical (the hold changes no eligibility).
+What fails is the criterion the fault itself named: **corrections over 150 m do not fall, they
+rise**. Holding a standing bus removes the backward snap when the estimate had rolled past it,
+and adds a forward snap when the bus moves off and the held estimate is now behind it; the
+longer the hold, the more of them (12.1% at 30 s). The reproduction of 21 September showed both
+jumps around one stop — the hold trades the first for more of the second. **motion-3 stays.**
+
+Two things are kept apart. The *prediction* in the affected case is wrong in the same way as
+before: a bus its own reports show standing is estimated as moving, for up to 75 s of speed
+window. The *presentation* of the correction is new since d1cf253: when the estimate is put right
+by more than 150 m the map draws a dashed trace from where the bus was drawn to its report for six
+seconds and the card says "Moved N m to its latest report · it had stopped"; that explains the
+jump, it does not remove it.
+
+**The smallest safe way to withhold the faulty prediction** (backlog item 10, not done — the
+owner decides): when `speed.standingNow` is true and no hold is configured, `estimate()` returns
+the last report in observed mode with the reason "its last reports show it standing". The bus is
+then drawn as every observed bus is — travelling between its own reports, labelled "Reported
+positions", never ahead of the newest — and the estimate resumes at the first report that shows
+movement, about one report (20 s) late. That is an abstention the evaluator already counts, a
+one-clause change plus a Node test and `motion.spec`'s standing check, and no threshold moves.
+
 ## Route 263: scoring the frozen model where it has never run
 
 Route 263's road geometry was accepted in both directions on 21 September (10,328 and 11,573
@@ -251,3 +293,20 @@ refitted and these criteria fixed first:
 - **Separate from arrival minutes:** `docs/ARRIVAL_RELEASE_CRITERIA.md` is untouched; releasing
   movement on 263 releases no arrival estimate.
 
+### Result, 21 September 2026, evening: not released in either direction
+
+Scored on every 263 journey the scratch warehouse holds (13–21 September; inbound 148 journeys,
+18,900 reports, 46,406 cases up to a minute; outbound 150, 19,591, 48,861), comparators on the
+same moments:
+
+| direction | median ≤60 s (last report) | p80 (corridor 21 Sep 134.9 m) | band coverage per bin | snaps (corridor 8.8%) | missed |
+|---|---|---|---|---|---|
+| inbound | 69.8 m (127.1 m, 45% better) | **149.5 m, 10.8% worse** | 79/78/78/80/78% | **10.0%** | p80; snaps |
+| outbound | 63.3 m (118.2 m, 46% better) | 143.9 m, 6.7% worse | **74.8**/80/80/81/80% | **9.4%** | ≤10 s band by 0.2 points; snaps |
+
+The model is as much better than the last report on 263 as on the corridor, and constant speed
+is worse than it in both directions (77.6 and 71.0 m). What it misses is the corridor's own
+correction rate, by 0.6–1.2 points, and inbound the corridor's p80 by 0.8 points over the
+allowance. Against the 14 September corridor figures (p80 143.5 m, snaps 10.3%) both directions
+would pass; the same-day comparator is the fair one and is the one used. Route 263 keeps the
+front view and travels between its reports; no arrival estimate is touched.

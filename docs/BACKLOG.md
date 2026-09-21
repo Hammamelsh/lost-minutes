@@ -44,6 +44,32 @@ splitting per route, or serving a compact binary, once there is real traffic to 
 Contrast pairs were checked and touch targets are 44px, but no screen-reader pass, keyboard
 trap audit or reduced-motion review against a formal checklist has been done.
 
+## 10. Withhold the estimate while a bus's own reports show it standing — owner's decision
+Reproduced on 21 September 2026: motion-3 (`standingHold: 0`) carried a standing route-15 bus
+81–103 m past its report and snapped back 179 m, then forward 177 m. The `standingHold`
+candidates (15/20/30 s) were scored against the fixed criteria in `docs/MOTION_MODEL.md` and do
+not qualify (fewer backward snaps, more forward ones). The smallest safe change is an
+*abstention*, not a model: when `speed.standingNow` is true (`lib/motion.ts`) and no hold is
+configured, return the last report in observed mode with the reason "its last reports show it
+standing", so the bus travels between its reports as any observed bus does and the estimate
+resumes at the first moving report. Cost: one report's delay (about 20 s) after a stand. It is a
+one-clause change plus a Node test and `motion.spec`'s standing check; measured with
+`scripts/evaluate-frozen.mjs` it would count as abstention. Not done: the owner decides.
+
+## 11. Run the archive import on the server once
+The Operations view's two archive-replay rows read "not checked here" because the server never
+published the replay it serves. One `pipeline.run import` with the collector paused (the refresh
+unit's pattern) would make them checkable. Needs the 11-snapshot download on the server.
+
+## 12. Small operational follow-ups from 21 September
+- `pipeline.shapes build`: record the lines requested in the run note and the index, and flush
+  the per-pattern log line (`print(..., flush=True)`), so a batch that fails part-way is visible.
+- `deploy/publish.sh` and the refresh: print the served catalogue's `generatedAt` and service
+  count beside the local one's after each.
+- "reports too far from the routed road" is now the largest geometry gap (121 vehicles on one
+  publication, BNSM 192's main patterns at 100–120 m): a per-line look at whether the router's
+  road or the matcher's reports are wrong.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

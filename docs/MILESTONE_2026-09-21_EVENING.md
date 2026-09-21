@@ -144,8 +144,11 @@ have one answer on that screen or on the button that offers the action.
   2 about the archive replay cannot be made here, and say so", with the two rows chipped "not
   checked here". The card above it still said "The file on disk does not match the last recorded
   publication. Treat the served data as unverified" from the same absent premise; that verdict is
-  now three-way (matches / does not match / no archive publication recorded here), a wording
-  follow-up deployed after the batch's suite (commit named in the closing note).
+  now three-way (matches / does not match / no archive publication recorded here): commit
+  `917361d`, checked by `navigation.spec` (18) on its build and deployed as RELEASE `917361d`
+  (served page chunk `page-b017d705fcb3c4af.js`, the local build's). The live view then read "No
+  archive publication is recorded in this warehouse: the replay on disk arrived with a deploy and
+  is not vouched for here", and the primed profile took that release on its first load too.
 
 ## 5. Limitations and the physical-device checklist
 

@@ -583,14 +583,19 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   if (previous.basisAt === e.basis.at) return running ? {...glideAt(settled, running, now), glide: running} : settled;
   const gap = metres(previous, e);
   if (gap < GLIDE.minMetres || gap > GLIDE.maxMetres) return settled;
-  // How long the bus took to make this move, by its own two timestamps: that is how long the
-  // drawing takes to show it. A report that follows another very closely still gets a visible
-  // step rather than an instant one.
+  // How long the bus took to make this move, by its own timestamps: from the report it was drawn
+  // at to the one that has arrived. Two reports landing in one publication are one move over both
+  // their intervals, not two gaps travelled in one gap's time; until 21 September 2026 the span
+  // was taken between the newest two reports only, and a backlog was drawn at double speed. A
+  // glide cut short by a newer report is timed from the report it was heading for, so the
+  // remainder and the new gap share one interval: a little fast, and bounded below. A report that
+  // follows another very closely still gets a visible step rather than an instant one.
   // Without the reports there is nothing to take the time from, and nothing to travel between:
   // that is what "reported positions only" asks for, and it is left exactly as it was.
   const fixes = history?.fixes;
   if (!fixes || fixes.length < 2) return settled;
-  const span = e.basis.at - fixes[fixes.length - 2].at;
+  const from = previous.basisAt > 0 && previous.basisAt < e.basis.at ? previous.basisAt : fixes[fixes.length - 2].at;
+  const span = e.basis.at - from;
   if (span <= 0 || span > GLIDE.maxMs) return settled;
   const ms = Math.max(GLIDE.minMs, Math.min(GLIDE.maxMs, span));
   const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms};

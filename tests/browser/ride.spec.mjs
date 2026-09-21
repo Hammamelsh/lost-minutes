@@ -72,6 +72,18 @@ async function openAtStopA(page, live = {}, motion = {}) {
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
 }
+/** The fit's camera at rest: neither the camera nor where the stop and the bus are drawn changes
+ *  between two looks half a second apart (the idiom of selection.spec's settledMap). */
+async function fitSettled(page) {
+  let last;
+  await expect.poll(async () => {
+    const now = await map(page).evaluate(el => `${el.getAttribute('data-camera')}|${el.getAttribute('data-stop-screen')}|${el.getAttribute('data-bus-screen')}`);
+    const still = now === last;
+    last = now;
+    return still;
+  }, {intervals: [500], timeout: 15_000, message: 'the fitted camera comes to rest'}).toBe(true);
+  await page.waitForTimeout(300);
+}
 async function dragMap(page, dx, dy) {
   const box = await page.locator('.vector-map-canvas').boundingBox();
   const x = box.x + box.width * 0.55, y = box.y + box.height * 0.5;
@@ -359,7 +371,12 @@ test('before riding, a fitted map keeps your stop, its name and your bus clear o
   for (const theme of ['day', 'night']) {
     if (theme === 'night') await page.getByRole('button', {name: 'Switch to the night map'}).click();
     await page.getByRole('button', {name: 'Fit journey'}).click();
-    await page.waitForTimeout(1200);
+    // Measure the *settled* fit. A fixed 1.2 s read the stop's position while the 500 ms glide
+    // was still running under SwiftShader, later still after the night repaint, and reported the
+    // stop under the chip when the settled layout was 24 px clear (21 September 2026: failed twice
+    // on one build, passed once; the trace's last frame was clear). The requirement is unchanged —
+    // the fitted layout must keep the stop, its name and the bus clear — it is now read at rest.
+    await fitSettled(page);
     const seen = await map(page).evaluate(el => {
       const canvas = el.querySelector('.vector-map-canvas').getBoundingClientRect();
       const point = name => { const raw = el.getAttribute(name); if (!raw) return null; const [x, y] = raw.split(',').map(Number); return {x: canvas.left + x, y: canvas.top + y}; };
@@ -369,7 +386,14 @@ test('before riding, a fitted map keeps your stop, its name and your bus clear o
       const clear = (p, w, h) => controls.filter(c => p.x - w < c.r.right && p.x + w > c.r.left && p.y - h < c.r.bottom && p.y + h > c.r.top).map(c => c.name);
       const inside = p => p.x >= canvas.left && p.x <= canvas.right && p.y >= canvas.top && p.y <= canvas.bottom;
       const stop = point('data-stop-screen'), bus = point('data-bus-screen');
-      return {stop: stop && {inside: inside(stop), under: clear(stop, 60, 36)}, bus: bus && {inside: inside(bus), under: clear(bus, 26, 30)}};
+      // The numbers travel with the verdict, so a failure says where things were, not only that they met.
+      const at = p => p && [Math.round(p.x), Math.round(p.y)];
+      const chip = el.querySelector('.ride-launch')?.getBoundingClientRect();
+      return {stop: stop && {inside: inside(stop), under: clear(stop, 60, 36), at: at(stop)},
+              bus: bus && {inside: inside(bus), under: clear(bus, 26, 30), at: at(bus)},
+              chip: chip && [Math.round(chip.left), Math.round(chip.top), Math.round(chip.right), Math.round(chip.bottom)],
+              canvas: [Math.round(canvas.left), Math.round(canvas.top), Math.round(canvas.right), Math.round(canvas.bottom)],
+              zoom: el.getAttribute('data-camera')?.split(',')[0]};
     });
     expect(seen.stop?.inside && seen.stop.under.length === 0, `${theme}: your stop and its name are clear (${JSON.stringify(seen)})`).toBe(true);
     expect(seen.bus?.inside && seen.bus.under.length === 0, `${theme}: your bus is clear (${JSON.stringify(seen)})`).toBe(true);

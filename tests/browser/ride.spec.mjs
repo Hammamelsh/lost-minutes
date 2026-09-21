@@ -265,7 +265,11 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(600);
   await expectIdentifiable(page, 'observed-only bus, following');
-  await expect(page.locator('.ride-motion')).toContainText('Last reported position');
+  // Its wording changed on 21 September 2026: a bus with no checked road is now drawn moving
+  // between two of its own reports, so the card states the age of what is shown and says plainly
+  // that it is neither estimated nor followed continuously.
+  await expect(page.locator('.ride-motion')).toContainText(/moving between its reports|Last reported position/);
+  await expect(page.locator('.ride-motion')).not.toContainText('Estimated position');
   const before = await camera(page);
   await page.waitForTimeout(12_000);           // a new report: the camera goes to it
   const after = await camera(page);
@@ -498,11 +502,13 @@ test('front view needs a road checked against the bus’s own reports: without o
   await expect(page.locator('.bus-card .route-badge')).toHaveText('53');
   await page.getByRole('button', {name: 'Ride along with route 53'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
-  const front = page.getByRole('button', {name: 'Front view'});
-  await expect(front).toHaveAttribute('aria-disabled', 'true');
-  // aria-disabled, not disabled: it stays focusable and a tap explains itself. Playwright will not
-  // click what is marked disabled, so the tap is forced.
-  await front.click({force: true});
+  // Until 21 September 2026 this button was marked aria-disabled and said only "Front view", so a
+  // passenger learned it could not be used by pressing it. It now names the reason on its face and
+  // stays pressable, which is why the check is on the label first and the press second.
+  const front = page.getByRole('button', {name: /Front view/});
+  await expect(front).toHaveClass(/unavailable/);
+  await expect(front, 'the reason is on the button, before it is pressed').toContainText(/not on this route|not here yet|checking/);
+  await front.click();
   await expect(page.locator('.ride-note', {hasText: 'Front view needs the road this bus is on'})).toBeVisible();
   await expect(map(page)).toHaveAttribute('data-ride-camera', 'outside');
   await expect(page.locator('.bus-card .route-badge'), 'the selected bus is not changed').toHaveText('53');

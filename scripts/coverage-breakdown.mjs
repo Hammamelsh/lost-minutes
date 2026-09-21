@@ -72,6 +72,23 @@ console.log(JSON.stringify({
   unsettledBranchWithEveryCandidateAccepted: pc(tally.sharedRoadCandidate ?? 0),
  },
  refusedAndWhy: Object.fromEntries(Object.entries(refusal).sort((a, b) => b[1] - a[1])),
+ // Three different things, and the difference decides what could be done about each:
+ //   missingCoverage   we have not built or accepted a road for a pattern we did place the bus on,
+ //                     or hold no timetable for its route at all. Ours to close, by routing more
+ //                     patterns or collecting until a variant has reports to check a road against.
+ //   genuineUncertainty two or more patterns fit the position equally well, or the bus is not near
+ //                     the road we hold. Not a gap in our data: the evidence does not say.
+ //   notRunning        the timetable is held but nothing runs in that direction today.
+ whyTheRestHaveNoFrontView: (() => {
+  const by = {missingCoverage: 0, genuineUncertainty: 0, notRunning: 0};
+  for (const [reason, n] of Object.entries(refusal)) {
+   if (reason.startsWith('geometry_built_but_rejected') || reason === 'no_geometry_built_for_this_pattern'
+       || reason === 'no_pattern_for_route' || reason === 'no_pattern_for_operator') by.missingCoverage += n;
+   else if (reason === 'ambiguous_branch' || reason === 'too_far_from_pattern') by.genuineUncertainty += n;
+   else by.notRunning += n;
+  }
+  return Object.fromEntries(Object.entries(by).map(([k, n]) => [k, pc(n)]));
+ })(),
  shapeIndex: {patterns: Object.keys(shapes).length, accepted: accepted.size},
  servicesWithNoGeometry: rows.filter(r => r.placed > 0 && r.withGeometry === 0).slice(0, 15)
   .map(r => `${r.key}: ${r.reporting} reporting, ${r.placed} placed, no accepted road`),

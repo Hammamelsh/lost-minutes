@@ -81,6 +81,12 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
   await page.goto('/');
   await waitForPaint(page, {note: `page errors: ${errors.join(' | ') || 'none'}`});
+  // Since 21 September 2026 the home screen suggests nothing of its own accord, so the route to
+  // watch is chosen here as a passenger would choose it. What this test is about — the drawing,
+  // its corrections and the camera — is unchanged.
+  const routeSelect = page.locator('#follow-route');
+  await expect(routeSelect).toBeVisible({timeout: 20_000});
+  await routeSelect.selectOption('BNML|256');
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 25_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();

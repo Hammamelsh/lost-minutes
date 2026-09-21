@@ -10,7 +10,7 @@ import {accuracyRing} from '@/lib/geo';
 import {BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
-import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
+import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,observedBetween,pointAt,project,slice,stepVisual,tickClock,turnToward,
         type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
@@ -379,6 +379,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
  return {mode:e.mode,reason:e.reason,reportAge:Math.round(e.reportAge),capped:e.capped,horizon:params.horizon,
+  between:e.between===true,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
@@ -389,7 +390,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
 // While these are the reason, the bus is shown at its report only until they load.
 const CHECKING='checking whether its movement can be estimated',LOADING='loading its road geometry';
 
-type Inputs={ready:boolean;paused:boolean;selected?:FollowBus;selectionKind?:SelectionKind;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;
+type Inputs={ready:boolean;paused:boolean;selected?:FollowBus;selectionKind?:SelectionKind;history:History|null;track:Track|null;blocked:string|null;provisional:boolean;replay:boolean;
  params:MotionParams;profile:ErrorProfile|null;clockOffsetMs:number;view:MapView;follow:boolean;
  model:BusModel|null;modelShown:boolean;here?:Here|null;stop?:Stop|null;walk:Props['walk'];
  onMotion?:(info:MotionInfo|null)=>void};
@@ -921,7 +922,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const frontFallback=view==='ride'&&cameraWish==='front'&&frontReason?frontReason:null;
 
  // --- the presentation clock -------------------------------------------------------------
- const inputs=useRef<Inputs>({ready:false,paused:false,history:null,track:null,blocked:null,provisional:false,params:DEFAULT_PARAMS,
+ const inputs=useRef<Inputs>({ready:false,paused:false,history:null,track:null,blocked:null,provisional:false,replay:true,params:DEFAULT_PARAMS,
   profile:null,clockOffsetMs:0,view:'2d',follow:false,model:null,modelShown:false,walk:null});
  const frame=useCallback(function tick(){
   const state=loop.current;
@@ -950,7 +951,12 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
   const now=state.clock.now;
-  const e=input.blocked||!input.track?observedAt(input.history,now,input.blocked??'no road geometry',input.provisional)
+  // With no accepted road geometry the bus is drawn between its own reports (observedBetween),
+  // which is movement without prediction. "Reported positions only" means exactly that: the
+  // newest report and nothing between, so that mode is left as it was.
+  const e=input.blocked||!input.track
+   ?(input.replay?observedBetween(input.history,now,input.blocked??'no road geometry',input.provisional)
+     :observedAt(input.history,now,input.blocked??'no road geometry',input.provisional))
    :estimate(input.history,input.track,now,input.params);
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile));
   visualRef.current=v;estimateRef.current=e;
@@ -1071,6 +1077,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  useEffect(()=>{if(!paused)visualRef.current=null},[paused]);
  useEffect(()=>{
   inputs.current={ready,paused,selected,selectionKind,history,track:trackFor?.track??null,blocked,provisional,
+   replay:motion?.enabled!==false,
    params:motionModel?.params??DEFAULT_PARAMS,profile:motionModel?.profile??null,clockOffsetMs,
    view,follow,model,modelShown,here,stop,walk,onMotion};
   kick();

@@ -193,6 +193,8 @@ export function loadMotionModel(url='/data/motion-evaluation.json'):Promise<Moti
 
 /** What the map's clock reports to the page, a few times a minute rather than every frame. */
 export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:number;capped:boolean;horizon:number;
+ /** Observed, and drawn between two of its own reports rather than at the newest. */
+ between?:boolean;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
  correction:{kind:string;metres:number;at:number}|null;version:string};
 
@@ -204,6 +206,15 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // When an estimate is withdrawn the drawn bus goes back to the report, and says how far.
   const moved=info.correction?.kind==='snap'&&info.correction.metres>=5
    ?` The drawn bus moved ${Math.round(info.correction.metres)} m to that report.`:'';
+  // Drawn between two of its own reports: the honest number is the age of what is shown, which is
+  // older than the newest report, never newer. The wording has to keep three things clear — that
+  // this is not live tracking, that the line between two reports is not the road the bus took,
+  // and that nothing here is a guess about where it is now.
+  if(info.between)return {label:`Where it was ${ageWords(info.reportAge)} ago · moving between its reports`,
+   detail:`This service has no road geometry we have checked (${info.reason}), so the bus is not estimated. `
+    +'It is drawn moving from one of its own reports to the next, which keeps it about that far behind and '
+    +'never ahead of what is known. It is not followed continuously, and the line between two reports is '
+    +`not the road it took.${moved}`};
   return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${moved}`};
  }
  const parts=[info.speedKmh?`moving about ${info.speedKmh} km/h by its recent reports${info.eased?', eased off as the report ages':''}`

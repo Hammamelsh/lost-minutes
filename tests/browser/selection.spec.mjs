@@ -549,7 +549,7 @@ test('tapping another bus on the map chooses it, and it stays chosen', async ({p
 // Found on the real feed: with no route chosen the page offered the route of the latest report,
 // re-taken at every publication, so the list and its suggestion jumped whenever another route
 // reported last, and a bus followed from it was left under a list of another route.
-test('with no route chosen, the route offered and its suggestion stay put while two routes take turns to report last', async ({page}) => {
+test('the route being browsed and its suggestion stay put while two routes take turns to report last', async ({page}) => {
   test.setTimeout(120_000);
   // Route 256 (FX-ALPHA, FX-BRAVO) and route 53 (FX-ATSTOP) take turns to hold the newest report.
   const turn = newest => () => {
@@ -567,7 +567,13 @@ test('with no route chosen, the route offered and its suggestion stay put while 
   await serveLive(page, [() => phases[feed.phase]()]);
   await page.goto('/');
   await waitForPaint(page);
+  // Since 21 September 2026 nothing is suggested until the passenger points at something: the home
+  // screen no longer offers the latest report anywhere in Manchester. Choosing the route is that
+  // pointing, and from then on the requirement is unchanged — neither the route nor its suggestion
+  // may follow whichever bus reported last.
   const routeSelect = page.locator('#follow-route');
+  await expect(page.locator('article.bus-card'), 'nothing is chosen before the passenger chooses').toHaveCount(0);
+  await routeSelect.selectOption('BNML|256');
   await expect(routeSelect).toHaveValue('BNML|256', {timeout: 15_000});
   await expect.poll(() => cardVehicle(page), {timeout: 15_000}).toBe(ALPHA.id);
   await expect(card(page)).toHaveAttribute('data-selection', 'suggested');

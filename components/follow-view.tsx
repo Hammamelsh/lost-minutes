@@ -260,7 +260,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // route they picked, or one of their saved routes. Until 20 September 2026 the home screen
  // suggested the latest report anywhere in Manchester — a 43 to the airport to someone who had
  // opened the page to find their own stop — which is an answer to a question nobody asked.
- const routeIsTheirs=Boolean(choice)||favourites.some(f=>`${f.operator}|${f.route}`===route);
+ // In a recording the whole point is to watch a journey, and the route comes from the replay's own
+ // controls, so one is shown there as before.
+ const routeIsTheirs=mode==='archive'||Boolean(choice)||favourites.some(f=>`${f.operator}|${f.route}`===route);
  const candidates=useMemo(()=>stop?(board?.coming.map(row=>row.bus)??[]):routeIsTheirs?onRoute:[],
   [stop,board,onRoute,routeIsTheirs]);
  const nextSuggested=keepSuggestion(suggested,candidates);

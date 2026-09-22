@@ -88,15 +88,25 @@ live board. Needs an account and its `app_id`/`app_key` on the server (never in 
 server-side cache and a bounded budget. Pricing above the free tier could not be verified (the
 plans page 404s). Owner's decision.
 
-## 16. A bottom sheet on the phone
-Evaluated, not built: the sticky map with the panel scrolling beneath it already behaves as one;
-a true sheet (drag handle, snap points, the map's controls kept clear) is a rebuild of the phone
-layout and its checks.
+## 16. A bottom sheet on the phone — **built on 22 September 2026**
+Done: three heights (handle, half, nearly full), a drag and a button, the map's controls kept
+clear, and the handle as the panel's title. `docs/MILESTONE_2026-09-22_WORKSPACE.md`.
 
 ## 17. Score movement per route on the server, nightly
 As the arrival evaluation already runs nightly on the server's snapshot, score the frozen motion
 model per route on its own captures against the fixed criteria, and publish the result the page
 gates on. Coverage would then keep itself current instead of waiting for a manual export.
+
+## 18. Every bus on the map with no stop chosen
+The home map draws the buses of the route being browsed, so the map and the list say the same
+thing. A newcomer might rather see the whole fleet moving, which is the strongest thing this
+project has to show. It needs a rule for what the panel then lists, a measurement of the cost of
+drawing 400–600 markers on a phone, and a way to keep tapping a bus meaningful. Not started.
+
+## 19. A type scale in rem, so a browser's larger-text setting works
+The interface's type is in pixels, so a reader who enlarges text in their browser's settings gets
+nothing; only page zoom works. Moving the scale to rem touches every component and needs its own
+pass at every viewport. Not started.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

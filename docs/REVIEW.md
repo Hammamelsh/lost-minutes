@@ -91,3 +91,19 @@ bus data and road geometry are included, so running the UI requires no BODS key.
 Sources: retained raw ZIPs and source files; exact checks in research/review-checks.json.
 Next.js static export: https://nextjs.org/docs/app/guides/static-exports
 Claude Code in VS Code: https://code.claude.com/docs/en/vs-code
+
+## A house rule for checking what the canvas draws (22 September 2026)
+
+When a question about the map cannot be answered from the DOM, the page publishes the smallest
+diagnostic that answers it, as a `data-*` attribute on the map's root, and the checks and probes
+read it. This is how `data-bus-points`, `data-bus-screen`, `data-ride`, `data-frame-ms`,
+`data-display` and, since this milestone, `data-stop-points` and `data-zoom` came to exist.
+
+The alternative is arguing from screenshots. The cost of that was measured once: a 12-pixel stop
+sign at a neighbourhood zoom could not be told from a missing layer by eye, and the map on a phone
+was settling below the zoom at which any boarding point is drawn — 0 on screen, where the same stop
+on a computer had 26. The attribute said so in one run.
+
+Two rules go with it. A diagnostic states what is drawn, never what should be: it is read from the
+map, not from the props. And it is cheap enough to compute on the camera coming to rest, or it does
+not go in.

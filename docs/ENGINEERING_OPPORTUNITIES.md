@@ -1482,3 +1482,55 @@ one shared constant** (`tests/browser/names.mjs`), so a deliberate rename is one
 accidental one fails one assertion, not sixty minutes.
 
 **Next cheap step.** Extract the five or six names most checks use. Status: not done.
+
+## 45. A layout change fails the suite by *ambiguity*, not by breaking anything
+
+**Problem and evidence.** The phone sheet's handle showed the panel's subject as one line, and for
+the home panel that line was "Stops near you" — the same words as the section heading below it.
+Twenty checks then failed with Playwright's strict-mode violation ("resolved to 2 elements"), each
+after a 20-second timeout, on a page that was working. The layout gate's 56 failures traced to
+three causes; this was much the largest. Grouping the failures by their first error line and
+locator took one command and named all three in minutes
+(`awk '/# Error details/{f=1;next} f&&NF{print;exit}' */error-context.md | sort | uniq -c`), while
+reading the log top to bottom would have taken an hour.
+
+**Who hits it and their workaround.** Anyone changing wording or adding a surface that repeats an
+existing phrase. The workaround is to read each failure; the failures look unrelated because they
+are spread over every spec that visits the home screen.
+
+**Recurrence and effort.** Seen twice in this repository: this, and entry 44 (a renamed control).
+Both are "a string the page and the checks share, changed on one side". Effort each time: about an
+hour of a batch, plus the run.
+
+**Small fix, script, tool or product.** A script: after a failing run, a one-command triage that
+groups `test-results/*/error-context.md` by error kind and locator and prints the distinct causes
+with a count and one example each. It is generic Playwright, not specific to this app, and would
+be worth a small reusable tool for any project with a long browser suite. A visual interface is
+not needed; the terminal grouping is the value.
+
+**Existing tools.** Playwright's HTML reporter lists failures but does not group them by cause,
+and its `--last-failed` re-runs without saying what the causes were. No survey of third-party
+triage tools was made; no novelty is claimed.
+
+**Next cheap step.** Write `scripts/triage-browser-failures.mjs` over `test-results/`, print
+cause → count → one example, and use it on the next failing gate. Status: not done; the grouping
+was run by hand this time.
+
+## 46. Diagnostics the page publishes are what make a layout checkable
+
+**Problem and evidence.** "Are the boarding points on the map?" could not be answered from a
+screenshot: the signs are 12 px at neighbourhood zooms and the chosen stop's own marker sat over
+one. Adding `data-stop-points` (which boarding points are on the screen and where) and `data-zoom`
+to the map root turned a visual argument into a measurement, and immediately found a real defect:
+on a phone the automatic fit settled at zoom 13.25 with **0** boarding points drawn, where the same
+stop on a computer had 26 at zoom 15.2. After the fix: **31** on the phone at zoom 14.2. The map
+already published `data-bus-points`, `data-bus-screen`, `data-ride` and `data-frame-ms` for the same
+reason; each was added when a question could not otherwise be settled.
+
+**Small fix, script, tool or product.** Not a product: a house rule. **When a question about the
+canvas cannot be answered from the DOM, publish the smallest diagnostic that answers it**, name it
+`data-*`, and let the checks and the probes read it. The cost is a few lines; the alternative is
+pixel-peeping screenshots.
+
+**Next cheap step.** None needed; `docs/REVIEW.md` is the place to record the rule. Status: the two
+attributes are in the build.

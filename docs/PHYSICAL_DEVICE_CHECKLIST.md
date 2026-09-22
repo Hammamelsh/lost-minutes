@@ -71,6 +71,25 @@ Status words: **unchecked** (nobody has held a phone), **passed**, **failed** (w
 - [ ] A shared link (`?stop=…&bus=…`) opened on a second phone lands on that stop and that bus,
       or says what became of the bus. *unchecked*
 
+## The sheet, on a real phone (added 22 September 2026)
+
+Emulation cannot answer any of these: the on-screen keyboard, the browser's own bars and a real
+finger are all absent from Chromium.
+
+- [ ] Dragging the sheet's handle up and down snaps to its three heights, and the drag never
+      scrolls the page behind it. *unchecked*
+- [ ] Tapping the handle (not dragging) opens and closes it, first time, with a thumb. *unchecked*
+- [ ] Tapping the search field folds the sheet and the matches are above the keyboard, with the
+      list scrollable and nothing under the browser's bottom bar. *unchecked*
+- [ ] With the keyboard open, the map and the top bar are still where they were, and closing it
+      restores the sheet's height. *unchecked*
+- [ ] Turning the phone on its side while a stop is open keeps the stop, the chosen bus and the
+      map, and the two-column layout is reachable without scrolling to it. *unchecked*
+- [ ] With the system font set larger, the panel's text grows or, if it does not (the type is in
+      pixels), page zoom at 125% and 150% leaves nothing clipped or overlapping. *unchecked*
+- [ ] The sheet at its full height still shows a strip of map, and the map's own controls are not
+      under the sheet. *unchecked*
+
 ## When something looks wrong
 
 Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report

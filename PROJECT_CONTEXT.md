@@ -4,7 +4,40 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 22 September 2026 (a journey, not only a stop: search by bus number, stops on the
+Last updated: 22 September 2026, evening (one workspace: a map beside a panel on a computer, a map
+under a sheet on a phone; every boarding point on the map; and the page's own scrolling gone).
+
+**22 September, evening — the workspace.** Detail and evidence:
+`docs/MILESTONE_2026-09-22_WORKSPACE.md`.
+- **The page does not scroll any more; the panel does.** The map and one panel are the first
+  screen, whole, at every size. At a stop, page height against the viewport: 1366 × 768
+  **2147 → 976 px**; 390 × 844 **2669 → 1145**; 360 × 740 **2630 → 1041**; 844 × 390 on its side
+  **2201 → 984**. What is left below is the foot of the page.
+- **The panel is about one thing at a time** — `home`, `stop`, `bus`, `plan` (`data-panel` says
+  which) — and each has a way back. **Choosing a bus does not take the board away**: the card
+  leads and the board follows, so another bus is one tap away. On a phone the panel is a sheet
+  with three heights, **moved by its button as well as by a drag**, whose handle is its title: it
+  names the stop, carries `LIVE · 17s ago` and the way to ask for newer positions, and because it
+  names the stop the block under it does not name it again.
+- **Every boarding point is on the map** as a sign on a post from zoom 13.5, names from 15.6,
+  labels giving way by distance from the chosen stop, and the chosen stop excluded so it is drawn
+  once. Two signs under one finger open the same chooser two buses do.
+- **A fit nobody can read is not a fit.** On a phone, fitting You and a half-mile walk into the
+  band the sheet leaves took the camera to **zoom 13.25, with no boarding point drawn at all**
+  (measured: 0 on screen). Two faults behind it: padding that could exceed the map's own height,
+  now clamped to leave at least a quarter of each side, and no floor on the zoom. An automatic fit
+  now stops at 14.2 and frames the stop's surroundings (**31 boarding points on screen**, the stop
+  in the visible band); **Fit journey** still fits the whole journey, because the passenger asked.
+- **Found by this work:** the home screen lost "Buses near me" wherever no stop was near; the
+  sheet's handle repeated a heading word for word, which failed 20 checks on the ambiguity rather
+  than the page; the search's matches sat under the sheet; a tap on the handle was swallowed by its
+  own drag; the map's tool column ran into the Ride along button; and the refresh control vanished
+  from phones with the old top bar (it is in the handle now).
+- **Limitations:** emulation only, no physical phone (`docs/PHYSICAL_DEVICE_CHECKLIST.md` gained
+  seven sheet and keyboard items, all unchecked). The type is in pixels, so a browser's larger-text
+  setting does nothing; page zoom at 125% holds, and a rem scale is backlog 19.
+
+Before that, 22 September 2026 (a journey, not only a stop: search by bus number, stops on the
 map, a board that answers "when?" honestly, a followed position kept apart from a fixed starting
 point, a direct-bus planner with sharing, and the standing bus no longer projected).
 

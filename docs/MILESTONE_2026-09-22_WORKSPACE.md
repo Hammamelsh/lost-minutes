@@ -23,10 +23,18 @@ the page and nothing else: the map and the panel are the first screen, whole.
 | 360 × 740 | 2630 px (3.6 screens) | 1041 px (1.41) |
 | 844 × 390, on its side | 2201 px (5.6 screens) | 954 px (2.4) |
 
+Both columns were measured the same way, by the same probe against the local proxy
+(`outputs/probes/repro/layout-before-after.mjs`), as `document.documentElement.scrollHeight`. That
+number also counts content a collapsed disclosure lays out and clips, so it is a comparison rather
+than a count of what a passenger scrolls: on the live site the same page reads 1,667 px on a
+computer with the workspace unchanged. **The claim that matters is the workspace's own box**, which
+`layout.spec` checks on every run and which the measurements below give.
+
 The workspace itself ends within the first screen at every size: on a phone the masthead is 68 px,
 the heading one line of 33 px, and the workspace the remaining 740 px of an 844 px screen. Held
 sideways it is 58 + 31 + 312 of a 390 px screen, 11 px over, with the map and the panel side by
-side. What is still below the fold there is the foot of the page, not the workspace.
+side. What is still below the fold there is the foot of the page, not the workspace. On the served
+site: 88 + 61 + 608 of 768 on a computer, and 68 + 33 + 740 of 844 on a phone.
 
 **What the panel is about follows the task**, and each change has a way back:
 

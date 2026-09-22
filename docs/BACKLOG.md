@@ -108,6 +108,13 @@ The interface's type is in pixels, so a reader who enlarges text in their browse
 nothing; only page zoom works. Moving the scale to rem touches every component and needs its own
 pass at every viewport. Not started.
 
+## 20. Alternatives that name the same route three times
+When a chosen bus starts another journey the panel offers other buses as "Follow 192 to Piccadilly
+Gardens instead", once per vehicle, so the same words can appear three times in a row (seen on the
+served site, 22 September 2026). They are different vehicles; the label does not say so. It needs a
+line that tells them apart — how far off each is, or how long ago it reported — and probably a cap.
+Not started.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

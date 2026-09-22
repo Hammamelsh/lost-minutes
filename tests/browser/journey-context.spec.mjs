@@ -85,7 +85,7 @@ test('a bus this device remembers is offered, not applied; taken up and now on a
   await expect(card).toContainText('This bus has started another journey', {timeout: 15_000});
   await expect(card).toHaveAttribute('data-vehicle', 'FX-COMING');
   await expect(pressedRow(page)).toHaveCount(0);
-  await page.getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await page.getByRole('button', {name: 'Follow the new journey'}).click();
   await expect(pressedRow(page)).toContainText('3 stops before yours');
   await expect(card).not.toContainText('started another journey');
 });

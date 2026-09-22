@@ -208,3 +208,47 @@ test('a boarding point is chosen by tapping its sign on the map, without knowing
   await expect(page.locator('.follow')).toHaveAttribute('data-sheet', /half|full/);
   await expect(page.locator('.waiting, .empty-copy, .stop-empty').first()).toBeVisible();
 });
+
+// A browser's page zoom shrinks the CSS viewport: 1366 x 768 at 150% is about 911 x 512 CSS px,
+// and at 200% about 683 x 384. A workspace that fixes the map and the panel to the screen has to
+// keep working there, because that is what a passenger who needs larger text actually does (our
+// type is in pixels, so the browser's own larger-text setting does nothing — backlog 19).
+for (const {zoom, width, height} of [{zoom: '150%', width: 911, height: 512},
+                                     {zoom: '200%', width: 683, height: 384}]) {
+  test(`at ${zoom} page zoom the stop, Change, search and the departures are all still reachable`, async ({page}) => {
+    test.skip(test.info().project.name === 'mobile', 'page zoom is measured against the desktop size');
+    await page.setViewportSize({width, height});
+    await openStop(page);
+    // Nothing is pushed off the side: a fixed workspace must not make the page scroll sideways.
+    const sideways = await page.evaluate(() =>
+      document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(sideways, `no horizontal scrolling at ${zoom}`).toBeLessThanOrEqual(1);
+    // Everything the passenger needs to get somewhere else is reachable — on screen already, or
+    // by scrolling the panel, which is what the panel is for. None of it may be clipped away.
+    const panel = page.locator('.follow > .panel');
+    for (const {name, locator} of [
+      // Whichever of the two carries the stop's name at this width: the sheet's handle on a phone
+      // layout, the block in the panel on a wide one. Both are in the DOM; one of them is shown.
+      {name: 'the stop', locator: page.locator('.your-stop-copy strong:visible, .sheet-words:visible').first()},
+      {name: 'Change', locator: page.getByRole('button', {name: 'Change', exact: true}).first()},
+      {name: 'the search', locator: page.getByRole('combobox', {name: /Bus number, stop or area/i}).first()},
+      {name: 'the departures', locator: page.locator('.departures .section-head').first()},
+    ]) {
+      await expect(locator, `${name} at ${zoom}`).toBeVisible();
+      await locator.scrollIntoViewIfNeeded({timeout: 10_000})
+        .catch(error => { throw new Error(`${name} could not be scrolled to at ${zoom}: ${error.message.split('\n')[0]}`) });
+      await expect(locator, `${name} at ${zoom}`).toBeVisible();
+      const box = await locator.boundingBox();
+      expect(box.width, `${name} is not squeezed to nothing at ${zoom}`).toBeGreaterThan(24);
+      expect(box.height, `${name} has height at ${zoom}`).toBeGreaterThan(8);
+    }
+    // And the panel can actually be read to its end: its content is taller than its box, and
+    // scrolling it reaches the bottom rather than stopping short.
+    const reach = await panel.evaluate(el => {
+      const node = el.scrollHeight > el.clientHeight ? el : el.querySelector('.panel-body') ?? el;
+      node.scrollTop = node.scrollHeight;
+      return {scrolled: node.scrollTop, reachable: node.scrollHeight - node.clientHeight};
+    });
+    expect(reach.scrolled, `the panel scrolls to its end at ${zoom}`).toBeGreaterThanOrEqual(reach.reachable - 2);
+  });
+}

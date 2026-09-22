@@ -4,7 +4,69 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 22 September 2026, evening (one workspace: a map beside a panel on a computer, a map
+Last updated: 23 September 2026 (the ride-along made legible, three silent teleports and a 269 km/h
+correction traced and fixed, and the stop answering "when is the next bus?" from the timetable).
+
+**23 September — the ride, the jumps, and the departure board.** Detail and evidence:
+`docs/MILESTONE_2026-09-23_RIDE_AND_DEPARTURES.md`; the departure-data research is
+`docs/DEPARTURE_DATA.md`.
+- **Both reported moments were reproduced from retained evidence before anything was changed.**
+  `pipeline/replay_publications.py` loads the collector's own position captures in order and
+  republishes after each one, so the sequence of `live.json` payloads a phone was served over a past
+  window is rebuilt from the raw bytes: **300 publications for 19:20–21:00 UTC on 22 September**,
+  none corrupt or undated. MF74NNL's journey change is **genuine and was verified against the
+  reports**, not inferred from an identifier: line, direction, journey reference and destination all
+  changed thirty seconds apart, with 114 further reports on the new leg. Its six-minute-old report
+  was also true — the vehicle went quiet at 20:44:48 while the feed stayed healthy.
+- **"Front view · checking" that never ended.** The state was read from `trackFor === null`, which
+  is true both while a road is loading *and* when there is no pattern to load one for. A bus the
+  matcher published as `too_far_from_pattern` sat on "checking" for ever while the reason text
+  correctly said the service had no road. Waiting now ends — after 8 s it becomes "could not load
+  its road" — and a bus with no pattern gets its own state and its own sentence.
+- **Three silent teleports, reproduced against the model.** A bus drawn at its reports that cannot
+  travel to the new one moved **92.7 m** (no earlier report), **864.8 m** (a gap past 400 m) or
+  **270.7 m** (a span past 45 s) in a single frame with no correction recorded at all — so the map
+  drew no trace and the card said nothing. Each is a **repositioning** now, over 25 m, with the
+  reason said: the bus was moved, not followed, and the ground between was not drawn because it is
+  not known.
+- **The visible jump on an evaluated route was a correction at 269 km/h.** An estimate pulled back
+  to a standing report was eased at 25 ms a metre, so a 110 m correction peaked at **3.74 m per
+  50 ms frame**; the check allowed 8 m a frame and passed. Timed from a speed instead — 100 ms a
+  metre, about 10 m/s — it is under 1 m a frame. Measured on the page against the same recorded
+  publications: the fastest the drawn bus moves on route 15 falls from **59.2 m/s (213 km/h) to
+  21.6 m/s (78 km/h)**, its largest 200 ms step from 12.07 m to 4.68 m in the map view and from
+  13.42 m to 4.40 m in the ride-along, with steps over 10 m going from 4 to **0**. The same
+  measurement caught a fault in the first version of the road-following fix — the travel ended on
+  the road and then hopped to the report, 5.46 m in one 48 ms frame — which is fixed by carrying
+  each end's own offset from the road across the travel.
+- **Travel between two reports now goes down the road, where one is checked.** The straight line
+  between consecutive reports left route 25's accepted shape by a median 5.3 m, 28.5 m at the 95th
+  percentile and **34.4 m** at worst — a street away, through buildings. Where both reports measure
+  onto the same accepted shape in order, the bus travels that shape; otherwise the chord, and the
+  card says which. Verified in a browser: 95% of drawn positions within **6 m** of the checked road.
+- **The stop answers "when is the next bus?" from the timetable.** A scheduled departure board at
+  every boarding point, from the operators' own registered TransXChange files, which this project
+  already parses: **2,682 stops, 958,438 departures**, rebuilt nightly on the server beside the
+  catalogue. Every row is labelled **Scheduled**; countdowns come from real instants, fixed by tests
+  at local midnight and on both clock-change mornings. A row names a tracked vehicle only where that
+  vehicle reports **that journey's own origin departure time**, and a bus is never given a departure
+  time it did not report. **No live departure minutes**: TfGM's real-time portal is closed to new
+  keys, BODS publishes positions rather than stop departures, and NextBuses (now TransportAPI) is
+  the one practical source — £5 a month plus a £10 setup fee for 300 requests a day, waiting on the
+  owner's decision. Nothing was signed up for and no charge was incurred.
+- **One summary of the chosen bus, not two**: the sticky strip and the card's own head carried the
+  same three facts a few lines apart, and are now one sticky card head. A journey change leads with
+  one sentence and two choices, with the identity behind Details. A vehicle gone quiet while the
+  feed is healthy is its own state. "Does not serve this stop" and "we cannot confirm" are said
+  differently. The workspace holds at **150% and 200% page zoom** with no sideways scrolling and
+  everything still reachable.
+- **Limitations:** emulation only, no physical phone. **A genuinely backgrounded tab was not
+  tested** — the probe's attempt did not stop the page drawing — so no claim is made about what a
+  real phone does on return. The drawn bus is sampled at the rate the page writes its diagnostics,
+  about five times a second. Bank-holiday operation is declared in the files and still not
+  evaluated.
+
+Before that, 22 September 2026, evening (one workspace: a map beside a panel on a computer, a map
 under a sheet on a phone; every boarding point on the map; and the page's own scrolling gone).
 
 **22 September, evening — the workspace.** Detail and evidence:

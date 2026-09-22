@@ -466,12 +466,26 @@ export type Visual = {
  basisAt: number;              // the report the current estimate starts from
  frame: number;                // presentation time of this frame, ms
  correction: Correction;
- lastCorrection: {kind: Correction; metres: number; at: number} | null;
+ /** `why` is set only for a repositioning, and says which continuity was missing. */
+ lastCorrection: {kind: Correction; metres: number; at: number; why?: RepositionReason} | null;
  provisional: boolean;         // drawn at its report only while loading
  /** A bus shown at its reports, moving from the report it was drawn at to the one that has just
-  *  arrived. Both ends are observed positions; the line between them is not claimed to be road. */
- glide: {fromLat: number; fromLon: number; toLat: number; toLon: number; at: number; ms: number} | null;
+  *  arrived. Both ends are observed positions. `road` is set only where both of them lie on the
+  *  same checked road shape, and then the bus travels down that road; without it the line between
+  *  them is a straight line and is not claimed to be road. */
+ glide: {fromLat: number; fromLon: number; toLat: number; toLon: number; at: number; ms: number;
+         road: {trackId: string; fromS: number; toS: number;
+                /** How far each end lies off the road: the travel follows the road's shape but
+                 *  still starts and ends exactly where the bus was drawn and where it reported. */
+                fromOff: [number, number]; toOff: [number, number]} | null} | null;
 };
+
+/**
+ * Why a bus was repositioned rather than travelled to its new report. Each is a fact about the
+ * evidence, not about the app: there was nothing to travel from, the move is too far to have been
+ * followed, or too long went unseen. The passenger is told which.
+ */
+export type RepositionReason = 'no_earlier_report' | 'too_far' | 'too_long';
 
 /**
  * Moving a bus shown at its reports from one report to the next.
@@ -502,6 +516,33 @@ export type Visual = {
  * then stands, rather than at an invented one stretched to fill the wait.
  */
 export const GLIDE = {minMs: 600, maxMs: 45_000, minMetres: 1.5, maxMetres: 400};
+
+/** Under this, a move is scatter around a standing bus rather than a repositioning worth saying. */
+export const REPOSITION_METRES = 25;
+
+/**
+ * The stretch of checked road between two consecutive reports, or null.
+ *
+ * Both reports must lie on the shape within the same tolerance a report needs to be placed on it
+ * at all (`offTrack`), they must be in order along it, and the road between them must be close to
+ * the straight line between them — a bus that reported either side of a loop, or that the shape
+ * sends the long way round, is not known to have gone that way. Where any of that fails the bus
+ * travels along the chord as before, which is the honest shape of "two positions and nothing in
+ * between".
+ */
+function roadBetween(road: Track | null, from: {lat: number; lon: number}, to: {lat: number; lon: number},
+                     gap: number): NonNullable<Visual['glide']>['road'] {
+ if (!road || !road.points.length) return null;
+ const a = project(road, from), b = project(road, to);
+ if (a.offset > DEFAULT_PARAMS.offTrack || b.offset > DEFAULT_PARAMS.offTrack) return null;
+ const along = b.s - a.s;
+ if (along <= 0) return null;
+ if (along > Math.max(60, gap * 1.6)) return null;
+ const onRoadFrom = pointAt(road, a.s), onRoadTo = pointAt(road, b.s);
+ return {trackId: road.id, fromS: a.s, toS: b.s,
+  fromOff: [from.lat - onRoadFrom.lat, from.lon - onRoadFrom.lon],
+  toOff: [to.lat - onRoadTo.lat, to.lon - onRoadTo.lon]};
+}
 
 const WINDOW_STEPS = 24;
 const MAX_FRAME = 0.25;          // s: a longer gap between frames means the page was not drawing
@@ -539,10 +580,27 @@ function place(e: Estimate, now: number, trackId: string | null, correction: Cor
 
 /** Where a gliding bus is drawn now: eased between the two reports, and never past the newer one.
  *  The bearing is left as reported, because a bearing is never taken from movement. */
-function glideAt(v: Visual, g: NonNullable<Visual['glide']>, now: number): Visual {
+function glideAt(v: Visual, g: NonNullable<Visual['glide']>, now: number, road: Track | null = null): Visual {
  const f = Math.max(0, Math.min(1, (now - g.at) / g.ms));
  // Smoothstep: it leaves the old report and reaches the new one without a visible start or stop.
  const e = f * f * (3 - 2 * f);
+ // On a road both reports were measured against, the bus goes down the road. Only a bus with no
+ // such road is drawn along the chord, because that chord cuts corners: measured on one route-25
+ // journey of 60 consecutive report pairs, it left the checked road by a median 5.3 m, 28.5 m at
+ // the 95th percentile and 34.4 m at worst, which at that distance is the next street.
+ if (g.road && road && road.id === g.road.trackId) {
+  const s = g.road.fromS + (g.road.toS - g.road.fromS) * e;
+  const point = pointAt(road, s);
+  // A report is not on the road, it is near it, and the drawn bus must still end where the bus
+  // reported. So the road gives the *shape* of the travel and each end's own offset from it is
+  // carried across: the path leaves the drawn position exactly and arrives at the report exactly.
+  // Without this the travel ended on the road and then hopped to the report — measured at 5.46 m
+  // in one 48 ms frame on the route-25 journey, which is a small teleport at the end of every
+  // twenty seconds.
+  const lat = g.road.fromOff[0] + (g.road.toOff[0] - g.road.fromOff[0]) * e;
+  const lon = g.road.fromOff[1] + (g.road.toOff[1] - g.road.fromOff[1]) * e;
+  return {...v, lat: point.lat + lat, lon: point.lon + lon};
+ }
  return {...v, lat: g.fromLat + (g.toLat - g.fromLat) * e, lon: g.fromLon + (g.toLon - g.fromLon) * e};
 }
 
@@ -559,7 +617,8 @@ function glideAt(v: Visual, g: NonNullable<Visual['glide']>, now: number): Visua
  * follows it.
  */
 export function stepVisual(previous: Visual | null, e: Estimate, now: number, track: Track | null,
-                           draw: Drawing = DRAWING, history?: History | null): Visual {
+                           draw: Drawing = DRAWING, history?: History | null,
+                           road: Track | null = null): Visual {
  const trackId = track?.id ?? null;
  // Shown at its report only while the settings or geometry loaded: the first estimate is simply
  // drawn, not presented as a correction.
@@ -584,8 +643,12 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // a second or two, a correction like any other under 150 m; only a larger one snaps.
   if (previous?.mode === 'estimated' && e.mode === 'observed' && e.held && moved > 1 && moved <= draw.largeCorrection) {
    const eased = place(e, now, trackId, 'smooth', {kind: 'smooth', metres: moved, at: now}, track, draw);
+   // The ease-back is timed from a speed, not a fixed budget. At the old 25 ms a metre a 110 m
+   // correction was taken back in 2.5 s — a peak of 75 m/s, 269 km/h — which reads as a jump
+   // however smoothly it is interpolated, and the bigger the mistake the faster the bus flew.
+   // 100 ms a metre is 10 m/s, the speed of the bus itself, so a correction now looks like one.
    const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now,
-    ms: Math.max(500, Math.min(2500, moved * 25))};
+    ms: Math.max(600, Math.min(12_000, moved * 100)), road: null};
    return {...glideAt(eased, glide, now), glide};
   }
   const kind: Correction = moved > 1 ? 'snap' : 'none';
@@ -597,9 +660,27 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   const running = previous.glide && now < previous.glide.at + previous.glide.ms ? previous.glide : null;
   // Still the same report: carry on travelling to it, or stand at it once arrived. A finished
   // glide is cleared rather than kept, so nothing downstream has to date it.
-  if (previous.basisAt === e.basis.at) return running ? {...glideAt(settled, running, now), glide: running} : settled;
+  if (previous.basisAt === e.basis.at)
+   return running ? {...glideAt(settled, running, now, road), glide: running} : settled;
   const gap = metres(previous, e);
-  if (gap < GLIDE.minMetres || gap > GLIDE.maxMetres) return settled;
+  /**
+   * Where the drawn bus cannot travel to the new report, it is *repositioned*, and that is said.
+   *
+   * Until 22 September 2026 each of the three refusals below returned the bus at its new report
+   * with `lastCorrection` left untouched — so the map drew no repositioning trace and the card
+   * said nothing, and the bus simply appeared somewhere else. Reproduced against the model: an
+   * empty trail moved it 92.7 m, a gap past `maxMetres` 864.8 m, and a span past `maxMs` 270.7 m,
+   * each in one frame with `lastCorrection` null. The estimated path had always reported its
+   * snaps; the observed path, which is most of the fleet and both of the reported cases, had no
+   * such treatment at all.
+   *
+   * Under `REPOSITION_METRES` the move is GPS scatter around a standing bus, not a journey, and
+   * announcing it would cry wolf every twenty seconds.
+   */
+  const reposition = (why: RepositionReason): Visual => gap < REPOSITION_METRES ? settled
+   : place(e, now, trackId, 'snap', {kind: 'snap', metres: gap, at: now, why}, track, draw);
+  if (gap > GLIDE.maxMetres) return reposition('too_far');
+  if (gap < GLIDE.minMetres) return settled;
   // How long the bus took to make this move, by its own timestamps: from the report it was drawn
   // at to the one that has arrived. Two reports landing in one publication are one move over both
   // their intervals, not two gaps travelled in one gap's time; until 21 September 2026 the span
@@ -610,13 +691,15 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // Without the reports there is nothing to take the time from, and nothing to travel between:
   // that is what "reported positions only" asks for, and it is left exactly as it was.
   const fixes = history?.fixes;
-  if (!fixes || fixes.length < 2) return settled;
+  if (!fixes || fixes.length < 2) return reposition('no_earlier_report');
   const from = previous.basisAt > 0 && previous.basisAt < e.basis.at ? previous.basisAt : fixes[fixes.length - 2].at;
   const span = e.basis.at - from;
-  if (span <= 0 || span > GLIDE.maxMs) return settled;
+  if (span <= 0) return settled;
+  if (span > GLIDE.maxMs) return reposition('too_long');
   const ms = Math.max(GLIDE.minMs, Math.min(GLIDE.maxMs, span));
-  const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms};
-  return {...glideAt(settled, glide, now), glide};
+  const glide = {fromLat: previous.lat, fromLon: previous.lon, toLat: e.lat, toLon: e.lon, at: now, ms,
+   road: roadBetween(road, previous, e, gap)};
+  return {...glideAt(settled, glide, now, road), glide};
  }
  // A frame after the page stopped drawing (nothing was moving) is not one long frame: the drawn
  // bus stood where it was all that time, so the step starts just before now. Integrating the

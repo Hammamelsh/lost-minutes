@@ -250,6 +250,47 @@ export async function serveScheduleAnchor(page, patterns = {'FX:256:main': {veri
   await page.route('**/data/schedule-anchor.json*', route => route.fulfill({json: {schemaVersion: 1, patterns}}));
 }
 
+/**
+ * FIXTURE scheduled departure boards, in the shape `pipeline/departures.py` publishes.
+ *
+ * `atMinutes` are minutes from the moment the fixture is built, so a check can say "the next one
+ * is in four minutes" without arithmetic on a wall clock. They are turned into seconds from local
+ * midnight here, exactly as a real board carries them, so the page does the same work it does on
+ * real data: read a run, add its offset, place it against Europe/London.
+ */
+export function departureBoard({stop = FX.stopA, nowMs = Date.now(), atMinutes = [4, 14, 26],
+                                line = '256', destination = 'Piccadilly Gardens',
+                                patternId = 'FX:256:main', rule = 0, offset = 247} = {}) {
+  // Seconds from local midnight, read off the London clock itself rather than worked out from an
+  // offset: the wall time is what a timetable states, and it is what the board carries.
+  const clock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit'}).formatToParts(nowMs);
+  const part = type => Number(clock.find(p => p.type === type).value);
+  const secondsNow = (part('hour') % 24) * 3600 + part('minute') * 60 + part('second');
+  // The origin departure is the time at this stop less the pattern's own run time to it.
+  const originSeconds = atMinutes.map(minutes => secondsNow + minutes * 60 - offset);
+  const runs = [];
+  for (const seconds of originSeconds) {
+    if (runs.length) runs[0].push(seconds - runs[0].slice(2).reduce((a, b) => a + b, 0));
+    else runs.push([rule, 0, seconds]);
+  }
+  return {schemaVersion: 1, stop, generatedAt: new Date(nowMs).toISOString(), secondsInDay: 86_400,
+    services: [{patternId, operator: 'BNML', line, direction: 'inbound', destination,
+      sequence: 6, rules: [0], offsets: [offset], runs,
+      timetable: {file: 'FIXTURE_256.xml', datasetSha256: 'f'.repeat(64),
+        validFrom: '2026-01-01', validTo: '2031-12-31'}}]};
+}
+
+/** The boards and the shared rules a stop's page asks for. `board: null` serves a 404, which is
+ *  what a stop with no published board looks like. */
+export async function serveDepartures(page, {board = departureBoard(),
+                                             rules = [{days: [0, 1, 2, 3, 4, 5, 6]}]} = {}) {
+  await page.route('**/data/departure-rules.json*', route =>
+    route.fulfill({json: {schemaVersion: 1, generatedAt: new Date().toISOString(), rules}}));
+  await page.route('**/data/departures/*.json*', route =>
+    board ? route.fulfill({json: board}) : route.fulfill({status: 404, body: 'no board'}));
+}
+
 export async function servePatterns(page, catalogue = fixtureCatalogue()) {
   await serveScheduleAnchor(page);
   await page.route('**/data/patterns.json*', route => route.fulfill({json: catalogue}));
@@ -281,6 +322,22 @@ const TRACK = (() => {
   return {points, cum, length: cum.at(-1)};
 })();
 export const FIXTURE_TRACK_LENGTH = TRACK.length;
+
+/** How far a point is from the fixture road, in metres: what a check needs to say whether the
+ *  drawn bus went down the road or cut the corner between two reports. */
+export function metresOffFixtureRoad(lat, lon) {
+  let best = Infinity;
+  const k = Math.cos(lat * Math.PI / 180);
+  for (let i = 1; i < TRACK.points.length; i++) {
+    const [ax, ay] = TRACK.points[i - 1], [bx, by] = TRACK.points[i];
+    const dx = (bx - ax) * k * 111195, dy = (by - ay) * 111195;
+    const px = (lon - ax) * k * 111195, py = (lat - ay) * 111195;
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, (px * dx + py * dy) / len)) : 0;
+    best = Math.min(best, Math.hypot(px - dx * t, py - dy * t));
+  }
+  return best;
+}
 
 /** Google's encoded polyline at precision 6: the inverse of decodePolyline6, for served fixtures. */
 function encodePolyline6(points) {

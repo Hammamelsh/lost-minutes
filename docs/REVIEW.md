@@ -107,3 +107,39 @@ on a computer had 26. The attribute said so in one run.
 Two rules go with it. A diagnostic states what is drawn, never what should be: it is read from the
 map, not from the props. And it is cheap enough to compute on the camera coming to rest, or it does
 not go in.
+
+## A house rule for anything that says it is waiting (23 September 2026)
+
+**A label that says a wait is in progress must be able to stop saying it.** "Checking", "loading"
+and "waiting for…" are promises about the near future, and a control that keeps one for ever is
+worse than one that refuses, because a passenger goes on waiting.
+
+The cost of breaking it was measured: `Front view · checking` came from `trackFor === null`, which
+is true while a road is being fetched *and* when there is no pattern to fetch a road for. A bus the
+matcher published as `too_far_from_pattern` therefore sat on "checking" indefinitely, on a live
+site, while the reason text three lines above it correctly said the service had no road. Nothing in
+review catches this, because each half reads well.
+
+The general shape is a tri-state — *loading* / *absent* / *present* — collapsed into a nullable, so
+"not yet" and "not at all" become one value. The same fault is an empty list that means both "none"
+and "not loaded".
+
+So, for each waiting label: what makes it stop? Either a timeout to a stated outcome, or a separate
+state for "there is nothing to wait for". At review time this is a grep for `checking|loading|
+waiting` in rendered strings, and one question asked of each.
+
+## Reproducing a reported moment rather than a similar one (23 September 2026)
+
+A fault a passenger reports is a moment, and by the time it is read the moment has gone. A
+*different* vehicle running a *different* service today is not a reproduction of it, and treating it
+as one is the kind of claim this project exists not to make.
+
+The collector keeps every position capture it fetched, content-addressed.
+`pipeline/replay_publications.py` loads them in order and republishes after each one — the same
+matcher, the same trails, the same freshness policy, at each capture's own `ResponseTimestamp` — so
+the sequence of `live.json` payloads a phone was served over a past window is rebuilt from the raw
+bytes. `scripts/probes/movement-replay.mjs` plays that reel back through the built site and records
+the map's own diagnostics every frame it draws.
+
+Use them before changing anything, and say in the record which publications were rebuilt and over
+what window. Where the moment cannot be reproduced, say that instead of reproducing something else.

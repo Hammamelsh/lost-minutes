@@ -28,3 +28,9 @@ public/data/patterns.json
 # Written nightly on the server by lost-minutes-arrival-eval; a deploy's --delete removed it
 # (found 21 September: served 404 after the 16:15 deploy, written again at 03:12).
 public/data/arrival-release.json
+# Built nightly on the server beside the catalogue (lost-minutes-refresh): one scheduled departure
+# board per boarding point, and the operating rules they share. About 23 MB here; sending it would
+# put this machine's timetable over the server's own, which is the fault of 21 September 2026 again.
+public/data/departures/
+public/data/departures.json
+public/data/departure-rules.json

@@ -10,7 +10,7 @@ import {accuracyRing} from '@/lib/geo';
 import {ALL_STOPS_SOURCE,BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
-import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,slice,stepVisual,tickClock,turnToward,
+import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,type RepositionReason,slice,stepVisual,tickClock,turnToward,
         type PresentationClock,uncertaintyAt,
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
@@ -144,6 +144,8 @@ const TAP_MARGIN=14;
 const CHOOSER_MARGIN=8;
 /** How long a repositioning is traced on the map after it happens. */
 const SNAP_TRACE_MS=6000;
+/** How long "checking" may stand before it becomes an answer: a fetch of one shape file, generously. */
+const FRONT_WAIT_MS=8000;
 /** A stable empty catalogue, so a map given no stops does not re-run its stops effect. */
 const NO_STOP_CATALOGUE:Stop[]=[];
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
@@ -445,7 +447,7 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
 }
 
 function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number,
-                    travelling=false):MotionInfo{
+                    travelling=false,onRoad=false):MotionInfo{
  const band=e.mode==='estimated'?uncertaintyAt(profile,e.reportAge):null;
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
@@ -455,11 +457,12 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   // is never captioned as moving, and the flip between the two labels is explained once.
   between:e.mode==='observed'&&v.glide!==null&&now<v.glide.at+v.glide.ms,
   travels:e.mode==='observed'&&travelling,
+  onRoad:e.mode==='observed'&&travelling&&onRoad,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
   correction:last?{kind:last.kind,metres:last.metres,at:last.at,justNow:now-last.at<=8000,
-   standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true}:null,
+   standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true,why:last.why}:null,
   version:params.version};
 }
 
@@ -549,7 +552,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
  const loop=useRef({raf:null as number|null,
   // The last repositioning, traced on the map while it is recent.
-  snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean}|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
+  snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean;
+   why:RepositionReason|null}|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
   frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,
   // How long the last few frames took, so a view that has become a slideshow can say so rather
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
@@ -1022,6 +1026,29 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    .catch(()=>setModelFailed(true));
  },[view]);
 
+ // --- what the ride-along is made of, kept apart ------------------------------------------
+ //
+ // Five things decide what a passenger sees, and collapsing any two of them is how the ride-along
+ // became confusing. They are separate values here and each is answered on its own:
+ //
+ //   camera following      `follow` and `rideState`: whether the camera is put on the drawn bus.
+ //                         It follows whatever is drawn, on any service, and asks nothing of the
+ //                         geometry or the evaluation.
+ //   road and front view   `patternId`/`candidateKey` -> `trackFor`: an accepted road shape for
+ //                         this bus's pattern, checked against that pattern's own reports.
+ //                         `frontState` and `frontReason` say what the street preview can do.
+ //   travel between        GLIDE in lib/motion.ts: a bus drawn at its reports moving from the one
+ //     reports             it was drawn at to the one that arrived. Movement, not prediction. It
+ //                         uses the road where there is one and says so, and where continuity is
+ //                         not supported it repositions and says that instead.
+ //   prediction            `motionModel.patterns`: whether the frozen estimator was scored on this
+ //                         very pattern. A road being accepted never releases prediction.
+ //   report freshness      `selected.freshness` and the report age: how old the newest report is,
+ //                         which is true or false regardless of all four above.
+ //
+ // `rideOffer` below is the one place they are read together, to say in a line what the ride will
+ // be before it is entered; nothing else mixes them.
+
  // --- estimated movement: its inputs -----------------------------------------------------
  // The pattern whose road the estimate follows: the matched one. An unresolved bus with several
  // candidates gets no pattern here: which journey it is stays open. It may still get a road, below,
@@ -1084,6 +1111,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // says why. Stop-to-stop straight lines are never used instead.
  const frontReason=!selected?null
   :trackFor===null&&(patternId||candidateKey)?'Front view is waiting for this bus’s road geometry.'
+  :!patternId&&!candidateKey?'Front view needs to know which road this bus is on, and this bus is not '
+    +'placed on a timetable pattern at all, so there is no road to check. It is shown from outside.'
   :!trackFor?.track?(candidateKey
     ?`Front view needs one road it can be sure of. Which journey this bus is on is not settled, and ${trackFor?.reason?.replace(/^its branch is not settled, and /,'')??'the candidates’ roads have not been compared'}. It is shown from outside.`
     :'Front view needs the road this bus is on, checked against its own reports. This service has none yet, so it is shown from outside.')
@@ -1092,11 +1121,28 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // What the button itself can say, before it is pressed. A control that looks ready and then
  // refuses is worse than one that says what it is waiting for: "checking" is a moment, "not on
  // this route" is the service, and "not settled here" changes as the bus goes on.
+ //
+ // "Checking" must be a moment. Until 22 September 2026 it was read straight off `trackFor===null`,
+ // which is true both while a road is being fetched *and* when there is no pattern to fetch one
+ // for — so a bus the matcher could not place at all (`too_far_from_pattern`, which is what
+ // MF74NNL published from 20:37 on the 22nd) sat on "Front view · checking" for ever, while the
+ // reason underneath correctly said the service had no road. The two are now told apart by
+ // whether anything is actually being waited for, and waiting has an end.
+ const waitingFor=trackFor===null&&Boolean(trackKey);
+ const [waitedOut,setWaitedOut]=useState(false);
+ useEffect(()=>{
+  setWaitedOut(false);
+  if(!waitingFor)return;
+  const timer=setTimeout(()=>setWaitedOut(true),FRONT_WAIT_MS);
+  return()=>clearTimeout(timer);
+ },[waitingFor,trackKey]);
  const frontState=!frontReason?'ready'
-  :trackFor===null?'checking'
+  :waitingFor?(waitedOut?'unavailable':'checking')
   :candidateKey&&!trackFor?.track?'unsettled'
+  :!trackKey?'unplaced'
   :!trackFor?.track?'unsupported':'unsettled';
  const FRONT_LABEL:Record<string,string>={ready:'Front view',checking:'Front view · checking',
+  unavailable:'Front view · could not load its road',unplaced:'Front view · this bus is not placed',
   unsupported:'Front view · not on this route',unsettled:'Front view · not here yet'};
  // The button says on its face what it can do, so nothing is hidden behind pressing it; pressing
  // it gives the whole reason in the ride's notes. It is not marked `aria-disabled`, because it
@@ -1151,14 +1197,18 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // (GLIDE): movement without prediction. "Reported positions only" means exactly that — the
   // newest report and nothing between — so the history is withheld and the travel does not start.
   const before=visualRef.current;
+  // The road is given to the drawing twice over, for two different jobs. As `track` it is the path
+  // an *estimate* runs along, and only an estimate may have it. As `road` it is the road a bus
+  // drawn at its reports *travels down* between two of them — movement, not prediction — which
+  // needs nothing from the evaluation, only geometry checked against that pattern's own reports.
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile),
-   input.replay?input.history:null);
+   input.replay?input.history:null,input.replay?input.track:null);
   visualRef.current=v;estimateRef.current=e;
   // A snap is a repositioning, and it is shown as one: a trace from where the bus was drawn to
   // where its latest report put it, for a few seconds, rather than a teleport with no account.
   if(v.lastCorrection?.kind==='snap'&&v.lastCorrection.at!==state.snap?.at&&before)
    state.snap={at:v.lastCorrection.at,from:[before.lon,before.lat],to:[v.lon,v.lat],metres:v.lastCorrection.metres,
-    standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true};
+    standing:(e.mode==='estimated'&&(e.speed??0)===0)||e.held===true,why:v.lastCorrection.why??null};
   const t=performance.now();
   // Frame intervals, over about the last second and a half of continuous animation. A gap longer
   // than a second is the loop having rested (a standing bus costs no frames) and starts a fresh
@@ -1260,8 +1310,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    diagnostics(root.current,e,v,state.frames,t,instance.project([v.lon,v.lat]),medianGap(state.gaps));
   }
   const info=motionInfo(e,v,input.profile,input.params,now,
-   Boolean(input.replay&&input.history&&input.history.fixes.length>1));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}`;
+   Boolean(input.replay&&input.history&&input.history.fixes.length>1),
+   Boolean(input.replay&&input.track&&e.mode==='observed'));
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that

@@ -1534,3 +1534,72 @@ pixel-peeping screenshots.
 
 **Next cheap step.** None needed; `docs/REVIEW.md` is the place to record the rule. Status: the two
 attributes are in the build.
+
+## 47. A reported fault is a moment, and the moment has passed
+
+**Problem and evidence.** Two passenger reports arrived as screenshots: a vehicle showing "Front
+view · checking" with a six-minute-old report, and a bus whose availability line read as a
+contradiction. Neither could be answered from the code alone, and the situations no longer existed:
+one vehicle had finished its day and the other had moved on. The usual fallbacks are both bad — wait
+for a similar moment and hope, or argue from the source. A *different* vehicle running a *different*
+service today is not a reproduction of the incident, and saying it is would be the kind of claim
+this project exists not to make.
+
+The collector already keeps every position capture it fetched, content-addressed, and
+`pipeline/restore.py` already proves they can be read back into a warehouse. What was missing was
+one step: replay them *and publish after each one*, so the sequence of `live.json` payloads a phone
+was actually served over a past window can be rebuilt — the same matcher, the same trails, the same
+freshness policy, at each capture's own `ResponseTimestamp`.
+
+`pipeline/replay_publications.py` does that, and with `scripts/probes/movement-replay.mjs` (which
+plays a reel back through the built site and records the map's own diagnostics every frame) the two
+reported moments were reproduced exactly: 300 publications for 19:20–21:00 UTC on 22 September 2026,
+none corrupt or undated, with the 15 → 256 journey change at 20:07:19 and the quiet vehicle from
+20:44:48 both visible as the page saw them. The "checking" defect was then found in the code with
+the evidence in hand rather than guessed at.
+
+**Who hits it and the workaround.** Anyone maintaining a service whose faults are moments: the
+owner, and whoever picks this up. The workaround until now was to reproduce from fixtures, which
+tests what you already believe, or to reason from the code, which is how the "checking" state
+survived — it *looks* right.
+
+**Recurrence and effort.** Three of the last four milestones had at least one fault that was only
+visible on served data at a particular moment (the Operations empty state, the ride's full-screen
+rule, and these two). Building the replay took about an hour, including the format; using it took
+minutes per question afterwards.
+
+**Small fix, script, tool or product.** A script here, and a genuinely reusable capability
+elsewhere: *retain the raw inputs content-addressed, and keep one command that rebuilds the derived
+state as of a past moment*. Most pipelines keep the inputs and publish the outputs, and then cannot
+answer "what did it say at 20:51?" without a backup of the output. The smallest reusable form is
+the pair — a restore that loads inputs in order, and a publish that can be asked for a moment. A
+visual interface would help only for browsing a window; the value is in the command.
+
+**Existing tools.** This is close to event sourcing and to dbt-style "rebuild from source", and no
+novelty is claimed; no survey was made. What is specific here is that the *published artefact* is
+the thing under test, so the replay has to reproduce the artefact rather than a table.
+
+**Next cheap step.** Done and used. The next cheap extension would be a `--at` flag that rebuilds
+one moment rather than a window, for a screenshot with a timestamp on it. Status: not done.
+
+## 48. Two conditions written as one test, and a state that never ends
+
+**Problem and evidence.** `frontState` decided that the front view was "checking" from
+`trackFor === null`. That is true while a road is being fetched, and also true when there is no
+pattern to fetch a road *for* — two different situations sharing one expression. A bus the matcher
+published as `too_far_from_pattern` therefore sat on "Front view · checking" indefinitely, while
+the reason text three lines above it correctly said the service had no road. The fault was not a
+wrong condition but a *missing* one, and it was invisible in review because each half reads well.
+
+The general shape: a tri-state (loading / absent / present) collapsed into a nullable, so "not yet"
+and "not at all" become the same value. It is the same class of fault as an empty list meaning both
+"none" and "not loaded", which this project has hit before (`docs/REVIEW.md`).
+
+**Small fix, script, tool or product.** A house rule, not a tool: **a label that says a wait is in
+progress must be able to stop saying it.** Anything that renders "checking", "loading" or
+"waiting" needs an answer to "and if it never arrives?" — a timeout to a stated outcome, or a
+different state for "there is nothing to wait for". Cheap to check by grepping the strings.
+
+**Next cheap step.** The three waiting labels in the app now each resolve; a check would be to grep
+for `checking|loading|waiting` in rendered strings at review time and ask the question of each.
+Status: done for this build, not automated.

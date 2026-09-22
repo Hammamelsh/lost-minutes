@@ -165,7 +165,7 @@ test('Follow keeps the bus that was shown through reordering, absence, return an
   await publish(page, feed, 6);
   expect(await cardVehicle(page)).toBe(ALPHA.id);
   await expect(card(page)).toContainText('another journey');
-  await card(page).getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await card(page).getByRole('button', {name: 'Follow the new journey'}).click();
   await expect(card(page)).not.toContainText('another journey');
   expect(await cardVehicle(page)).toBe(ALPHA.id);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-follow-kept.png`), fullPage: true});
@@ -286,7 +286,7 @@ test('a ridden bus that starts another journey while moving: kept, drawn at its 
   expect(metres(await drawn(page), before), 'the marker moved on with the new report, not frozen').toBeGreaterThan(20);
   expect(metres(await camera(page), held), 'the camera did not follow the new journey').toBeLessThan(3);
   // Continued: the same vehicle, predicted and followed again.
-  await rideCard.getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await rideCard.getByRole('button', {name: 'Follow the new journey'}).click();
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
@@ -314,7 +314,7 @@ test('a followed bus that starts another journey: the map stops following it and
   await atLatest(page, feed, 'after the next report');
   expect(metres(await drawn(page), before), 'the marker moved on with the new report, not frozen').toBeGreaterThan(20);
   expect(metres(await camera(page), held), 'the map did not follow the new journey').toBeLessThan(3);
-  await card(page).getByRole('button', {name: 'Keep following it on this journey'}).click();
+  await card(page).getByRole('button', {name: 'Follow the new journey'}).click();
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
   await expect.poll(async () => metres(await camera(page), await drawn(page)), {timeout: 8000,
@@ -332,7 +332,13 @@ test('the bus is kept from the keyboard, or with a tap on the phone, and Details
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await publish(page, feed, 1);
   expect(await cardVehicle(page), 'kept after the other bus reports').toBe(ALPHA.id);
-  await press(page.locator('.active-bus').getByRole('button', {name: 'Details'}));
+  // Restated on 22 September 2026: the sticky strip that carried this "Details" button is now the
+  // card's own sticky head, so the way to the card from the map's own view is the ride card's
+  // Details, which leaves the ride and takes focus there.
+  await press(page.locator('.ride-launch'));
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await press(page.locator('.ride-card').getByRole('button', {name: 'Details'}));
+  await expect(map(page)).toHaveAttribute('data-ride', 'off');
   await expect(card(page)).toBeFocused();
   await expect(card(page)).toBeInViewport();
 });
@@ -597,11 +603,14 @@ test('the route being browsed and its suggestion stay put while two routes take 
     await expect(routeSelect, `publication ${phase}: the route offered stays`).toHaveValue('BNML|256');
     expect(await cardVehicle(page), `publication ${phase}: the suggestion stays`).toBe(ALPHA.id);
   }
-  // Followed with no stop chosen: one name for it, on the card and on the strip.
+  // Followed with no stop chosen: one name for it, said once. Until 22 September 2026 the card
+  // and a sticky strip above it each carried the name, and this check read both; the two are one
+  // sticky card head now, so there is one place to read.
   await page.locator('.follow-toggle').click();
   await publish(page, feed, 1);
   await expect(routeSelect).toHaveValue('BNML|256');
   expect(await cardVehicle(page)).toBe(ALPHA.id);
   await expect(card(page).locator('.bus-card-eyebrow')).toHaveText('Selected bus');
-  await expect(page.locator('.active-bus strong')).toContainText('Selected bus: 256');
+  await expect(page.locator('.active-bus')).toHaveCount(1);
+  await expect(page.locator('.active-bus')).toContainText('256');
 });

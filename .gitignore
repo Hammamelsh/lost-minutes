@@ -71,6 +71,13 @@ __pycache__/
 # from the warehouse. The published summary is public/data/motion-evaluation.json.
 /data/evaluation/
 
+# Scheduled departure boards: one file per boarding point, rebuilt nightly on the server from the
+# timetable catalogue it holds (pipeline/departures.py). About 23 MB and 2,700 files, regenerated
+# whenever the catalogue is, so they are built, not stored.
+/public/data/departures/
+/public/data/departures.json
+/public/data/departure-rules.json
+
 # Browser test output: screenshots, traces and reports are regenerated on every run.
 /test-results/
 /playwright-report/

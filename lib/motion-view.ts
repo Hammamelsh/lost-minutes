@@ -7,7 +7,7 @@
  */
 import {z} from 'zod';
 import {DEFAULT_PARAMS,decodePolyline,historyFrom,makeTrack,project,type ErrorProfile,type Fix,type History,
-        type MotionParams,type Track} from '@/lib/motion';
+        type MotionParams,type RepositionReason,type Track} from '@/lib/motion';
 import type {FollowBus} from '@/lib/follow';
 
 export const serviceOf=(bus:{route:string;direction:string;journeyRef:string})=>
@@ -205,8 +205,19 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  /** Observed, with the reports to travel between as they arrive: the mode, whether or not it is
   *  moving in this frame. Off under "reported positions only", or with a single report. */
  travels?:boolean;
+ /** Observed and travelling down a checked road between its reports, rather than along the chord. */
+ onRoad?:boolean;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
- correction:{kind:string;metres:number;at:number;justNow?:boolean;standing?:boolean}|null;version:string};
+ correction:{kind:string;metres:number;at:number;justNow?:boolean;standing?:boolean;
+  /** Set when the bus was repositioned rather than travelled: which continuity was missing. */
+  why?:RepositionReason}|null;version:string};
+
+/** What to say about a repositioning, in the passenger's terms rather than the model's. */
+export const REPOSITION_WORDS:Record<RepositionReason,string>={
+ no_earlier_report:'there was no earlier report to travel from',
+ too_far:'it is too far to have been followed between reports',
+ too_long:'too long passed between its reports',
+};
 
 const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds/60)} min`;
 
@@ -214,8 +225,13 @@ const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds
 export function describeMotion(info:MotionInfo):{label:string;detail:string}{
  if(info.mode==='observed'){
   // When an estimate is withdrawn the drawn bus goes back to the report, and says how far.
-  const moved=info.correction?.kind==='snap'&&info.correction.metres>=5
-   ?` The drawn bus moved ${Math.round(info.correction.metres)} m to that report.`:'';
+  // A bus drawn at its reports that could not travel to the new one is *repositioned*, and that
+  // says which continuity was missing rather than leaving the move unexplained.
+  const c=info.correction;
+  const moved=c?.kind==='snap'&&c.metres>=5
+   ?c.why?` It was moved ${Math.round(c.metres)} m to its latest report rather than travelled there, because `
+     +`${REPOSITION_WORDS[c.why]}. The ground in between was not drawn, because it is not known.`
+    :` The drawn bus moved ${Math.round(c.metres)} m to that report.`:'';
   // The label says what is drawn at this instant — travelling between two of its own reports, or
   // standing at the newest — and one sentence under both explains the cycle, so the two read as
   // one story rather than two features. Labelling the *mode* instead captioned a bus standing at a
@@ -224,7 +240,11 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // about geometry was false there. Nothing here is a guess about where the bus is now.
   const cycle=info.travels
    ?' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
-    +'little behind, never ahead, and may pause. The line between two reports is not its road.'
+    +'little behind, never ahead, and may pause.'
+    +(info.onRoad
+      ?' Between two reports it goes down the road checked against this service’s own reports, because both'
+       +' of them were measured onto it.'
+      :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
   if(info.between)return {label:`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};

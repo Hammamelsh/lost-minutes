@@ -18,7 +18,10 @@ test('the board says how a tracked bus is placed, links the official live board 
   const when = page.locator('.waiting [data-board-when]');
   await expect(when).toContainText('Tracked buses are shown by their last report');
   await expect(when).toContainText(/no arrival minutes here yet/i);
-  const official = when.locator('[data-official-departures]');
+  // Restated on 23 September 2026: the official board's link belongs beside the departure times,
+  // which are now the departure board's, so it moved there with them. It is still one tap away
+  // from the stop, still labelled as the official one, and still for this very stop.
+  const official = page.locator('.departures [data-official-departures]');
   await expect(official).toHaveAttribute('href', 'https://tfgm.com/public-transport/bus/stops/1800SJ00811');
   await expect(official).toHaveAttribute('target', '_blank');
   await expect(official).toContainText('official');

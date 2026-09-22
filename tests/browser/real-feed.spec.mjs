@@ -101,7 +101,7 @@ test('real positions: the bus followed, then ridden, stays the one chosen throug
     return {card: document.querySelector('article.bus-card')?.getAttribute('data-vehicle'),
       selection: document.querySelector('article.bus-card')?.getAttribute('data-selection'),
       eyebrow: document.querySelector('.bus-card-eyebrow')?.textContent ?? null,
-      stripName: document.querySelector('.active-bus strong')?.textContent ?? null,
+      summaries: document.querySelectorAll('.active-bus').length,
       route: document.querySelector('#follow-route')?.value ?? null,
       strip: document.querySelector('.active-bus')?.getAttribute('data-vehicle'),
       rideCard: document.querySelector('.ride-card')?.getAttribute('data-vehicle') ?? null,
@@ -129,7 +129,9 @@ test('real positions: the bus followed, then ridden, stays the one chosen throug
       expect(now.map, `publication ${k}: the map`).toContain(vehicle);
       // Its route still has a bus, so the route offered below stays the one it was chosen from.
       expect(now.route, `publication ${k}: the route offered`).toBe(routeOffered);
-      expect(now.stripName?.startsWith(`${now.eyebrow}:`), `publication ${k}: one name on the card (${now.eyebrow}) and the strip (${now.stripName})`).toBe(true);
+      // Restated on 22 September 2026: the sticky strip and the card's head were one name said
+      // twice, and are now one sticky head. What this check is for is that there is exactly one.
+      expect(now.summaries, `publication ${k}: one summary of the chosen bus, not two`).toBe(1);
     }
     if (k >= 3) {
       expect(now.rideCard, `publication ${k}: the ride card`).toBe(vehicle);

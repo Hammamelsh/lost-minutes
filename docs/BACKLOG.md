@@ -115,6 +115,25 @@ served site, 22 September 2026). They are different vehicles; the label does not
 line that tells them apart — how far off each is, or how long ago it reported — and probably a cap.
 Not started.
 
+## 21. A 256 placed on the wrong pattern, and then on none
+Reproduced from the retained captures of 22 September 2026 (`pipeline.replay_publications`). On its
+first publication as a 256 outbound to Towns Gate, MF74NNL was matched to
+`BNML:256:outbound:cde495c44d`, whose destination display is Stretford Mall, while
+`BNML:256:outbound:7d555419a1` is the Towns Gate pattern and the feed's own `DestinationName` said
+Towns Gate; from 20:37 the match became `too_far_from_pattern` and stayed there for the rest of the
+run. Neither pattern has an accepted road, so nothing was drawn on a wrong road, but a match that
+disagrees with the operator's own destination is worth tracing: either the destination is not being
+used to separate the two, or the Towns Gate pattern does not reach where the bus actually goes.
+Trace it with `pipeline.assess_matching --at` on that window. Not started.
+
+## 22. Live departure minutes, if the owner decides to pay for them
+`docs/DEPARTURE_DATA.md` has the research: NextBuses (now TransportAPI) is the only practical
+source for Manchester, at £5 a month plus a £10 setup fee for 300 requests a day, with caching and
+public display explicitly permitted. The scheduled board shipped on 23 September 2026 needs no
+provider; a live one needs an account, a key on the server and a request budget enforced in our own
+code. §4 of that document is the serving design. **Waiting on the owner's decision; nothing is
+built, nothing is paid for.**
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

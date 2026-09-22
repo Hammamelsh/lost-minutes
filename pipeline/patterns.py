@@ -388,11 +388,15 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
         ref = _text(vj, 'JourneyPatternRef') or pattern_of_journey.get(_text(vj, 'VehicleJourneyRef'))
         if not ref:
             continue
+        rule = operating_rule(vj.find('OperatingProfile'), calendars) or service_rule
+        # The departure keeps its own journey's operating rule. Without it a pattern that runs on
+        # weekdays and Sundays published one list of times and three day rules, and nothing said
+        # which times belonged to which day — enough to name a bus's scheduled departure (the feed
+        # says which journey it is on) but not to list what leaves a stop on a Sunday.
         departure = _text(vj, 'DepartureTime')
         if departure:
-            departures_by_pattern.setdefault(ref, []).append(departure)
-        rules_by_pattern.setdefault(ref, []).append(
-            operating_rule(vj.find('OperatingProfile'), calendars) or service_rule)
+            departures_by_pattern.setdefault(ref, []).append((departure, rule))
+        rules_by_pattern.setdefault(ref, []).append(rule)
 
     patterns = []
     for journey in root.iter('JourneyPattern'):
@@ -455,11 +459,12 @@ def deduplicate(patterns):
             # Each departure keeps its own timing: journeys over the same stops can run at
             # different scheduled speeds, and a time at a stop is only safe to state when every
             # journey at that departure reaches it at the same second. Timings are distinct
-            # per-stop-seconds tuples; departures point at theirs.
+            # per-stop-seconds tuples; departures point at theirs. Each also keeps the rule its
+            # own journey runs on, so a day can be asked of a departure and not only of a pattern.
             timing = _timing_of(pattern['stops'])
             merged[key] = {**pattern, 'journeys': pattern.get('journeys', 0),
                            'timings': [timing],
-                           'timedDepartures': [(t, 0) for t in (pattern.get('departures') or [])]}
+                           'timedDepartures': [(t, 0, rule) for t, rule in (pattern.get('departures') or [])]}
             continue
         if kept.get('rules') is not None and pattern.get('rules') is not None:
             kept['rules'] = _unique(kept['rules'] + pattern['rules'])
@@ -471,14 +476,23 @@ def deduplicate(patterns):
         # page refuse to name either, which is the conservative outcome. Dropping the second
         # list here left the 140-journey route-15 pattern with 5 departures, and the live site
         # refusing 212 of 215 matched buses as 'not in the timetable' (20 September 2026).
-        kept['departures'] = sorted((kept.get('departures') or []) + (pattern.get('departures') or []))
         timing = _timing_of(pattern['stops'])
         if timing not in kept['timings']:
             kept['timings'].append(timing)
         index = kept['timings'].index(timing)
-        kept['timedDepartures'] = sorted(kept['timedDepartures'] + [(t, index) for t in (pattern.get('departures') or [])])
+        kept['timedDepartures'] = sorted(
+            kept['timedDepartures'] + [(t, index, rule) for t, rule in (pattern.get('departures') or [])],
+            key=lambda d: (d[0], d[1]))
         if _declared(pattern['stops']) > _declared(kept['stops']):
             kept['stops'] = pattern['stops']
+    # The rule each departure runs on becomes its index into the pattern's own rule list, which is
+    # only settled once every journey over these stops has been merged in.
+    for kept in merged.values():
+        rules = kept.get('rules') or []
+        keys = {json.dumps(rule, sort_keys=True): i for i, rule in enumerate(rules)}
+        kept['timedDepartures'] = [
+            [t, timing_index, keys.get(json.dumps(rule, sort_keys=True), -1)]
+            for t, timing_index, rule in kept['timedDepartures']]
     return list(merged.values())
 
 
@@ -510,7 +524,10 @@ def load(con, run_id, patterns, stops_in_area):
                      pattern.get('modified'), pattern.get('revision'),
                      pattern.get('journeys'), known,
                      json.dumps({'timings': [list(t) for t in pattern.get('timings') or []],
-                                 'departures': [list(d) for d in pattern.get('timedDepartures') or []]})))
+                                 'departures': [list(d) for d in pattern.get('timedDepartures') or []],
+                                 # Which rule in `operating_rules` each departure runs on; -1 where
+                                 # the file gave the journey no profile we could read.
+                                 'departureFields': ['time', 'timing', 'rule']})))
         for sequence, stop in enumerate(pattern['stops']):
             # A stop is (atco, metres) from an older caller or (atco, metres, seconds) from the
             # parser; a missing third element is an unknown scheduled time, never zero.

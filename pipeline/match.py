@@ -269,7 +269,8 @@ def scheduled_journey(vehicle, pattern_id, patterns):
     info = (pattern or {}).get('departureInfo') or {'departures': []}
     if not info['departures']:
         return {'reason': 'pattern_has_no_departure_times'}
-    hits = [index for time, index in info['departures'] if time == local]
+    # A departure is (time, timing, rule) since 22 September 2026; older rows are (time, timing).
+    hits = [row[1] for row in info['departures'] if row[0] == local]
     if not hits:
         return {'reason': 'aimed_departure_not_in_timetable', 'aimedLocal': local}
     # Several journeys at one departure are one answer only if they share a timing: then

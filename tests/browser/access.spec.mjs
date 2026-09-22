@@ -60,16 +60,25 @@ test('using only the keyboard: find the stop, choose a bus, follow it, ride alon
   await expect(map).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
   expect(await dropped(page), 'focus is kept when the ride begins').toBe(false);
 
-  await tabTo(page, 'Details under the map', () => Boolean(document.activeElement?.closest('.active-bus'))
-    && document.activeElement.textContent.trim() === 'Details');
-  await page.keyboard.press('Enter');
-  await expect(card, 'Details takes focus to the card').toBeFocused();
-
   await tabTo(page, 'the way out of the ride', () => /Leave the ride-along|Exit ride-along/.test(
     `${document.activeElement?.getAttribute('aria-label') ?? ''} ${document.activeElement?.textContent ?? ''}`));
   await page.keyboard.press('Enter');
   await expect(map).toHaveAttribute('data-ride', 'off');
   expect(await dropped(page), 'focus is kept when the ride ends').toBe(false);
+
+  // Restated on 22 September 2026. Until then the chosen bus had two summaries — a sticky strip
+  // with a "Details" button, and the card's own head a few lines below it — and this step tabbed
+  // to that button. The two are one sticky card head now, so there is nothing left to expand; the
+  // way from the ride to everything the card holds is the ride card's own Details, which leaves
+  // the ride first, because on a phone the ride is the whole screen and the card is not on it.
+  await tabTo(page, 'Ride along again', () => /^Ride along with route/.test(document.activeElement?.getAttribute('aria-label') ?? ''));
+  await page.keyboard.press('Enter');
+  await expect(map).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await tabTo(page, 'Details in the ride card', () => Boolean(document.activeElement?.closest('.ride-card'))
+    && document.activeElement.textContent.trim() === 'Details');
+  await page.keyboard.press('Enter');
+  await expect(map).toHaveAttribute('data-ride', 'off');
+  await expect(card, 'Details takes focus to the card').toBeFocused();
   expect(await card.getAttribute('data-vehicle'), 'the same bus throughout').toBe(vehicle);
 });
 

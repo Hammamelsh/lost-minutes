@@ -215,8 +215,17 @@ test('visual: withdrawing an estimate is a correction that is said; moving to a 
  assert.equal(v.lastCorrection.kind, 'snap');
  assert.ok(Math.abs(v.lastCorrection.metres - 80) < 3, `it went back ${v.lastCorrection.metres} m to the report`);
  const h2 = addFix(h, fix(440, 30_000)).history;
- const w = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null);
+ // Travelled to, with the reports to travel by: not a correction.
+ const w = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null, DRAWING, h2);
  assert.equal(w.lastCorrection, v.lastCorrection, 'a bus shown at its reports moving to the next is not a correction');
+ assert.ok(w.glide, 'it travels to the new report');
+ // Without the reports it cannot travel, so it is repositioned — and that is said, not silent.
+ // Until 22 September 2026 this case returned the bus at the new report with no correction at
+ // all, and this check passed because it asked the question without the history.
+ const jumped = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null);
+ assert.equal(jumped.lastCorrection.kind, 'snap');
+ assert.equal(jumped.lastCorrection.why, 'no_earlier_report');
+ assert.equal(jumped.glide, null, 'and it does not pretend to have travelled');
 });
 
 test('the presentation clock is never stepped: a new server offset is approached gradually', () => {
@@ -495,9 +504,14 @@ test('visual: an estimate that had rolled past a standing bus eases back to its 
  assert.ok(metres(v, from) < 5, 'the first frame stays where the bus was drawn');
  assert.ok(needsFrames(e, v), 'frames are needed while it eases back');
  let last = v;
- for (let t = 80_100; t <= 84_000; t += 50) {
+ // The ease-back is timed from a speed, not a budget: 100 ms a metre, so about 10 m/s. At the
+ // old 25 ms a metre this 110 m correction was taken back at a peak of 3.74 m per 50 ms frame
+ // — 75 m/s, 269 km/h — and the check allowed 8 m a frame, so it passed. It is now under 1 m a
+ // frame, and the window runs to 93 s because the correction honestly takes about eleven
+ // seconds.
+ for (let t = 80_100; t <= 93_000; t += 50) {
   v = stepVisual(v, estimate(h2, L, t, P), t, null, DRAWING, h2);
-  assert.ok(metres(v, last) < 8, `no frame jumps (${metres(v, last).toFixed(1)} m)`);
+  assert.ok(metres(v, last) < 1, `no frame jumps (${metres(v, last).toFixed(2)} m)`);
   last = v;
  }
  assert.ok(metres(v, along(482)) < 2, 'settled at the standing report');

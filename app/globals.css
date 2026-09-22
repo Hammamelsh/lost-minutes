@@ -539,8 +539,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
    both layouts, the phone's column and the desktop grid, so there is one rule for both. */
 .follow.exploring-bus>*{order:6}
 .follow.exploring-bus>.follow-bar{order:0}
-.follow.exploring-bus>.active-bus{order:1}
-.follow.exploring-bus>.bus-card{order:2}
+.follow.exploring-bus>.bus-card{order:1}
 .follow.exploring-bus>.vector-map,.follow.exploring-bus>.follow-map,
 .follow.exploring-bus>.map-fallback-wrap{order:3}
 .follow.exploring-bus>.your-stop{order:4}
@@ -681,6 +680,19 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .age-chip.stale,.age-chip.expired{border-color:#7d5a43;background:#33241c;color:#f0c0a0}
 .age-chip.archive,.age-chip.unknown{border-color:#3d5260;background:#1b2c38;color:#cfe0ea}
 .bus-card-gone{margin:10px 0 0;font-size:12.5px;line-height:1.55;color:#f1c68a}
+/* A bus that has gone quiet while the feed is healthy: the card itself says so, not only the chip,
+   because a six-minute-old report in the same colours as a fresh one reads as a fresh one. */
+.bus-card.quiet{border-color:#7e6541}
+.bus-card-quiet{display:grid;gap:2px;margin:11px 0 0;padding:9px 11px;border-radius:11px;
+ border:1px solid #7e6541;background:#2a2419}
+.bus-card-quiet strong{font-size:13px;font-weight:750;color:#ffd79a}
+.bus-card-quiet span{font-size:12.5px;line-height:1.55;color:#f1dcb6}
+/* The identity behind a journey change: there when it is wanted, never in the way of the choice. */
+.selection-detail{margin:8px 0 0}
+.selection-detail>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:#f1dcb6;min-height:32px;
+ display:flex;align-items:center}
+.selection-detail>p{margin:6px 0 0;font-size:12.5px;line-height:1.6;color:#e6d5b4}
+.ride-details{align-self:flex-start;margin-top:2px}
 .bus-card-hint{margin:10px 0 0;font-size:13px;line-height:1.55;color:#a9bcc7}
 .claims{margin:12px 0 0;display:grid;gap:1px;background:#2a3f4c;border-radius:11px;overflow:hidden;border:1px solid #2a3f4c}
 .claim{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px;padding:9px 11px;background:#15262f}
@@ -923,16 +935,39 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 /* Save and Share keep their icons and names for assistive technology; the words go on a phone so the
    row (Save, Share, Change, New journey) stays on one line and the map stays on the first screen. */
 .follow .your-stop-actions button[data-compact] span{display:none}
-.active-bus{position:sticky;top:8px;z-index:6;display:flex;align-items:center;gap:10px;padding:8px 10px;
- border-radius:12px;border:1px solid #4c6b39;background:#16261c;box-shadow:0 8px 22px #060f1799}
-.active-bus.suggested{border-color:#3a5060;background:#152634}
-.active-bus.absent,.active-bus.new_journey{border-color:#7e6541;background:#2a2419}
-.active-bus .route-pill{flex-shrink:0}
-.active-bus-copy{flex:1;min-width:0}
-.active-bus-copy strong{display:block;font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
-.active-bus-copy small{display:block;font-size:12px;line-height:1.45;color:#a9bcc7;margin-top:1px}
+/* The chosen bus's summary, which is the card's own head: it sticks to the top of the panel so the
+   bus stays in view while the board below it is browsed, which is what the separate strip above the
+   card used to do before the two were merged. */
+.active-bus.bus-card-summary{position:sticky;top:-2px;z-index:6;margin:-2px -2px 0;padding:2px 2px 6px;
+ background:linear-gradient(#16212a 82%,#16212a00)}
+.active-bus-copy{margin:5px 0 0;min-width:0}
+.active-bus-copy small{display:block;font-size:12px;line-height:1.45;color:#a9bcc7}
 .active-bus.absent .active-bus-copy small,.active-bus.new_journey .active-bus-copy small{color:#f1c68a}
-.active-bus .text-action{flex-shrink:0;min-height:44px}
+/* The stop's own answer to "when is the next bus?", from the timetable: a list of departures, each
+   with the time it is due, how long that is away, and what kind of claim it is. */
+.departures{display:grid;gap:8px}
+.departure-rows{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:#2a3f4c;
+ border-radius:12px;overflow:hidden;border:1px solid #2a3f4c}
+.departure-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
+ gap:10px;padding:9px 11px;background:#15262f}
+.departure-copy{min-width:0}
+.departure-copy strong{display:block;font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
+.departure-copy small{display:block;font-size:11.5px;line-height:1.45;color:#9fb3bf}
+.departure-when{text-align:right}
+.departure-when strong{display:block;font-size:15px;font-weight:750;font-variant-numeric:tabular-nums}
+.departure-when small{display:block;font-size:11.5px;color:#a9bcc7;font-variant-numeric:tabular-nums}
+/* The label is the claim, so it is never decoration: a scheduled time and a live one do not look
+   the same, and today every row here is scheduled. */
+.departure-kind{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+ padding:4px 7px;border-radius:7px;border:1px solid #3d5260;background:#1b2c38;color:#cfe0ea;white-space:nowrap}
+.departure-kind[data-kind="live"]{border-color:#4c6b39;background:#233021;color:#c2e39a}
+.departure-bus{grid-column:1/-1;justify-self:start;min-height:40px}
+.departures-note{margin:0;font-size:13px;line-height:1.55;color:#a9bcc7}
+.departures-basis{margin:0;display:grid;gap:6px;font-size:12px;line-height:1.55;color:#93a8b5}
+@media (max-width:430px){
+ .departure-row{grid-template-columns:auto minmax(0,1fr) auto;gap:8px;padding:8px 10px}
+ .departure-kind{grid-column:2/-1;justify-self:start;margin-top:2px}
+}
 .empty-state{display:grid;gap:6px;padding:12px;border-radius:12px;border:1px dashed #3d5260;background:#132330}
 .empty-state strong{font-size:14px;font-weight:650;line-height:1.5;color:#dbe7ec}
 .empty-state span{font-size:12.5px;color:#9fb3bf;line-height:1.5}
@@ -1417,7 +1452,11 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .follow>*{grid-column:2;margin-bottom:0}
  .follow>.follow-top{grid-column:2;grid-row:1}
  .follow>.vector-map,.follow>.follow-map,.follow>.map-fallback-wrap{grid-column:1;grid-row:1 / span 2;position:relative;top:auto;height:100%;min-height:0;margin:0}
- .follow>.panel{grid-column:2;grid-row:2;overflow:auto;min-height:0;padding-right:4px;scrollbar-width:thin}
+ /* `contain:paint` because a scroll container should contain its own content and, without it,
+    the panel's overflow reached the document: with the departure board in the panel the page
+    became scrollable 486 px past its own footer, into nothing (measured 1553 px of scroll for a
+    1067 px page, 22 September 2026). The panel scrolls; the page does not. */
+ .follow>.panel{grid-column:2;grid-row:2;overflow:auto;contain:paint;min-height:0;padding-right:4px;scrollbar-width:thin}
  .follow>.follow-notes{display:none}
  .follow>.follow-bar{justify-self:start}
 }
@@ -1455,7 +1494,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
   width:40px;height:4px;border-radius:2px;background:#3d5364}
  .follow>.panel .sheet-handle{padding-top:12px}
  .follow>.panel .panel-head{flex:0 0 auto}
- .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;padding-bottom:16px;scrollbar-width:thin}
+ .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;contain:paint;padding-bottom:16px;scrollbar-width:thin}
  .follow.sheet-peek>.panel .panel-body,.follow.sheet-peek>.panel .panel-head{visibility:hidden}
  .follow>.follow-notes{display:none}
  .follow>.vector-map .vector-map-foot{bottom:calc(46dvh + 10px);right:67px}

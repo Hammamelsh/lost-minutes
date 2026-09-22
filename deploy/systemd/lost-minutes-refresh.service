@@ -14,6 +14,10 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # night, recorded as a run boundary) and is always started again, even if the rebuild fails.
 ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
+# The stops' scheduled departure boards, from the catalogue just rebuilt: about 2,700 small files
+# under public/data/departures/, replaced in place and never sent by a deploy, for the same reason
+# the catalogue is not — they are the server's own, from what the server itself holds.
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.departures publish
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
 # A consistent copy of the warehouse for the arrival evaluation, taken here because the collector
 # is already stopped for the rebuild: measured 0.16 s to copy 50 MB, so it adds nothing a passenger

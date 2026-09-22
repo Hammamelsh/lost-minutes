@@ -353,32 +353,45 @@ class RunTimeTests(unittest.TestCase):
     def test_every_journey_departure_is_recorded_on_its_pattern_with_repeats_kept(self):
         from pipeline.patterns import extract_patterns
         found = extract_patterns(txc(), 't.xml', 'sha', None, None)[0]
-        # The fixture's three journeys all run jp_1, at 07:00, 09:00 and 08:10.
-        self.assertEqual(found['departures'], ['07:00:00', '08:10:00', '09:00:00'])
+        # The fixture's three journeys all run jp_1, at 07:00, 09:00 and 08:10. Each departure
+        # travels with the operating rule of its own journey, so a day can be asked of a departure
+        # rather than only of the pattern (22 September 2026).
+        self.assertEqual([time for time, _rule in found['departures']],
+                         ['07:00:00', '08:10:00', '09:00:00'])
+        self.assertTrue(all(rule is None or isinstance(rule, dict) for _t, rule in found['departures']))
 
     def test_merging_identical_stop_patterns_keeps_every_journeys_departure(self):
         from pipeline.patterns import deduplicate
         stops = [('S1', 0, 0), ('S2', 300, 60)]
+        week, sat = {'days': [0, 1, 2, 3, 4]}, {'days': [5]}
         a = {'operatorCode': 'O', 'lineName': '15', 'direction': 'inbound', 'stops': stops,
-             'journeys': 2, 'rules': None, 'departures': ['07:00:00', '08:10:00']}
-        b = {**a, 'journeys': 3, 'departures': ['06:30:00', '08:10:00', '09:00:00']}
+             'journeys': 2, 'rules': [week], 'departures': [('07:00:00', week), ('08:10:00', week)]}
+        b = {**a, 'journeys': 3, 'rules': [sat],
+             'departures': [('06:30:00', sat), ('08:10:00', sat), ('09:00:00', sat)]}
         merged = deduplicate([a, b])
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]['journeys'], 5)
-        self.assertEqual(merged[0]['departures'], ['06:30:00', '07:00:00', '08:10:00', '08:10:00', '09:00:00'],
+        self.assertEqual([time for time, *_ in merged[0]['timedDepartures']],
+                         ['06:30:00', '07:00:00', '08:10:00', '08:10:00', '09:00:00'],
                          'repeats kept: the journey count counts them')
         # Same stops, same seconds: one timing, and both 08:10 journeys point at it.
         self.assertEqual(len(merged[0]['timings']), 1)
-        self.assertEqual([i for t, i in merged[0]['timedDepartures'] if t == '08:10:00'], [0, 0])
+        self.assertEqual([t[1] for t in merged[0]['timedDepartures'] if t[0] == '08:10:00'], [0, 0])
+        # And each departure names the rule its own journey runs on, by its index in `rules`.
+        self.assertEqual(merged[0]['rules'], [week, sat])
+        by_time = {t: rule for t, _timing, rule in merged[0]['timedDepartures']}
+        self.assertEqual(by_time['07:00:00'], 0)
+        self.assertEqual(by_time['06:30:00'], 1)
 
     def test_journeys_over_the_same_stops_at_different_speeds_keep_separate_timings(self):
         from pipeline.patterns import deduplicate
         fast = {'operatorCode': 'O', 'lineName': '15', 'direction': 'inbound',
-                'stops': [('S1', 0, 0), ('S2', 300, 60)], 'journeys': 1, 'rules': None, 'departures': ['08:10:00']}
+                'stops': [('S1', 0, 0), ('S2', 300, 60)], 'journeys': 1, 'rules': None,
+                'departures': [('08:10:00', None)]}
         slow = {**fast, 'stops': [('S1', 0, 0), ('S2', 300, 120)]}
         merged = deduplicate([fast, slow])[0]
         self.assertEqual(len(merged['timings']), 2)
-        self.assertEqual(sorted(i for t, i in merged['timedDepartures']), [0, 1])
+        self.assertEqual(sorted(t[1] for t in merged['timedDepartures']), [0, 1])
 
     def test_a_shared_departure_is_named_only_when_every_journey_runs_the_same_timing(self):
         from pipeline.match import scheduled_journey

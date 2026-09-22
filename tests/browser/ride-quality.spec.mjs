@@ -3,7 +3,7 @@
 // for other buses, and the front view says what it can do before it is pressed. FIXTURE data on
 // real NaPTAN stops; SwiftShader, so the frame times are a software renderer's, not a phone's.
 import {test, expect} from '@playwright/test';
-import {journeyLive, mapBand, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
+import {journeyLive, mapBand, metresOffFixtureRoad, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 const map = page => page.locator('.vector-map').first();
@@ -123,4 +123,65 @@ test('riding a bus that does not serve your stop leads with the bus, and says th
   // And going back restores the ordinary order.
   await page.getByRole('button', {name: /Back to buses for your stop/}).click();
   await expect(page.locator('.follow')).not.toHaveClass(/exploring-bus/);
+});
+
+test('a bus travelling between its reports goes down the checked road, not across the corner', async ({page}) => {
+  test.setTimeout(120_000);
+  // An accepted road shape, and no published evaluation: the road is there, prediction is not, so
+  // the bus is drawn at its reports and travels between them. Until 22 September 2026 that travel
+  // was a straight line between two reports whatever road was known — measured on one real
+  // route-25 journey, the chord left the checked road by a median 5.3 m, 28.5 m at the 95th
+  // percentile and 34.4 m at worst, which at that distance is the next street.
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  const started = Date.now();
+  await serveLive(page, Array.from({length: 40}, () => () =>
+    movingLive({startMs: started, startS: 250, speed: 9, cadence: 20, delay: 4})));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  const map = page.locator('.vector-map');
+  await expect(map).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  const seen = [];
+  for (let i = 0; i < 90; i++) {
+    const display = await map.getAttribute('data-display');
+    if (display) {
+      const [lat, lon] = display.split(',').map(Number);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) seen.push([lat, lon]);
+    }
+    await page.waitForTimeout(400);
+  }
+  expect(seen.length, 'the drawn bus was sampled').toBeGreaterThan(40);
+  const off = seen.map(([lat, lon]) => metresOffFixtureRoad(lat, lon)).sort((a, b) => a - b);
+  const p95 = off[Math.floor(off.length * 0.95)];
+  expect(p95, `95% of drawn positions are on the checked road (p95 ${p95.toFixed(1)} m)`).toBeLessThan(6);
+  expect(off.at(-1), `and none of them is a street away (max ${off.at(-1).toFixed(1)} m)`).toBeLessThan(15);
+  // And the page says which it did, rather than leaving the passenger to guess.
+  await page.locator('.bus-card-motion details').first().click({timeout: 5000}).catch(() => {});
+  await expect(page.locator('.bus-card-motion')).toContainText('down the road checked against');
+});
+
+test('a move too far to have been followed is repositioned and said, never a silent teleport', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  const started = Date.now();
+  // A 900 m step between two reports: further than a bus can be followed between them, so the
+  // page must move it and say so. Until 22 September 2026 this path returned the bus at its new
+  // report with no correction recorded at all — no trace on the map, no line on the card.
+  const jump = {atMs: started + 22_000, metres: 900};
+  await serveLive(page, Array.from({length: 40}, () => () =>
+    movingLive({startMs: started, startS: 250, speed: 6, cadence: 20, delay: 4, jump})));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  const map = page.locator('.vector-map');
+  await expect(map).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  const line = page.locator('.ride-card [data-snap]');
+  await expect(line, 'the repositioning is said on the card').toBeVisible({timeout: 60_000});
+  await expect(line).toContainText(/Moved \d+ m to its latest report/);
+  await expect(line).toHaveAttribute('data-why', 'too_far');
+  await expect(line).toContainText('too far to have been followed');
+  await expect(map, 'and the map records it as a repositioning, not as travel')
+    .toHaveAttribute('data-correction', /^snap:/);
 });

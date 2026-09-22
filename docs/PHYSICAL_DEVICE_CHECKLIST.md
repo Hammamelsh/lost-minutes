@@ -90,6 +90,30 @@ finger are all absent from Chromium.
 - [ ] The sheet at its full height still shows a strip of map, and the map's own controls are not
       under the sheet. *unchecked*
 
+## The ride-along, the movement and the departure board (added 23 September 2026)
+
+- [ ] **Come back to a backgrounded tab.** Leave the page riding a bus, switch to another app for
+      three or four minutes, come back. The bus should either be travelling from where it was, or
+      be repositioned with a line saying how far and why — never appear somewhere else with no
+      account. **This is the one thing emulation could not test**: headless Chromium kept drawing
+      when the probe put another tab in front, so nothing is claimed about it. *unchecked*
+- [ ] Lock the screen for two minutes mid-ride, unlock, and watch the first few seconds. *unchecked*
+- [ ] On a real GPU, is the bus's travel between reports smooth, or does the frame rate make it
+      look like stepping? Read `data-frame-ms` from the feedback report. *unchecked*
+- [ ] A bus with an accepted road (route 25 inbound, say): does the drawn bus stay on the street,
+      or cut corners into buildings, at street zoom by eye? *unchecked*
+- [ ] Ride a bus through a real correction and watch the ease-back: it should read as the bus being
+      corrected over several seconds, not as a dart. *unchecked*
+- [ ] **Front view** on a service that has no road: the button says why on its face, and pressing
+      it gives the whole reason without leaving a dead control. *unchecked*
+- [ ] The departure board at a real stop: are the scheduled times right against the printed
+      timetable at that stop, or against the Bee Network board? Check one stop at a quiet hour and
+      one at a busy one, and a stop with journeys after midnight. *unchecked*
+- [ ] The departure board with the phone's clock set to another timezone: the times should still be
+      Manchester's. *unchecked*
+- [ ] With the sheet at half height, is the departure board the first thing under the handle, and
+      can the next departure be read without opening the sheet fully? *unchecked*
+
 ## When something looks wrong
 
 Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report

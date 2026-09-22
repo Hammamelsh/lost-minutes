@@ -1,7 +1,7 @@
 "use client";
 
 import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
-import {ArrowLeft,Clock3,Crosshair,History,LocateFixed,MapPin,Play,Radio,RefreshCw,RotateCcw,Share2,Star,WifiOff,X,ChevronDown,ChevronUp,Route,ExternalLink} from 'lucide-react';
+import {ArrowLeft,Clock3,Crosshair,History,LocateFixed,MapPin,Play,Radio,RefreshCw,RotateCcw,Share2,Star,WifiOff,X,ChevronDown,ChevronUp,Route} from 'lucide-react';
 import FollowMap from '@/components/follow-map';
 import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState,type SelectionKind} from '@/components/city-map';
 import Nearby from '@/components/nearby';
@@ -15,6 +15,7 @@ import {serviceKey as serviceKeyOf} from '@/lib/journey';
 import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
 import WalkGuide from '@/components/walk-guide';
+import {DepartureBoard} from '@/components/departure-board';
 import ExploreFront from '@/components/explore-front';
 import InstallHint from '@/components/install-hint';
 import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
@@ -35,7 +36,7 @@ import {scheduledAtStop} from '@/lib/scheduled';
 import {arrivalEstimate,arrivalWords,type ArrivalRelease} from '@/lib/arrival';
 import {loadTrack} from '@/lib/motion-view';
 import type {Track} from '@/lib/motion';
-import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,saveMotionPreference,
+import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,REPOSITION_WORDS,saveMotionPreference,
         subscribeMotionPreference,type MotionInfo} from '@/lib/motion-view';
 import {busLinkKey,JOURNEY_SESSION_STORE,journeyQuery,recentsServerSnapshot,recentsSnapshot,rememberRecent,
         restoreService,subscribeRecents,writeJourney,type InitialJourney} from '@/lib/journey-context';
@@ -572,7 +573,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     ?`This bus is going the other way. It calls at ${otherSide.stop.name}${otherSide.stop.indicator?` (${otherSide.stop.indicator})`:''}, across the road about ${otherSide.metres} m away, not at ${stopLabel}.`
     :`It does not serve ${stopLabel}. ${assoc.detail}`
    :cardStanding==='passed'?`In the timetable’s stop order its last report is already past ${stopLabel}.`
-   :`${assoc.text}. ${assoc.detail}`
+   // Not the same statement as "it does not serve your stop", and it was reading like one. The
+   // count of branches stays: it is the fact, and the sentence is what it means.
+   :cardStanding==='maybe'?`${assoc.text}. Until its next reports settle which branch it is on, we `
+    +`cannot confirm it either way. ${assoc.detail}`
+   :`We cannot confirm whether this bus serves ${stopLabel}. ${assoc.text}. ${assoc.detail}`
   :null;
 
  const activity=shown&&!absent&&mode!=='archive'?stopActivity(shown,matchedPattern(shown),stopById):null;
@@ -617,12 +622,31 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    +`(${selection.last.ageWords.replace('reported ','')}); it is shown there, not moved on. Nothing else has been chosen in its place.`
   :`It is not in the latest publication${selection.pin.bus.observedAtMs?`; the last report this device had from it was at ${clock(selection.pin.bus.observedAtMs,true)}`:''}. `
    +'Nothing else has been chosen in its place.';
+ // A journey change leads with the one sentence that matters and the two things the passenger can
+ // do about it. Which vehicle, which references and what the drawing is doing are true but are not
+ // the decision, so they sit behind Details. Until 22 September 2026 all of it was one paragraph
+ // in the card, and most of it again in the strip above and the ride card over the map.
  const journeyWords=selection.kind!=='new_journey'?null
-  :`Vehicle ${selection.bus.vehicle}, chosen as the ${selection.pin.bus.route} to ${destinationLabel(selection.pin.bus.destination)}, `
-   +`now reports route ${selection.bus.route}${selection.bus.direction?` ${directionLabel(selection.bus.direction).toLowerCase()}`:''} `
+  :`Your bus has finished the ${selection.pin.bus.route} to ${destinationLabel(selection.pin.bus.destination)} `
+   +`and is now running the ${selection.bus.route}${selection.bus.direction?` ${directionLabel(selection.bus.direction).toLowerCase()}`:''} `
+   +`to ${destinationLabel(selection.bus.destination)}.`;
+ // Which of the three actually changed, so the account is of this change and not of changes in
+ // general: a relabelling would be one of them, a new journey is the route or the direction.
+ const journeyChanges=selection.kind!=='new_journey'?[]:[
+  selection.bus.route!==selection.pin.bus.route?'route':null,
+  selection.bus.direction!==selection.pin.bus.direction?'direction':null,
+  selection.pin.bus.journeyRef&&selection.bus.journeyRef!==selection.pin.bus.journeyRef
+   ?'journey reference':null,
+  selection.bus.destination!==selection.pin.bus.destination?'destination':null,
+ ].filter((value):value is string=>value!==null);
+ const journeyDetail=selection.kind!=='new_journey'?null
+  :`Vehicle ${selection.bus.vehicle}, chosen as the ${selection.pin.bus.route} to ${destinationLabel(selection.pin.bus.destination)}`
+   +`${selection.pin.bus.journeyRef?` (journey ${selection.pin.bus.journeyRef})`:''}, now reports route `
+   +`${selection.bus.route}${selection.bus.direction?` ${directionLabel(selection.bus.direction).toLowerCase()}`:''} `
    +`to ${destinationLabel(selection.bus.destination)}${selection.bus.journeyRef?` (journey ${selection.bus.journeyRef})`:''}. `
-   +'It is shown at each report it makes, not estimated, and the map has stopped following it. '
-   +'Keep following it to go on with this journey.';
+   +`${journeyChanges.length===1?`Its ${journeyChanges[0]} changed`:`Its ${journeyChanges.slice(0,-1).join(', ')} and ${journeyChanges.at(-1)} changed`}`
+   +', which is a new journey and not a relabelled one. It is shown at each report it makes, not '
+   +'estimated, and the map has stopped following it.';
  // "Last reported near Moss Park Road" beside "last report nearest Moss Park Road, 2 stops before
  // yours" is the same fact twice, and a passenger reads the repetition as two different claims.
  // The activity line is kept where it says more: that the bus appears to be standing there, or
@@ -630,6 +654,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const progressText=stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null;
  const activityAdds=activityLine!==null&&(activity?.kind==='stopped'||!progressText
   ||!progressText.includes(name(activity?.kind==='near'?activity.stop:'')));
+ // A report can be old while the feed is perfectly well: the vehicle stopped reporting, which is
+ // what MF74NNL did at 20:44:48 on 22 September 2026 and what the card then showed for six minutes
+ // in the same colours as a fresh one. It is its own state now, said in words and marked on the card.
+ const quiet=mode==='live'&&shown&&!absent&&shown.freshness!=='fresh'&&shown.ageSeconds!==null
+  &&Number.isFinite(shown.ageSeconds)?Math.round(shown.ageSeconds):null;
+ const quietWords=quiet===null?null
+  :`This bus has not reported for ${elapsedWords(quiet)}. Live positions are arriving normally, so it `
+   +'is this vehicle that has gone quiet — it is drawn where it last reported, not moved on.';
  const stripStatus=selection.kind==='absent'?'No current report'
   :selection.kind==='new_journey'?`Now on another journey · ${ageChip(selection.bus)}`
   :shown?[progressText,activityAdds?activityLine?.text:null,ageChip(shown)].filter(Boolean).join(' · '):'';
@@ -638,21 +670,31 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const rideOverlay=shown?<div className="ride-card" data-vehicle={shown.vehicle}>
   <div className="ride-card-head">
    <span className="route-badge">{shown.route}</span>
-   <div>{!relevant&&<small className="ride-card-eyebrow">Selected bus · not coming to your stop</small>}
+   <div>{!relevant&&<small className="ride-card-eyebrow">Selected bus · {(NOT_COMING[cardStanding??'unknown']||'not coming to your stop').toLowerCase()}</small>}
     <strong>to {destinationLabel(shown.destination)}</strong>{!motionWords&&<small>{ageText(shown)}</small>}</div>
   </div>
   {absent&&<p className="ride-status-line warn">No current report · shown at its last report, not moved on</p>}
+  {quiet!==null&&!absent&&<p className="ride-status-line warn" data-quiet={quiet}>No report for {elapsedWords(quiet)} ·
+   the feed is live, this bus has gone quiet</p>}
   {pausedJourney&&<div className="ride-journey">
-   <p className="ride-status-line warn">Now on another journey{shown.route?`: ${shown.route} to ${destinationLabel(shown.destination)}`:''}.
-    Not estimated, and the camera has stopped following it.</p>
-   <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
+   {/* The short version over the map; the identity and what the drawing is doing are in the card. */}
+   <p className="ride-status-line warn">Now on another journey{shown.route?`: ${shown.route} to ${destinationLabel(shown.destination)}`:''}.</p>
+   <button className="text-action strong" onClick={continueJourney}>Follow the new journey</button>
   </div>}
   {motionWords&&<p className={`ride-motion ${motionInfo?.mode}`}>{motionWords.label}</p>}
-  {motionInfo?.correction?.kind==='snap'&&motionInfo.correction.justNow&&<p className="ride-status-line warn" data-snap>
-   Moved {Math.round(motionInfo.correction.metres)} m to its latest report{motionInfo.correction.standing?' · it had stopped':''}</p>}
+  {/* A repositioning says which continuity was missing: the bus was moved, not followed, and the
+      ground in between was not drawn because it is not known. */}
+  {motionInfo?.correction?.kind==='snap'&&motionInfo.correction.justNow&&<p className="ride-status-line warn" data-snap
+    data-why={motionInfo.correction.why??undefined}>
+   Moved {Math.round(motionInfo.correction.metres)} m to its latest report
+   {motionInfo.correction.why?` · ${REPOSITION_WORDS[motionInfo.correction.why]}`
+    :motionInfo.correction.standing?' · it had stopped':''}</p>}
   {activityAdds&&activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&relevant&&<p className={`ride-progress tone-${prog.tone}`}>{prog.text}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
+  {/* The way from the ride to everything the card holds. It leaves the ride first, because on a
+      phone the ride is the whole screen and the card is not on it. */}
+  <button className="text-action ride-details" onClick={()=>{setView('2d');setTimeout(showCard,0)}}>Details</button>
  </div>:null;
 
  const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus)}
@@ -874,25 +916,18 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {restoreNotes.map(note=><p key={note}>{note}</p>)}
   </div>}
 
-  {/* The bus being followed, one glance away. It comes before the map, so that on a phone the
-      answer shares the first screen with the stop; on a wide screen the map has a column of its
-      own, so the order there is unchanged. */}
-  {identity&&panelMode!=='plan'&&<div className={`active-bus ${selectionKind??'none'}`} role="status" aria-label="The bus shown on the map"
-    data-vehicle={identity.vehicle}>
-   <span className="route-pill">{identity.route||'?'}</span>
-   <span className="active-bus-copy">
-    <strong>{selectionKind==='suggested'?'Suggested':busNoun}: {identity.route
-     ?`${identity.route} to ${destinationLabel(identity.destination)}`:`vehicle ${identity.vehicle}`}</strong>
-    <small>{stripStatus}{!inList?' · not in the list below':''}</small>
-   </span>
-   <button className="text-action" onClick={showCard}>Details</button>
-  </div>}
-
 
 
   {/* The stop first: what leaves from here, then the buses coming to it with how far each has got
       and how old its report is, then everything else listed apart with what it is. The card for
       the chosen bus follows, so the alternatives are never below a long card. */}
+  {/* "When is the next bus?" is a question about the timetable, so it is answered from the
+      timetable, and it leads: the service chips below it are a filter and the tracked buses under
+      those are a different capability, neither of which is the question. They are never mixed:
+      no row here borrows a time from a bus, and no bus below is given a departure time it did
+      not report. */}
+  {inStop&&stop&&mode!=='archive'&&<DepartureBoard stop={stop} buses={buses} nowMs={nowMs}
+    filterLine={activeService?.line??null} onChooseBus={chooseBus}/>}
   {inStop&&services.length>0&&<section className="services" aria-label="Services from your stop">
    <h3 className="section-head">Services from this stop<small>{activeService?'filtered · tap it again to clear':'timetabled · tap to filter'}</small></h3>
    <div className="service-chips">{services.map(service=>
@@ -915,9 +950,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        passed its criteria (none has); the operator's own live board is one tap away. */}
    <p className="board-when" data-board-when>
     <span><strong>Tracked buses</strong> are shown by their last report — stops away and its age, not minutes
-     {arrivalRelease?.released?.length?'; arrival minutes where our estimate has passed its criteria':' (no arrival minutes here yet)'}.</span>
-    <a className="board-official" href={`https://tfgm.com/public-transport/bus/stops/${stop.id}`} target="_blank" rel="noopener noreferrer" data-official-departures>
-     <ExternalLink size={13} aria-hidden="true"/> Departure times on Bee Network (official)</a>
+     {arrivalRelease?.released?.length?'; arrival minutes where our estimate has passed its criteria':' (no arrival minutes here yet)'}.
+     The timetabled departures are above.</span>
    </p>
    {emptyTitle
     ? <div className="empty-state" role="status">
@@ -968,21 +1002,30 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </section>}
 
   {/* Which bus, is it coming here, how far has it got, how old is that? */}
-  {identity&&(panelMode==='bus'||inStop||panelMode==='home')&&<article id="lm-bus-card" className={`bus-card${absent?' gone':''}${relevant?'':' explored'}${selectionKind==='suggested'?' suggested':''}`}
+  {identity&&(panelMode==='bus'||inStop||panelMode==='home')&&<article id="lm-bus-card" className={`bus-card${absent?' gone':''}${relevant?'':' explored'}${selectionKind==='suggested'?' suggested':''}${quiet===null?'':' quiet'}`}
     aria-label={absent?'Your bus, no current report':busNoun} tabIndex={-1}
     data-vehicle={identity.vehicle} data-selection={selectionKind??'none'}>
-   <p className="bus-card-eyebrow">{absent?'Your bus · no current report'
-    :selection.kind==='new_journey'?'Your bus · another journey':busNoun}</p>
-   <header className="bus-card-head">
-    <span className="route-badge">{identity.route||'?'}</span>
-    <div className="bus-card-title">
-     {/* A link that named only a vehicle, never seen since: its route and destination are unknown. */}
-     <strong>{identity.route?`to ${destinationLabel(identity.destination)}`:`Vehicle ${identity.vehicle}`}</strong>
-     <small>{[directionLabel(identity.direction),identity.operator].filter(Boolean).join(' · ')}</small>
-    </div>
-    {shown&&!absent?<span className={`age-chip ${mode==='archive'?'archive':shown.freshness??'unknown'}`}>{ageChip(shown)}</span>
-     :<span className="age-chip stale">no current report</span>}
-   </header>
+   {/* One summary, not two. Until 22 September 2026 a sticky strip above carried the route, the
+       destination and the status, and this head carried them again a few lines below: the same
+       three facts twice, which reads as two different claims about one bus. The strip's job —
+       keeping the chosen bus in view while the board is browsed — is this head's now, because it
+       sticks. `active-bus` stays the name of that summary, wherever it lives. */}
+   <div className={`active-bus bus-card-summary ${selectionKind??'none'}`} data-vehicle={identity.vehicle}
+     role="status" aria-label="The bus shown on the map">
+    <p className="bus-card-eyebrow">{absent?'Your bus · no current report'
+     :selection.kind==='new_journey'?'Your bus · another journey':busNoun}</p>
+    <header className="bus-card-head">
+     <span className="route-badge">{identity.route||'?'}</span>
+     <div className="bus-card-title">
+      {/* A link that named only a vehicle, never seen since: its route and destination are unknown. */}
+      <strong>{identity.route?`to ${destinationLabel(identity.destination)}`:`Vehicle ${identity.vehicle}`}</strong>
+      <small>{[directionLabel(identity.direction),identity.operator].filter(Boolean).join(' · ')}</small>
+     </div>
+     {shown&&!absent?<span className={`age-chip ${mode==='archive'?'archive':shown.freshness??'unknown'}`}>{ageChip(shown)}</span>
+      :<span className="age-chip stale">no current report</span>}
+    </header>
+    {(stripStatus||!inList)&&<p className="active-bus-copy"><small>{stripStatus}{!inList?' · not in the list below':''}</small></p>}
+   </div>
    {selectionKind==='suggested'&&<p className="bus-card-suggestion">Shown because it is {stop?'coming to your stop':'the latest report on this route'}.
     It stays shown while it is; following it or riding along keeps it chosen.</p>}
    {absentWords&&<div className="selection-note absent" role="status">
@@ -996,12 +1039,19 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {journeyWords&&<div className="selection-note journey" role="status">
     <p><strong>This bus has started another journey.</strong> {journeyWords}</p>
     <div className="selection-actions">
-     <button className="text-action strong" onClick={continueJourney}>Keep following it on this journey</button>
-     {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
-      Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
-     <button className="text-action" onClick={letGo}>Stop following it</button>
+     <button className="text-action strong" onClick={continueJourney}>Follow the new journey</button>
+     <button className="text-action" onClick={letGo}>{stop?'Back to buses for my stop':'Stop following it'}</button>
     </div>
+    {journeyDetail&&<details className="selection-detail"><summary>Details</summary>
+     <p>{journeyDetail}</p>
+     {alternatives.length>0&&<div className="selection-actions">
+      {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
+       Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
+     </div>}
+    </details>}
    </div>}
+   {quietWords&&<p className="bus-card-quiet" role="status" data-quiet={quiet}>
+    <strong>No report for {elapsedWords(quiet ?? 0)}</strong><span>{quietWords}</span></p>}
    {/* A bus that does not serve the stop is said so once, in the block below with the way back,
        not here as well: the same sentence three times reads as three different problems. */}
    {shown&&!absent&&stop&&prog&&relevant&&<div className={`bus-card-answer tone-${prog.tone}`}>

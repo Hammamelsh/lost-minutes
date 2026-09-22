@@ -1467,6 +1467,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  /* Riding: the sheet folds to its handle so the ride's own card is the screen. */
  .follow.riding>.panel{display:none}
  .follow.riding>.follow-top{display:none}
+ .follow>.vector-map.view-ride{position:fixed;inset:0;width:100%;height:100dvh;max-height:none;
+  min-height:0;border-radius:0;border-width:0;z-index:60}
 }
 /* The old ordering rules addressed direct children; the panel holds them now. */
 .follow.exploring-bus>*{order:0}

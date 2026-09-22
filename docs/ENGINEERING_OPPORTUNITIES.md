@@ -1445,3 +1445,40 @@ for this. Not adopted; the rows are few.
 **Next cheap step.** Run the archive import on the server once, collector paused, so the rows become
 checkable there too. Status: marking done; import not run (needs a pause of collection and the
 11-snapshot download on the server).
+
+## 43. One untested parser on the page-load path took the whole page down
+
+**Problem and evidence.** `readPlanLink` (new on 22 September 2026) read `?to=` from the address;
+with no `to`, `''.split(',')` gave one element, the second was `undefined`, an `=== null` guard
+missed it, and `.toFixed` threw inside render: every page load white. Found by the real-data
+checkpoint probe (`.plan-panel` never appeared), not by the Node suite, which had no test for the
+reader, nor by the browser batch, which was still building. The fix took a minute; the finding
+took the probe.
+
+**Who hits it, workaround.** Everyone, on every load. None.
+
+**Implementation bug or wider need.** Both. Here: the reader is tested with the empty address,
+half a pair, letters, and out-of-range values. Wider: **every parser that runs on the page-load
+path needs a test whose input is the empty address**, and a smoke check that the page renders
+before a browser batch is trusted (`dbg-panel.mjs` is that in miniature).
+
+**Existing tools.** An error boundary would have contained it to a message; the page has
+`SectionBoundary` for engineering views only. Not adopted for the passenger page: a white page
+is at least honest that nothing works, and the test is the fix.
+
+**Next cheap step.** A Node test file for every `lib/*-link*.ts` reader with the empty-address
+case; a five-second render smoke before any browser batch. Status: the test exists for this
+reader; the smoke is a probe, not a gate.
+
+## 44. A renamed control name broke eleven checks that named it by string
+
+**Problem and evidence.** Renaming the search field to "Bus number, stop or area" (its new
+purpose) failed every check that found it by `getByRole('combobox', {name: 'Stop name, street or
+area'})`: eleven files, each failing by a 2.5-minute timeout, an hour of a batch. The restatement
+was one `sed`.
+
+**Implementation bug or wider need.** A wider need: **control names the tests rely on belong in
+one shared constant** (`tests/browser/names.mjs`), so a deliberate rename is one edit and an
+accidental one fails one assertion, not sixty minutes.
+
+**Next cheap step.** Extract the five or six names most checks use. Status: not done.

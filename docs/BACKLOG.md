@@ -70,6 +70,34 @@ unit's pattern) would make them checkable. Needs the 11-snapshot download on the
   publication, BNSM 192's main patterns at 100–120 m): a per-line look at whether the router's
   road or the matcher's reports are wrong.
 
+## 13. Build the road shapes where the catalogue is built
+The server's nightly catalogue outgrows the locally built shape index (30 patterns without an
+entry on 22 September, 16 the day before). A `shapes build` on the server after the refresh, on the
+server's own reports, with the same acceptance rule. Router load and memory to be measured first.
+
+## 14. Departure lists per pattern in the catalogue
+The board can name a timetabled next departure only from a matched bus. Publishing each pattern's
+journey departure times (TransXChange `DepartureTime`, already parsed) would let the board list
+the next timetabled departures at any stop — gated, as now, on the schedule anchor being verified
+for that pattern, which today is outbound 15 only.
+
+## 15. NextBuses by TransportAPI: an evaluation that needs a key
+Free tier 30 requests a day (JSON, `expected_departure_time` and `source` per departure), which is
+enough for a quota-aware evaluation at Hillingdon Road both ways and a few other stops, not for a
+live board. Needs an account and its `app_id`/`app_key` on the server (never in the browser), a
+server-side cache and a bounded budget. Pricing above the free tier could not be verified (the
+plans page 404s). Owner's decision.
+
+## 16. A bottom sheet on the phone
+Evaluated, not built: the sticky map with the panel scrolling beneath it already behaves as one;
+a true sheet (drag handle, snap points, the map's controls kept clear) is a rebuild of the phone
+layout and its checks.
+
+## 17. Score movement per route on the server, nightly
+As the arrival evaluation already runs nightly on the server's snapshot, score the frozen motion
+model per route on its own captures against the fixed criteria, and publish the result the page
+gates on. Coverage would then keep itself current instead of waiting for a manual export.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

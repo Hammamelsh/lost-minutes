@@ -4,7 +4,49 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 21 September 2026, evening (the ride said before it is entered, the roads two failed
+Last updated: 22 September 2026 (a journey, not only a stop: search by bus number, stops on the
+map, a board that answers "when?" honestly, a followed position kept apart from a fixed starting
+point, a direct-bus planner with sharing, and the standing bus no longer projected).
+
+**22 September — the passenger's journey.** Detail and evidence: `docs/MILESTONE_2026-09-22_JOURNEYS.md`.
+- **"My location stays the same after I move" was reproduced from the code**: one
+  `getCurrentPosition` per press of Locate me and no `watchPosition`; one value held the last start
+  set. Now three things are kept apart — the device's latest measured position, the journey's
+  starting point (the device, or a fixed place, labelled "Starting point" and drawn as a hollow
+  ring beside You), and where the map is being browsed. The device is followed while the page is in
+  front, a fix taken up only past half its accuracy radius (≥ 15 m), when clearly better or after a
+  minute; the walk re-routes only past max(40 m, 2 × accuracy); a position update never moves the
+  camera (the frame goes to an explicit choice of start); a fixed start is never overwritten by a
+  late fix. Emulated movement in Chromium (`location.spec`), not a phone.
+- **One search: "Bus number, stop or area."** Routes from the timetable catalogue (exact number
+  first), stops with their side of the road, in reach with a stop chosen. A route opens its
+  directions and stops. Every boarding point is on the map from neighbourhood zooms, tappable;
+  "Find stops around here" after a drag; "Back to my location".
+- **The board answers "when?" with what is true**: tracked buses by last report in stops and age,
+  no arrival minutes until an evaluation passes (the nightly one has "released nothing"), and the
+  official Bee Network live board for that very stop by ATCO code (verified). The walk guide comes
+  after the board.
+- **Plan a journey**: From (My location, a postcode via postcodes.io, an address or landmark via
+  Photon/OpenStreetMap, a stop, a map point) and To; results listed with what tells namesakes
+  apart, nothing chosen until picked, late answers dropped. Direct buses from our own catalogue on
+  one valid pattern, boarding before alighting, walks bounded and shorter than the direct line;
+  tracked buses by stops away; no times promised; a caution when the nearest bus is too close for
+  the walk. Choosing opens the boarding stop filtered to the service. The return is recomputed.
+  Hand-offs: Google Maps transit with both places; the Bee Network planner (takes no places).
+  Sharing: text and a link with the destination and, only if fixed, the start — never the device's
+  position, and the preview says so. **No journeys with changes are planned here, and no
+  provider was paid or contacted**: NextBuses by TransportAPI (free 30 requests/day) needs an
+  account and a server-side key — the owner's decision (backlog 15).
+- **The standing bus, the authorised fallback**: a bus whose last two reports stand still while its
+  window still reads movement is not projected; it stands at its report in observed mode and
+  estimation resumes at its first moving report; an overshoot eases back. Re-scored on both
+  held-out Mondays: pull-backs over 35 m fall from 25–26% to 15–16% of corrections; the move-off
+  catch-up remains and is stated: forward corrections 41–44%, snaps 9.7–10.8% (from 8.8–10.3%).
+- **Found on the way**: a page-wide crash from an untested address reader (fixed, tested); a
+  deploy deleting the server's nightly arrival artefact (excluded now); route directions that
+  share a compass word (keyed by destination too).
+
+Before that, 21 September 2026, evening (the ride said before it is entered, the roads two failed
 batches never built, and four defects on the live site).
 
 **21 September, evening — deployed as `dbdf2e3`.** A short batch; the detail is in

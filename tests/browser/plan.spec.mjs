@@ -30,10 +30,12 @@ async function open(page, opts) {
   await servePlaces(page, opts);
   await page.goto('/');
   await waitForPaint(page);
+  await page.locator('[data-plan-entry]').click();
+  await expect(page.locator('.plan-panel')).toBeVisible();
 }
 
 test('a fixed start and a destination give the direct bus with its legs; choosing it opens the boarding stop, filtered', async ({page}) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000); // the phone profile runs the same journey slower
   await open(page);
   // No location permission was given: planning works from a postcode.
   await field(page, 'from').locator('[data-plan-from]').click();
@@ -96,7 +98,7 @@ test('a late answer for the previous destination never shows: the results are th
 });
 
 test('the return is recomputed from the places, sharing says what is shared, and New journey clears the plan but not a saved stop', async ({page}) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000); // the phone profile runs the same journey slower
   await open(page);
   await field(page, 'from').locator('[data-plan-from]').click();
   await search(page, 'Starting point').fill('M32 8LZ');
@@ -126,6 +128,8 @@ test('the return is recomputed from the places, sharing says what is shared, and
   await page.getByRole('button', {name: 'Save this stop'}).click();
   await page.getByRole('button', {name: /New journey/}).click();
   await expect(page.locator('.saved .stop-chip', {hasText: 'Stretford Mall'})).toBeVisible();
-  await expect(panel(page)).toHaveAttribute('data-plan', 'empty');
+  await expect(panel(page), 'New journey closes the planner with everything else').toHaveCount(0);
   expect(await page.evaluate(() => location.search)).toBe('');
+  await page.locator('[data-plan-entry]').click();
+  await expect(panel(page), 'and nothing was carried over into it').toHaveAttribute('data-plan', 'empty');
 });

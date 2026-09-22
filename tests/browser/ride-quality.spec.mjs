@@ -3,7 +3,7 @@
 // for other buses, and the front view says what it can do before it is pressed. FIXTURE data on
 // real NaPTAN stops; SwiftShader, so the frame times are a software renderer's, not a phone's.
 import {test, expect} from '@playwright/test';
-import {journeyLive, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
+import {journeyLive, mapBand, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 const map = page => page.locator('.vector-map').first();
@@ -59,7 +59,7 @@ test('the chosen bus’s own past reports are drawn, and are not other buses', a
     'only real buses are offered as targets').toBe(true);
   expect(others.some(p => p.key.endsWith(`|${chosen}`)), 'the chosen bus is not also listed as another bus').toBe(false);
   // Tapping empty map space leaves the chosen bus alone.
-  const box = await map(page).boundingBox();
+  const box = await mapBand(page);
   await page.mouse.click(box.x + 12, box.y + box.height - 12);
   await page.waitForTimeout(500);
   expect(await page.locator('article.bus-card').getAttribute('data-vehicle')).toBe(chosen);

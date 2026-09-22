@@ -17,7 +17,7 @@ test('the board says how a tracked bus is placed, links the official live board 
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   const when = page.locator('.waiting [data-board-when]');
   await expect(when).toContainText('Tracked buses are shown by their last report');
-  await expect(when).toContainText('No arrival minutes here yet');
+  await expect(when).toContainText(/no arrival minutes here yet/i);
   const official = when.locator('[data-official-departures]');
   await expect(official).toHaveAttribute('href', 'https://tfgm.com/public-transport/bus/stops/1800SJ00811');
   await expect(official).toHaveAttribute('target', '_blank');

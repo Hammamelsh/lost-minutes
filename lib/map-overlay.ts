@@ -41,17 +41,19 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
  const o=OVERLAY[theme];
  return [
   // Every boarding point, from the authoritative stop catalogue (NaPTAN), under everything else:
-  // a small hollow ring from neighbourhood zooms, its name and indicator from street zooms. The
-  // two sides of a road are two rings 30–40 m apart, never one. Neither colour is a reserved one
+  // a sign on a post from neighbourhood zooms, its name and indicator from street zooms. The two
+  // sides of a road are two signs 30–40 m apart, never one. Neither colour is a reserved one
   // (blue is You, orange is your stop, lime is your bus): ink on paper, paper on ink.
-  {id:'lm-stops-dot',type:'circle',source:ALL_STOPS_SOURCE,minzoom:13.5,
-   paint:{'circle-radius':['interpolate',['linear'],['zoom'],13.5,2.2,15,3.4,17,5.5],
-          'circle-color':o.halo,'circle-opacity':0.95,'circle-stroke-color':o.busLabel,'circle-stroke-width':1.6,
-          'circle-pitch-alignment':'map'}},
-  {id:'lm-stops-label',type:'symbol',source:ALL_STOPS_SOURCE,minzoom:15.8,
-   layout:{'text-field':['get','label'],'text-size':11,'text-radial-offset':0.9,
-           'text-variable-anchor':['top','bottom','right','left'],'text-justify':'auto',
-           'text-font':['Noto Sans Regular'],'text-max-width':9,'text-optional':true},
+  // Every sign is drawn (one hidden by collision would be a stop that cannot be tapped); labels
+  // give way to each other, the chosen stop's neighbours first. The chosen stop has its own
+  // marker and name, so it is left out of both layers rather than drawn twice.
+  {id:'lm-stops-dot',type:'symbol',source:ALL_STOPS_SOURCE,minzoom:13.5,filter:['!=',['get','chosen'],true],
+   layout:{'icon-image':'lm-stop-sign','icon-size':['interpolate',['linear'],['zoom'],13.5,0.5,15,0.66,17,0.92,19,1.1],
+           'icon-anchor':'bottom','icon-allow-overlap':true,'icon-ignore-placement':true,'symbol-sort-key':['get','rank']},
+   paint:{'icon-opacity':['interpolate',['linear'],['zoom'],13.5,0.75,15,1]}},
+  {id:'lm-stops-label',type:'symbol',source:ALL_STOPS_SOURCE,minzoom:15.6,filter:['!=',['get','chosen'],true],
+   layout:{'text-field':['get','label'],'text-size':11,'text-anchor':'top','text-offset':[0,0.5],
+           'text-font':['Noto Sans Regular'],'text-max-width':9,'text-optional':true,'symbol-sort-key':['get','rank']},
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.6,'text-opacity':0.9}},
   // Ground geometry: the reported accuracy is a circle on the ground, the right size at
   // every zoom and flat in the City view.

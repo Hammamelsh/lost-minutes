@@ -5,7 +5,7 @@
 // (tests/browser/recorded). The live service is checked separately (walking-real.spec.mjs).
 import {readFileSync} from 'node:fs';
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {foldSheet, unfoldSheet, journeyLive, mapBand, serveLive, servePatterns, waitForPaint} from './fixtures.mjs';
 
 // The start's controls fold into the disclosure once the start is confident; opened here first.
 const openStart = async guide => {const d = guide.locator('[data-walk-details]'); if (!(await d.evaluate(e => e.open))) await d.locator('summary').click()};
@@ -108,9 +108,11 @@ test.describe('with a location', () => {
     await openStart(guide);
     await guide.locator('[data-choose-start]').click();
     await expect(guide.locator('[data-picking]')).toContainText('Tap the map where you are starting from');
-    const map = page.locator('.vector-map canvas').first();
-    const box = await map.boundingBox();
-    await map.click({position: {x: box.width * 0.4, y: box.height * 0.6}});
+    await foldSheet(page);
+    const band = await mapBand(page);
+    await page.mouse.click(band.x + band.width * 0.4, band.y + band.height * 0.6);
+    // The point is taken; the panel comes back up for the rest of the walk guide.
+    await unfoldSheet(page);
     await expect(guide).toHaveAttribute('data-origin-kind', 'chosen');
     await expect(guide).toHaveAttribute('data-origin-band', 'confident');
     await expect(guide).toContainText('Starting from a point on the map, which you chose');

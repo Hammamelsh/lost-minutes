@@ -1380,3 +1380,182 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .plan-summary{display:flex;align-items:flex-start;gap:8px;margin:0;padding:9px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:13px;line-height:1.5}
 .plan-summary svg{flex-shrink:0;margin-top:3px;color:#c6f36a}
 .plan-summary .text-action{margin-left:auto;white-space:nowrap}
+
+/* =====================================================================================
+   22 September 2026: one workspace. The map beside one focused panel on a wide screen, the
+   panel scrolling on its own so the page's primary controls never leave the screen; on a phone
+   the map fills the viewport, the search sits above it and the panel is a sheet with three
+   heights, folded and unfolded by a button as well as a drag.
+   ===================================================================================== */
+.follow{--top-chrome:104px}
+.follow-top{display:flex;flex-direction:column;gap:8px}
+.follow-search{display:flex;align-items:flex-start;gap:8px}
+.follow-search .stop-search{flex:1;min-width:0;margin:0}
+.follow-search .stop-search.compact .stop-search-status{position:absolute;left:-9999px}
+.follow-search .stop-search-list{z-index:8}
+.follow-search .stop-search.compact .stop-search-list{top:calc(100% + 6px)}
+.plan-entry{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:12px;
+ border:1px solid #2d4250;background:#13222d;color:#e6eff3;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap}
+.plan-entry:hover,.plan-entry:focus-visible{border-color:rgba(198,243,106,.5)}
+.plan-entry.on{background:#c6f36a;color:#13230c;border-color:#a5cd5a}
+.panel{display:flex;flex-direction:column;min-width:0}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:2px 0 8px}
+.panel-back{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px 0 8px;border-radius:12px;border:1px solid #2d4250;background:#13222d;color:#e6eff3;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.panel-body{display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel-body>*{min-width:0}
+.sheet-handle{display:none}
+.sheet-refresh{display:none}
+/* Fewer boxes: sections separate by space and a hairline, not by four borders each. */
+.panel-body>section,.panel-body>.your-stop,.panel-body>.exploring{background:transparent;border:0;border-radius:0;padding:0 0 12px;border-bottom:1px solid #1f3140}
+.panel-body>section:last-child,.panel-body>.your-stop:last-child{border-bottom:0}
+.panel-body>.active-bus{margin:0}
+
+/* ---- Wide screens, and phones held sideways: two columns, the panel scrolling within itself. */
+@media(min-width:1024px),(min-width:640px) and (orientation:landscape) and (max-height:560px){
+ .follow{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,430px);grid-template-rows:auto minmax(0,1fr);
+  column-gap:18px;row-gap:10px;align-items:stretch;height:calc(100dvh - var(--top-chrome,190px));min-height:520px;padding-bottom:0}
+ .follow>*{grid-column:2;margin-bottom:0}
+ .follow>.follow-top{grid-column:2;grid-row:1}
+ .follow>.vector-map,.follow>.follow-map,.follow>.map-fallback-wrap{grid-column:1;grid-row:1 / span 2;position:relative;top:auto;height:100%;min-height:0;margin:0}
+ .follow>.panel{grid-column:2;grid-row:2;overflow:auto;min-height:0;padding-right:4px;scrollbar-width:thin}
+ .follow>.follow-notes{display:none}
+ .follow>.follow-bar{justify-self:start}
+}
+@media(min-width:640px) and (orientation:landscape) and (max-height:560px){
+ .follow{height:calc(100dvh - 78px);grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
+ .page-heading.compact{display:none}
+}
+
+/* ---- Phones upright: the map is the screen, the search floats above it, the panel is a sheet. */
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ .follow{--ws-top:104px;display:block;position:relative;height:calc(100dvh - var(--ws-top));min-height:480px;overflow:hidden;padding-bottom:0;gap:0}
+ .follow>.follow-top{position:absolute;top:8px;left:0;right:0;z-index:6;padding:0 8px;gap:6px}
+ .follow>.follow-top .follow-bar{align-self:flex-start;background:#0b1720e6;backdrop-filter:blur(3px)}
+ .follow>.vector-map,.follow>.follow-map,.follow>.map-fallback-wrap{position:absolute;inset:0;height:auto;min-height:0;border-radius:0;border:0;margin:0}
+ .follow>.vector-map .map-views{top:104px}
+ .follow>.vector-map .map-tools{top:104px}
+ .follow>.panel{position:absolute;left:0;right:0;bottom:0;z-index:7;height:46dvh;max-height:calc(100dvh - var(--ws-top) - 96px);
+  background:#0e1a24;border-top:1px solid #2d4250;border-radius:18px 18px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.35);
+  transition:height .28s cubic-bezier(.2,.8,.2,1);padding:0 12px 8px;overflow:hidden}
+ .follow.sheet-peek>.panel{height:92px}
+ .follow.sheet-full>.panel{height:calc(100dvh - var(--ws-top) - 96px)}
+ .follow>.panel .sheet-handle{display:block;flex:0 0 auto;touch-action:none;margin:0 -12px;padding:6px 12px 4px}
+ .sheet-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:4px 2px;border:0;background:none;color:#e6eff3;font:inherit;font-size:13.5px;font-weight:600;text-align:left;cursor:pointer}
+ .sheet-grip{flex:0 0 36px;height:4px;border-radius:2px;background:#3d5364;margin:0 auto}
+ .sheet-toggle .sheet-words{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .sheet-toggle{flex-wrap:wrap}
+ .sheet-handle{display:flex;align-items:center;gap:6px}
+ .sheet-toggle{flex:1;min-width:0}
+ .sheet-refresh{display:grid;flex:0 0 auto;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;
+  border:1px solid #2d4250;background:#13222d;color:#c9d9e0}
+ .sheet-refresh:disabled{opacity:.6}
+ .sheet-toggle .sheet-grip{flex-basis:100%;height:0;margin:0;background:none}
+ .follow>.panel .sheet-handle{position:relative}
+ .follow>.panel .sheet-handle::before{content:'';position:absolute;top:3px;left:50%;transform:translateX(-50%);
+  width:40px;height:4px;border-radius:2px;background:#3d5364}
+ .follow>.panel .sheet-handle{padding-top:12px}
+ .follow>.panel .panel-head{flex:0 0 auto}
+ .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;padding-bottom:16px;scrollbar-width:thin}
+ .follow.sheet-peek>.panel .panel-body,.follow.sheet-peek>.panel .panel-head{visibility:hidden}
+ .follow>.follow-notes{display:none}
+ .follow>.vector-map .vector-map-foot{bottom:calc(46dvh + 10px);right:67px}
+ .follow.sheet-peek>.vector-map .vector-map-foot{bottom:104px}
+ .follow.sheet-full>.vector-map .vector-map-foot{display:none}
+ .follow>.vector-map .map-credit-line{display:none}
+ .follow>.vector-map .map-find-here{top:auto;bottom:calc(52dvh + 62px)}
+ .follow.sheet-peek>.vector-map .map-find-here{bottom:150px}
+ /* Riding: the sheet folds to its handle so the ride's own card is the screen. */
+ .follow.riding>.panel{display:none}
+ .follow.riding>.follow-top{display:none}
+}
+/* The old ordering rules addressed direct children; the panel holds them now. */
+.follow.exploring-bus>*{order:0}
+.follow.exploring-bus .panel-body>*{order:6}
+.follow.exploring-bus .panel-body>.active-bus{order:1}
+.follow.exploring-bus .panel-body>.bus-card{order:2}
+.follow.exploring-bus .panel-body>.your-stop{order:4}
+.follow.exploring-bus .panel-body>.restore-notice,.follow.exploring-bus .panel-body>.follow-hint{order:5}
+/* The heading stands down to one line: the masthead names the site, the workspace needs the height. */
+.page-heading.compact{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;padding:10px 0 8px}
+.page-heading.compact .eyebrow{display:none}
+.page-heading.compact h1{font-size:20px;letter-spacing:-.5px;margin:0}
+.page-heading.compact .intro{font-size:13px;max-width:none}
+@media(min-width:1024px){.follow{height:calc(100dvh - 160px)}}
+/* Phones: the top bar is the search and the planner only; the feed's state rides in the sheet's handle. */
+.sheet-status{display:none}
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ .follow>.follow-top .follow-bar{display:none}
+ .follow>.vector-map .map-views{top:60px}
+ .follow>.vector-map .map-notice{top:112px}
+ .follow>.vector-map .map-tools{top:60px}
+ .sheet-status{display:inline-flex;align-items:center;flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8aa8b9;white-space:nowrap}
+ .sheet-status.live{color:#c6f36a}
+ .sheet-status.warn,.sheet-status.bad{color:#ffce8f}
+ .sheet-toggle .sheet-words{font-size:14px}
+ .sheet-toggle{gap:8px}
+}
+
+.board-when{gap:6px}
+.board-official{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.panel-notes{margin:4px 0 0;padding-top:10px;border-top:1px solid #1f3140;font-size:12px;line-height:1.6;color:#8aa8b9}
+.chooser-stop-mark{width:12px;height:12px;border-radius:3px;background:#e6eff3;border:2px solid #0b1720;box-shadow:0 0 0 1px #e6eff3}
+.vector-map.theme-day .chooser-stop-mark{background:#fbf6ea;border-color:#1e2b33;box-shadow:0 0 0 1px #1e2b33}
+/* Bigger, in a workspace that already gives the map its column, means the whole screen. */
+.follow>.vector-map.expanded{position:fixed;inset:0;height:100dvh;max-height:none;min-height:0;border-radius:0;border:0;z-index:30;margin:0}
+.follow:has(>.vector-map.expanded)>.panel,.follow:has(>.vector-map.expanded)>.follow-top{display:none}
+
+/* A chosen bus leads the panel and the board it came from follows, so another bus stays one tap
+   away: the panel changes what it leads with, it does not take the board off the screen. */
+.follow.panel-bus .panel-body>*{order:6}
+.follow.panel-bus .panel-body>.active-bus{order:1}
+.follow.panel-bus .panel-body>.bus-card{order:2}
+.follow.panel-bus .panel-body>.your-stop{order:4}
+.follow.panel-bus .panel-body>.restore-notice,.follow.panel-bus .panel-body>.follow-hint{order:5}
+.follow.panel-bus .panel-body>.panel-notes{order:9}
+
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ /* The search's matches drop out of the top bar over the map, so the top bar has to stand above
+    the sheet: a z-index inside .follow-top cannot lift them past a sibling that sits higher. */
+ .follow>.follow-top{z-index:9}
+ /* The simple map's notice begins under the top bar, not behind it. */
+ .follow>.map-fallback-wrap .map-fallback-note{margin:56px 8px 8px;position:relative;z-index:2}
+}
+
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ /* One screen: masthead, a one-line heading, then the workspace. The page's own scroll is the
+    footer and nothing else, so the map and the sheet are never half below the fold. */
+ .page-heading.compact{padding:7px 0 6px;gap:2px 10px}
+ .page-heading.compact h1{font-size:17px}
+ .page-heading.compact .intro{display:none}
+}
+
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ /* The sheet's handle is the panel's title and already names the stop, so the block below it
+    does not say the same name again: it carries the side of the road, the street and what can
+    be done here. On a wide screen there is no handle, and the name stays where it was. */
+ .follow.panel-plan>.panel .plan-panel>.section-head{font-size:0;gap:0}
+ .follow.panel-plan>.panel .plan-panel>.section-head svg{display:none}
+ .follow.panel-plan>.panel .plan-panel>.section-head small{font-size:12.5px;margin:0}
+ .follow.has-stop>.panel .your-stop-eyebrow,
+ .follow.has-stop>.panel .your-stop-copy>strong{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+ .follow.has-stop>.panel .your-stop-row{align-items:center}
+ .follow.has-stop>.panel .your-stop-copy>small:first-of-type{font-size:13.5px;color:#d7e3e9}
+}
+
+.plan-entry-short{display:none}
+@media(max-width:1023.98px){
+ /* The search field needs its placeholder whole wherever the panel column is narrow — a phone
+    upright, and a phone on its side, where the column is about 360 px. The accessible name
+    stays "Plan a journey" either way. */
+ .plan-entry-words{display:none}
+ .plan-entry-short{display:inline}
+ .plan-entry{padding:0 11px}
+}
+@media(max-height:560px){
+ /* On a short screen the heading stands down as it does on a phone: the workspace needs the room,
+    and the workspace itself takes the screen rather than the 520 px a tall window would give it. */
+ .follow{min-height:0}
+ .page-heading.compact{padding:6px 0 5px;gap:2px 10px}
+ .page-heading.compact h1{font-size:17px}
+ .page-heading.compact .intro{display:none}
+}

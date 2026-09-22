@@ -184,15 +184,19 @@ test('on a phone, upright or on its side, the ride’s controls are all within r
   // What is drawn at the middle of each control is the control itself: nothing on the page covers
   // it (a strip stuck to the top of the screen once covered the way out).
   const reachable = async orientation => {
-    await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+    await page.evaluate(() => scrollTo(0, 0));
     await page.waitForTimeout(1200);
     // "What is this?" opens a disclosure: a summary, not a button.
     const controls = {'Exit ride-along': page.getByRole('button', {name: 'Exit ride-along', exact: true}),
       'What is this?': page.locator('.ride-about > summary'), 'Front view': page.getByRole('button', {name: 'Front view', exact: true})};
     for (const [name, control] of Object.entries(controls)) {
       const box = await control.boundingBox();
-      const hit = await page.evaluate(({x, y}) => document.elementFromPoint(x, y)?.closest('button, summary')?.textContent?.trim() ?? null,
-        {x: box.x + box.width / 2, y: box.y + box.height / 2});
+      expect(box, `${orientation}: ${name} is drawn`).not.toBeNull();
+      const point = {x: box.x + box.width / 2, y: box.y + box.height / 2};
+      const hit = await page.evaluate(({x, y}) => {
+        if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return `off the screen at ${Math.round(x)},${Math.round(y)}`;
+        return document.elementFromPoint(x, y)?.closest('button, summary')?.textContent?.trim() ?? 'nothing';
+      }, point);
       expect(hit, `${orientation}: nothing covers ${name}`).toContain(name.replace('?', ''));
     }
   };

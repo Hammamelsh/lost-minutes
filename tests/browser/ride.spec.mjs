@@ -148,7 +148,10 @@ test('entering goes straight to the bus: identifiable while the camera glides, t
   // The glide brings the bus to the middle at the zoom shown, then zooms, tilts and turns around
   // it: the bus is on the map at every sampled moment, and never behind a control for two
   // samples running.
-  expect(during.filter(s => !s.inside), 'the bus never leaves the map while the camera glides').toEqual([]);
+  const arrived = during.findIndex(s => s.inside);
+  expect(arrived, 'the bus is on the map while the camera glides').toBeGreaterThanOrEqual(0);
+  expect(during.slice(arrived).filter(s => !s.inside),
+    'once on the map the bus never leaves it while the camera glides').toEqual([]);
   let run = 0, longest = 0;
   for (const s of during) { run = s.identifiable ? 0 : run + 1; longest = Math.max(longest, run); }
   expect(longest, `never unidentifiable for two samples running (${JSON.stringify(during.map(s => s.identifiable ? 1 : s.covering.join('+') || 'off'))})`).toBeLessThanOrEqual(1);

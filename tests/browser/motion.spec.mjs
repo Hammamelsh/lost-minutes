@@ -105,9 +105,11 @@ test('entering the ride-along goes straight to the bus', async ({page}) => {
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
-  // While riding, nothing invites you to start riding; the card says you are, with a way out.
+  // While riding, nothing invites you to start riding, and there is one way out: the ride's own
+  // Exit (the only one on a phone, where the sheet folds away) or the card's.
   await expect(page.getByRole('button', {name: 'Ride along with route 256'})).toHaveCount(0);
-  await expect(page.getByRole('button', {name: 'Leave the ride-along'})).toHaveCount(1);
+  await expect(page.locator('.ride-exit'), 'the ride offers one way out').toHaveCount(1);
+  await expect(page.getByRole('button', {name: /Leave the ride-along|Exit ride-along/}).first()).toBeVisible();
   await expect(page.getByRole('button', {name: 'Skip to the bus'})).toHaveCount(0);
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await page.waitForTimeout(1200);

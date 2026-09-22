@@ -2,7 +2,7 @@
 // geolocation in Chromium (context.setGeolocation), which is not a phone's GPS: the fixes are
 // exact, instant and never denied unless told to be. FIXTURE buses; the real stop catalogue.
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {foldSheet, unfoldSheet, journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 // 60 m north-east of Longford Park; and 5 m east, which is GPS noise at 40 m accuracy.
@@ -59,11 +59,15 @@ test('a chosen starting point is fixed: a later fix from the device cannot overw
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
   await page.locator('.walk-guide details summary').first().click().catch(() => {});
   await page.getByRole('button', {name: /Choose starting point/}).click();
+  // The map is what is being pointed at: on a phone the sheet comes down first.
+  await foldSheet(page);
   await expect(map(page)).toHaveAttribute('data-picking', 'true').catch(() => {});
   // A locator click reaches the map under touch emulation too (a raw mouse click does not).
   const box = await page.locator('.vector-map-canvas').boundingBox();
   await page.locator('.vector-map-canvas').click({position: {x: box.width * 0.5, y: box.height * 0.5}});
   await expect.poll(() => here(page), {timeout: 10_000}).not.toMatch(/^53\.4487/);
+  // The map has been used; the panel comes back up for the rest of the journey.
+  await unfoldSheet(page);
   const chosen = await here(page);
   await expect(page.locator('.legend-you')).toHaveText('Starting point');
   // The device moves; the starting point does not, and the device is still drawn as You.

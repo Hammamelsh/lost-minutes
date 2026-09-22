@@ -2,7 +2,7 @@
 // the map; browsing stops where the map was moved to. FIXTURE timetable (route 256 on real NaPTAN
 // stops) with the real stop catalogue, in Chromium at desktop and phone size.
 import {test, expect} from '@playwright/test';
-import {FX, journeyLive, servePatterns, serveLive, unavailableState, waitForPaint} from './fixtures.mjs';
+import {FX, foldSheet, journeyLive, mapBand, serveLive, servePatterns, unavailableState, unfoldSheet, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 const search = page => page.getByRole('combobox', {name: 'Bus number, stop or area'}).first();
@@ -104,6 +104,8 @@ test.describe('stops on the map', () => {
     await options(page).first().dispatchEvent('mousedown');
     await expect(page.locator('.your-stop-copy strong')).toContainText('Hillingdon Road (nr)');
     await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
+    // The map is the subject here: on a phone the passenger pulls the sheet down to it first.
+    await foldSheet(page);
     await page.getByRole('button', {name: 'Fit journey'}).click();
     await page.waitForTimeout(1500);
     // Zoom in around the chosen stop itself, by double-tapping it (a tap on the chosen stop is
@@ -135,6 +137,7 @@ test.describe('stops on the map', () => {
     const x = box.x + sx + dx, y = box.y + sy + dy;
     if (test.info().project.name === 'mobile') await page.touchscreen.tap(x, y); else await page.mouse.click(x, y);
     await expect(page.locator('.your-stop-copy strong')).toContainText('Hillingdon Road (opp)', {timeout: 5000});
+    await unfoldSheet(page);
     await expect(page.locator('.waiting')).toBeVisible();
   });
 
@@ -145,7 +148,8 @@ test.describe('stops on the map', () => {
     await expect(page.locator('.nearby-head')).toContainText('Stops near you');
     await expect(page.locator('[data-find-here]')).toHaveCount(0);
     await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
-    const box = await page.locator('.vector-map-canvas').boundingBox();
+    await foldSheet(page);
+    const box = await mapBand(page);
     await dragMap(page, box, 300, 140);
     const offer = page.locator('[data-find-here]');
     await expect(offer).toBeVisible({timeout: 5000});

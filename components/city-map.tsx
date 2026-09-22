@@ -41,6 +41,7 @@ type Props = {
  follow:boolean;onSelect:(key:string)=>void;onManualMove:()=>void;onUnavailable:(reason?:string)=>void;
  /** Every boarding point, drawn as a tappable layer; a tap on one chooses it by ATCO code. */
  stops?:Stop[];onSelectStop?:(id:string)=>void;
+ onWantMap?:()=>void;
  /** After the passenger moves the map: where its centre now is, so stops there can be offered. */
  onPanned?:(centre:{lat:number;lon:number})=>void;
  /** Offered over the map once the passenger has moved it away from where the list is centred. */
@@ -173,6 +174,28 @@ function marker({fill,stroke,outline,radius,nose}:{fill:string;stroke:string;out
  return g.getImageData(0,0,size*ratio,size*ratio);
 }
 
+/** A bus-stop sign: a rounded plate on a short post, with a bus pictogram (a body and two
+ *  wheels) on it, so a stop reads as a stop and not as a dot. Drawn once per theme at 2× for
+ *  crisp edges; the layer scales it by zoom. */
+function stopSign({plate,ink,post}:{plate:string;ink:string;post:string}):ImageData{
+ const ratio=2,size=24;
+ const canvas=document.createElement('canvas');canvas.width=size*ratio;canvas.height=size*ratio;
+ const g=canvas.getContext('2d')!;g.scale(ratio,ratio);
+ // The post, then the plate: the plate's edge is the ink, its face the paper.
+ g.strokeStyle=post;g.lineWidth=2.4;g.lineCap='round';g.beginPath();g.moveTo(12,15);g.lineTo(12,22.5);g.stroke();
+ const plateRect=(inset:number)=>{const x=3.5+inset,y=2+inset,w=17-2*inset,h=13-2*inset,r=3.2-inset*0.5;
+  g.beginPath();g.moveTo(x+r,y);g.lineTo(x+w-r,y);g.arcTo(x+w,y,x+w,y+r,r);g.lineTo(x+w,y+h-r);g.arcTo(x+w,y+h,x+w-r,y+h,r);
+  g.lineTo(x+r,y+h);g.arcTo(x,y+h,x,y+h-r,r);g.lineTo(x,y+r);g.arcTo(x,y,x+r,y,r);g.closePath()};
+ plateRect(0);g.fillStyle=ink;g.fill();
+ plateRect(1.4);g.fillStyle=plate;g.fill();
+ // The pictogram: a bus body with a windscreen band, and two wheels below it.
+ g.fillStyle=ink;
+ g.beginPath();g.moveTo(7.2,5.6);g.lineTo(16.8,5.6);g.arcTo(17.6,5.6,17.6,6.4,.8);g.lineTo(17.6,11.2);g.lineTo(6.4,11.2);g.lineTo(6.4,6.4);g.arcTo(6.4,5.6,7.2,5.6,.8);g.closePath();g.fill();
+ g.fillStyle=plate;g.fillRect(7.6,6.8,3.6,2.2);g.fillRect(12.2,6.8,4.2,2.2);
+ g.fillStyle=ink;g.beginPath();g.arc(8.6,12.2,1.3,0,Math.PI*2);g.arc(15.4,12.2,1.3,0,Math.PI*2);g.fill();
+ return g.getImageData(0,0,size*ratio,size*ratio);
+}
+
 /** A hollow ring, drawn for zoom 20 and scaled down with the ground below it: it encircles the
  *  drawn bus just beyond its 12 m length (about 6.6 m radius) so the bus is found even when a
  *  building hides the model, without a halo twice its size around it. */
@@ -210,6 +233,8 @@ function markerImages(theme:MapTheme){
   // A starting point chosen for the journey: the same blue as You, but hollow, so the two are
   // never mistaken for each other when both are drawn.
   'lm-start-dot':marker({fill:o.halo,stroke:'#5aa9e6',outline:'#5aa9e6',radius:7,nose:false}),
+  // Every boarding point: a sign on a post, ink on paper by day and paper on ink by night.
+  'lm-stop-sign':stopSign(theme==='day'?{plate:'#fbf6ea',ink:'#1e2b33',post:'#1e2b33'}:{plate:'#e6eff3',ink:'#0b1720',post:'#e6eff3'}),
   // A chosen bus with no current report: hollow, so it cannot pass for one being tracked.
   'lm-sel-lost-arrow':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:true}),
   'lm-sel-lost-dot':marker({fill:o.halo,stroke:'#8fbf2f',outline:o.ink,radius:12,nose:false}),
@@ -283,6 +308,9 @@ const IMMERSIVE_RIDE='(max-width: 860px)';
 // which left a fitted stop clearing the Ride along button by about four pixels — a margin that
 // survived only by luck, and that the type change of 17 September 2026 used up.
 const NAME_ROOM=60;
+// Below this zoom no boarding point is drawn (`lm-stops-dot` starts at 13.5) and streets lose
+// their names, so a camera taken below it has stopped showing a place.
+const READABLE_ZOOM=14.2;
 function fitPadding(container:HTMLElement){
  const box=container.getBoundingClientRect();
  const within=container.closest('.vector-map');
@@ -291,9 +319,27 @@ function fitPadding(container:HTMLElement){
   return r&&r.width>0&&r.height>0?r:null;
  };
  const views=edge('.map-views'),tools=edge('.map-tools'),foot=edge('.vector-map-foot');
- return {top:Math.round(Math.max(70,views?views.bottom-box.top+NAME_ROOM:0)),
-  bottom:Math.round(Math.max(88,foot?box.bottom-foot.top+NAME_ROOM:0)),
-  left:64,right:Math.round(Math.max(64,tools?box.right-tools.left+14:0))};
+ // On a phone the page's top bar and the sheet lie over the map: what they cover is not map.
+ const over=(selector:string)=>{const r=document.querySelector(selector)?.getBoundingClientRect();return r&&r.width>0&&r.height>0?r:null};
+ const topBar=over('.follow>.follow-top'),sheet=over('.follow>.panel');
+ const topCover=topBar&&topBar.bottom>box.top&&topBar.top<box.top+box.height/2?topBar.bottom-box.top:0;
+ const bottomCover=sheet&&sheet.top<box.bottom&&sheet.top>box.top+box.height/4?box.bottom-sheet.top:0;
+ const top=Math.max(70,views?views.bottom-box.top+NAME_ROOM:0,topCover+NAME_ROOM/2);
+ const bottom=Math.max(88,foot?box.bottom-foot.top+NAME_ROOM:0,bottomCover+NAME_ROOM/2);
+ const left=64,right=Math.max(64,tools?box.right-tools.left+14:0);
+ // Padding is room taken out of the map, and it cannot take more than the map has: with the
+ // sheet at half a phone's height the covered part plus the controls came to 640 px of a 740 px
+ // map, and MapLibre fitted the journey into what was left — a camera at zoom 13.2 with the stop
+ // off the screen. Never leave less than a quarter of each side, or 120 px.
+ const fit=(a:number,b:number,size:number)=>{
+  const room=size-Math.max(120,size*0.25);
+  if(a+b<=room||a+b<=0)return [a,b] as const;
+  const scale=Math.max(0,room)/(a+b);
+  return [a*scale,b*scale] as const;
+ };
+ const [padTop,padBottom]=fit(top,bottom,box.height);
+ const [padLeft,padRight]=fit(left,right,box.width);
+ return {top:Math.round(padTop),bottom:Math.round(padBottom),left:Math.round(padLeft),right:Math.round(padRight)};
 }
 
 /** Resolve when a camera move ends, or a little after it should have. */
@@ -439,7 +485,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
 export default function CityMap({paused=false,buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
-                                 stops=NO_STOP_CATALOGUE,onSelectStop,onPanned,findHere=null,
+                                 stops=NO_STOP_CATALOGUE,onSelectStop,onWantMap,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
                                  rideOverlay,busLabel='Your bus',walk=null,
@@ -473,7 +519,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const [track,setTrack]=useState<(TrackResult&{patternId:string})|null>(null);
  const [motionModel,setMotionModel]=useState<MotionModel|null|undefined>(undefined);
  // Buses that overlapped under one tap, offered at the tap for the passenger to pick from.
- const [chooser,setChooser]=useState<{x:number;y:number;keys:string[]}|null>(null);
+ const [chooser,setChooser]=useState<{x:number;y:number;keys:string[];stopIds:string[]}|null>(null);
  const chooserRef=useRef<HTMLDivElement>(null);
  useEffect(()=>{if(chooser)chooserRef.current?.querySelector('button')?.focus()},[chooser]);
  const [rideState,setRideState]=useState<RideState>('off');
@@ -627,22 +673,28 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      // Two buses under one finger and neither clearly the nearer: the passenger is asked, at the
      // tap, rather than given whichever won by a pixel. A tap that lands on one bus still takes it.
      if(ranked.length>=2&&ranked[1][1]-ranked[0][1]<CHOOSER_MARGIN){
-      setChooser({x,y,keys:ranked.slice(0,4).map(([key])=>key)});return;
+      setChooser({x,y,keys:ranked.slice(0,4).map(([key])=>key),stopIds:[]});return;
      }
      setChooser(null);
      if(ranked.length){onSelect(ranked[0][0]);return}
-     // No bus under the finger: a stop, if one is drawn there. The nearest ring within reach.
+     // No bus under the finger: a stop, if one is drawn there. Two stops within reach and neither
+     // clearly nearer (the two sides of a road at a wide zoom) are asked about, never guessed.
      if(!instance.getLayer('lm-stops-dot')||!selectStopRef.current)return;
-     let bestStop:string|null=null,nearestStop=Infinity;
+     const stopHits=new Map<string,number>();
      for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers:['lm-stops-dot']})){
       const id=feature.properties?.id;
       if(typeof id!=='string'||feature.geometry.type!=='Point')continue;
       const at=instance.project(feature.geometry.coordinates as [number,number]);
       const d=Math.hypot(at.x-x,at.y-y);
-      if(d<nearestStop){nearestStop=d;bestStop=id}
+      if(d<(stopHits.get(id)??Infinity))stopHits.set(id,d);
+     }
+     const stopsRanked=[...stopHits].sort((a,b)=>a[1]-b[1]);
+     if(stopsRanked.length>=2&&stopsRanked[1][1]-stopsRanked[0][1]<CHOOSER_MARGIN){
+      setChooser({x,y,keys:[],stopIds:stopsRanked.slice(0,4).map(([id])=>id)});return;
      }
      // The chosen stop tapped again is nothing new (and a double-tap to zoom around it must not
-     // re-fit the map); any other ring is a change of stop.
+     // re-fit the map); any other sign is a change of stop.
+     const bestStop=stopsRanked[0]?.[0]??null;
      if(bestStop&&bestStop!==stopIdRef.current)selectStopRef.current(bestStop);
     });
     // A drag is a change of subject; the offer at the old tap goes with it.
@@ -707,7 +759,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     trail.push(`${instance.getZoom().toFixed(2)}@${centre.lat.toFixed(5)},${centre.lng.toFixed(5)}`);
     root.current?.setAttribute('data-moves',trail.slice(-6).join(';'));
    });
-   instance.on('idle',()=>busPoints.current());
+   instance.on('idle',()=>{busPoints.current();stopPoints.current()});
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
    // does; a standing bus draws no frames, so it is projected here too, and so is the stop.
    instance.on('move',()=>{
@@ -857,6 +909,24 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   root.current?.setAttribute('data-stop-screen',`${Math.round(at.x)},${Math.round(at.y)}`);
  },[ready,stop]);
 
+ // Which boarding points are on the screen, and where: the same diagnostic as the buses', so a
+ // check can say what a passenger could tap rather than what the source holds.
+ const stopPoints=useRef<()=>void>(()=>{});
+ useEffect(()=>{
+  stopPoints.current=()=>{
+   const instance=map.current,el=root.current;
+   if(!instance||!el)return;
+   el.setAttribute('data-zoom',instance.getZoom().toFixed(2));
+   if(instance.getZoom()<13.5){el.setAttribute('data-stop-points','[]');return}
+   const {clientWidth:width,clientHeight:height}=instance.getContainer();
+   const points=stops.map(s=>{const at=instance.project([s.lon,s.lat]);
+    return {id:s.id,x:Math.round(at.x),y:Math.round(at.y)};})
+    .filter(p=>p.x>=0&&p.y>=0&&p.x<=width&&p.y<=height).slice(0,200);
+   el.setAttribute('data-stop-points',JSON.stringify(points));
+  };
+  stopPoints.current();
+ },[stops,ready]);
+
  // Every boarding point, once: the catalogue does not change while the page is open.
  useEffect(()=>{
   const instance=map.current;
@@ -864,8 +934,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const source=instance.getSource(ALL_STOPS_SOURCE) as GeoJSONSource|undefined;
   source?.setData({type:'FeatureCollection',features:stops.map(s=>({type:'Feature',
    geometry:{type:'Point',coordinates:[s.lon,s.lat]},
-   properties:{id:s.id,label:s.indicator?`${s.name} (${s.indicator})`:s.name}}))});
- },[ready,stops]);
+   properties:{id:s.id,label:s.indicator?`${s.name} (${s.indicator})`:s.name,chosen:s.id===stop?.id,
+    // Labels give way to each other by distance from the chosen stop: what is near it is named first.
+    rank:stop?Math.round(Math.hypot((s.lat-stop.lat)*111195,(s.lon-stop.lon)*66500)):0}}))});
+  stopPoints.current();
+ },[ready,stops,stop]);
 
  // The next stops on the chosen bus's pattern, labelled in the front view (hidden elsewhere). The
  // list is compared as text, so it is redrawn only when the stops themselves change.
@@ -1307,7 +1380,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
 
  // --- camera ----------------------------------------------------------------------
  // `camera` is the tilt and heading to end at; without it the current tilt is kept.
- const fitRelevant=useCallback((camera?:{pitch:number;bearing:number})=>{
+ const fitRelevant=useCallback((camera?:{pitch:number;bearing:number},whole=false)=>{
   if(!map.current)return;
   // The report this fit frames is seen: it must not bring the camera to itself afterwards.
   broughtTo.current=selected?`${selected.key}|${selected.observedAtMs}`:'';
@@ -1333,10 +1406,27 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    return;
   }
   const lons=points.map(p=>p[0]),lats=points.map(p=>p[1]);
+  const bounds:[[number,number],[number,number]]=[[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]];
   // Fitted means readable, not merely inside: the padding is the room the controls actually take,
   // measured, plus room for a marker's name.
-  move(m=>m.fitBounds([[Math.min(...lons),Math.min(...lats)],[Math.max(...lons),Math.max(...lats)]],
-   {padding:fitPadding(m.getContainer()),maxZoom:16.2,...camera,duration:reduce?0:500}));
+  move(m=>{
+   const padding=fitPadding(m.getContainer());
+   // On a phone the sheet leaves a band of map, and fitting a walk of half a mile into it took
+   // the camera to zoom 13.2 — under the zoom at which boarding points are drawn at all, and
+   // where no street is named. A fit nobody can read is not a fit: unless the passenger asked
+   // for the whole journey, the stop's own surroundings are framed instead, and the walk guide
+   // still gives the distance. READABLE_ZOOM is the zoom the stop signs appear at.
+   if(!whole){
+    const fitted=m.cameraForBounds(bounds,{padding,maxZoom:16.2});
+    if(fitted&&typeof fitted.zoom==='number'&&fitted.zoom<READABLE_ZOOM){
+     const focus=stop?[stop.lon,stop.lat] as [number,number]:points[0];
+     const offset:[number,number]=[(padding.left-padding.right)/2,(padding.top-padding.bottom)/2];
+     m.easeTo({center:focus,zoom:READABLE_ZOOM,offset,...camera,duration:reduce?0:500});
+     return;
+    }
+   }
+   m.fitBounds(bounds,{padding,maxZoom:16.2,...camera,duration:reduce?0:500});
+  });
  },[here,stop,selected,buses,walk,destination,move]);
 
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
@@ -1461,12 +1551,21 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   wasRiding.current=true;
   if(entering)rideKey.current=inputs.current.selected?.key??'';
   r.camera=camera;
-  // A phone's ride map is taller: the camera takes the new size before anything is framed. The
-  // front view is the whole canvas; the outside view keeps the bus in the band the notes leave.
-  if(entering)instance.resize();
-  instance.setPadding(camera==='front'?NO_PADDING:ridePadding(instance.getContainer()));
-  if(camera==='front')instance.setMaxPitch(FRONT_MAX_PITCH);
-  returnRef.current(false,entering?'entering':'returning');
+  // The front view is the whole canvas; the outside view keeps the bus in the band the notes leave.
+  const frame=()=>{
+   if(entering)instance.resize();
+   instance.setPadding(camera==='front'?NO_PADDING:ridePadding(instance.getContainer()));
+   if(camera==='front')instance.setMaxPitch(FRONT_MAX_PITCH);
+   returnRef.current(false,entering?'entering':'returning');
+  };
+  // A phone's ride map is taller: the sheet and the top bar go and the map takes the screen. The
+  // class that does that is added by another effect, so measuring the container here measured the
+  // old size, and the glide was computed for a map that no longer existed — the drawn bus slid off
+  // the canvas for a frame. Entering waits for the browser to lay the ride out first.
+  if(!entering){frame();return}
+  let live=true;
+  const id=requestAnimationFrame(()=>requestAnimationFrame(()=>{if(live)frame()}));
+  return()=>{live=false;cancelAnimationFrame(id)};
  },[ready,view,camera,setRide]);
 
  // Another bus chosen mid-ride: whatever the camera was doing is obsolete; it goes to the
@@ -1582,14 +1681,20 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   <div className="map-vignette" aria-hidden="true"/>
   {chooser&&(()=>{
    const rows=chooser.keys.map(key=>buses.find(b=>b.key===key)??(selected?.key===key?selected:null)).filter(b=>b!==null);
-   if(rows.length<2)return null;
+   const stopRows=chooser.stopIds.map(id=>stops.find(s=>s.id===id)).filter((s):s is Stop=>Boolean(s));
+   const count=rows.length+stopRows.length;
+   if(count<2)return null;
    const w=root.current?.clientWidth??400,h=root.current?.clientHeight??400;
-   const left=Math.max(8,Math.min(chooser.x-118,w-244)),top=Math.max(8,Math.min(chooser.y+12,h-(rows.length*48+84)));
-   return <div className="bus-chooser" role="dialog" aria-label="Which bus?" ref={chooserRef} style={{left,top}}
+   const left=Math.max(8,Math.min(chooser.x-118,w-244)),top=Math.max(8,Math.min(chooser.y+12,h-(count*48+84)));
+   const what=rows.length?'buses':'stops';
+   return <div className="bus-chooser" role="dialog" aria-label={`Which ${rows.length?'bus':'stop'}?`} ref={chooserRef} style={{left,top}}
      onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();setChooser(null)}}}>
-    <p>{rows.length} buses here. Which one?</p>
+    <p>{count} {what} here. Which one?</p>
     {rows.map(b=><button key={b.key} type="button" onClick={()=>{setChooser(null);onSelect(b.key)}} data-choose={b.key}>
      <span className="route-pill">{b.route}</span><strong>to {destinationLabel(b.destination)}</strong><small>{b.ageWords}</small></button>)}
+    {stopRows.map(st=><button key={st.id} type="button" onClick={()=>{setChooser(null);selectStopRef.current?.(st.id)}} data-choose-stop={st.id}>
+     <span className="chooser-stop-mark" aria-hidden="true"/><strong>{st.name}{st.indicator?` (${st.indicator})`:''}</strong>
+     <small>{[st.bearing?`${st.bearing.toUpperCase()}-bound`:null,st.street].filter(Boolean).join(' · ')}</small></button>)}
     <button type="button" className="bus-chooser-close" onClick={()=>setChooser(null)}>Neither</button>
    </div>;
   })()}
@@ -1606,7 +1711,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     <button aria-pressed={view==='2d'} onClick={()=>onViewChange('2d')}>2D</button>
     <button aria-pressed={view==='city'} onClick={()=>onViewChange('city')}>City</button>
    </div>
-   <button className="fit-journey" onClick={()=>fitRelevant(VIEW_CAMERA[view])}
+   <button className="fit-journey" onClick={()=>{
+     if(onWantMap){onWantMap();requestAnimationFrame(()=>requestAnimationFrame(()=>fitRelevant(VIEW_CAMERA[view],true)))}
+     else fitRelevant(VIEW_CAMERA[view],true);
+    }}
     aria-label="Fit journey: you, your stop and the selected bus"><Scan size={15}/>Fit journey</button>
   </div>}
 

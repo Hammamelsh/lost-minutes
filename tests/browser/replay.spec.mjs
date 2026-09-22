@@ -12,7 +12,9 @@ import {fastConfig, waitForPaint} from './fixtures.mjs';
 const RECORDED = JSON.parse(readFileSync(new URL('./recorded/reports-256-outbound-SK74BNB-3729.json', import.meta.url), 'utf8'));
 const map = page => page.locator('.vector-map');
 async function display(page) {
-  const [lat, lon, s, bearing, frame, wall] = ((await map(page).getAttribute('data-display')) || ',,,,,').split(',').map(Number);
+  const raw = ((await map(page).getAttribute('data-display')) || ',,,,,').split(',');
+  const num = i => raw[i] === '' || raw[i] === undefined ? null : Number(raw[i]);
+  const [lat, lon, s, bearing, frame, wall] = [num(0), num(1), num(2), num(3), num(4), num(5)];
   return {lat, lon, s, bearing, frame, wall, correction: await map(page).getAttribute('data-correction'),
     motion: await map(page).getAttribute('data-motion'), ride: await map(page).getAttribute('data-ride')};
 }
@@ -96,6 +98,7 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   const lastArrival = () => t0 + (reports.at(-1).retrievedAtMs - r0) + 25_000;
   const seen = [];
   while (Date.now() < lastArrival()) { seen.push(await display(page)); await page.waitForTimeout(120); }
+  writeFileSync(info.outputPath('replay-frames.json'), JSON.stringify(seen));
   const valid = seen.filter(v => Number.isFinite(v.s) && Number.isFinite(v.wall) && v.motion === 'estimated');
   expect(valid.length, 'frames sampled').toBeGreaterThan(800);
   const pairs = [];

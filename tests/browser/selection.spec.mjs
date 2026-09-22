@@ -11,7 +11,7 @@
 // filter to another service and a drag of the map on the way, and asserts after every publication
 // which vehicle the card describes and where the camera is.
 import {test, expect} from '@playwright/test';
-import {FX, journeyLive, movingLive, servePatterns, serveLive, serveMotion, unavailableState, waitForPaint} from './fixtures.mjs';
+import {FX, journeyLive, mapBand, movingLive, serveLive, serveMotion, servePatterns, unavailableState, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -441,10 +441,16 @@ async function reachable(page, vehicle) {
   let point = await busPoint(page, vehicle);
   const box = await page.locator('.vector-map-canvas').boundingBox();
   if (await covered(page, box.x + point.x, box.y + point.y)) {
-    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const band = await mapBand(page);
+    const cx = band.x + band.width / 2, cy = band.y + band.height / 2;
+    const inside = (x, y) => ({x: Math.min(Math.max(x, band.x + 12), band.x + band.width - 12),
+                               y: Math.min(Math.max(y, band.y + 12), band.y + band.height - 12)});
     const dx = cx - (box.x + point.x), dy = cy - (box.y + point.y);
     await page.mouse.move(cx, cy); await page.mouse.down();
-    for (let i = 1; i <= 10; i++) { await page.mouse.move(cx + dx * i / 10, cy + dy * i / 10); await page.waitForTimeout(25); }
+    for (let i = 1; i <= 10; i++) {
+      const at = inside(cx + dx * i / 10, cy + dy * i / 10);
+      await page.mouse.move(at.x, at.y); await page.waitForTimeout(25);
+    }
     await page.mouse.up();
     await settledMap(page);
     point = await busPoint(page, vehicle);
@@ -474,13 +480,22 @@ test('on the phone, a finger a little off a small bus marker still chooses it, a
   await expect.poll(() => cardVehicle(page), {timeout: 15_000}).toBe(ALPHA.id);
   await settledMap(page);
   const bravo = await reachable(page, BRAVO.id);
-  const box = await page.locator('.vector-map-canvas').boundingBox();
+  const canvas = await page.locator('.vector-map-canvas').boundingBox();
+  const band = await mapBand(page);
+  const top = band.y - canvas.y;
   const drawnAt = [...JSON.parse(await map(page).getAttribute('data-bus-points')), await selectedPoint(page)];
+  // Since 22 September every boarding point is drawn too, and tapping one chooses that stop:
+  // empty map means no bus within a finger's reach and no sign within one either. A sign stands
+  // on its point and is drawn about 24 px above it, so a sign below the finger reaches up toward
+  // it: the clearance has to cover the sign's height as well as the 14 px tap margin.
+  const signs = JSON.parse(await map(page).getAttribute('data-stop-points') || '[]');
   let empty = null;
-  for (let y = 90; y < box.height - 90 && !empty; y += 20)
-    for (let x = 70; x < box.width - 70 && !empty; x += 20)
-      if (drawnAt.every(p => Math.hypot(p.x - x, p.y - y) > 70)) empty = {x, y};
-  expect(empty, 'a patch of map with no bus near it').not.toBeNull();
+  for (let y = top + 20; y < top + band.height - 20 && !empty; y += 20)
+    for (let x = 70; x < band.width - 70 && !empty; x += 20)
+      if (drawnAt.every(p => Math.hypot(p.x - x, p.y - y) > 70)
+          && signs.every(p => Math.hypot(p.x - x, p.y - y) > 45)
+          && await covered(page, canvas.x + x, canvas.y + y) === null) empty = {x, y};
+  expect(empty, 'a patch of reachable map with no bus near it').not.toBeNull();
   await tapAt(page, empty);
   await page.waitForTimeout(600);
   await expect(card(page), 'a tap on empty map chooses nothing').toHaveAttribute('data-selection', 'suggested');

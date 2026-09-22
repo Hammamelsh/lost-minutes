@@ -4,7 +4,7 @@
 // nothing. FIXTURE data on the vector map, clicked on desktop and tapped on the phone; the tilted
 // City view is tried as well as the flat one. Chromium with software WebGL, not a phone.
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {foldSheet, journeyLive, mapBand, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 test.use({permissions: ['geolocation'], geolocation: LONGFORD_PARK});
@@ -62,10 +62,19 @@ async function tapAt(page, point) {
 /** A spot on the canvas at least 60 px from every drawn bus and under no control. */
 async function emptySpot(page) {
   const points = JSON.parse(await map(page).getAttribute('data-bus-points') || '[]');
-  const box = await page.locator('.vector-map-canvas').boundingBox();
+  // Every boarding point is drawn since 22 September, and a tap on one chooses that stop, so an
+  // empty spot has to be clear of the signs as well as of the buses.
+  const signs = JSON.parse(await map(page).getAttribute('data-stop-points') || '[]');
+  const canvas = await page.locator('.vector-map-canvas').boundingBox();
+  // The band is the part of the canvas nothing covers; the answer is measured from the canvas,
+  // as the map's own diagnostics are.
+  const band = await mapBand(page);
+  const dy = band.y - canvas.y;
   for (const [fx, fy] of [[0.5, 0.55], [0.35, 0.45], [0.65, 0.5], [0.5, 0.35], [0.4, 0.6], [0.6, 0.65]]) {
-    const p = {x: box.width * fx, y: box.height * fy};
-    if (points.every(q => Math.hypot(q.x - p.x, q.y - p.y) > 60) && await covered(page, box.x + p.x, box.y + p.y) === null) return p;
+    const p = {x: band.width * fx, y: dy + band.height * fy};
+    if (points.every(q => Math.hypot(q.x - p.x, q.y - p.y) > 60)
+        && signs.every(q => Math.hypot(q.x - p.x, q.y - p.y) > 45)
+        && await covered(page, canvas.x + p.x, canvas.y + p.y) === null) return p;
   }
   throw new Error('no empty spot found on the canvas');
 }
@@ -78,6 +87,9 @@ async function openTwins(page) {
   await page.getByRole('button', {name: 'Buses near me'}).click();
   await page.locator('.nearby-stop', {hasText: 'Stop A'}).first().click();
   await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING', {timeout: 15_000});
+  // On a phone the sheet covers the lower half of the map, as it is meant to; a passenger who
+  // wants to tap a bus pulls it down first, and so does this check.
+  await foldSheet(page);
   await settledMap(page);
 }
 

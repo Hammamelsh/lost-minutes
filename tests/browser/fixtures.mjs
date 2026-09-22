@@ -407,3 +407,71 @@ export function movingLive({nowMs = Date.now(), startMs = nowMs, startS = 300, s
       patternDestination: 'Piccadilly Gardens', evidence: EVIDENCE}});
   return base;
 }
+
+/**
+ * The part of the map a finger can actually reach: the canvas, less the top bar and the panel
+ * that lie over it on a phone. On a wide screen the panel is beside the map and takes nothing.
+ * Coordinates are the ones `page.mouse` and `page.touchscreen` use.
+ */
+export async function mapBand(page) {
+  const band = await page.evaluate(() => {
+    const canvas = document.querySelector('.vector-map-canvas')?.getBoundingClientRect();
+    if (!canvas) return null;
+    const over = selector => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const box = el.getBoundingClientRect();
+      if (!(box.width > 0 && box.height > 0)) return null;
+      // Only what lies over the map counts: a panel beside it covers nothing.
+      return box.left < canvas.right - 4 && box.right > canvas.left + 4 ? box : null;
+    };
+    const top = over('.follow > .follow-top'), panel = over('.follow > .panel');
+    let y0 = canvas.top, y1 = canvas.bottom;
+    if (top && top.bottom > y0 && top.bottom < canvas.bottom) y0 = top.bottom + 6;
+    if (panel && panel.top < y1 && panel.top > canvas.top) y1 = panel.top - 6;
+    return {x: canvas.left, y: y0, width: canvas.width, height: Math.max(0, y1 - y0)};
+  });
+  if (!band || band.height < 40) throw new Error(`no reachable map band (${JSON.stringify(band)})`);
+  return band;
+}
+
+/** A drag, by mouse on a computer and by real touch events on a phone (the sheet and the map both
+ *  read pointer events, which Chromium raises from either). */
+export async function dragBy(page, x0, y0, dx, dy, steps = 12) {
+  const isTouch = page.context()._options?.hasTouch ?? true;
+  if (!isTouch) {
+    await page.mouse.move(x0, y0);
+    await page.mouse.down();
+    for (let i = 1; i <= steps; i++) { await page.mouse.move(x0 + dx * i / steps, y0 + dy * i / steps); await page.waitForTimeout(20); }
+    await page.mouse.up();
+    return;
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', {type, touchPoints: type === 'touchEnd' ? [] : [{x, y}]});
+  await touch('touchStart', x0, y0);
+  for (let i = 1; i <= steps; i++) { await touch('touchMove', x0 + dx * i / steps, y0 + dy * i / steps); await page.waitForTimeout(20); }
+  await touch('touchEnd', 0, 0);
+  await cdp.detach();
+}
+
+/** Pull the phone's sheet down to its handle, as a passenger does to see the map. A no-op where
+ *  there is no sheet (a wide screen), so a check can call it either way. */
+export async function foldSheet(page) {
+  const handle = page.locator('.follow > .panel .sheet-handle');
+  const box = await handle.boundingBox().catch(() => null);
+  if (!box || !(await page.locator('.follow').getAttribute('data-sheet'))) return false;
+  const visible = await handle.evaluate(el => getComputedStyle(el).display !== 'none');
+  if (!visible) return false;
+  await dragBy(page, box.x + box.width / 2, box.y + box.height / 2, 0, Math.round(page.viewportSize().height * 0.6));
+  await page.waitForTimeout(400);
+  return (await page.locator('.follow').getAttribute('data-sheet')) === 'peek';
+}
+
+/** Put the phone's sheet back up after the map has been used. A no-op on a wide screen. */
+export async function unfoldSheet(page) {
+  const follow = page.locator('.follow');
+  if ((await follow.getAttribute('data-sheet')) !== 'peek') return false;
+  await page.locator('[data-sheet-toggle]').click();
+  await page.waitForTimeout(400);
+  return (await follow.getAttribute('data-sheet')) !== 'peek';
+}

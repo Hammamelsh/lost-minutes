@@ -17,9 +17,9 @@ type Match={kind:'route';hit:RouteHit}|{kind:'stop';stop:Stop};
  * numbers was the discovery problem in the first place.
  */
 export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,onLocate,locating,locationError,
-                                    placeholder='Bus number, stop or area',compact=false}:{
+                                    placeholder='Bus number, stop or area',compact=false,onFocusField}:{
  stops:Stop[];patterns?:PatternCatalogue|null;onSelect:(stop:Stop)=>void;onSelectRoute?:(hit:RouteHit)=>void;
- onLocate?:()=>void;locating?:boolean;locationError?:string;placeholder?:string;compact?:boolean}){
+ onLocate?:()=>void;locating?:boolean;locationError?:string;placeholder?:string;compact?:boolean;onFocusField?:()=>void}){
  const [query,setQuery]=useState('');
  const [open,setOpen]=useState(false);
  const [active,setActive]=useState(0);
@@ -76,7 +76,7 @@ export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,o
     aria-activedescendant={expanded&&matches[active]?`${listId}-${active}`:undefined}
     aria-describedby={statusId} placeholder={placeholder} aria-label={placeholder}
     onChange={event=>{setQuery(event.target.value);setOpen(true);setActive(0)}}
-    onKeyDown={keys} onFocus={()=>{setOpen(true);roomForMatches()}}/>
+    onKeyDown={keys} onFocus={()=>{setOpen(true);roomForMatches();onFocusField?.()}}/>
    {query&&<button className="stop-search-clear" aria-label="Clear the search"
      onClick={()=>{setQuery('');setOpen(false);inputRef.current?.focus()}}><X size={16}/></button>}
    {onLocate&&<button className="stop-search-locate" onClick={onLocate} disabled={locating}

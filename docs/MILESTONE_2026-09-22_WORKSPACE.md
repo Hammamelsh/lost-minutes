@@ -167,8 +167,13 @@ which.
   to the checks tapping a map that the sheet now covers, three to real defects (the refresh, the
   tool column, the fit's padding), one to the planner's entry, one to the ride's resize, one to a
   phone-speed budget — and each was fixed or restated before the gate below.
-- **The whole browser suite on the finished candidate: 297 passed, 5 failed, 26 skipped by
-  design** in 42.6 minutes (Chromium with SwiftShader, desktop 1280 × 900 and phone 390 × 844).
+- **The whole browser suite on the deployed build: 302 passed, 26 skipped by design, none
+  failing**, in 41.6 minutes (Chromium with SwiftShader, desktop 1280 × 900 and phone 390 × 844).
+  A one-line stylesheet tidy followed it — the refresh button had been pushed onto a line of its
+  own under the sheet's title — and `layout.spec`, `access.spec`, `passenger.spec` and
+  `empty-states.spec` passed 49 on the build that carries it.
+- **The run before it, on the candidate: 297 passed, 5 failed, 26 skipped by design** in 42.6
+  minutes (Chromium with SwiftShader, desktop 1280 × 900 and phone 390 × 844).
   The five, each then fixed and the specs re-run: three were the new `layout.spec` itself (a sign
   it tapped had a bus within a finger's reach; the sheet's height read while it was still
   animating; on a phone the same sign test), one was `selection.spec` calling a patch of map
@@ -216,6 +221,23 @@ would verify it), or **blocked** (with the reason).
 | A fresh visitor can find a stop; a stop can be chosen without knowing its name | verified — `layout.spec` "a fresh visitor is offered the two ways in" and "a boarding point is chosen by tapping its sign on the map" |
 | Planning for someone else does not overwrite the device's location | verified — `plan.spec` and `location.spec` (a fixed start is never overwritten) |
 | Opening details does not reset the map or the chosen bus | verified — `navigation.spec` round trip behind the data |
+
+## 4b. Deployment and what is served
+
+- `deploy/publish.sh lost-minutes`: **RELEASE `0061efe`**, the previous release kept for
+  `deploy/rollback.sh`. The served page chunk is the local build's
+  (`page-70a6d33a70aebad2.js`), the live publication was current at deploy, the shape index and
+  the 654 KB stop catalogue are served, and the collector, health timer and refresh timer are all
+  active.
+- **The passenger's journey walked on the live site**, desktop and phone, REAL data
+  (`outputs/probes/repro/passenger-walkthrough.mjs`, frames in
+  `outputs/probes/milestone/layout/served`): a stop found by name, its board, a bus chosen, the
+  ride, the way back, the board again, the night map, a reload and a shared link.
+- **One defect that only the served frames showed**: on a phone the ride sat inside the 740 px
+  workspace with the page's foot under it, because the workspace's `position:absolute` for the map
+  has the same specificity as the ride's own `position:fixed` and came later in the stylesheet. The
+  ride takes the screen again (`0061efe`); `ride.spec`, `navigation.spec`, `motion.spec` and
+  `layout.spec` passed 92 with 6 skipped on the build that carries it.
 
 ## 5. Limitations
 

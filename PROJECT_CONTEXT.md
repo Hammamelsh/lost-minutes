@@ -33,9 +33,16 @@ under a sheet on a phone; every boarding point on the map; and the page's own sc
   than the page; the search's matches sat under the sheet; a tap on the handle was swallowed by its
   own drag; the map's tool column ran into the Ride along button; and the refresh control vanished
   from phones with the old top bar (it is in the handle now).
+- **Deployed as `0061efe`**, the served page chunk identical to the local build's, the previous
+  release kept for `deploy/rollback.sh`, collector and both timers active. The passenger's journey
+  was then walked on the live site at both widths — a stop by name, its board, a bus, the ride, the
+  way back, the night map, a reload and a shared link — and **that walk found the last defect**: on
+  a phone the ride sat inside the workspace with the page's foot under it, because the workspace's
+  rule for the map outranked the ride's own full-screen rule by source order. Fixed and re-deployed.
 - **Limitations:** emulation only, no physical phone (`docs/PHYSICAL_DEVICE_CHECKLIST.md` gained
   seven sheet and keyboard items, all unchecked). The type is in pixels, so a browser's larger-text
-  setting does nothing; page zoom at 125% holds, and a rem scale is backlog 19.
+  setting does nothing; page zoom at 125% holds, and a rem scale is backlog 19. Pressing Fit
+  journey on a phone folds the sheet, which is a camera action that changes the layout.
 
 Before that, 22 September 2026 (a journey, not only a stop: search by bus number, stops on the
 map, a board that answers "when?" honestly, a followed position kept apart from a fixed starting

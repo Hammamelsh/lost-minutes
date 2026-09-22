@@ -1445,7 +1445,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .sheet-toggle .sheet-words{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .sheet-toggle{flex-wrap:wrap}
  .sheet-handle{display:flex;align-items:center;gap:6px}
- .sheet-toggle{flex:1;min-width:0}
+ .sheet-toggle{flex:1;min-width:0;width:auto}
  .sheet-refresh{display:grid;flex:0 0 auto;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;
   border:1px solid #2d4250;background:#13222d;color:#c9d9e0}
  .sheet-refresh:disabled{opacity:.6}

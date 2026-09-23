@@ -128,6 +128,18 @@ test.describe('fallback', () => {
   });
 
   test('takes over when every vector tile fails after the style loads', async ({page}) => {
+    // The metadata is answered here rather than fetched, so this case tests what it says it tests.
+    // Until 23 September 2026 it was the only fallback check that still went to the real tile host
+    // — the others abort everything, stall the metadata, or remove WebGL — so its 25 s allowance
+    // covered a third party's latency as well as the page's own decision. It failed once inside a
+    // full suite on 23 September while passing between two other fallback checks; measured six
+    // times in isolation, the page gives up in 944 to 2104 ms, so nothing about 25 s was marginal
+    // and the wait was not the page's.
+    await page.context().route(/tiles\.openfreemap\.org\/planet(\?|$)/, route => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({tilejson: '3.0.0', minzoom: 0, maxzoom: 14, vector_layers: [],
+        tiles: ['https://tiles.openfreemap.org/planet/fixture/{z}/{x}/{y}.pbf']}),
+    }));
     await page.context().route(/tiles\.openfreemap\.org\/planet\/.+\.pbf/, route => route.abort());
     await serveLive(page, [() => liveFromArchive()]);
     await page.goto('/');

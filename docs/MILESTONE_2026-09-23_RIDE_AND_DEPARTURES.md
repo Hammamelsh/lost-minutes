@@ -172,6 +172,23 @@ road**. Where any of that fails it travels the chord as before, and the card say
 Verified in a browser on the fixture road: 95% of drawn positions within **6 m** of the checked
 road, none beyond 15 m.
 
+### Continuous playback on the other cases the brief names
+
+Each is a recorded run of real publications played back through the built page, with the map's own
+diagnostics read every frame it draws.
+
+| case | frames | median step | largest | repositionings |
+|---|---|---|---|---|
+| a bus with no usable geometry — BNML BU25YXM, route 150, no timetable held at all | 832 | 2.17 m | 6.63 m | 0 |
+| across the journey change — MF74NNL, the 15 → 256 handover of 20:07:19 | 772 | 0.69 m | 2.22 m | 0 |
+| across a viewport resize — 11907, the window cut to 60% of its height and back | 840 | 1.59 m | 4.71 m | 0 |
+| across a round trip into Behind the data — 11907, 40 s away and back | 481 | 2.20 m | 4.78 m | 0 |
+
+The bus with no usable geometry travels along the chord, because there is no road to follow and the
+card says so. Across the journey change the bus is drawn at each report and never estimated, which
+is the design, and the handover itself is not visible as a jump. The panel case draws fewer frames
+because the loop rests while the engineering area is open, which is also the design.
+
 ### Where the drawing is *not* reset
 
 The owner asked whether the drawing resets on publication, panel changes, resizing or capability
@@ -179,6 +196,10 @@ changes. Traced with the replay probe on real reels:
 
 - **across publications:** no reset. Route 25, 13 publications over 236 s: median step 1.13 m,
   largest 4.67 m, no corrections.
+- **a resize:** no reset, and no repositioning, measured above.
+- **a panel change:** no reset of the *drawn* position. The frame loop does rest while the
+  engineering area is open, deliberately, and starts again from where the estimate is now rather
+  than creeping across the minutes nobody was watching.
 - **a backgrounded tab:** the run that was meant to background the tab did not — headless Chromium
   kept drawing — so **this remains untested and is not claimed**. What the code does is stated:
   animation frames stop, polling stops, and on return a report too far or too old to travel to is

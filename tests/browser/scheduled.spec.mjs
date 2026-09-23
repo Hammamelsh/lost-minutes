@@ -28,8 +28,10 @@ test('a bus before your stop on one named journey shows the timetabled time ther
   await expect(line).toContainText('Timetabled at your stop 06:53');
   await expect(line).toContainText('not a prediction');
   await expect(line).toContainText('not adjusted for where the bus is');
-  // The named journey sits in the evidence, behind "How we know this".
-  await page.getByRole('button', {name: 'Details'}).click();
+  // The named journey sits in the evidence, behind "How we know this". Until 23 September 2026 a
+  // sticky strip above the card carried a "Details" button, and this step pressed it to bring the
+  // card into view; the strip and the card's head are one sticky head now, so the card is already
+  // where the reading is and the disclosure is opened directly.
   await page.locator('.bus-evidence-toggle summary').click();
   await expect(page.locator('.bus-evidence')).toContainText('the 06:49 departure');
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-timetabled.png`)});

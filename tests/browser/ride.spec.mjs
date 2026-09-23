@@ -542,9 +542,17 @@ test('front view needs a road checked against the bus’s own reports: without o
   // stays pressable, which is why the check is on the label first and the press second.
   const front = page.getByRole('button', {name: /Front view/});
   await expect(front).toHaveClass(/unavailable/);
-  await expect(front, 'the reason is on the button, before it is pressed').toContainText(/not on this route|not here yet|checking/);
+  // "this bus is not placed" joined the states on 23 September 2026. Route 53 is not placed on a
+  // timetable pattern at all, which is a different thing from a pattern whose road has not been
+  // built, and until then both read "not on this route" — and a bus with no pattern could get
+  // stuck on "checking" for ever, because that state was read from the same null.
+  await expect(front, 'the reason is on the button, before it is pressed')
+    .toContainText(/not on this route|not here yet|not placed|checking/);
   await front.click();
-  await expect(page.locator('.ride-note', {hasText: 'Front view needs the road this bus is on'})).toBeVisible();
+  // The reason names which of the two is missing: a road that was never built for this service,
+  // or — as here — no timetable pattern to have a road for at all.
+  await expect(page.locator('.ride-note', {hasText: /Front view needs (the|to know which) road this bus is on/}))
+    .toBeVisible();
   await expect(map(page)).toHaveAttribute('data-ride-camera', 'outside');
   await expect(page.locator('.bus-card .route-badge'), 'the selected bus is not changed').toHaveText('53');
   await expectIdentifiable(page, 'still outside, the same bus');

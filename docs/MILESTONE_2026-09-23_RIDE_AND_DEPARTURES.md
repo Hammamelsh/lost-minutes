@@ -321,36 +321,43 @@ applied in the frame or two after the ride ends while `input.view` is still stal
 view: leaving after a second, or leaving the outside view, returns to flat every time. The check is
 split out and holds its assertion at full strength — backlog 23.
 
-**Run so far, and what is outstanding.** Node 211 of 211, Python 131 of 131, typecheck clean, lint
-0 errors. Focused browser runs during the work: `departures.spec` 6 of 6, `ride-quality.spec` 12 of
-12 (including the two new movement checks), `layout.spec` 9 of 9 (including the two zoom checks),
-`board.spec`, `access.spec` 8 of 8, `motion.spec` 12 of 12, `ride-offer.spec` 5 of 5,
-`selection.spec` and `journey-context.spec`.
+**The release gate, on the candidate that was deployed: 322 passed, 28 skipped by design, none
+failing, in 45.4 minutes** (Chromium, SwiftShader, desktop 1280 × 900 and phone 390 × 844). Node
+211 of 211, Python 131 of 131, typecheck clean, lint 0 errors.
 
-**The full gate has not yet been completed on the final candidate.** A diagnostic run was stopped
-at 101 of 348 on the night of 22–23 September with two failures, and both are open:
+**Three earlier gate runs are not described here as clean, and each found something real:**
 
-1. `journey.spec.mjs:100 › with location › a shared customer…` — the card no longer contained
-   "May call at your stop (1 of 2 possible branches)", because the reworded "we cannot confirm"
-   sentence had replaced `assoc.text` instead of following it. **Fixed in source; not yet re-run.**
-2. `map.spec.mjs:130 › fallback › takes over when everything fails after the style loads` — the
-   simple map's `svg[role="img"]` was not found within 25 s. **Not yet diagnosed.** It must be
-   traced rather than re-run: it is either a real regression or contention from the probes that
-   were running, and an isolated re-run would not tell the two apart.
+1. A run stopped at 101 of 348 found the card had lost "May call at your stop (1 of 2 possible
+   branches)" — the reworded "we cannot confirm" sentence had replaced `assoc.text` instead of
+   following it. A real wording regression, fixed.
+2. The same run failed `map.spec`'s "every vector tile fails after the style loads". Measured six
+   times in isolation the page gives up in **944–2104 ms** against a 25 s allowance, so nothing
+   about it was marginal — but it was the only fallback check still fetching the TileJSON from the
+   real tile host, so its allowance covered a third party's latency too. The check answers the
+   metadata itself now.
+3. A full run of 320 found two checks naming states this milestone renamed (the front view's "this
+   bus is not placed", and the "Details" button the merged card head replaced), and — by failing
+   *afterwards* on a re-run — exposed the pre-existing tilt defect above, which had been passing by
+   luck for weeks.
 
-Still to do before this milestone can be called done:
-- rebuild, and run `pnpm test:browser` in full on the final candidate with nothing else running;
-- the four movement recordings the brief asks for that have not been made: a bus with no usable
-  geometry (BNML BU25YXM, route 150 inbound, is in all 63 publications of
-  `data/evaluation/reel-live-evening.json`), the journey change as continuous playback
-  (`reel-a-transition.json`), and `--disturb resize` and `--disturb panel` on route 25;
-- deploy, then on the server install the updated `lost-minutes-refresh.service` and run it once so
-  the catalogue is rebuilt with the new departure format **before** the boards are published — a
-  board built from the old format marks every journey's day as unknown;
-- verify the served build: RELEASE, the page chunk hash, `/data/departures/1800SJ01251.json`, and a
-  walk of the passenger's journey at both widths.
+**On the served site**, after the deploy and the server's own catalogue rebuild:
 
-*(gate result to be filled in on the deployed candidate)*
+- `RELEASE` reads `b9cbe88`; the served page chunk is `page-e20fd222aeed1d47.js`, the same file the
+  local build made;
+- the board for Westwood Avenue (opp) is served at 11,909 bytes with 12 services, and its route-15
+  runs carry **rule indices 0–3** rather than −1, which is how it is known that the catalogue was
+  rebuilt in the new format before the boards were built from it;
+- the index: **2,682 stops, 958,699 departures, 204 operating rules**;
+- the passenger's journey walked at 1366 × 768 and 390 × 844 on the live site: 8 scheduled
+  departures, **one** summary of the chosen bus rather than two, the ride offering "Reported
+  positions · may pause · Front view" — the three capabilities said apart — the ride card reading
+  "Last reported position · 53 s ago", and the map returning to **pitch 0.0** on leaving the ride at
+  both sizes;
+- the collector and both timers active.
+
+**The one red line to keep in view.** `ride.spec`'s "leaving the ride returns the map to flat"
+passed in this gate, and passes about half the time: it is the check that names backlog 23. A green
+gate does not mean that defect is fixed.
 
 ## 6. Limitations
 

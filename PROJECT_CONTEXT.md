@@ -60,6 +60,15 @@ correction traced and fixed, and the stop answering "when is the next bus?" from
   feed is healthy is its own state. "Does not serve this stop" and "we cannot confirm" are said
   differently. The workspace holds at **150% and 200% page zoom** with no sideways scrolling and
   everything still reachable.
+- **Deployed as `b9cbe88`**, the served page chunk identical to the local build's, the previous
+  release kept for `deploy/rollback.sh`. The server rebuilt its own catalogue in the new departure
+  format and published **2,682 boards, 958,699 departures, 204 operating rules**; the board for
+  Westwood Avenue (opp) carries real rule indices rather than −1, which is how that order is known
+  to have been kept. **322 browser checks passed, 28 skipped by design, none failing, in 45.4
+  minutes** on that candidate; 211 Node, 131 Python, typecheck and lint. Three earlier gate runs
+  each found something real and none of them is described as clean. The passenger's journey was
+  then walked on the live site at both widths: 8 scheduled departures, one summary of the chosen
+  bus, the ride offering its three capabilities apart, and the map back to pitch 0 on leaving.
 - **Limitations:** emulation only, no physical phone. **A genuinely backgrounded tab was not
   tested** — the probe's attempt did not stop the page drawing — so no claim is made about what a
   real phone does on return. The drawn bus is sampled at the rate the page writes its diagnostics,

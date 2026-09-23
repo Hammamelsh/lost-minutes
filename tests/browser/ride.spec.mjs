@@ -558,7 +558,7 @@ test('front view needs a road checked against the bus’s own reports: without o
   await expectIdentifiable(page, 'still outside, the same bus');
 });
 
-test('front view: a standing bus holds the view still, and leaving the ride returns to the flat map', async ({page}) => {
+test('front view: a standing bus holds the view still', async ({page}) => {
   test.setTimeout(90_000);
   await openAtStopA(page, {standing: true});
   await expect(map(page)).toHaveAttribute('data-motion-reason', /standing/, {timeout: 20_000});
@@ -569,6 +569,34 @@ test('front view: a standing bus holds the view still, and leaving the ride retu
   const still = await map(page).getAttribute('data-camera');
   await page.waitForTimeout(3000);
   expect(await map(page).getAttribute('data-camera'), 'nothing moves the view while the bus stands').toBe(still);
+});
+
+/**
+ * Split out of the check above on 23 September 2026, because it fails intermittently against a
+ * defect that is older than this milestone and is not fixed.
+ *
+ * Leaving the ride asks for a fit that returns the map to flat. `fitBounds` works the camera out
+ * from the bounds and does not carry a pitch with it, so whenever two or more things were framed
+ * the map kept the ride's tilt: measured 2 of 3 runs on a phone at 21.2° and 35.9°, on this build
+ * *and on its parent*, so it was passing in the gate by luck rather than working. The fit now eases
+ * to a camera worked out with `cameraForBounds`, which does carry the pitch, and the ride's heading
+ * is no longer applied for the frame or two after the ride ends while `input.view` is still stale.
+ * Together those take the residue from 21–39° to **2.5–3.0°**, which is flat to the eye and is not
+ * flat. The last few degrees are an interrupted ease on leaving the *front* view specifically — the
+ * outside view returns to 0 immediately, measured 3 runs of 3 — and are backlog 23.
+ *
+ * The assertion is left as it should be. It is a red line that names an open defect, not a flake.
+ */
+test('leaving the ride returns the map to flat (backlog 23: the last few degrees remain)', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, {standing: true});
+  await expect(map(page)).toHaveAttribute('data-motion-reason', /standing/, {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  // The same four seconds in the front view the check above spends, because that is the situation
+  // the residue appears in: leaving after about a second returns to flat every time.
+  await page.waitForTimeout(3800);
   await page.getByRole('button', {name: 'Exit ride-along'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'off');
   await expect.poll(async () => (await camera(page)).pitch, {timeout: 10_000}).toBe(0);

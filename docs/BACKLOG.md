@@ -134,6 +134,23 @@ provider; a live one needs an account, a key on the server and a request budget 
 code. §4 of that document is the serving design. **Waiting on the owner's decision; nothing is
 built, nothing is paid for.**
 
+## 23. Leaving the front view can leave the map a few degrees off flat
+Found on 23 September 2026 by a check that had been passing by luck. Leaving the ride asks for a
+fit that returns the map to flat, and `fitBounds` works its camera out from the bounds without
+carrying a pitch, so whenever two or more things were framed the map kept the ride's tilt —
+measured 2 of 3 runs on a phone at **21.2° and 35.9°**, on that build *and on its parent*, so it
+predates this milestone. The fit now eases to a camera from `cameraForBounds`, which does carry the
+pitch, and the ride's heading is no longer applied in the frame or two after the ride ends while
+`input.view` is still stale. Together those take the residue to **0.6–3.0°**, with one run of four
+still at 24.9°.
+
+What is left is specific: it needs about four seconds *in the front view* before leaving. Leaving
+after about a second returns to flat every time, and leaving the outside view returns to flat
+immediately (3 runs of 3, `outputs/probes/repro/exit-pitch.mjs`). So it is an ease interrupted by
+something the front view's own per-frame camera leaves behind, not the fit. `ride.spec.mjs`'s
+"leaving the ride returns the map to flat" holds the assertion at full strength and names this
+entry; it is a red line that describes an open defect, not a flake. Not fixed.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

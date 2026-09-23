@@ -311,6 +311,16 @@ set out on.
 - `tests/test_matching.py`, restated: a pattern's departures now carry the operating rule of their
   own journey, by index into the pattern's rules.
 
+**A defect the gate found that predates this milestone.** Leaving the ride asks for a fit that
+returns the map to flat, and `fitBounds` does not carry a pitch with it, so whenever two or more
+things were framed the map kept the ride's tilt — measured **2 of 3 runs on a phone at 21.2° and
+35.9°, on this build and on its parent**. It had been passing in the gate by luck. The fit now eases
+to a camera from `cameraForBounds`, which does carry the pitch, and the ride's heading is no longer
+applied in the frame or two after the ride ends while `input.view` is still stale. The residue is
+0.6–3.0°, with one run of four still at 24.9°, and only after about four seconds in the *front*
+view: leaving after a second, or leaving the outside view, returns to flat every time. The check is
+split out and holds its assertion at full strength — backlog 23.
+
 **Run so far, and what is outstanding.** Node 211 of 211, Python 131 of 131, typecheck clean, lint
 0 errors. Focused browser runs during the work: `departures.spec` 6 of 6, `ride-quality.spec` 12 of
 12 (including the two new movement checks), `layout.spec` 9 of 9 (including the two zoom checks),

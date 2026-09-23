@@ -1293,7 +1293,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
     else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}
    }else{
-    const bearing=input.view==='ride'&&v.bearing!==null?{bearing:v.bearing}:{};
+    // The ride's own heading, and only while the ride is actually on. `input.view` is set from a
+    // React effect, so for a frame or two after the ride is left it still says 'ride'; the ref is
+    // written as the ride ends. Turning the map to the bus's heading in that window put a camera
+    // move in front of the fit that returns the map to flat, and the tilt was left part-way.
+    const bearing=input.view==='ride'&&r.state!=='off'&&v.bearing!==null?{bearing:v.bearing}:{};
     const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
     if(Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
      instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
@@ -1476,7 +1480,17 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      return;
     }
    }
-   m.fitBounds(bounds,{padding,maxZoom:16.2,...camera,duration:reduce?0:500});
+   // `fitBounds` works the camera out from the bounds and does not take a pitch with it, so a fit
+   // asked to return the map to flat — which is what leaving the ride-along asks for — kept the
+   // ride's tilt whenever two or more things were being framed. The one- and no-point paths above
+   // use easeTo and always did apply it, which is why the map came back flat sometimes and stayed
+   // tilted at 20-40° other times (measured 2 of 3 runs on a phone, on this build and on the one
+   // before it). The camera for the bounds is worked out the same way and then eased to, with the
+   // pitch and bearing on it: the padding is already inside that centre and zoom.
+   const fitted=m.cameraForBounds(bounds,{padding,maxZoom:16.2});
+   if(fitted&&fitted.center&&typeof fitted.zoom==='number')
+    m.easeTo({center:fitted.center,zoom:fitted.zoom,...camera,duration:reduce?0:500});
+   else m.fitBounds(bounds,{padding,maxZoom:16.2,...camera,duration:reduce?0:500});
   });
  },[here,stop,selected,buses,walk,destination,move]);
 

@@ -73,7 +73,10 @@ phone, each reproduced before it was changed.
   **335 passed, 36 skipped, 3 failed in 52.5 min** — the tile host once (passed alone), and two
   checks whose fixtures stood still until the test began (restated), one of which exposed that a
   stray tap on a boarding-point sign during the ride chose the stop and ended the ride: **signs
-  now stand down while riding**. Emulation only. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
+  now stand down while riding**. The walk on the deployed site then found the recorded ride paused
+  because its own vehicle was live that morning on another journey and had been pinned first: the
+  live feed is cleared when a recording starts and the ride is pinned from the recording only.
+  Emulation only. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
   final build **344 passed, 46 skipped by design, 4 failed in 51.9 minutes** — the four being two
   checks on both profiles that encoded arrival-timed drawing and the uncompacted card, restated
   with the reason beside each and re-run on the same build (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`

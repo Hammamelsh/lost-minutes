@@ -102,6 +102,24 @@ test('a shared link opens the recording itself; the share from inside it copies 
   await expect(badge(page)).toContainText('RECORDED RIDE');
 });
 
+test('the recorded vehicle live right now on another journey does not stop the recording being ridden', async ({page}) => {
+  await servePatterns(page);
+  await serveMotion(page);
+  await serveRecording(page);
+  // The live feed carries FX-MOVING itself, on a different journey, as the real 163's bus was on
+  // the morning of 24 September 2026: the page pinned the live one and paused the ride.
+  const startMs = Date.now();
+  await serveLive(page, [() => {const live = movingLive({startMs}); for (const v of live.vehicles) if (v.vehicle === 'FX-MOVING') v.journeyRef = 'FX-OTHER-J'; return live;}]);
+  await page.goto(`/?ride=${RIDE_ID}`);
+  await waitForPaint(page);
+  await expect(badge(page)).toContainText('RECORDED RIDE', {timeout: 10_000});
+  await expect(page.locator('#lm-bus-card')).toHaveAttribute('data-vehicle', 'FX-MOVING', {timeout: 10_000});
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
+  await page.waitForTimeout(3000);
+  await expect(map(page), 'ridden, not paused for a change of journey').toHaveAttribute('data-ride', 'following');
+  await expect(page.locator('#lm-bus-card')).not.toContainText('another journey');
+});
+
 test('with live buses the recording follows the live rides, and a link to a recording that is not there says so', async ({page}) => {
   await servePatterns(page);
   await serveMotion(page);

@@ -117,7 +117,11 @@ export default function Home(){
    const response=await fetch(summary.file);
    if(!response.ok)throw new Error(`recording unavailable (${response.status})`);
    const data=parseRecordedRide(await response.json());
-   setUsingArchive(false);setStop(null);setRideError(null);setLiveFingerprint(null);
+   // The live feed goes at once: its buses must not stand under the recording's badge, and the
+   // recorded vehicle may be on the road right now on another journey — on 24 September 2026 the
+   // 163's own bus was, and the page pinned the live one, then read the recording as a change of
+   // journey and paused the ride.
+   setUsingArchive(false);setStop(null);setRideError(null);setLiveFingerprint(null);setLive(null);
    setRide({data,startedAtMs:Date.now(),index:-1,ended:false});
    // The address names the recording, so the link that is shared reopens it — and never a vehicle
    // that stopped reporting on the day it was made.

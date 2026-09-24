@@ -178,7 +178,12 @@ out of it. **Signs now stand down while riding** (a one-line change in the tap h
 keeps its tap, and the ride, ride-quality, map, layout, selection and navigation specs were re-run
 on that build: **118 passed, 18 skipped by design, none failing** (21.6 minutes), the entry-tap
 check on both profiles among them, and the layout check that taps a sign *outside* the ride still
-choosing the stop. That build is the one deployed.
+choosing the stop. That build was deployed as `a2cd913` — and the walk on it found one more thing,
+visible only in the morning: **the recorded 163's own vehicle was live on today's journey**, the
+page pinned the live one before the recording's first publication replaced the feed, read the
+recording as a change of journey, and paused the ride. The live feed is now cleared the moment a
+recording starts and the ride is pinned only from the recording's own publications, with a check
+that serves the same vehicle live on another journey.
 
 **Measured, the recorded 163 with its road:** on the road in every frame (**0.0 m** off it at the
 median, the 95th percentile and at worst; it had been up to 40 m off), moving in **87%** of frames, drawn

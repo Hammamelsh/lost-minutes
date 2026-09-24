@@ -474,6 +474,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    return;
   }
   if(rideStarted.current===recording.id)return;
+  // Only from the recording's own publications: the same vehicle may be live on another journey.
+  if(!recording.started)return;
   const bus=buses.find(b=>b.key===recording.busKey);
   if(!bus)return;
   rideStarted.current=recording.id;

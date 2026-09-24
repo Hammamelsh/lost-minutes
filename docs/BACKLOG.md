@@ -159,6 +159,27 @@ for a frame every tick once its clock has reached its newest report, so the fron
 camera is not still being set after Exit; that is not proved. Kept open as *not reproduced on this
 build*; the physical-device checklist keeps its item.
 
+**24 September 2026, midday — reproduced again, and measured across builds.** The finished-flow
+pass (milestone §8) saw the check fail once in a focused run (19.8°), so it was repeated: 1 of 6,
+then on the next build 5 of 10 (residues 5.2°, 8°, 17°, 43.9°, 69.1°). A probe that patches
+MapLibre's camera methods in the page and logs every call after Exit
+(`outputs/probes/milestone/exit-cam.mjs`, git-ignored) returned to flat in **32 of 32** runs on the
+same build — serial, three pages at once, with tracing on — and showed the exit sequence in full:
+the Exit tap's own pointer-up starts a fast "return to bus" glide (the map container's handler,
+which finishes an entering or returning glide on a tap) a millisecond before React processes the
+click; the view effect eases to flat; the ride effect stops the camera, resizes (MapLibre's
+`resize` stops the camera again when it is not moving), clears the padding, sets the pitch limit
+and starts the fit's ease to pitch 0; MapLibre's own ResizeObserver resizes once more while that
+ease runs. Under the test runner (`workers: 1`, serial) the same build then failed 1 of 10, and the
+**previously deployed build 103e4a8, rebuilt and run back to back under the same runner, failed
+4 of 10** (58.1°, 67.5°, 67.5°, 27.8°). So the residue predates this pass and is not made worse
+by it; it appears under `playwright test` and not under a plain Playwright script on the same
+build, which points at the runner's polling of the page (the `expect` attribute checks) rather
+than at the camera code, and the mechanism is still not proved. The check keeps its full-strength
+assertion. Next step, if it is taken up: a `data-camera-calls` diagnostic on the map (the last few
+camera actions of our own code, tagged), read by the check on failure, so a failing run under the
+runner says which call cut the ease short.
+
 ## 24. More recorded rides, and one on an evaluated route
 One recording is published (the 163 of 23 September 2026, on an accepted road, so the front view is
 there but movement is reported positions). A ride on route 15, 250 or 256 would show estimated

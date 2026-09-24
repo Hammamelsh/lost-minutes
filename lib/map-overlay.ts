@@ -108,7 +108,9 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   // the accepted shape and nothing else; the map shows the layer only while riding, outside.
   {id:'lm-road-ahead',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'ahead'],
    layout:{'line-cap':'round','line-join':'round',visibility:'none'},
-   paint:{'line-color':'#c6f36a','line-opacity':0.34,'line-blur':1.5,
+   // Half opacity: at a third it read on a pale side street and vanished on an orange primary
+   // road (Rochdale Road, the served recording, 24 September 2026), which is where it is needed.
+   paint:{'line-color':'#c6f36a','line-opacity':0.5,'line-blur':1,
           'line-width':['interpolate',['exponential',2],['zoom'],15,2,18,10,20,34]}},
   {id:'lm-trail-band',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'band'],
    layout:{'line-cap':'round','line-join':'round'},

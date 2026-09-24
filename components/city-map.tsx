@@ -1455,13 +1455,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     const kerb=inside?FRONT[theme].kerb:own(layer)?.['line-color'];
     if(extra>0&&kerb)instance.setPaintProperty(layer,'line-color',kerb as never);
    }
-   // The front view's own labels: upright street names. The next stops on the bus's pattern are
-   // named in both views of the ride — on the road ahead outside as in the street ahead inside —
-   // and the road ahead itself is lit only outside, where the road is seen from above.
+   // The front view's own labels: upright street names. (The next stops and the road ahead are
+   // the ride's, shown in both its views or its outside view, and are switched by the ride
+   // effect below: making this effect depend on the view made it re-run and kick a frame on
+   // leaving the ride, and the return to flat then failed 2 runs in 10 — backlog 23's residue.)
    if(instance.getLayer('lm-front-street-name'))instance.setLayoutProperty('lm-front-street-name','visibility',inside?'visible':'none');
-   for(const id of ['lm-stops-ahead-dot','lm-stops-ahead-label'])
-    if(instance.getLayer(id))instance.setLayoutProperty(id,'visibility',view==='ride'?'visible':'none');
-   if(instance.getLayer('lm-road-ahead'))instance.setLayoutProperty('lm-road-ahead','visibility',view==='ride'&&!inside?'visible':'none');
    // Street and river names are laid along their lines. From eye height the name of the road
    // ahead stands on end and overlaps itself, so the front view leaves them out.
    for(const layer of instance.getStyle().layers??[])
@@ -1469,7 +1467,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      instance.setLayoutProperty(layer.id,'visibility',inside?'none':'visible');
   }catch{/* the flat symbol stays: the 2D map is always the fallback */}
   kick();
- },[ready,modelShown,kick,camera,theme,view]);
+ },[ready,modelShown,kick,camera,theme]);
 
  // --- camera ----------------------------------------------------------------------
  // `camera` is the tilt and heading to end at; without it the current tilt is kept.
@@ -1635,9 +1633,19 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  useEffect(()=>{
   const instance=map.current,r=ride.current;
   if(!ready||!instance)return;
+  // The next stops on the bus's pattern are named in both views of the ride; the road ahead is
+  // lit only outside, where the road is seen from above. Both are off outside the ride.
+  const rideLayers=(on:boolean,outside:boolean)=>{
+   try{
+    for(const id of ['lm-stops-ahead-dot','lm-stops-ahead-label'])
+     if(instance.getLayer(id))instance.setLayoutProperty(id,'visibility',on?'visible':'none');
+    if(instance.getLayer('lm-road-ahead'))instance.setLayoutProperty('lm-road-ahead','visibility',on&&outside?'visible':'none');
+   }catch{/* the flat symbol stays */}
+  };
   if(view!=='ride'){
    if(!wasRiding.current)return;
    wasRiding.current=false;
+   rideLayers(false,false);
    r.transition+=1;
    r.camera='outside';
    // Stopping the ride's camera also stops the view's own ease, so the fit carries the tilt and
@@ -1656,6 +1664,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   wasRiding.current=true;
   if(entering)rideKey.current=inputs.current.selected?.key??'';
   r.camera=camera;
+  rideLayers(true,camera==='outside');
   // The front view is the whole canvas; the outside view keeps the bus in the band the notes leave.
   const frame=()=>{
    if(entering)instance.resize();

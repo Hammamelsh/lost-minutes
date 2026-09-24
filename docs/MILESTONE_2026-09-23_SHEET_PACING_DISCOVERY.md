@@ -439,7 +439,23 @@ titles whole; the way in from the first screen on both profiles, the sheet opene
 phone; coming-or-past judged by the newest report with the drawn bus measured still short of the
 stop at that moment and the stated delay within six seconds of the measured one; the road ahead
 present on entering the ride and gone on leaving; no road ahead for a bus with no checked road.
-Emulation only; the physical checklist gained four items. {{DEPLOY}}
+Emulation only; the physical checklist gained four items.
+
+**Deployed once, looked at, and changed twice more.** The build above went out as `110428d` and
+the walk on the served site (`outputs/probes/try-ride-walk/deployed-5/`) showed the ribbon plainly
+on a pale side street in a desktop ride and not at all, by eye, on Rochdale Road in the recorded
+163 — an orange primary road under a lime at a third of opacity. The map's own diagnostics said it
+was drawn (320 m, three stops named, the measured delay exactly 30 s on both profiles), so the
+change was to its paint alone: half opacity. Its re-run then failed the flat-return check once
+(backlog 23, 19.8°), which was investigated rather than re-run: the one change of mine on the exit
+path — the front-view effect depending on the view — was undone by moving the ride layers'
+visibility into the ride effect, which did not help (5 of 10); a probe logging every MapLibre
+camera call after Exit could not make the same build fail (32 of 32) but showed the exit sequence
+in full; and the **previously deployed build, rebuilt and run under the same runner back to back,
+failed 4 of 10 against this build's 1 of 10**. The residue predates this pass; backlog 23 has the
+detail and the next step. On this final build the ride, ride-quality, recorded-ride and try-ride specs: **81 passed,
+2 skipped by design, 1 failed in 18.2 minutes** — the one being that flat-return check on the phone
+profile, which is backlog 23 and is left at full strength. {{DEPLOY}}
 
 ## 9. Limitations
 

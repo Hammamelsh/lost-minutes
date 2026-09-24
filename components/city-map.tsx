@@ -911,13 +911,28 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const reportKey=`${selected.key}|${selected.observedAtMs}`;
   if(reportKey===broughtTo.current)return;
   broughtTo.current=reportKey;
-  const point=instance.project([selected.lon,selected.lat]);
-  const {clientWidth:width,clientHeight:height}=instance.getContainer();
-  // Under a control counts as outside: a bus behind the Ride along button is not in view.
-  const pad=fitPadding(instance.getContainer());
-  if(point.x<pad.left||point.y<pad.top||point.x>width-pad.right||point.y>height-pad.bottom){
-   move(m=>m.easeTo({center:[selected.lon,selected.lat],duration:prefersReducedMotion()?0:450}));
-  }
+  // Leaving the ride: this effect runs before the ride's own (declaration order), while the ride
+  // camera is still up, and the hand-over's fit is about to frame this bus anyway. Chasing it
+  // here started an ease the hand-over then stopped: one camera call too many on the way out.
+  if(wasRiding.current)return;
+  const {lat,lon}=selected;
+  const chase=()=>{
+   // A newer report, the ride, or the passenger's own hand on the map has taken over since.
+   if(broughtTo.current!==reportKey||viewRef.current==='ride'||userMoved.current||!map.current)return;
+   const point=instance.project([lon,lat]);
+   const {clientWidth:width,clientHeight:height}=instance.getContainer();
+   // Under a control counts as outside: a bus behind the Ride along button is not in view.
+   const pad=fitPadding(instance.getContainer());
+   if(point.x<pad.left||point.y<pad.top||point.x>width-pad.right||point.y>height-pad.bottom)
+    move(m=>m.easeTo({center:[lon,lat],duration:prefersReducedMotion()?0:450}));
+  };
+  // A camera already moving was asked for — the ride's hand-over to the flat map, a fit, City's
+  // tilt, a gesture — and an ease by centre alone would stop it where it stood and keep the tilt
+  // it had reached. That was backlog 23: a publication landing within half a second of leaving
+  // the ride stopped the ease to flat (logged at 68.4° and 44.9°, this call made while the map was
+  // moving). The report waits for the camera to come to rest and is judged then.
+  if(instance.isMoving()){instance.once('moveend',chase);return}
+  chase();
  },[ready,busCollection,selected,selectionKind,follow,view,move]);
 
  useEffect(()=>{

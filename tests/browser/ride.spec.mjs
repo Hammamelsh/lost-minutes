@@ -64,7 +64,15 @@ async function openAtStopA(page, live = {}, motion = {}) {
   await servePatterns(page);
   await serveMotion(page, motion);
   const startMs = Date.now();
-  await serveLive(page, [() => movingLive({startMs, ...live})]);
+  // `live` is read at every publication, so a check can change what the next one carries.
+  // `newEachTime` makes each publication's newest report a second newer than the last: the
+  // fixture's reports are otherwise new only once per whole second, and a publication landed on
+  // purpose must carry a new report or it proves nothing.
+  let calls = 0;
+  await serveLive(page, [() => {
+    const {newEachTime, ...rest} = live;
+    return movingLive({startMs, ...rest, ...(newEachTime ? {delay: Math.max(2, 24 - calls++)} : {})});
+  }]);
   await page.goto('/');
   await waitForPaint(page);
   await page.getByRole('button', {name: 'Buses near me'}).click();
@@ -123,6 +131,36 @@ async function limeInMiddle(page) {
     return n;
   }, png.toString('base64'));
   return devicePixels / (area.scale * area.scale);
+}
+/** A publication that lands now, as the 10 s poll does: the page's own "Check for newer positions",
+ *  pressed from script so that it lands inside a camera move rather than a hand's reach after it. */
+async function landPublication(page) {
+  const pressed = await page.evaluate(() => {
+    const button = [...document.querySelectorAll('button[aria-label="Check for newer positions"]')]
+      .find(b => b.offsetParent !== null && !b.disabled);
+    button?.click();
+    return Boolean(button);
+  });
+  expect(pressed, 'a refresh control was there to press').toBe(true);
+}
+/** The hand-over back to the normal map, measured rather than assumed: the ride off, flat and
+ *  north up, the phone's full-screen ride layout gone, the Ride along button back, and your stop
+ *  and your bus on the map. */
+async function expectHandedBack(page, what, timeout = 10_000) {
+  await expect(map(page)).toHaveAttribute('data-ride', 'off');
+  await expect(map(page)).toHaveAttribute('data-view', '2d');
+  await expect.poll(async () => { const c = await camera(page); return c.pitch === 0 && c.bearing === 0; },
+    {timeout, message: `${what}: flat and north up`}).toBe(true);
+  await expect(map(page)).not.toHaveClass(/view-ride/);
+  await expect(page.locator('body')).not.toHaveClass(/riding/);
+  await expect(ride(page)).toBeVisible();
+  const on = await map(page).evaluate(el => {
+    const c = el.querySelector('.vector-map-canvas').getBoundingClientRect();
+    const inside = name => { const [x, y] = (el.getAttribute(name) || '').split(',').map(Number);
+      return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x <= c.width && y <= c.height; };
+    return {stop: inside('data-stop-screen'), bus: inside('data-bus-screen')};
+  });
+  expect(on, `${what}: your stop and your bus are on the map`).toEqual({stop: true, bus: true});
 }
 async function frontView(page) {
   await page.getByRole('button', {name: 'Front view'}).click();
@@ -612,6 +650,69 @@ test('leaving the ride returns the map to flat (backlog 23: the last few degrees
   await expect.poll(async () => (await camera(page)).pitch, {timeout: 10_000}).toBe(0);
 });
 
+// Backlog 23, found (24 September 2026). The check above failed now and then because a publication
+// happened to land within half a second of Exit: the effect that brings the frame to a new report
+// outside it eased the camera by its centre alone while the hand-over's ease to flat was running,
+// which stopped that ease and kept whatever tilt the map had reached (logged: 68.4° and 44.9°, the
+// interrupting call made while the map was moving). These land a publication inside the hand-over
+// on purpose, so the case the poll hit by chance is hit every time. The bus is 400 m before your
+// stop, where the hand-over's fit frames both: a bus a kilometre off is framed by the stop's
+// surroundings instead, and the next report then brings the frame to it — the ordinary rule for a
+// new report outside the frame, which these checks are not about.
+const NEAR_STOP = 1100;                          // metres along the fixture road; Stop A is at 1499
+test('leaving the front view hands back to the flat map even when a publication lands during the hand-over', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, {standing: true, startS: NEAR_STOP, newEachTime: true});
+  await expect(map(page)).toHaveAttribute('data-motion-reason', /standing/, {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await frontView(page);
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await page.waitForTimeout(60);
+  await landPublication(page);
+  await expectHandedBack(page, 'front view, a publication in the hand-over');
+});
+
+test('leaving the outside view hands back to the flat map even when a publication lands during the hand-over', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, {startS: NEAR_STOP, speed: 4, newEachTime: true});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await page.waitForTimeout(60);
+  await landPublication(page);
+  await expectHandedBack(page, 'outside view, a publication in the hand-over');
+});
+
+test('a new report outside the frame waits for a camera move to finish, then brings the frame to it', async ({page}) => {
+  test.setTimeout(90_000);
+  // Measured on the deployed build (24 September 2026): on the desktop frame even the far end of
+  // the fixture road lies inside City's tilted view, so no report is chased and the check would
+  // prove nothing there; on the phone it is chased, and City stopped at 6-7° of its 58°.
+  test.skip(test.info().project.name !== 'mobile', 'the desktop frame holds the whole fixture road in City');
+  // The same effect, the other way it showed: pressing City starts a 0.9 s tilt, and a report
+  // landing during it would have left the map part-tilted. It must still do its job afterwards.
+  const live = {newEachTime: true};
+  await openAtStopA(page, live);
+  await fitSettled(page);
+  // The next publication puts the bus at the far end of its road, about a kilometre past your stop
+  // and well outside the frame on either screen (a 1.4 km jump fell inside the desktop frame).
+  live.jump = {atMs: 0, metres: 2400};
+  await page.getByRole('button', {name: 'City', exact: true}).click();
+  await page.waitForTimeout(60);
+  await landPublication(page);
+  await expect.poll(async () => { const c = await camera(page); return Math.round(c.pitch); },
+    {timeout: 10_000, message: 'City reaches its tilt'}).toBe(58);
+  await expect.poll(async () => map(page).evaluate(el => {
+    const c = el.querySelector('.vector-map-canvas').getBoundingClientRect();
+    const [x, y] = (el.getAttribute('data-bus-screen') || '').split(',').map(Number);
+    return x >= 0 && y >= 0 && x <= c.width && y <= c.height;
+  }), {timeout: 10_000, message: 'and then the frame goes to the new report'}).toBe(true);
+  expect(Math.round((await camera(page)).pitch), 'at the tilt City asked for').toBe(58);
+});
+
 test('front view: a report that corrects the estimate by 60 m is absorbed smoothly, never as a jump', async ({page}) => {
   test.setTimeout(150_000);
   await openAtStopA(page, underWay({wobble: 0, jump: {atMs: Date.now() + 30_000, metres: 60}}));
@@ -652,6 +753,20 @@ test.describe('reduced motion', () => {
     await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 1500});
     await page.waitForTimeout(400);
     await expectIdentifiable(page, 'reduced motion, returned');
+  });
+
+  test('leaving the front view hands back to the flat map at once, a publication landing or not', async ({page}) => {
+    test.setTimeout(60_000);
+    await openAtStopA(page, {standing: true, startS: NEAR_STOP, newEachTime: true});
+    await expect(map(page)).toHaveAttribute('data-motion-reason', /standing/, {timeout: 20_000});
+    await ride(page).click();
+    await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 3000});
+    await frontView(page);
+    await page.waitForTimeout(1000);
+    await page.getByRole('button', {name: 'Exit ride-along'}).click();
+    await landPublication(page);
+    // No glide under reduced motion: flat within a moment, not after an ease.
+    await expectHandedBack(page, 'reduced motion, front view', 2000);
   });
 
   test('the front view steps every few seconds instead of flowing', async ({page}) => {

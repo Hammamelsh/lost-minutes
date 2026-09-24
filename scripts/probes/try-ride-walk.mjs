@@ -60,8 +60,10 @@ const shot = (page, name) => page.screenshot({path: join(out, name + '.png')}).c
     n.rideCardLabel = (await page.locator('.ride-card [data-ride-recording-label]').textContent().catch(() => '')).trim();
     n.address = new URL(page.url()).search;
     const at = async () => ((await page.locator('.vector-map').getAttribute('data-display')) || ',').split(',').slice(0, 2).map(Number);
-    const first = await at(); await page.waitForTimeout(20_000); const later = await at();
-    n.movedMetresIn20s = Number.isFinite(first[0]) && Number.isFinite(later[0]) ? Math.round(metres(first, later)) : null;
+    // Sampled every 10 s for a minute: a recording can begin with the bus standing at its origin.
+    const first = await at(); const samples = [];
+    for (let i = 0; i < 6; i++) { await page.waitForTimeout(10_000); const now = await at(); samples.push(Number.isFinite(now[0]) ? Math.round(metres(first, now)) : null); }
+    n.movedMetresFromStartEvery10s = samples;
     n.rideMotion = (await page.locator('.ride-motion').textContent().catch(() => '')).trim();
     await shot(page, 'phone-recorded-ride');
     await page.getByRole('button', {name: 'Exit ride-along'}).click().catch(() => {});
@@ -99,6 +101,8 @@ const shot = (page, name) => page.screenshot({path: join(out, name + '.png')}).c
     await page.waitForTimeout(8000);
     await shot(page, 'desktop-live-ride');
     await page.getByRole('button', {name: 'Exit ride-along'}).click().catch(() => {});
+    // The fit that returns the map to flat is an ease: read the camera once it has settled.
+    await page.waitForTimeout(2000);
     n.liveRide.afterExit = await page.locator('.vector-map').getAttribute('data-ride');
     n.liveRide.pitchAfterExit = Number(((await page.locator('.vector-map').getAttribute('data-camera')) || '0,0,0,0').split(',')[3]);
   }

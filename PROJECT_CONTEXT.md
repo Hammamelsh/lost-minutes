@@ -36,7 +36,8 @@ phone, each reproduced before it was changed.
   movement · Front view*, *Reported positions · may pause · Front view*, *Reported positions · may
   pause* — and choosing one starts the ride at once, with no stop. **A recorded ride, dated**, when
   nothing live suits: the 163 journey above, cut from the reel by `scripts/make-recorded-ride.mjs`
-  (86 publications as published, hashes and matches intact, 141 KB / 18 KB compressed), replayed in
+  (46 publications as published, hashes and matches intact, 82 KB / 13 KB compressed, cut to the
+  moving 15 minutes of the journey and saying so), replayed in
   place of the feed by `lib/recorded-ride.ts`, badged RECORDED RIDE on the bar, the handle, the panel
   and the ride card, never written into the journey stores, shared as `?ride=<id>`, left by one
   action. `try-ride.spec` 10/10, `recorded-ride.spec` 6/6.

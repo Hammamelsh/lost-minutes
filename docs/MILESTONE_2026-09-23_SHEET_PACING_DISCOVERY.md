@@ -123,12 +123,17 @@ bus and starts the ride at once; no stop is chosen by it and the card says so. E
 button at the top left; on a phone it is the whole screen's one way out.
 
 **A recorded ride, dated.** When no live bus suits — at night, or with the feed down — the section
-leads with **Watch a recorded ride · 23 September 2026, 21:48 · 28 min**, and otherwise lists it
+leads with **Watch a recorded ride · 23 September 2026, 21:59 · 15 min**, and otherwise lists it
 after the live rides. `scripts/make-recorded-ride.mjs` cuts one vehicle on one journey out of a
 reel of rebuilt publications: every report exactly as it was published on the day, with its
 recorded time text, its source capture's SHA-256, its match and its trail, and the publication
-envelope stored once (86 publications, 141 KB, 18 KB compressed; the trail's source hashes are
-listed once and indexed). The page (`lib/recorded-ride.ts`, `app/page.tsx`) replays it in place of
+envelope stored once (46 publications, 82 KB, 13 KB compressed; the trail's source hashes are
+listed once and indexed). **It is cut, and says so.** The first walk on the deployed site found the
+recorded bus standing: the vehicle had waited at its origin for five minutes (20:48–20:53) and
+crawled through the city centre for six more, and a recording that begins there is honest and
+dull. `--from` / `--to` cut the ride by the reports' own recorded times to 20:59:47–21:14:46 UTC,
+the moving part (5.0 km), publications that only repeat the last report are dropped, and the
+file's `basis` and `cut` fields record the bounds, so nobody can take it for the whole journey. The page (`lib/recorded-ride.ts`, `app/page.tsx`) replays it in place of
 the feed: once a second the publication a phone would have been served that far in is put where
 the live one goes, with the publication, observation and retrieval times moved onto the page's
 clock so the ages read as they did, while the report's own time text, hash and match are left as

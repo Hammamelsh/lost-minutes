@@ -3,7 +3,14 @@
  * bus suits a ride-along.
  *
  *   node scripts/make-recorded-ride.mjs --reel data/evaluation/reel-163-3426.json \
- *     --operator BNGN --vehicle 3426 --journey 1147 --id 2026-09-23-bngn-3426-163
+ *     --operator BNGN --vehicle 3426 --journey 1147 --id 2026-09-23-bngn-3426-163 \
+ *     [--from 2026-09-23T20:59:47+00:00] [--to 2026-09-23T21:14:46+00:00]
+ *
+ * `--from` and `--to` bound the ride by the report's own recorded time, so a journey can be cut to
+ * the part worth watching: the 163's vehicle stood at its origin for five minutes and crawled
+ * through the city centre for six more before it got going. Publications after the last report
+ * changes are dropped, so a ride ends on its last new report rather than on repeats of it. The
+ * cut is recorded in the file, so nobody can mistake it for the whole journey.
  *
  * The reel is what `pipeline/replay_publications.py` rebuilds from the collector's own retained
  * position captures: the sequence of live.json payloads a phone was served over a past window,
@@ -22,6 +29,7 @@ const operator = arg('operator');
 const vehicle = arg('vehicle');
 const journey = arg('journey');
 const id = arg('id');
+const from = arg('from', null), to = arg('to', null);
 if (!reelPath || !operator || !vehicle || !journey || !id || !/^[0-9a-z][0-9a-z-]{2,79}$/.test(id)) {
   console.error('usage: --reel FILE --operator OP --vehicle V --journey REF --id kebab-id');
   process.exit(2);
@@ -31,12 +39,18 @@ const publications = [];
 for (const entry of reel.publications) {
   const v = entry.live.vehicles.find(x => x.operator === operator && x.vehicle === vehicle && x.journeyRef === journey);
   if (!v) continue;
+  if (from && Date.parse(v.recordedAt) < Date.parse(from)) continue;
+  if (to && Date.parse(v.recordedAt) > Date.parse(to)) continue;
   const {vehicles, publishedAt, publishedAtMs, trailSources, ...envelope} = entry.live;
   void vehicles;
   publications.push({receivedAtMs: entry.receivedAtMs, publishedAt, publishedAtMs,
     trailSources: trailSources ?? [], vehicle: v, envelope});
 }
 if (!publications.length) {console.error('that vehicle on that journey is in no publication of the reel'); process.exit(1)}
+// End on the last new report: publications that only repeat it add nothing to watch.
+let lastChange = 0;
+for (let i = 1; i < publications.length; i++) if (publications[i].vehicle.observedAtMs !== publications[i - 1].vehicle.observedAtMs) lastChange = i;
+publications.splice(lastChange + 1);
 // One envelope, the first publication's: the collector, the freshness policy and the counts as
 // they were at the start of the ride. The counts are about the whole feed on the day, not the ride.
 const envelope = publications[0].envelope;
@@ -66,7 +80,9 @@ const ride = {
   reports: publications.length,
   basis: 'Rebuilt from the collector’s retained position captures (pipeline/replay_publications.py): the '
     + 'publications a phone was served over this window, in order, each report with its original time, '
-    + 'its source file’s SHA-256 and its match. Replayed at the same spacing; nothing between reports is recorded.',
+    + 'its source file’s SHA-256 and its match. Replayed at the same spacing; nothing between reports is recorded.'
+    + (from || to ? ` Cut to the reports${from ? ` from ${from}` : ''}${to ? ` to ${to}` : ''}: part of the journey, not all of it.` : ''),
+  cut: from || to ? {from, to} : null,
   source: {reel: reelPath.replace(/^.*\//, ''), recordedFrom: reel.recordedFrom ?? null, rebuiltBy: reel.rebuiltBy ?? null},
   sources,
   envelope,

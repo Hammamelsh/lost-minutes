@@ -206,7 +206,11 @@ test.describe('an unsettled bus on road its candidates are measured to share', (
     await page.locator('.waiting .follow-row', {hasText: 'every possible branch'}).click();
     await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
     await expect(map(page)).toHaveAttribute('data-motion-reason', /only known to coincide further on/);
-    await expect(page.locator('.bus-card-motion')).toContainText('Last reported position');
+    // Not estimated, and the card says why. Since 23 September 2026 a bus at its reports is played
+    // back between them on a clock, so its label reads "Moving between its reports · drawn N s
+    // behind" while it has two to move between, and "Last reported position" only at rest.
+    await expect(page.locator('.bus-card-motion')).toContainText(/Moving between its reports · drawn \d+ s behind|Last reported position/);
+    await expect(page.locator('.bus-card-motion')).toContainText('Not estimated: its branch is not settled');
   });
 });
 

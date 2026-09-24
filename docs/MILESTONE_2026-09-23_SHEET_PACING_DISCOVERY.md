@@ -1,0 +1,269 @@
+# The sheet that would not stay up, the ride paced by its reports, and a way in to Ride-along
+
+Begun 23 September 2026, late evening, from the deployed build `b9cbe88`. Three problems came from
+the owner's own phone, with three screenshots: the phone panel was hard to raise and kept dropping
+back; Ride-along still felt unnaturally paced, most of all on services outside the three evaluated
+routes; and there was no clear way to find and enjoy Ride-along without knowing how the data works.
+
+Unless a line says otherwise, everything here was measured in Chromium with SwiftShader on this
+machine, at desktop (1280 px) and phone (390 px) sizes. **No physical phone was used.** Where a
+figure comes from a recording of real reports, the line says so.
+
+---
+
+## 1. The sheet: two clocks for one threshold
+
+**Reproduced first.** The sheet's expanded height was `100dvh − 200px` in the stylesheet and the
+drag's snap to it was `72% of window.innerHeight` in code. On a 390 × 844 phone with Safari's
+address bar and toolbar showing, the page is about 664 px tall: the cap came to **464 px (70%)**
+and the threshold to **478 px**, so an upward drag could never register as expanded, and every one
+snapped back to half. Chromium's emulation has no browser bars, so the same numbers were 644 and
+608, and every existing check passed. Reproduced deterministically at a 390 × 664 viewport with
+real touch events through CDP (`outputs/probes/repro/sheet-drag.mjs`): a drag to the top of the
+screen ended at **half** on `b9cbe88`.
+
+**Fixed by one source of truth.** `lib/use-sheet-viewport.ts` measures the *visual* viewport —
+the part a passenger can see with the bars and the keyboard taken into account — and writes the
+three rest heights (`--sheet-half`, `--sheet-full`, and the keyboard gap `--vv-gap`) onto the
+workspace element; the stylesheet draws from them and the drag snaps to them, so the targets are
+reachable by construction. The expanded height is everything beneath the search bar, measured
+(the bar's own bottom edge plus 8 px), and the sheet is `position: fixed` to the visual viewport,
+so it sits above the keyboard on iOS rather than under it. A flick (over 0.35 px/ms over the last
+120 ms) goes to the next state in its direction; a slow drag snaps to the nearest. A labelled
+control does what the drag does — **Open full list** / **Open details** / **Open planner**, and
+**Show map** — so nobody has to discover the gesture.
+
+Two faults found on the way, both by the checks written for the fix: the bar's height read as
+0 px at mount, so the expanded sheet rose under the search bar (a `ResizeObserver` on the bar
+now re-measures); and a later phone rule re-added the compact heading's padding, leaving 13 px of
+dead heading (it is screen-reader-only now).
+
+**Verified** (`tests/browser/sheet.spec.mjs`, phone profile, 8 of 8): a drag to the top at 390 × 664
+reaches `full`, taller than three quarters of the screen, with the search bar above it, and stays
+there; a flick up from half → full, a flick down from full → half, a slow short drag stays; the
+labelled control opens and closes it; scrolling the list to its end three times neither collapses
+the sheet nor moves the page; three further publications, a device position update and a
+**Fit journey** leave it where it was put (Fit journey folds it to the map on purpose, and the
+control brings the list back); the search folds it for the keyboard and gives it back when the
+search is left without a choice; showing the map and coming back keeps the chosen bus, the stop
+and the place in the list; the last row is reachable. `layout.spec.mjs`'s phone checks pass on the
+same build. **What this does not prove**: Safari's own behaviour with its bars, which is why the
+physical-device checklist has the exact sequence to try.
+
+## 2. Ride-along pacing: reports played back on a clock, not chased as they arrive
+
+**What was wrong, measured.** Outside the evaluated routes a bus travelled from the report it was
+drawn at to the report that had just arrived, taking the time the bus itself took — and then
+waited. That is honest, but a phone does not receive reports at the spacing they were made:
+a report is 10–20 s old when published, the page polls every 20 s, and two reports often land in
+one publication. The drawn bus then sprinted through the pair and stood until the next poll. On
+27 recorded journeys (2,107 real reports on routes 15, 250 and 256) replayed through both drawings
+on identical 60 fps frames with the arrival jitter a phone sees (each report reaching the page a
+seeded 8–38 s after it was made; `scripts/evaluate-playback.mjs`), the old drawing had the bus
+**moving in 57% of frames with 59.7 stalls over five seconds an hour**.
+
+**The change.** `PLAYBACK` in `lib/motion.ts`: a bus with two or more reports is drawn where its
+reports put it a fixed delay ago, and that display clock advances steadily. The delay is the
+median arrival lag the page has itself observed plus 8 s, bounded to **20–40 s**; the clock runs at
+0.8× when the buffer is thin and up to 1.2× when it is deep, and never runs backwards. Between two
+reports the bus travels the checked road where both measure onto it, else the chord. A pair the
+rules refuse (over 400 m, or a silence over 45 s with more than scatter between) is not travelled:
+the bus waits at the earlier report and is **repositioned**, and the card says so. A report filed
+late, in order, between two already being played moves the path under the bus: under the drawing's
+snap distance (150 m) that is eased at about 10 m/s and said as a correction; beyond it the ground
+between is not known and it is a repositioning, said with its reason. Two versions got this wrong
+and were caught: the first eased every fast pair (the clock's own advance is not a correction,
+however fast the reports say the bus went — a Node test), and the second eased an 877 m shift in
+two seconds and called it smooth (`ride-quality.spec.mjs`'s repositioning check, in the gate, and
+then reproduced frame by frame with a diagnostic).
+
+**Against the old drawing, same reports, same frames, same jitter:** moving in **73%** of frames
+(the rest is the bus genuinely standing, which no delay can move: 30, 40, 50 and 60 s delays all
+gave 73–74%), **18.6** stalls over five seconds an hour, drawn speed p95 14.7 m/s against 16.2,
+and **3 steps over a bus length against 33** — all three the refused gaps (404 m, 434 m and a
+4.9 km silence), each said on the card. The price, stated: the drawn bus is behind the newest
+report by a median **113 m** (p95 380 m) where the old drawing was 12 m behind, because it is
+drawing the bus as it was 20–40 s ago. The card now says exactly that: *Moving between its
+reports · drawn N s behind*, with the sentence that it is never ahead of a report.
+
+**On the reported bus, through the built page.** BNGN 3426's journey 1147 on the 163 towards Bury
+Interchange (20:48–21:15 UTC on 23 September, the ride in the owner's screenshot) was rebuilt from
+the server's retained captures (`pipeline/replay_publications.py`, 99 publications) and played
+through the page at real speed by `scripts/probes/movement-replay.mjs`, in the map view and in the
+ride-along, on `b9cbe88` and on this build:
+
+| | map before | map after | ride before | ride after |
+|---|---|---|---|---|
+| frames moving | 89% | **92%** | 88% | **92%** |
+| pauses over 5 s | 3 | **2** | 3 | **2** |
+| longest pause | 20.4 s | **17.1 s** | 20.4 s | **15.5 s** |
+| largest single-frame step | 2.89 m | **2.07 m** | 3.47 m | **1.97 m** |
+| snaps | 0 | 0 | 0 | 0 |
+
+The two pauses that remain are the bus standing: in each, a new report arrived (the report age fell
+from 10.7 s to 4.5 s, and from 16.9 to 14.1) at the same coordinates as the one before. That is
+what a bus at a stop looks like, and the drawing does not invent movement to hide it. The reel is
+in `data/evaluation/reel-163-3426.json` (not in Git); the traces and frames are under
+`outputs/probes/movement/163-*`.
+
+**Reduced motion** is unchanged: the ride's camera jumps instead of gliding and the front view
+steps every 3 s; the playback clock is the same either way, because it is what makes the position
+honest, not a decoration.
+
+## 3. A way in: Try Ride-along, and a recorded ride when nothing live suits
+
+**Try Ride-along** replaces the "Explore a bus with the front view" section on the home screen
+(`components/try-ride.tsx`, `lib/explore.ts`). It says in one line what the ride is — the map
+follows one bus, not a film — and lists up to three buses whose ride is certain *now*, in order
+of what the ride can be, with that said on each row: **Estimated movement · Front view** (a road
+the published evaluation scored the model on), **Reported positions · may pause · Front view** (a
+road accepted against that service's own reports), or **Reported positions · may pause** (a bus
+placed on its timetable pattern with a fresh report, outside view only). Choosing a row pins that
+bus and starts the ride at once; no stop is chosen by it and the card says so. Exit is the one
+button at the top left; on a phone it is the whole screen's one way out.
+
+**A recorded ride, dated.** When no live bus suits — at night, or with the feed down — the section
+leads with **Watch a recorded ride · 23 September 2026, 21:48 · 28 min**, and otherwise lists it
+after the live rides. `scripts/make-recorded-ride.mjs` cuts one vehicle on one journey out of a
+reel of rebuilt publications: every report exactly as it was published on the day, with its
+recorded time text, its source capture's SHA-256, its match and its trail, and the publication
+envelope stored once (86 publications, 141 KB, 18 KB compressed; the trail's source hashes are
+listed once and indexed). The page (`lib/recorded-ride.ts`, `app/page.tsx`) replays it in place of
+the feed: once a second the publication a phone would have been served that far in is put where
+the live one goes, with the publication, observation and retrieval times moved onto the page's
+clock so the ages read as they did, while the report's own time text, hash and match are left as
+evidence of when it really happened. The feed is not polled meanwhile, and a fetch already in
+flight is dropped, so nothing live is drawn under the recording's badge. It is badged
+**RECORDED RIDE** on the bar, *Recorded ride · 23 September 2026* on the sheet's handle, said at the
+top of the panel with **Back to live buses** (and **Play it again** once it ends), and
+*Recording · 23 September 2026* on the ride card, which on a phone is the only text on screen.
+Nothing from it is written into the journey stores or the address as a journey; the address is
+`?ride=<id>`, and the share button inside it copies that link, which reopens the recording and says
+it is one — never a vehicle that stopped reporting on the day. Leaving lets the recorded bus go.
+
+The one recording published is the 163 journey above, on its accepted road, so the front view is
+offered in it. The archive replay under Behind the data is a different thing (eleven snapshots a
+minute apart) and is not offered as a ride.
+
+**Sharing a live ride** without a stop: the card gains **Share** when no stop is chosen; the link
+names the bus and its journey, never the device's position, and the copied-link note says that
+once the journey has ended the link will say so (the existing "never seen since" handling).
+
+**Verified** (`tests/browser/try-ride.spec.mjs`, 10 of 10 desktop and phone; `recorded-ride.spec.mjs`,
+6 of 6): the three tiers in order with their words, the unsettled bus never offered, nothing
+qualifying said with the count, the section absent with no feed and no recording; choosing a row
+starts the ride on that bus with no stop, and Exit keeps the bus; with no feed the recording is
+offered and leads, starts straight into the ride, is badged on the bar, the panel and the ride
+card, the drawn bus moves more than 20 m within 25 s, the stores stay empty, the address names the
+recording, and one action brings the feed back with the recorded bus gone; a `?ride=` link opens
+the recording, its share copies that link, and the feed is not polled under it; a link to a
+recording that does not exist says so and the live rides are still offered.
+
+## 4. Visual friction on the phone
+
+- The masthead is 58 px on a phone (88 on desktop) and the compact heading is screen-reader-only;
+  the refresh control is in the sheet's handle beside the labelled control, not on its own row.
+- **Scheduled against live, unmistakable:** the feed's bar reads *LIVE · positions updated 5 s ago*,
+  the handle reads *Live positions · 5 s ago*, and the departure board's heading carries the same
+  badge shape as its rows — **Scheduled · not live** — because the owner read LIVE above a board
+  of scheduled rows as one claim.
+- **A bus with no current report** is a short status — *Last seen 21:17 · drawn where it last
+  reported, not moved on* — with **Stop following** and the rest behind **Details**; the card had
+  said "no current report" four times.
+- **One age on the card**: the chip; the summary line and the "Reported 14 s ago" hint no longer
+  repeat it.
+- **Targets**: the layout probe measured the handle's refresh and toggle at 40 px and two links at
+  21 px (the ride card's Details, the panel head's New journey); all are 44 px now, the links by hit
+  area rather than by moving anything. The *Drawing the map…* notice sat under the 2D / City / Fit
+  journey row on a slow network once the search bar moved over the map; it sits below the row now.
+- Still covered, by design: while the search's matches are open they lie over the map's view
+  buttons (3 controls, down from 8 on the deploy before), and a tap outside or Escape clears them.
+- Page zoom at 150% and 200% was verified in the previous milestone; the sheet's heights come
+  from the visual viewport, which page zoom changes, so nothing here is in pixels of the layout
+  viewport. **Desktop** (1280 × 900) and a **short desktop window** (1280 × 620, now one of the
+  layout probe's sizes) were recorded on this build: no overlaps and no sideways scroll on any of
+  the nine screens at either height; the small targets the probe lists there are the pointer-sized
+  ones it has always listed (the wordmark, the search field, the selects, "What is this?"). At
+  620 px the map keeps its minimum height, so the page scrolls by about 350 px; everything stays
+  reachable, and that minimum is deliberate. Landscape phones are in the same probe's sizes and
+  were not re-run for this build.
+
+## 5. A defect found by accident: a raw NUL byte in a source file
+
+`lib/journey-context.ts` carried a literal NUL and a literal 0x1F inside a regular expression's
+character class since 20 September (`[^|\x00-\x1f]` had been written with the bytes themselves).
+TypeScript accepted it and the regex worked, but `grep`, `file` and any diff tool treated the file
+as binary, which is how it was noticed: a search for a function it exports returned nothing. The
+bytes are escapes now. Entry 49 in the opportunities log.
+
+## 6. What was checked, and how
+
+- **Node**: 211 → 218 tests (`pnpm test`): the playback rules (the clock never runs backwards, a
+  late report is eased and said, a refused pair is a repositioning with its reason, the newest
+  report is never passed), the recorded ride (order, sources, the moment served, every clock moved
+  by the same amount and the evidence untouched), the three candidate tiers.
+- **Browser, focused while iterating**: sheet 8/8 and layout (phone) on the sheet build; try-ride
+  10/10 and recorded-ride 6/6 on the discovery build; ride 22/23 on the phone profile, the one
+  failure a check that named the old label (*latest N s ago*) and is restated to the new one
+  (*drawn N s behind*), as are two in `ride-offer.spec.mjs` — restatements of wording, with the
+  reason beside each, not weakened assertions.
+- **Browser, the full gate on the completed candidate.** Two full runs. The first, on the build
+  before the repositioning fix, was thrown away at check 126 of ~370 by my own mistake — a second
+  Playwright run started for a diagnostic cleaned `test-results/` under it, and every later check
+  failed on a missing trace file (now in the browser-suite notes as a rule: never a second run
+  while a gate runs, on any port). Before it was invalid it had found the one real defect of this
+  milestone, the 877 m shift eased as smooth (§2), and four wording or flow restatements. The
+  second, on the final build with nothing else running: **344 passed, 46 skipped by design, 4
+  failed, 51.9 minutes** (the tally includes a temporary exit diagnostic's 10 phone runs and 10
+  desktop skips, deleted before commit). The four failures were two checks on both profiles:
+  `selection.spec.mjs`'s missing-bus check, which looked for the alternative bus in the open where
+  the compacted card now keeps it behind Details (restated to open Details, like
+  `journey-context.spec.mjs`), and `ride.spec.mjs`'s "followed at its reports" check, whose camera
+  moved 9 m and 2 m in 12 s. That one was traced with a frame-by-frame diagnostic: the fixture's
+  bus stands at its start until the test's own `startMs` and moves from then, and a drawing 20 s
+  behind its reports honestly shows that standing for the first twenty seconds of the ride before
+  moving at full speed (movement picked up at +17 s in the trace, with the card reading *drawn
+  20 s behind* throughout). The check is restated with a minute of moving history, which is what
+  it means to check. Both restated files were then re-run on the same, unchanged build: **63 passed,
+  3 skipped by design, none failing** (11.9 minutes, desktop and phone). The build the gate ran on
+  and the build deployed are the same export.
+- **Frames**: `outputs/probes/passenger-layouts/polish` (390 px, ten screens) — the sheet with its
+  handle, the board's badge, Try Ride-along, the ride's bar and card; the 163 reel's frames under
+  `outputs/probes/movement/163-*`.
+
+## 7. Return to flat on leaving the front view (backlog 23)
+
+The defect as recorded: after about four seconds in the front view, leaving the ride left the map
+0.6–3° off flat, and once in four runs 24.9°, on `b9cbe88` and its parent. A temporary diagnostic
+(not a check, removed before commit) reproduced the recorded sequence on this build's phone
+profile — a standing bus, Ride along, Front view, 3.8 s, Exit — and sampled the camera's pitch
+every 100 ms for 2.5 s while recording every camera stop the map made:
+
+- **3 of 3 runs on the first build of this milestone: 70° → 0° within 300–400 ms of Exit, and 0°
+  for every later sample.** The camera stops were the same in all three: four at zoom 20.77 on the
+  bus, then the fit's two at 14.20.
+- **10 of 10 runs on the final build: 70° → 0° within 300–400 ms of Exit, 0° in every later
+  sample**, the same six camera stops each time. Thirteen consecutive returns to flat where the
+  entry recorded two residues in three runs.
+- `ride.spec.mjs`'s full-strength check, *leaving the ride returns the map to flat*, passed on the
+  phone profile in the same run.
+
+What changed that could bear on it is the drawing, not the camera: a standing bus outside the
+evaluated routes no longer asks for a frame every animation tick once its playback clock has
+reached its newest report (`needsFrames` in `lib/motion.ts`), so the front view's per-frame camera
+is not still being set in the frames after Exit. That is a plausible cause and is not proved:
+nothing here reproduced the residue on this build, and it was intermittent before. The entry is
+recorded as **not reproduced in 13 runs on this build, cause plausible but not established**; the
+check keeps its full strength, and the physical-device checklist keeps its item, because a real
+GPU's frame timing is the one variable emulation cannot vary.
+
+## 8. Limitations
+
+- Emulation only. The sheet's fix is reasoned from Safari's geometry and verified at Safari's
+  viewport size in Chromium; Safari itself, and iOS's keyboard, are on the physical checklist.
+- The playback's delay is a cost: the drawn bus is 20–40 s behind its newest report and the card
+  says so. A passenger who wants the newest report itself still has *Show reported positions only*.
+- One recorded ride, on one line. Adding another is one command from a reel; the index carries any
+  number. The archive replay is not a ride.
+- The 163 comparison is one journey, at one time of day, through a software renderer; the A/B on
+  27 journeys is where the pacing claim rests.

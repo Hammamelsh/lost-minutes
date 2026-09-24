@@ -478,6 +478,11 @@ export type Visual = {
                 /** How far each end lies off the road: the travel follows the road's shape but
                  *  still starts and ends exactly where the bus was drawn and where it reported. */
                 fromOff: [number, number]; toOff: [number, number]} | null} | null;
+ /** A bus drawn at its reports, played back a bounded time behind them (PLAYBACK): the moment
+  *  being shown, the delay it is shown at, and the arrival lags that delay is sized from. */
+ buffer: {shown: number; delay: number; lags: number[];
+          /** An ease in progress where a late-filed report moved the path under the bus. */
+          ease: {fromLat: number; fromLon: number; at: number; ms: number} | null} | null;
 };
 
 /**
@@ -519,6 +524,190 @@ export const GLIDE = {minMs: 600, maxMs: 45_000, minMetres: 1.5, maxMetres: 400}
 
 /** Under this, a move is scatter around a standing bus rather than a repositioning worth saying. */
 export const REPOSITION_METRES = 25;
+
+/**
+ * Playing a bus's reports back a bounded time behind them, so that it moves steadily.
+ *
+ * GLIDE travelled to each report as it arrived, over the time the bus itself had taken. That
+ * removed the teleport, and left the pacing at the mercy of *when reports arrive*: a report is
+ * 10–20 s old when the collector publishes it and the page polls every 20 s, so it reaches a phone
+ * anywhere from 10 to 40 s after it was made. A glide that ended before the next report arrived
+ * left the bus standing; a report that arrived mid-glide cut it short and restarted it a little
+ * fast. Measured on the reels of 23 September 2026 the bus was moving in about 63% of frames and
+ * standing in the rest, and that stop-start, on a service with no prediction, is what a passenger
+ * described as unnatural pacing.
+ *
+ * So a bus drawn at its reports is now drawn where its reports put it `delay` ago. The display
+ * clock runs a little under or over real-time rate behind the presentation clock (`slowestRate`
+ * with a thin buffer of reports ahead of the moment shown, up to `fastestRate` with a deep one,
+ * and never backwards); the position is read off the two
+ * reports that bracket the moment shown — down the checked road where both lie on it, along the
+ * chord otherwise — and as long as reports keep arriving before their moment comes round, the
+ * bus moves continuously at the speed its own reports imply. It is never drawn past the newest
+ * report, and never ahead of a report.
+ *
+ * The delay is the price, and it is bounded and said. It is sized from the lags actually seen
+ * (the median of how old reports were when they arrived, plus `marginMs`) between `minDelayMs`
+ * and `maxDelayMs`. When a report is late the clock waits at the newest report and then resumes,
+ * recovering the lost ground at no more than `fastestRate` — no sprint. Fallen further behind
+ * than a whole delay plus `resyncMs`, it
+ * repositions and says so rather than crawling for a minute. A gap the rules refuse (GLIDE's
+ * maxMetres and maxMs) is never interpolated across: the bus is repositioned at the later report
+ * when the moment shown crosses it, with the reason.
+ */
+export const PLAYBACK = {
+ /** Measured on 27 recorded journeys with arrival lags drawn from 8–38 s (scripts/evaluate-playback.mjs,
+  *  23 September 2026): with the rate control below, a 30 s delay had the bus moving in 73% of
+  *  frames against GLIDE's 57%, with stalls over five seconds down from 60 an hour to 20 — and 40,
+  *  50 and 60 s bought nothing more (74%, 18.5/h, 18.2/h, 17.8/h) while putting the drawn bus 150,
+  *  190 and 220 m behind its newest report at the median instead of 110 m. The rest of the standing
+  *  is the buses' own: reports that say they stood. So the delay is sized from the median lag seen
+  *  plus a margin, and bounded where the measurement says the trade stops paying. */
+ minDelayMs: 20_000, maxDelayMs: 40_000, marginMs: 8_000,
+ /** The display clock's rate is eased between these as the buffer runs short or long: a little
+  *  slower rather than a stop when the next report is late, a little faster rather than a sprint
+  *  when it has caught up. Neither is a speed a passenger would read as wrong. */
+ slowestRate: 0.8, fastestRate: 1.2,
+ resyncMs: 30_000,
+};
+
+const median = (xs: number[]) => {
+ if (!xs.length) return 0;
+ const s = [...xs].sort((a, b) => a - b);
+ return s[Math.floor(s.length / 2)];
+};
+
+/** The delay the playback runs at, from the arrival lags seen so far: bounded either way. */
+export function playbackDelay(lags: number[]): number {
+ return Math.max(PLAYBACK.minDelayMs, Math.min(PLAYBACK.maxDelayMs, median(lags) + PLAYBACK.marginMs));
+}
+
+/** The two reports bracketing a moment, and how far between them it falls. */
+function bracket(fixes: Fix[], at: number): {i: number; f: number} {
+ let i = 0;
+ while (i + 1 < fixes.length && fixes[i + 1].at <= at) i++;
+ if (i + 1 >= fixes.length) return {i, f: 0};
+ const span = fixes[i + 1].at - fixes[i].at;
+ return {i, f: span > 0 ? Math.max(0, Math.min(1, (at - fixes[i].at) / span)) : 1};
+}
+
+/** Whether two consecutive reports may be travelled between at all (GLIDE's rules). A long
+ *  silence that ends a few metres away is a bus that stood there, not a journey to invent: only
+ *  a silence that ends further off than scatter is refused. */
+function travelable(a: Fix, b: Fix): RepositionReason | null {
+ const gap = metres(a, b);
+ if (gap > GLIDE.maxMetres) return 'too_far';
+ if (b.at - a.at > GLIDE.maxMs && gap > REPOSITION_METRES) return 'too_long';
+ return null;
+}
+
+/** Where the bus is at a moment between two reports it may be travelled between. */
+function between(a: Fix, b: Fix, f: number, road: Track | null): {lat: number; lon: number} {
+ const e = f * f * (3 - 2 * f);
+ const gap = metres(a, b);
+ const r = gap >= GLIDE.minMetres ? roadBetween(road, a, b, gap) : null;
+ if (r && road) {
+  const point = pointAt(road, r.fromS + (r.toS - r.fromS) * e);
+  return {lat: point.lat + r.fromOff[0] + (r.toOff[0] - r.fromOff[0]) * e,
+   lon: point.lon + r.fromOff[1] + (r.toOff[1] - r.fromOff[1]) * e};
+ }
+ return {lat: a.lat + (b.lat - a.lat) * e, lon: a.lon + (b.lon - a.lon) * e};
+}
+
+/** Where the moment last shown falls on the reports as they are *now*, against where it was drawn:
+ *  more than scatter apart means a late report has moved the path under the bus. */
+function shiftedUnder(fixes: Fix[], shown: number, road: Track | null, drawn: {lat: number; lon: number}): number {
+ const {i, f} = bracket(fixes, shown);
+ const a = fixes[i], b = fixes[i + 1] ?? null;
+ const at = b && f > 0 && !travelable(a, b) ? between(a, b, f, road) : a;
+ return metres(at, drawn);
+}
+
+function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: number, road: Track | null,
+                  settled: Visual): Visual {
+ const latestAt = fixes[fixes.length - 1].at;
+ const prior = previous?.buffer ?? null;
+ // A report's age when it arrived: the lag the delay is sized from. Recorded when the newest
+ // report changes, which is the moment it arrived here.
+ let lags = prior?.lags ?? [];
+ if (!previous || previous.basisAt !== e.basis.at) lags = [...lags, Math.max(0, now - e.basis.at)].slice(-8);
+ const delay = playbackDelay(lags);
+ const target = now - delay;
+ let shown: number, last = previous?.lastCorrection ?? null, correction: Correction = 'none';
+ if (!prior) {
+  // Playback starts from where the bus is drawn, not from where the delay would put it: a bus
+  // that has waited at its first report until the second arrived sets off from that report, at
+  // its own speed, and the rate control takes the extra delay back over the next minute. Starting
+  // at the delay's moment instead moved it 80–120 m in one frame at the start of every journey.
+  const nearest = previous ? fixes.reduce((best, f) => metres(f, previous) < metres(best, previous) ? f : best, fixes[0]) : null;
+  shown = nearest && metres(nearest, previous!) < REPOSITION_METRES ? nearest.at
+   : Math.min(latestAt, Math.max(fixes[0].at, target));
+ } else {
+  const dt = Math.max(0, now - (previous?.frame ?? now));
+  const behind = target - prior.shown;
+  if (behind > delay + PLAYBACK.resyncMs) {
+   // Too far behind to crawl back: this is a repositioning, and is said as one below.
+   shown = Math.min(latestAt, target);
+   correction = 'snap';
+  } else {
+   // How much of the buffer is left to play: the time between the moment shown and the newest
+   // report. With a full delay in hand the clock runs at real time; as the reserve runs down it
+   // slows towards `slowestRate` so the bus keeps rolling while the next report is on its way;
+   // with more than a delay in hand it runs up to `fastestRate` to take the excess back.
+   const reserve = latestAt - prior.shown;
+   const share = Math.max(0, Math.min(2, reserve / delay));
+   const rate = share < 1 ? PLAYBACK.slowestRate + (1 - PLAYBACK.slowestRate) * share
+    : 1 + (PLAYBACK.fastestRate - 1) * (share - 1);
+   shown = Math.min(prior.shown + dt * rate, latestAt);
+   shown = Math.max(shown, Math.min(prior.shown, latestAt));       // never backwards
+   void behind;
+  }
+ }
+ const {i, f} = bracket(fixes, shown);
+ const a = fixes[i], b = fixes[i + 1] ?? null;
+ // The bearing is the one reported at the later of the two reports the bus is drawn between —
+ // reported, never taken from the travel, and null where that report carried none.
+ let at: {lat: number; lon: number};
+ const bearing = b ? b.bearing : a.bearing;
+ if (b && f > 0) {
+  // A pair the rules refuse is not travelled between: the bus waits at the earlier report until
+  // the moment shown passes the later one, and that step is a repositioning (below).
+  at = travelable(a, b) ? a : between(a, b, f, road);
+ } else at = a;
+ // The moment shown has passed a report since the last frame. If the pair it left could not be
+ // travelled between, the bus has just been moved across it, and that is said with the reason.
+ const left = prior !== null ? bracket(fixes, prior.shown).i : i;
+ const crossed = left < i && fixes[left + 1] ? travelable(fixes[left], fixes[left + 1]) : null;
+ const moved = previous ? metres(previous, at) : 0;
+ let ease = prior?.ease ?? null;
+ if (correction === 'snap' && moved >= REPOSITION_METRES) last = {kind: 'snap', metres: moved, at: now, why: 'too_long'};
+ else if (crossed && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: crossed}; }
+ else if (!prior && previous && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: 'too_long'}; }
+ else if (previous && prior && !(ease && now < ease.at + ease.ms) && shiftedUnder(fixes, prior.shown, road, previous) > 8) {
+  // The path moved under the bus between two frames: a report filed late, in time order, between
+  // two that were already being played, so the moment already shown is now somewhere else. That
+  // is a correction of where the bus *was*. Under the drawing's own snap distance it is eased over
+  // rather than jumped — timed from a speed, 100 ms a metre, about 10 m/s, as the estimate's own
+  // corrections are — and said as one. Beyond it the ground between is not known and the move is
+  // a repositioning, said with its reason: on 24 September 2026 an 877 m shift was eased in two
+  // seconds and called smooth. The clock's own movement, however fast the reports say the bus
+  // went, is not this either way.
+  if (moved > DRAWING.largeCorrection) {
+   correction = 'snap';
+   last = {kind: 'snap', metres: moved, at: now, why: 'too_far'};
+  } else {
+   correction = 'smooth';
+   last = {kind: 'smooth', metres: moved, at: now};
+   ease = {fromLat: previous.lat, fromLon: previous.lon, at: now, ms: Math.max(400, moved * 100)};
+  }
+ } else correction = ease && now < ease.at + ease.ms ? 'smooth' : 'none';
+ if (ease && now < ease.at + ease.ms) {
+  const f = (now - ease.at) / ease.ms, w = f * f * (3 - 2 * f);
+  at = {lat: ease.fromLat + (at.lat - ease.fromLat) * w, lon: ease.fromLon + (at.lon - ease.fromLon) * w};
+ } else ease = null;
+ return {...settled, lat: at.lat, lon: at.lon, bearing, heading: bearing, correction, lastCorrection: last,
+  glide: null, buffer: {shown, delay, lags, ease}};
+}
 
 /**
  * The stretch of checked road between two consecutive reports, or null.
@@ -575,7 +764,7 @@ function place(e: Estimate, now: number, trackId: string | null, correction: Cor
  return {mode: e.mode, s: e.s, lat: e.lat, lon: e.lon, bearing: e.bearing, heading: e.bearing, offset: 0,
   velocity: goal?.speed ?? 0, goal: goal?.s ?? null, goalSpeed: goal?.speed ?? 0, trackId,
   basisAt: e.basis.at, frame: now, correction, lastCorrection: last, provisional: e.provisional ?? false,
-  glide: null};
+  glide: null, buffer: null};
 }
 
 /** Where a gliding bus is drawn now: eased between the two reports, and never past the newer one.
@@ -654,14 +843,20 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   const kind: Correction = moved > 1 ? 'snap' : 'none';
   const settled = place(e, now, trackId, kind,
    kind === 'snap' ? {kind, metres: moved, at: now} : previous?.lastCorrection ?? null, track, draw);
+  if (!previous && e.mode === 'observed' && history?.fixes && history.fixes.length >= 2)
+   return playback(null, e, history.fixes, now, road, settled);
   if (!previous || e.mode !== 'observed' || previous.mode !== 'observed') return settled;
   // A glide already under way continues to the report it was aimed at, unless a newer one has
   // arrived, which restarts it from wherever the bus is now: never two targets at once.
   const running = previous.glide && now < previous.glide.at + previous.glide.ms ? previous.glide : null;
-  // Still the same report: carry on travelling to it, or stand at it once arrived. A finished
-  // glide is cleared rather than kept, so nothing downstream has to date it.
-  if (previous.basisAt === e.basis.at)
-   return running ? {...glideAt(settled, running, now, road), glide: running} : settled;
+  // An eased correction in flight (an estimate withdrawn) runs to its end before anything else.
+  if (running && previous.basisAt === e.basis.at) return {...glideAt(settled, running, now, road), glide: running};
+  // With the reports to play back, the bus is drawn a bounded time behind them (PLAYBACK), every
+  // frame, whether or not a new report has arrived; the rest of this branch is what happens
+  // without them.
+  if (history?.fixes && history.fixes.length >= 2) return playback(previous, e, history.fixes, now, road, settled);
+  // Still the same report: stand at it. A finished glide is cleared rather than kept.
+  if (previous.basisAt === e.basis.at) return settled;
   const gap = metres(previous, e);
   /**
    * Where the drawn bus cannot travel to the new report, it is *repositioned*, and that is said.
@@ -749,7 +944,7 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   : turnToward(previous.bearing, heading, 1 - Math.exp(-dt / draw.turnSettle));
  return {mode: 'estimated', s, lat: point.lat, lon: point.lon, bearing, heading, offset: s - e.s, velocity,
   goal: to.s, goalSpeed: to.speed, trackId, basisAt: e.basis.at, frame: now, correction, lastCorrection: last,
-  provisional: false, glide: null};
+  provisional: false, glide: null, buffer: null};
 }
 
 // ------------------------------------------------------------------ the presentation clock
@@ -781,6 +976,13 @@ export function needsFrames(e: Estimate | null, v: Visual | null, draw: Drawing 
  // A bus shown at its reports draws while it is travelling from the report it was drawn at to the
  // one that arrived; once it is there, nothing moves until the next report and the loop rests.
  if (v.glide && v.frame < v.glide.at + v.glide.ms) return true;
+ // Playing back: frames while the moment shown is short of the newest report and the bus is not
+ // already within scatter of it, and while an ease is running; then rest until the next report
+ // arrives (a re-render wakes the loop, and the clock takes up the rest from where it stopped).
+ if (v.buffer && e.mode === 'observed') {
+  if (v.buffer.ease && v.frame < v.buffer.ease.at + v.buffer.ease.ms) return true;
+  if (v.buffer.shown < e.basis.at && metres(v, e) >= GLIDE.minMetres) return true;
+ }
  if (e.mode !== 'estimated') return false;
  return (e.speed ?? 0) > 0 && !e.capped && !e.held || Math.abs(v.velocity) > 0.05 || Math.abs(v.goalSpeed) > 0.05
   || (v.goal !== null && v.s !== null && Math.abs(v.s - v.goal) > 0.5)

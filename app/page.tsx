@@ -31,6 +31,8 @@ import {FRESH_POSITION_OPTIONS,fromGeolocation,type Origin,type DeviceOrigin,typ
 import {nearestStops,parseCatalogue,type Catalogue,type Stop,straightLineMetres} from '@/lib/stops';
 import {parsePatterns,patternIndex,type PatternCatalogue} from '@/lib/patterns';
 import {clearJourney,initialJourney as readInitialJourney,type InitialJourney} from '@/lib/journey-context';
+import {parseRecordedRide,parseRideIndex,publicationAt,rideBusKey,rideLengthMs,rideLive,RIDES_INDEX_URL,
+ type RecordedRide,type RecordedRideSummary} from '@/lib/recorded-ride';
 
 /**
  * The passenger's page, and the views behind the data. A passenger needs one thing: their stop and
@@ -101,6 +103,29 @@ export default function Home(){
  // and a counter the view watches to drop its own choices when the address is applied over them.
  const appliedSearch=useRef('');
  const [journeyEpoch,setJourneyEpoch]=useState(0);
+ // A recorded ride replayed in place of the live feed (lib/recorded-ride.ts): badged everywhere,
+ // never remembered as a journey, and left by one action. `index` is the publication last served
+ // from it; `ended` once the last has been. While one runs the live feed is not polled, and a fetch
+ // already in flight is dropped, so nothing live is ever drawn under a recording's badge.
+ const [recordings,setRecordings]=useState<RecordedRideSummary[]>([]);
+ const [ride,setRide]=useState<{data:RecordedRide;startedAtMs:number;index:number;ended:boolean}|null>(null);
+ const [rideError,setRideError]=useState<string|null>(null);
+ const rideRef=useRef(false);
+ useEffect(()=>{rideRef.current=ride!==null},[ride]);
+ const startRecording=useCallback(async(summary:{id:string;file:string})=>{
+  try{
+   const response=await fetch(summary.file);
+   if(!response.ok)throw new Error(`recording unavailable (${response.status})`);
+   const data=parseRecordedRide(await response.json());
+   setUsingArchive(false);setStop(null);setRideError(null);setLiveFingerprint(null);
+   setRide({data,startedAtMs:Date.now(),index:-1,ended:false});
+   // The address names the recording, so the link that is shared reopens it — and never a vehicle
+   // that stopped reporting on the day it was made.
+   const next=`${window.location.pathname}?ride=${data.id}`;
+   window.history.replaceState(window.history.state,'',next);
+   appliedSearch.current=`?ride=${data.id}`;
+  }catch{setRideError('The recording could not be loaded just now.')}
+ },[]);
  const [locating,setLocating]=useState(false),[locationError,setLocationError]=useState('');
  // Where the passenger is starting from: the device's fix, with its own accuracy and timestamp, or a
  // point they chose themselves, which outranks the device until they explicitly go back to it.
@@ -144,13 +169,17 @@ export default function Home(){
   try{session=window.sessionStorage}catch{/* likewise */}
   const restored=readInitialJourney(window.location.search,storage,Date.now(),session);
   appliedSearch.current=window.location.search;
+  const rideId=new URLSearchParams(window.location.search).get('ride');
+  if(rideId&&/^[0-9a-z][0-9a-z-]{2,79}$/.test(rideId))startRecording({id:rideId,file:`/data/rides/${rideId}.json`});
   const found=restored&&restored.source!=='offer'&&restored.stopId?parsed.stops.find(s=>s.id===restored.stopId)??null:null;
   if(found)setStop(current=>current??found);
   setJourney(restored);
  }).catch(()=>{});
  fetch('/data/patterns.json',{signal:abort.signal}).then(r=>r.ok?r.json():null)
  .then(value=>{if(value)setPatterns(parsePatterns(value))}).catch(()=>{});
- fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[]);
+ fetch(RIDES_INDEX_URL,{signal:abort.signal}).then(r=>r.ok?r.json():null)
+ .then(value=>{if(value)setRecordings(parseRideIndex(value))}).catch(()=>{});
+ fetch('/data/operations.json',{signal:abort.signal}).then(r=>{if(!r.ok)throw Error('No pipeline record has been published yet.');return r.json()}).then(value=>setOps(parseOperations(value))).catch(e=>{if(e.name!=='AbortError')setOpsError('The pipeline record could not be read: '+e.message)});return()=>abort.abort()},[startRecording]);
  // Published state is polled; the page never contacts the data service itself.
  const lastLoad=useRef(0);
  const loadLive=useCallback(async(target:string)=>{
@@ -164,6 +193,7 @@ export default function Home(){
    const text=await response.text();
    const value=parseLive(JSON.parse(text));
    const reference=serverReference(headerDate,headerAge,value,Date.now());
+   if(rideRef.current)return;
    setLive(value);setFromCache(cached);setServerRef(reference.serverReferenceMs);
    setLastSeen(previous=>{
     const next=new Map(previous);
@@ -190,17 +220,45 @@ export default function Home(){
  // battery and the data allowance; coming back, or back online, asks at once instead of waiting
  // for the next poll, so the ages shown are never left over from before.
  useEffect(()=>{
-  const id=setInterval(()=>{if(!document.hidden)loadLive(config.liveUrl)},Math.max(10,config.pollSeconds)*1000);
+  const id=setInterval(()=>{if(!document.hidden&&!rideRef.current)loadLive(config.liveUrl)},Math.max(10,config.pollSeconds)*1000);
   const resume=()=>{
    if(document.hidden)return;
    setNowMs(Date.now());
-   if(Date.now()-lastLoad.current>3000)loadLive(config.liveUrl);
+   if(Date.now()-lastLoad.current>3000&&!rideRef.current)loadLive(config.liveUrl);
   };
   document.addEventListener('visibilitychange',resume);
   addEventListener('online',resume);addEventListener('pageshow',resume);
   return()=>{clearInterval(id);document.removeEventListener('visibilitychange',resume);
    removeEventListener('online',resume);removeEventListener('pageshow',resume)};
  },[config,loadLive]);
+
+ // The recording's clock: once a second, the publication a phone would have been served this far
+ // in is put where the live one goes, its times moved onto now so the ages read as they did.
+ useEffect(()=>{
+  if(!ride)return;
+  const tick=()=>{
+   const elapsed=Date.now()-ride.startedAtMs;
+   const index=publicationAt(ride.data,elapsed);
+   const ended=elapsed>=rideLengthMs(ride.data);
+   if(index!==ride.index&&index>=0){
+    const value=rideLive(ride.data,index,ride.startedAtMs);
+    setLive(value);setFromCache(false);setServerRef(value.publishedAtMs);setAgeBasis('server');
+    setLiveFetchedAt(Date.now());setNowMs(Date.now());
+   }
+   if(index!==ride.index||ended!==ride.ended)
+    setRide(r=>r&&r.startedAtMs===ride.startedAtMs?{...r,index,ended}:r);
+  };
+  tick();
+  const id=setInterval(tick,1000);
+  return()=>clearInterval(id);
+ },[ride]);
+ const leaveRecording=useCallback(()=>{
+  setRide(null);
+  window.history.replaceState(window.history.state,'',window.location.pathname);
+  appliedSearch.current='';
+  loadLive(config.liveUrl);
+ },[config.liveUrl,loadLive]);
+ const replayRecording=useCallback(()=>setRide(r=>r?{...r,startedAtMs:Date.now(),index:-1,ended:false}:r),[]);
 
  // Ages are recomputed from elapsed local time, so a wrong device clock cannot make a
  // position look fresher than the publisher said it was.
@@ -256,6 +314,8 @@ export default function Home(){
   const onPop=()=>{
    if(!catalogue||window.location.search===appliedSearch.current)return;
    appliedSearch.current=window.location.search;
+   const rideId=new URLSearchParams(window.location.search).get('ride');
+   if(rideId&&/^[0-9a-z][0-9a-z-]{2,79}$/.test(rideId)){startRecording({id:rideId,file:`/data/rides/${rideId}.json`});return}
    const next=readInitialJourney(window.location.search,null,Date.now(),null);
    setStop(next?.stopId?catalogue.stops.find(s=>s.id===next.stopId)??null:null);
    setJourney(next);
@@ -263,7 +323,7 @@ export default function Home(){
   };
   addEventListener('popstate',onPop);
   return()=>removeEventListener('popstate',onPop);
- },[catalogue]);
+ },[catalogue,startRecording]);
  // New journey: the stop, the filter, the bus and the address, and both journey stores, so that
  // nothing cleared can come back. Saved stops, saved routes and recent stops stay.
  const newJourney=useCallback(()=>{
@@ -453,7 +513,10 @@ export default function Home(){
     onOpenEvidence={()=>show('evidence')}
     onUseArchive={data?()=>setUsingArchive(true):undefined}
     nowMs={reference} liveFingerprint={usingArchive?null:liveFingerprint} recall={usingArchive?undefined:recall}
-    initialJourney={journey} journeyEpoch={journeyEpoch} onNewJourney={newJourney} onAddress={noteAddress}/>
+    initialJourney={journey} journeyEpoch={journeyEpoch} onNewJourney={newJourney} onAddress={noteAddress}
+    recording={ride?{id:ride.data.id,title:ride.data.title,date:ride.data.recordedOn,when:ride.data.fromLocal,
+     busKey:rideBusKey(ride.data),started:ride.index>=0,ended:ride.ended,onLeave:leaveRecording,onReplay:replayRecording}:null}
+    recordings={recordings} onWatchRecording={startRecording} recordingError={rideError}/>
    {usingArchive&&<button className="text-action follow-leave-archive"
     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
   </div>

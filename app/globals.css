@@ -692,7 +692,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .selection-detail>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:#f1dcb6;min-height:32px;
  display:flex;align-items:center}
 .selection-detail>p{margin:6px 0 0;font-size:12.5px;line-height:1.6;color:#e6d5b4}
-.ride-details{align-self:flex-start;margin-top:2px}
+.ride-details{align-self:flex-start;margin:-9px 0 -12px;padding:11px 0 12px}
+.panel-head .text-action{min-height:44px;display:inline-flex;align-items:center}
 .bus-card-hint{margin:10px 0 0;font-size:13px;line-height:1.55;color:#a9bcc7}
 .claims{margin:12px 0 0;display:grid;gap:1px;background:#2a3f4c;border-radius:11px;overflow:hidden;border:1px solid #2a3f4c}
 .claim{display:grid;grid-template-columns:104px minmax(0,1fr);gap:10px;padding:9px 11px;background:#15262f}
@@ -961,6 +962,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .departure-kind{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
  padding:4px 7px;border-radius:7px;border:1px solid #3d5260;background:#1b2c38;color:#cfe0ea;white-space:nowrap}
 .departure-kind[data-kind="live"]{border-color:#4c6b39;background:#233021;color:#c2e39a}
+.section-head .departure-kind{margin-left:auto;align-self:center}
 .departure-bus{grid-column:1/-1;justify-self:start;min-height:40px}
 .departures-note{margin:0;font-size:13px;line-height:1.55;color:#a9bcc7}
 .departures-basis{margin:0;display:grid;gap:6px;font-size:12px;line-height:1.55;color:#93a8b5}
@@ -1345,9 +1347,22 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .bus-chooser .bus-chooser-close{min-height:36px;justify-content:center;font-size:12.5px;color:#a7bac5}
 .vector-map.theme-day .bus-chooser{background:rgba(251,246,234,.97);color:#1e2b33;border-color:rgba(30,43,51,.18)}
 .vector-map.theme-day .bus-chooser p,.vector-map.theme-day .bus-chooser small,.vector-map.theme-day .bus-chooser-close{color:#4a5c66}
-/* Explore a bus with the front view: one section on the home screen, apart from any stop. */
-.explore-front .section-head svg{vertical-align:-2px;margin-right:3px}
-.explore-front .follow-hint{margin-top:6px}
+/* Try Ride-along: one section on the home screen, apart from any stop. A live bus whose ride is
+   certain now, with the kind of ride said on its face, and a dated recording for when none is. */
+.try-ride{background:#132330;border:1px solid #2d4250;border-radius:14px;padding:10px}
+.try-ride .section-head svg{vertical-align:-2px;margin-right:3px}
+.try-ride-lead{margin:0 4px 8px;font-size:13px;line-height:1.5;color:#b7c8d2}
+.try-ride .follow-hint{margin-top:6px}
+.try-ride-recorded{margin-top:6px}
+.try-ride .follow-row.recorded{border-style:dashed}
+.try-ride .follow-row.recorded strong svg{vertical-align:-2px;margin-right:2px}
+.fresh-chip.archive{background:#362d21;color:#f1c68a;border-color:#7e6541}
+/* A recording being replayed: said at the top of the panel, with the way back, and never mistaken
+   for live because the bar's badge, the handle and the ride card all say so. */
+.recording-note{display:grid;gap:8px;padding:10px 12px;border-radius:12px;border:1px solid #7e6541;background:#2a2419}
+.recording-note p{margin:0;font-size:13px;line-height:1.5;color:#f1dcbb}
+.recording-note strong{color:#f1c68a}
+.recording-note .selection-actions{gap:6px 14px}
 
 /* One search: a bus number, a stop, a street or an area. Grouped results; compact above a chosen stop. */
 .stop-search-group{padding:8px 12px 3px;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#8aa8b9}
@@ -1465,43 +1480,59 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .page-heading.compact{display:none}
 }
 
+/* The masthead's own height, for the phone workspace to start right under it. */
+:root{--masthead-h:88px}
+@media(max-width:800px){:root{--masthead-h:72px}}
+@media(max-width:540px){:root{--masthead-h:68px}}
+
 /* ---- Phones upright: the map is the screen, the search floats above it, the panel is a sheet. */
 @media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
- .follow{--ws-top:104px;display:block;position:relative;height:calc(100dvh - var(--ws-top));min-height:480px;overflow:hidden;padding-bottom:0;gap:0}
+ .follow{--ws-top:var(--masthead-h);display:block;position:relative;height:calc(100dvh - var(--ws-top));min-height:480px;overflow:hidden;padding-bottom:0;gap:0}
  .follow>.follow-top{position:absolute;top:8px;left:0;right:0;z-index:6;padding:0 8px;gap:6px}
  .follow>.follow-top .follow-bar{align-self:flex-start;background:#0b1720e6;backdrop-filter:blur(3px)}
  .follow>.vector-map,.follow>.follow-map,.follow>.map-fallback-wrap{position:absolute;inset:0;height:auto;min-height:0;border-radius:0;border:0;margin:0}
  .follow>.vector-map .map-views{top:104px}
  .follow>.vector-map .map-tools{top:104px}
- .follow>.panel{position:absolute;left:0;right:0;bottom:0;z-index:7;height:46dvh;max-height:calc(100dvh - var(--ws-top) - 96px);
+ /* Fixed, not absolute: a sheet belongs to the screen's bottom edge, not to the workspace box, so
+    it stays put when the page behind it scrolls, and `bottom: var(--vv-gap)` keeps it above a
+    keyboard that shrinks the visible screen without shrinking the page (iOS). The three heights
+    are written by lib/use-sheet-viewport.ts from what is actually visible; the fallbacks here are
+    for the moment before it runs. There is no max-height any more: the expanded height is the
+    reachable one by construction, which is the whole point. */
+ .follow>.panel{position:fixed;left:0;right:0;bottom:var(--vv-gap,0px);z-index:7;height:var(--sheet-half,46dvh);max-height:none;
   background:#0e1a24;border-top:1px solid #2d4250;border-radius:18px 18px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.35);
-  transition:height .28s cubic-bezier(.2,.8,.2,1);padding:0 12px 8px;overflow:hidden}
+  transition:height .28s cubic-bezier(.2,.8,.2,1);padding:0 12px 8px;overflow:hidden;
+  padding-bottom:max(8px,env(safe-area-inset-bottom))}
  .follow.sheet-peek>.panel{height:92px}
- .follow.sheet-full>.panel{height:calc(100dvh - var(--ws-top) - 96px)}
- .follow>.panel .sheet-handle{display:block;flex:0 0 auto;touch-action:none;margin:0 -12px;padding:6px 12px 4px}
- .sheet-toggle{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:4px 2px;border:0;background:none;color:#e6eff3;font:inherit;font-size:13.5px;font-weight:600;text-align:left;cursor:pointer}
- .sheet-grip{flex:0 0 36px;height:4px;border-radius:2px;background:#3d5364;margin:0 auto}
- .sheet-toggle .sheet-words{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- .sheet-toggle{flex-wrap:wrap}
- .sheet-handle{display:flex;align-items:center;gap:6px}
- .sheet-toggle{flex:1;min-width:0;width:auto}
- .sheet-refresh{display:grid;flex:0 0 auto;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;
+ .follow.sheet-full>.panel{height:var(--sheet-full,calc(100dvh - 200px))}
+ /* The handle is the drag surface, the grip its affordance, and the row under it is the sheet's
+    title and its two controls. The controls have fixed widths and the title takes what is left,
+    so nothing ever wraps onto a second row: until 23 September 2026 the refresh button did, and
+    sat alone under the title on every phone. */
+ .follow>.panel .sheet-handle{display:block;flex:0 0 auto;touch-action:none;margin:0 -12px;padding:14px 12px 6px;position:relative;cursor:grab}
+ .follow>.panel .sheet-handle::before{content:'';position:absolute;top:5px;left:50%;transform:translateX(-50%);
+  width:40px;height:4px;border-radius:2px;background:#3d5364}
+ .sheet-row{display:flex;align-items:center;gap:8px;min-height:44px}
+ .sheet-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+ .sheet-words{display:block;font-size:15px;font-weight:700;color:#e6eff3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ /* The buttons are on the drag surface: a touch that starts on one is still the sheet's, never
+    the browser's pan, which would cancel the pointer mid-drag. */
+ .sheet-refresh,.sheet-toggle{touch-action:none}
+ .sheet-refresh{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;border-radius:12px;
   border:1px solid #2d4250;background:#13222d;color:#c9d9e0}
  .sheet-refresh:disabled{opacity:.6}
- .sheet-toggle .sheet-grip{flex-basis:100%;height:0;margin:0;background:none}
- .follow>.panel .sheet-handle{position:relative}
- .follow>.panel .sheet-handle::before{content:'';position:absolute;top:3px;left:50%;transform:translateX(-50%);
-  width:40px;height:4px;border-radius:2px;background:#3d5364}
- .follow>.panel .sheet-handle{padding-top:12px}
+ .sheet-toggle{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;min-height:44px;padding:0 12px 0 9px;border-radius:12px;
+  border:1px solid #4c6b39;background:#1a2a17;color:#d7f0a8;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+ .sheet-toggle svg{flex:0 0 auto}
  .follow>.panel .panel-head{flex:0 0 auto}
- .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;contain:paint;padding-bottom:16px;scrollbar-width:thin}
+ .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;contain:paint;padding-bottom:16px;scrollbar-width:thin}
  .follow.sheet-peek>.panel .panel-body,.follow.sheet-peek>.panel .panel-head{visibility:hidden}
  .follow>.follow-notes{display:none}
- .follow>.vector-map .vector-map-foot{bottom:calc(46dvh + 10px);right:67px}
+ .follow>.vector-map .vector-map-foot{bottom:calc(var(--sheet-half,46dvh) + 10px);right:67px}
  .follow.sheet-peek>.vector-map .vector-map-foot{bottom:104px}
  .follow.sheet-full>.vector-map .vector-map-foot{display:none}
  .follow>.vector-map .map-credit-line{display:none}
- .follow>.vector-map .map-find-here{top:auto;bottom:calc(52dvh + 62px)}
+ .follow>.vector-map .map-find-here{top:auto;bottom:calc(var(--sheet-half,46dvh) + 62px)}
  .follow.sheet-peek>.vector-map .map-find-here{bottom:150px}
  /* Riding: the sheet folds to its handle so the ride's own card is the screen. */
  .follow.riding>.panel{display:none}
@@ -1527,13 +1558,11 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
  .follow>.follow-top .follow-bar{display:none}
  .follow>.vector-map .map-views{top:60px}
- .follow>.vector-map .map-notice{top:112px}
+ .follow>.vector-map .map-notice{top:186px}
  .follow>.vector-map .map-tools{top:60px}
  .sheet-status{display:inline-flex;align-items:center;flex:0 0 auto;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8aa8b9;white-space:nowrap}
  .sheet-status.live{color:#c6f36a}
  .sheet-status.warn,.sheet-status.bad{color:#ffce8f}
- .sheet-toggle .sheet-words{font-size:14px}
- .sheet-toggle{gap:8px}
 }
 
 .board-when{gap:6px}
@@ -1599,4 +1628,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .page-heading.compact{padding:6px 0 5px;gap:2px 10px}
  .page-heading.compact h1{font-size:17px}
  .page-heading.compact .intro{display:none}
+}
+
+/* On a phone the masthead already says what this is; the heading under it cost 36 px of a 664 px
+   screen and said it again. It stays for assistive technology, which is what an h1 is for. This
+   sits after every other rule for it, because two of them re-add padding. */
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+ .page-heading.compact{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;gap:0}
 }

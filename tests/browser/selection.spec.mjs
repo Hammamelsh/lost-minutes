@@ -154,6 +154,9 @@ test('Follow keeps the bus that was shown through reordering, absence, return an
   await expect(card(page)).toContainText('No current report');
   await expect(card(page).locator('.bus-card-title')).not.toContainText(BRAVO.shown);
   await expect(page.locator('.active-bus')).toContainText('No current report');
+  // Since 23 September 2026 the missing bus is a short status with Stop following, and the other
+  // bus is offered behind its Details rather than pressed on the passenger unasked.
+  await card(page).locator('.selection-detail > summary').click();
   await expect(page.getByRole('button', {name: /Follow 256 to Manchester Piccadilly instead/})).toBeVisible();
   expect(metres(await camera(page), BRAVO), 'the camera does not go to the other bus').toBeGreaterThan(100);
   // Back: followed again, with nothing to confirm.

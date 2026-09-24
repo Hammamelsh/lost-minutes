@@ -113,6 +113,24 @@ finger are all absent from Chromium.
       Manchester's. *unchecked*
 - [ ] With the sheet at half height, is the departure board the first thing under the handle, and
       can the next departure be read without opening the sheet fully? *unchecked*
+- [ ] **The sheet, in Safari with its bars showing and again with them hidden** (scroll the page
+      first): drag the handle to the top of the screen — does it stay expanded, and is the search
+      bar still above it? Flick it up from half; flick it down from full. Press **Open full list**
+      and **Show map**. Then scroll the list to its end, wait for three or four publications, tap the
+      search and dismiss the keyboard: the sheet must be where you left it each time. This was
+      reproduced and fixed in emulation at 390 × 664 only; the physical case is the report. *unchecked*
+- [ ] With the keyboard up on iOS, does the sheet sit above the keyboard (it is fixed to the visual
+      viewport) rather than under it? *unchecked*
+- [ ] **Try Ride-along** on the home screen: are the rows honest about the ride each bus gives, and
+      does choosing one start the ride at once on that bus, with Exit one tap away? *unchecked*
+- [ ] **Watch a recorded ride** (offered under Try Ride-along, and first when nothing live suits):
+      the bar, the handle, the panel and the ride card all say it is a recording from 23 September
+      2026; the bus moves between its reports; **Back to live buses** brings the feed back and the
+      recorded bus is gone. Share it: the copied link reopens the recording. *unchecked*
+- [ ] Ride a bus on a service with no checked road (most of them): the bus should move for most of
+      the time, about 20–40 s behind its newest report (the card says how far), and never sprint.
+      Measured in emulation at 92% of frames moving on a real 163; a real phone's frame rate is the
+      question. *unchecked*
 
 ## When something looks wrong
 

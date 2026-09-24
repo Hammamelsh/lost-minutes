@@ -151,6 +151,26 @@ something the front view's own per-frame camera leaves behind, not the fit. `rid
 "leaving the ride returns the map to flat" holds the assertion at full strength and names this
 entry; it is a red line that describes an open defect, not a flake. Not fixed.
 
+**24 September 2026:** on the build that plays a bus's reports back on a clock (`PLAYBACK`), the
+same sequence — a standing bus, Ride along, Front view for 3.8 s, Exit — returned to flat within
+300–400 ms in **13 of 13 runs** on the phone profile (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
+§7), and the full-strength check passed. A plausible cause is that a standing bus no longer asks
+for a frame every tick once its clock has reached its newest report, so the front view's per-frame
+camera is not still being set after Exit; that is not proved. Kept open as *not reproduced on this
+build*; the physical-device checklist keeps its item.
+
+## 24. More recorded rides, and one on an evaluated route
+One recording is published (the 163 of 23 September 2026, on an accepted road, so the front view is
+there but movement is reported positions). A ride on route 15, 250 or 256 would show estimated
+movement; cutting one is one command from a reel of that window's captures
+(`scripts/make-recorded-ride.mjs`). The index carries any number; the section lists them all, so
+more than three or four would need a chooser.
+
+## 25. The search's matches cover the map's view buttons while the keyboard is up
+By design the matches lie over the map so the keyboard does not push them off screen, and the
+layout probe reports the 2D, City and Fit journey buttons as covered while they are open (three
+controls, down from eight before the sheet). Escape or a tap outside clears them. Left as is.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

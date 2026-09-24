@@ -25,6 +25,8 @@ const SIZES = [
   {name: 'landscape-800', viewport: {width: 800, height: 360}, phone: true},
   {name: 'landscape-844', viewport: {width: 844, height: 390}, phone: true},
   {name: 'desktop', viewport: {width: 1280, height: 900}, phone: false},
+  // A short desktop window: a laptop with the browser's own bars, or a window shared with another.
+  {name: 'desktop-short', viewport: {width: 1280, height: 620}, phone: false},
 ].filter(size => !only || size.name === only);
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const report = {when: new Date().toISOString(), sizes: []};

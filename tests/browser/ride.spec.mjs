@@ -273,7 +273,11 @@ test('exit returns to the flat map; a repeated entry goes straight to the bus', 
 
 test('a bus with no predictions (as route 142 today) is followed at its reports and never hidden', async ({page}) => {
   test.setTimeout(90_000);
-  await openAtStopA(page, {wobble: 5}, {evaluation: null});
+  // The fixture's bus stands at its start until `startMs` and moves from then; since 23 September
+  // 2026 a bus at its reports is played back 20–40 s behind them, so with `startMs` at the test's
+  // own start the first twenty seconds of the ride would honestly show that standing. A minute of
+  // moving history puts the ride in motion from its first frame, which is what this checks.
+  await openAtStopA(page, {wobble: 5, startMs: Date.now() - 60_000}, {evaluation: null});
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
   await ride(page).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
@@ -282,8 +286,9 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   await expectIdentifiable(page, 'observed-only bus, following');
   // Its wording changed on 21 September 2026: a bus with no checked road is now drawn moving
   // between two of its own reports, so the card states the age of what is shown and says plainly
-  // that it is neither estimated nor followed continuously.
-  await expect(page.locator('.ride-motion')).toContainText(/moving between its reports|Last reported position/);
+  // that it is neither estimated nor followed continuously. Since 23 September it is played back
+  // on a clock and the label says how far behind its reports it is drawn ("drawn 22 s behind").
+  await expect(page.locator('.ride-motion')).toContainText(/Moving between its reports · drawn \d+ s behind|Last reported position/);
   await expect(page.locator('.ride-motion')).not.toContainText('Estimated position');
   const before = await camera(page);
   await page.waitForTimeout(12_000);           // a new report: the camera goes to it

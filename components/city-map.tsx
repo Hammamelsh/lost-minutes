@@ -455,9 +455,10 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   // `between` is this instant (a travel in flight); `travels` is the mode. The label follows the
   // instant and the explanation follows the mode (describeMotion), so a bus standing at a report
   // is never captioned as moving, and the flip between the two labels is explained once.
-  between:e.mode==='observed'&&v.glide!==null&&now<v.glide.at+v.glide.ms,
+  between:e.mode==='observed'&&((v.glide!==null&&now<v.glide.at+v.glide.ms)||(v.buffer!==null&&v.buffer.shown<e.basis.at)),
   travels:e.mode==='observed'&&travelling,
   onRoad:e.mode==='observed'&&travelling&&onRoad,
+  displayDelaySeconds:e.mode==='observed'&&v.buffer?Math.round((now-v.buffer.shown)/1000):null,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
@@ -1316,7 +1317,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const info=motionInfo(e,v,input.profile,input.params,now,
    Boolean(input.replay&&input.history&&input.history.fixes.length>1),
    Boolean(input.replay&&input.track&&e.mode==='observed'));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}`;
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${Math.floor((info.displayDelaySeconds??0)/5)}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that

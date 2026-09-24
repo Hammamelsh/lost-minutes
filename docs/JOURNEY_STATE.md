@@ -65,3 +65,14 @@ theme changes and absence leave it alone; the same vehicle on another journey is
 and neither followed nor estimated until the passenger continues (`lib/selection.ts`). The two
 changes here are at the edges: a *stop change* releases a pin that does not serve the new stop
 and says so, and a *link* restores a journey rather than a vehicle.
+
+## A recorded ride is not a journey (23 September 2026)
+
+`?ride=<id>` opens a published recording (`public/data/rides/`, `lib/recorded-ride.ts`): one
+vehicle's reports on one journey, replayed at their own spacing in place of the live feed and badged
+RECORDED RIDE. While one runs, nothing is written to either journey store or to the address as a
+journey — a recorded bus must never become "the device's last journey" or a link that names a
+vehicle that stopped reporting on the day. The address is `?ride=<id>` and the share inside it
+copies that. Leaving (Back to live buses) lets the recorded bus go, restores the address, and the
+live feed is fetched again; the layers above then apply as before. A link that names a recording
+that does not exist says so and the page is otherwise the ordinary home.

@@ -218,7 +218,7 @@ test('visual: withdrawing an estimate is a correction that is said; moving to a 
  // Travelled to, with the reports to travel by: not a correction.
  const w = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null, DRAWING, h2);
  assert.equal(w.lastCorrection, v.lastCorrection, 'a bus shown at its reports moving to the next is not a correction');
- assert.ok(w.glide, 'it travels to the new report');
+ assert.ok(w.buffer, 'it is played back towards the new report');
  // Without the reports it cannot travel, so it is repositioned — and that is said, not silent.
  // Until 22 September 2026 this case returned the bus at the new report with no correction at
  // all, and this check passed because it asked the question without the history.

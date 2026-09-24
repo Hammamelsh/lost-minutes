@@ -207,6 +207,8 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  travels?:boolean;
  /** Observed and travelling down a checked road between its reports, rather than along the chord. */
  onRoad?:boolean;
+ /** Observed and played back: how far behind its reports the bus is drawn, in seconds. */
+ displayDelaySeconds?:number|null;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
  correction:{kind:string;metres:number;at:number;justNow?:boolean;standing?:boolean;
   /** Set when the bus was repositioned rather than travelled: which continuity was missing. */
@@ -238,15 +240,19 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // report three minutes old as "between its reports", which it was not. The reason is the reason:
   // on route 263 the road is checked and what is withheld is the evaluation, and a fixed clause
   // about geometry was false there. Nothing here is a guess about where the bus is now.
+  const delayed=info.displayDelaySeconds!=null&&info.displayDelaySeconds>0
+   ?` It is drawn where its reports put it ${info.displayDelaySeconds} seconds ago, so that it moves steadily `
+    +'instead of stopping and starting as each report arrives; it is never ahead of a report.':'';
   const cycle=info.travels
-   ?' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
-    +'little behind, never ahead, and may pause.'
+   ?(delayed||' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
+    +'little behind, never ahead, and may pause.')
     +(info.onRoad
       ?' Between two reports it goes down the road checked against this service’s own reports, because both'
        +' of them were measured onto it.'
       :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
-  if(info.between)return {label:`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
+  if(info.between)return {label:info.displayDelaySeconds?`Moving between its reports · drawn ${info.displayDelaySeconds} s behind`
+    :`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
   return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
  }

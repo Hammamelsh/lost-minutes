@@ -17,9 +17,12 @@ type Match={kind:'route';hit:RouteHit}|{kind:'stop';stop:Stop};
  * numbers was the discovery problem in the first place.
  */
 export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,onLocate,locating,locationError,
-                                    placeholder='Bus number, stop or area',compact=false,onFocusField}:{
+                                    placeholder='Bus number, stop or area',compact=false,onFocusField,onLeaveField}:{
  stops:Stop[];patterns?:PatternCatalogue|null;onSelect:(stop:Stop)=>void;onSelectRoute?:(hit:RouteHit)=>void;
- onLocate?:()=>void;locating?:boolean;locationError?:string;placeholder?:string;compact?:boolean;onFocusField?:()=>void}){
+ onLocate?:()=>void;locating?:boolean;locationError?:string;placeholder?:string;compact?:boolean;onFocusField?:()=>void;
+ /** Focus has left the field. `chose` says whether a match was taken on the way out, so a caller
+  *  that folded something away for the keyboard knows whether the task has moved on or not. */
+ onLeaveField?:(chose:boolean)=>void}){
  const [query,setQuery]=useState('');
  const [open,setOpen]=useState(false);
  const [active,setActive]=useState(0);
@@ -35,7 +38,9 @@ export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,o
  const expanded=open&&query.trim().length>0;
  const routeCount=matches.filter(m=>m.kind==='route').length,stopCount=matches.length-routeCount;
 
+ const chose=useRef(false);
  function choose(index:number){
+  chose.current=true;
   const match=matches[index];
   if(!match)return;
   if(match.kind==='route')onSelectRoute?.(match.hit);else onSelect(match.stop);
@@ -76,7 +81,8 @@ export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,o
     aria-activedescendant={expanded&&matches[active]?`${listId}-${active}`:undefined}
     aria-describedby={statusId} placeholder={placeholder} aria-label={placeholder}
     onChange={event=>{setQuery(event.target.value);setOpen(true);setActive(0)}}
-    onKeyDown={keys} onFocus={()=>{setOpen(true);roomForMatches();onFocusField?.()}}/>
+    onKeyDown={keys} onFocus={()=>{chose.current=false;setOpen(true);roomForMatches();onFocusField?.()}}
+    onBlur={()=>{onLeaveField?.(chose.current);chose.current=false}}/>
    {query&&<button className="stop-search-clear" aria-label="Clear the search"
      onClick={()=>{setQuery('');setOpen(false);inputRef.current?.focus()}}><X size={16}/></button>}
    {onLocate&&<button className="stop-search-locate" onClick={onLocate} disabled={locating}

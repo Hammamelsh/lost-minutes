@@ -16,12 +16,14 @@ import StopProgress from '@/components/stop-progress';
 import BusEvidence from '@/components/bus-evidence';
 import WalkGuide from '@/components/walk-guide';
 import {DepartureBoard} from '@/components/departure-board';
-import ExploreFront from '@/components/explore-front';
+import TryRide from '@/components/try-ride';
+import type {RecordedRideSummary} from '@/lib/recorded-ride';
 import InstallHint from '@/components/install-hint';
 import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {association,busOnService,distanceLines,progress,schematic,servicesAtStop,standing,standingWords,
         stopBoard,type BoardRow} from '@/lib/journey';
 import {londonDate} from '@/lib/service-days';
+import {readSheetHeights,SHEET_PEEK,useSheetViewport} from '@/lib/use-sheet-viewport';
 import {bearingWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,stopPlace,straightLineMetres,
         subscribeSavedStops,toggleSavedStop,type Stop} from '@/lib/stops';
 import {destinationLabel,directionLabel,routeId,routeNumber,routesByRecency,type FollowBus} from '@/lib/follow';
@@ -44,6 +46,10 @@ import {adoptJourney,alternativesTo,keepSuggestion,pinFromKey,pinOf,resolveSelec
         type Pin,type PinSource,type Selection} from '@/lib/selection';
 import {activityWords,stopActivity} from '@/lib/stop-activity';
 import {prefersReducedMotion} from '@/lib/basemap';
+
+/** A recorded ride as the page replays it (app/page.tsx): what it is, whose bus, and the two ways out. */
+export type Recording={id:string;title:string;date:string;when:string;busKey:string;started:boolean;ended:boolean;
+ onLeave:()=>void;onReplay:()=>void};
 
 const MODE:Record<FeedMode,{label:string;tone:string}>={
  live:{label:'LIVE',tone:'live'},
@@ -77,7 +83,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
                                     onLocate,locating,locationError,patterns,patternsById,
                                     here,origin=null,device=null,originEpoch=0,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
                                     pickingOrigin=false,onStartPicking,onCancelPicking,onChooseOrigin,
-                                    clockOffsetMs=0,initialJourney,journeyEpoch=0,onNewJourney,onAddress}:{
+                                    clockOffsetMs=0,initialJourney,journeyEpoch=0,onNewJourney,onAddress,
+                                    recording=null,recordings=[],onWatchRecording,recordingError=null}:{
  /** True while the engineering area is open in front of this page. It stays mounted, so the map
   *  must be told to stop drawing rather than paint a canvas nobody can see. */
  paused?:boolean;
@@ -104,6 +111,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  onNewJourney?:()=>void;
  /** The address's query as this view wrote it, so the page knows what it has applied. */
  onAddress?:(search:string)=>void;
+ /** A recorded ride being replayed in place of the feed: badged, never remembered, left by one action. */
+ recording?:Recording|null;
+ /** The recordings on offer for Try Ride-along, and the way to start one. */
+ recordings?:RecordedRideSummary[];onWatchRecording?:(ride:RecordedRideSummary)=>void;recordingError?:string|null;
  walkingConfig?:WalkingConfig|null;clockOffsetMs?:number}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
@@ -176,7 +187,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [busOpen,setBusOpen]=useState(false);
  const [planOpen,setPlanOpen]=useState(false);
  const [sheet,setSheet]=useState<'peek'|'half'|'full'>('half');
- const sheetDrag=useRef<{y:number;h:number;moved:boolean}|null>(null);
+ // The drag keeps the last few pointer positions with their times, so its end can tell a flick
+ // from a slow drag that stopped: a flick goes the way it was thrown, a stop snaps to the nearest.
+ const sheetDrag=useRef<{y:number;h:number;moved:boolean;samples:{t:number;y:number}[]}|null>(null);
+ const followRef=useRef<HTMLElement>(null);
+ useSheetViewport(followRef);
+ // The sheet folds for the keyboard so the search's matches have the screen; what it was before is
+ // kept, and given back when the search is left without a choice. A choice moves the task on and
+ // sets the sheet itself.
+ const sheetBeforeSearch=useRef<'peek'|'half'|'full'|null>(null);
  const panelBody=useRef<HTMLDivElement>(null);
  const selectFromMap=useCallback((key:string)=>{
   setBusOpen(true);setSheet(sh=>sh==='peek'?'half':sh);
@@ -375,7 +394,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // gone missing or changed journey is kept as it was chosen, so a reload asks the same question.
  // Nothing is written until the page has read what was there, and never from a recording.
  useEffect(()=>{
-  if(initialJourney===undefined||mode==='archive')return;
+  if(initialJourney===undefined||mode==='archive'||recording)return;
   const bus=pin&&pin.journeyKnown?pin.bus:null;
   // A restored service the passenger has not changed is kept, even on a day it does not run.
   const service=serviceChoice!==undefined?serviceChoice
@@ -392,10 +411,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    window.history.replaceState(window.history.state,'',next);
    onAddress?.(query?`?${query}`:'');
   }
- },[initialJourney,mode,pin,serviceChoice,stop,onAddress]);
+ },[initialJourney,mode,pin,serviceChoice,stop,onAddress,recording]);
 
- // Before the first publication arrives nothing is known either way: not "not collecting".
- const copy=loading?{label:'CHECKING',tone:'idle'}:MODE[mode];
+ // Before the first publication arrives nothing is known either way: not "not collecting". A
+ // recording is its own state, whatever the replayed publication's age says.
+ const copy=recording?{label:recording.ended?'RECORDING ENDED':'RECORDED RIDE',tone:'archive'}
+  :loading?{label:'CHECKING',tone:'idle'}:MODE[mode];
  const policy=live?.freshness.policy;
  const expiryMinutes=policy?Math.round(policy.observationExpirySeconds/60):15;
  const collector=live?.collection.collector;
@@ -406,6 +427,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  function chooseBus(bus:FollowBus){pinBus(bus,'list');setFollow(false);setFitRequest(n=>n+1);setBusOpen(true);setSheet(s=>s==='peek'?'half':s);
   setTimeout(()=>{panelBody.current?.scrollTo({top:0,behavior:prefersReducedMotion()?'auto':'smooth'})},0)}
  function chooseService(key:string){setServiceChoice(serviceKey===key?null:key);setFitRequest(n=>n+1)}
+ // Try Ride-along: the bus is pinned as a ride would pin it and the ride begins, with no stop.
+ function startRide(bus:FollowBus){
+  pick({route:routeId(bus),direction:bus.direction});
+  pinBus(bus,'ride');setFollow(false);setBusOpen(true);setSheet(s=>s==='peek'?'half':s);setView('ride');
+ }
  function pick(next:{route:string;direction:string}){setChoice(next);setFitRequest(n=>n+1)}
  // Choosing a stop is deliberate: it is remembered as a recent, the filter is cleared, and the
  // chosen bus stays chosen only if it calls at the new stop, else it is let go and the reason said.
@@ -437,6 +463,22 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   }
  }
  function letGo(){setPinChoice(null);setFollow(false);setView('2d');setFitRequest(n=>n+1);setBusOpen(false)}
+ const rideStarted=useRef<string|null>(null);
+ const startRideRef=useRef(startRide),letGoRef=useRef(letGo);
+ startRideRef.current=startRide;letGoRef.current=letGo;
+ useEffect(()=>{
+  if(!recording){
+   // Back to live: the recording's bus is not a bus anyone chose from the feed, so it is let go
+   // rather than left as "no current report".
+   if(rideStarted.current){rideStarted.current=null;letGoRef.current()}
+   return;
+  }
+  if(rideStarted.current===recording.id)return;
+  const bus=buses.find(b=>b.key===recording.busKey);
+  if(!bus)return;
+  rideStarted.current=recording.id;
+  startRideRef.current(bus);
+ },[recording,buses]);
  // A route found by its number. At a stop it serves, that is a filter of the board; anywhere else
  // it opens the route itself, first direction first, so its stops and buses are seen without an
  // unrelated stop having to be chosen.
@@ -499,10 +541,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  }
  // A shared link names the stop, the service and the bus the passenger chose: never where they are.
  async function share(){
-  const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey:pin?pin.journeyKnown?busLinkKey(pin.bus):pin.bus.key:null});
+  const query=recording?`ride=${recording.id}`
+   :journeyQuery({stopId:stop?.id??null,serviceKey,busKey:pin?pin.journeyKnown?busLinkKey(pin.bus):pin.bus.key:null});
   const url=`${window.location.origin}${window.location.pathname}${query?`?${query}`:''}`;
+  const title=recording?`Lost Minutes · a recorded ride, ${recording.title}`:stop?`Lost Minutes · ${stopLabel}`
+   :pin?`Lost Minutes · ${pin.bus.route} to ${destinationLabel(pin.bus.destination)}`:'Lost Minutes';
   try{
-   if(navigator.share){await navigator.share({title:`Lost Minutes · ${stopLabel}`,url});setShareState('idle');return}
+   if(navigator.share){await navigator.share({title,url});setShareState('idle');return}
    await navigator.clipboard.writeText(url);setShareState('copied');
   }catch(error){setShareState(error instanceof DOMException&&error.name==='AbortError'?'idle':'failed')}
  }
@@ -617,11 +662,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
 
  // What happened to a pinned bus, in the card, the strip and the ride card alike.
  const absentWords=selection.kind!=='absent'?null
-  :mode==='unavailable'||mode==='offline'?'Live positions are not available, so this bus cannot be checked. Nothing else has been chosen in its place.'
+  :mode==='unavailable'||mode==='offline'?'Live positions are not available, so this bus cannot be checked.'
   :selection.last?`It is not in the latest publication. Its last report was at ${clock(selection.last.observedAtMs,true)} `
-   +`(${selection.last.ageWords.replace('reported ','')}); it is shown there, not moved on. Nothing else has been chosen in its place.`
-  :`It is not in the latest publication${selection.pin.bus.observedAtMs?`; the last report this device had from it was at ${clock(selection.pin.bus.observedAtMs,true)}`:''}. `
-   +'Nothing else has been chosen in its place.';
+   +`(${selection.last.ageWords.replace('reported ','')}).`
+  :`It is not in the latest publication${selection.pin.bus.observedAtMs?`; the last report this device had from it was at ${clock(selection.pin.bus.observedAtMs,true)}`:''}.`;
  // A journey change leads with the one sentence that matters and the two things the passenger can
  // do about it. Which vehicle, which references and what the drawing is doing are true but are not
  // the decision, so they sit behind Details. Until 22 September 2026 all of it was one paragraph
@@ -662,15 +706,16 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const quietWords=quiet===null?null
   :`This bus has not reported for ${elapsedWords(quiet)}. Live positions are arriving normally, so it `
    +'is this vehicle that has gone quiet — it is drawn where it last reported, not moved on.';
- const stripStatus=selection.kind==='absent'?'No current report'
+ const stripStatus=selection.kind==='absent'?''
   :selection.kind==='new_journey'?`Now on another journey · ${ageChip(selection.bus)}`
-  :shown?[progressText,activityAdds?activityLine?.text:null,ageChip(shown)].filter(Boolean).join(' · '):'';
+  :shown?[progressText,activityAdds?activityLine?.text:null].filter(Boolean).join(' · '):'';
  const inList=!pin||(stop?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key);
 
  const rideOverlay=shown?<div className="ride-card" data-vehicle={shown.vehicle}>
   <div className="ride-card-head">
    <span className="route-badge">{shown.route}</span>
-   <div>{!relevant&&<small className="ride-card-eyebrow">Selected bus · {(NOT_COMING[cardStanding??'unknown']||'not coming to your stop').toLowerCase()}</small>}
+   <div>{recording&&<small className="ride-card-eyebrow recording" data-ride-recording-label>Recording · {recording.date}</small>}
+    {!relevant&&!recording&&<small className="ride-card-eyebrow">Selected bus · {(NOT_COMING[cardStanding??'unknown']||'not coming to your stop').toLowerCase()}</small>}
     <strong>to {destinationLabel(shown.destination)}</strong>{!motionWords&&<small>{ageText(shown)}</small>}</div>
   </div>
   {absent&&<p className="ride-status-line warn">No current report · shown at its last report, not moved on</p>}
@@ -753,28 +798,57 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   :panelMode==='bus'&&identity?`${identity.route||'Bus'} to ${destinationLabel(identity.destination)}${stripStatus?` · ${stripStatus}`:''}`
   :stop?`${stopLabel}${identity?` · ${identity.route} to ${destinationLabel(identity.destination)}`:board?.coming.length?` · ${board.coming.length} coming`:''}`
   :'Find your stop';
- const sheetTo=(next:'peek'|'half'|'full')=>{setSheet(next);if(next!=='full')panelBody.current?.scrollTo({top:0})};
+ // The list's own scroll position is the passenger's place in it and survives the sheet moving:
+ // showing the map for a moment and coming back must not lose it. (A new task scrolls it itself.)
+ const sheetTo=(next:'peek'|'half'|'full')=>{
+  setSheet(next);
+  // The expanded sheet is measured from the search bar's place on screen, which is only where
+  // it should be when the page is at its top.
+  if(next==='full'&&window.scrollY>0)window.scrollTo({top:0,behavior:'auto'});
+ };
  const dragStart=(e:React.PointerEvent)=>{const el=e.currentTarget.closest('.panel') as HTMLElement|null;if(!el)return;
-  sheetDrag.current={y:e.clientY,h:el.getBoundingClientRect().height,moved:false}};
+  sheetDrag.current={y:e.clientY,h:el.getBoundingClientRect().height,moved:false,samples:[{t:e.timeStamp,y:e.clientY}]}};
  const dragMove=(e:React.PointerEvent)=>{const d=sheetDrag.current;if(!d)return;const el=e.currentTarget.closest('.panel') as HTMLElement|null;if(!el)return;
   if(!d.moved){if(Math.abs(e.clientY-d.y)<8)return;d.moved=true;el.style.transition='none';
    try{(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)}catch{}}
-  el.style.height=`${Math.max(72,d.h-(e.clientY-d.y))}px`};
+  d.samples.push({t:e.timeStamp,y:e.clientY});if(d.samples.length>6)d.samples.shift();
+  // The sheet follows the finger between the smallest and the largest height it can rest at:
+  // never taller than the expanded state, so what is dragged to is always a state that exists.
+  const {full}=readSheetHeights(followRef.current);
+  el.style.height=`${Math.min(full,Math.max(SHEET_PEEK,d.h-(e.clientY-d.y)))}px`};
  const dragEnd=(e:React.PointerEvent)=>{const d=sheetDrag.current;sheetDrag.current=null;const el=e.currentTarget.closest('.panel') as HTMLElement|null;if(!d||!el)return;
   if(!d.moved)return;
-  const h=el.getBoundingClientRect().height,vh=window.innerHeight;el.style.height='';el.style.transition='';
-  sheetTo(h<vh*0.3?'peek':h<vh*0.72?'half':'full')};
- return <section className={`follow panel-${panelMode} sheet-${sheet}${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}
+  const h=el.getBoundingClientRect().height;el.style.height='';el.style.transition='';
+  const t=readSheetHeights(followRef.current);
+  // Velocity over the last hundred milliseconds or so, in pixels a millisecond: up is negative.
+  const s=d.samples,last=s[s.length-1],first=s.find(x=>last.t-x.t<=120)??s[0];
+  const vy=last.t>first.t?(last.y-first.y)/(last.t-first.t):0;
+  const FLICK=0.35;
+  let next:'peek'|'half'|'full';
+  if(vy<-FLICK)next=h>t.half+20?'full':'half';                 // thrown upwards: the next state up
+  else if(vy>FLICK)next=h<t.half-20?'peek':'half';             // thrown downwards: the next state down
+  else next=(['peek','half','full'] as const).reduce((best,k)=>Math.abs(h-t[k])<Math.abs(h-t[best])?k:best,'half');
+  sheetTo(next)};
+ // What the labelled control does from here: open the panel out, or give the map back.
+ const openLabel=panelMode==='bus'?'Open details':panelMode==='plan'?'Open planner':'Open full list';
+ // The feed's state is about bus *positions*. Under a board of scheduled departures the word LIVE
+ // on its own read as if the departures were live, so the status says what it is about.
+ const feedWords=recording?`${recording.ended?'Recording ended':'Recorded ride'} · ${recording.date}`
+  :(copy.label==='LIVE'?'Live positions':copy.label==='CHECKING'?'Checking positions'
+  :copy.label==='ARCHIVE REPLAY'?'Recorded positions':`Positions ${copy.label.toLowerCase()}`)
+  +(publicationAgeSeconds!==null&&!loading?` · ${elapsedWords(publicationAgeSeconds)} ago`:'');
+ return <section ref={followRef} className={`follow panel-${panelMode} sheet-${sheet}${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}
    data-panel={panelMode} data-sheet={sheet}>
   {/* The way in, always in reach: the feed's state, one search, and the entry to planning. */}
   <div className="follow-top">
   <div className={`follow-bar ${copy.tone}`} role="status">
    <span className="follow-badge">{mode==='offline'?<WifiOff size={13}/>:<Radio size={13}/>}{copy.label}</span>
    <span className="follow-bar-when">
-    {mode==='archive'?archiveDate
+    {recording?`${recording.date}, ${recording.when} · not live`
+     :mode==='archive'?archiveDate
      :loading?'waiting for the first positions'
      :publicationAgeSeconds===null?'not published yet'
-     :`updated ${ageBasis==='device'?'about ':''}${elapsedWords(publicationAgeSeconds)} ago`}</span>
+     :`positions updated ${ageBasis==='device'?'about ':''}${elapsedWords(publicationAgeSeconds)} ago`}</span>
    {mode!=='archive'&&collector?.kind==='bounded_development'&&<span className="follow-bar-run"
      title="Collected by a time-limited run on one machine, not an always-on service">
     local run{collector.endsBy&&collector.status==='running'?` · until ${clock(Date.parse(collector.endsBy))}`:''}</span>}
@@ -783,7 +857,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </div>
   {stops.length>0&&mode!=='archive'&&<div className="follow-search">
    <StopSearch stops={stops} patterns={patterns} onSelect={selectStop} onSelectRoute={onSelectRoute} compact
-    placeholder="Bus number, stop or area" onFocusField={()=>sheetTo('peek')}/>
+    placeholder="Bus number, stop or area"
+    onFocusField={()=>{if(sheet!=='peek')sheetBeforeSearch.current=sheet;sheetTo('peek')}}
+    onLeaveField={chose=>{const before=sheetBeforeSearch.current;sheetBeforeSearch.current=null;
+     if(!chose&&before&&before!=='peek')sheetTo(before)}}/>
    <button className={`plan-entry${panelMode==='plan'?' on':''}`} aria-pressed={panelMode==='plan'} data-plan-entry
     aria-label={panelMode==='plan'?'Close the journey planner':'Plan a journey'}
     onClick={()=>{if(panelMode==='plan'){setPlanOpen(false)}else{setPlanOpen(true);sheetTo('full')}}}>
@@ -822,15 +899,20 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   <div className="panel" data-panel={panelMode}>
    {/* On a phone the panel is a sheet: a handle that drags, and a button that does the same. */}
    <div className="sheet-handle" onPointerDown={dragStart} onPointerMove={dragMove} onPointerUp={dragEnd} onPointerCancel={dragEnd}>
-    <button type="button" className="sheet-toggle" aria-expanded={sheet==='full'} data-sheet-toggle
-     aria-label={sheet==='full'?'Show less':'Show more'} onClick={()=>sheetTo(sheet==='full'?'half':sheet==='half'?'full':'half')}>
-     <span className="sheet-grip" aria-hidden="true"/>
-     <span className="sheet-words">{handleWords}</span>
-     <span className={`sheet-status ${copy.tone}`}>{copy.label}{publicationAgeSeconds!==null&&!loading?` · ${elapsedWords(publicationAgeSeconds)} ago`:''}</span>
-     {sheet==='full'?<ChevronDown size={18} aria-hidden="true"/>:<ChevronUp size={18} aria-hidden="true"/>}
-    </button>
-    {mode!=='archive'&&<button className="sheet-refresh" onClick={onRefresh} disabled={refreshing}
-     aria-label="Check for newer positions"><RefreshCw size={16} className={refreshing?'spin':''}/></button>}
+    <div className="sheet-row">
+     <div className="sheet-title">
+      <span className="sheet-words">{handleWords}</span>
+      <span className={`sheet-status ${copy.tone}`} data-feed-status>{feedWords}</span>
+     </div>
+     {mode!=='archive'&&<button className="sheet-refresh" onClick={onRefresh} disabled={refreshing}
+      aria-label="Check for newer positions"><RefreshCw size={16} className={refreshing?'spin':''}/></button>}
+     {/* One labelled control that does what the drag does: out to the full panel, or the map back. */}
+     <button type="button" className="sheet-toggle" aria-expanded={sheet==='full'} data-sheet-toggle
+      onClick={()=>sheetTo(sheet==='full'?'half':'full')}>
+      {sheet==='full'?<ChevronDown size={16} aria-hidden="true"/>:<ChevronUp size={16} aria-hidden="true"/>}
+      <span>{sheet==='full'?'Show map':openLabel}</span>
+     </button>
+    </div>
    </div>
    {(panelMode==='bus'||panelMode==='plan')&&<div className="panel-head">
     <button className="panel-back" onClick={()=>{if(panelMode==='plan')setPlanOpen(false);else setBusOpen(false)}} data-panel-back>
@@ -909,11 +991,21 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        browseAt={browseAt} onStopBrowsing={()=>{setBrowseAt(null);if(!here)onLocate?.()}}/>
      </div>)}
   {blocked&&<p className="follow-hint warn">This device would not let us save that. It still works for this visit.</p>}
-  {shareState==='copied'&&<p className="follow-hint">Link copied. It names this stop{pin?' and the bus you chose':''}, never
-   your location.</p>}
+  {shareState==='copied'&&<p className="follow-hint" data-share-copied>{recording
+   ?'Link copied. It opens this recording, and says it is one.'
+   :stop?`Link copied. It names this stop${pin?' and the bus you chose':''}, never your location.`
+   :'Link copied. It names this bus and its journey, never your location; once the journey has ended, the link says so.'}</p>}
   {shareState==='failed'&&<p className="follow-hint warn">This browser would not share or copy the link.</p>}
   {restoreNotes.length>0&&<div className="restore-notice" role="status">
    {restoreNotes.map(note=><p key={note}>{note}</p>)}
+  </div>}
+  {recording&&<div className="recording-note" role="status" data-recording={recording.ended?'ended':recording.started?'playing':'starting'}>
+   <p><strong>{recording.ended?'The recording has ended.':'A recording, not live.'}</strong>{' '}
+    {recording.title}, {recording.date} at {recording.when}, replayed at the pace it was published. The ages shown are the recording’s.</p>
+   <div className="selection-actions">
+    <button className="text-action strong" onClick={recording.onLeave} data-leave-recording>Back to live buses</button>
+    {recording.ended&&<button className="text-action" onClick={recording.onReplay} data-replay-recording>Play it again</button>}
+   </div>
   </div>}
 
 
@@ -1012,7 +1104,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        sticks. `active-bus` stays the name of that summary, wherever it lives. */}
    <div className={`active-bus bus-card-summary ${selectionKind??'none'}`} data-vehicle={identity.vehicle}
      role="status" aria-label="The bus shown on the map">
-    <p className="bus-card-eyebrow">{absent?'Your bus · no current report'
+    <p className="bus-card-eyebrow">{absent?'Your bus'
      :selection.kind==='new_journey'?'Your bus · another journey':busNoun}</p>
     <header className="bus-card-head">
      <span className="route-badge">{identity.route||'?'}</span>
@@ -1022,19 +1114,31 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       <small>{[directionLabel(identity.direction),identity.operator].filter(Boolean).join(' · ')}</small>
      </div>
      {shown&&!absent?<span className={`age-chip ${mode==='archive'?'archive':shown.freshness??'unknown'}`}>{ageChip(shown)}</span>
-      :<span className="age-chip stale">no current report</span>}
+      :<span className="age-chip stale">No current report</span>}
     </header>
     {(stripStatus||!inList)&&<p className="active-bus-copy"><small>{stripStatus}{!inList?' · not in the list below':''}</small></p>}
    </div>
    {selectionKind==='suggested'&&<p className="bus-card-suggestion">Shown because it is {stop?'coming to your stop':'the latest report on this route'}.
     It stays shown while it is; following it or riding along keeps it chosen.</p>}
+   {/* A bus with no current report is a short, actionable status: when it was last seen, the way
+       out, and the rest behind Details. The chip above already says "no current report", so this
+       does not say it again; until 23 September 2026 the card said it four times. */}
    {absentWords&&<div className="selection-note absent" role="status">
-    <p><strong>No current report.</strong> {absentWords}</p>
+    <p><strong>{mode==='unavailable'||mode==='offline'?'Live positions are not available'
+     :selection.kind==='absent'&&selection.last?`Last seen ${clock(selection.last.observedAtMs,true)}`
+     :selection.kind==='absent'&&selection.pin.bus.observedAtMs?`Last seen ${clock(selection.pin.bus.observedAtMs,true)}`
+     :'Not in the latest positions'}</strong>
+     {' '}· drawn where it last reported, not moved on. Nothing else has been chosen in its place.</p>
     <div className="selection-actions">
-     {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
-      Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
-     <button className="text-action" onClick={letGo}>Stop following this bus</button>
+     <button className="text-action strong" onClick={letGo}>Stop following</button>
     </div>
+    <details className="selection-detail"><summary>Details</summary>
+     <p>{absentWords}</p>
+     {alternatives.length>0&&<div className="selection-actions">
+      {alternatives.map(bus=><button key={bus.key} className="text-action" onClick={()=>chooseBus(bus)}>
+       Follow {bus.route} to {destinationLabel(bus.destination)} instead</button>)}
+     </div>}
+    </details>
    </div>}
    {journeyWords&&<div className="selection-note journey" role="status">
     <p><strong>This bus has started another journey.</strong> {journeyWords}</p>
@@ -1099,8 +1203,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
         {mode==='archive'?<span>from the recording, not live</span>
          :FRESHNESS[shown.freshness??'']&&<span>{FRESHNESS[shown.freshness??'']}</span>}</dd></div>
       </dl>
-    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position':`Reported ${ageChip(shown)}`}</strong>
-      Choose your stop to see whether this bus calls there and how far it has got.</p>)}
+    : <p className="bus-card-hint"><strong>{mode==='archive'?'A recorded position.':recording?'A bus in a recording.':'No stop chosen.'}</strong>
+      {' '}{recording?'It is ridden for what the ride is; it is not coming to any stop of yours.'
+      :'Choose your stop to see whether this bus calls there and how far it has got.'}</p>)}
    {shown&&!absent&&relevant&&<StopProgress items={items}/>}
    {shown&&!absent&&relevant&&<ul className="distance-lines">{distanceLines({here,stop,bus:shown,relation:cardRelation,
      walk:walkRoute?{metres:walkRoute.metres,seconds:walkRoute.seconds,provider:walkRoute.provider}:null}).map(line=>
@@ -1117,6 +1222,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
         aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
         <Crosshair size={16}/><span>{follow?'Following on the map':selectionKind==='suggested'?'Follow this bus':'Follow on the map'}</span></button>}
     {pinned&&!riding&&<button className="text-action" onClick={letGo}>Choose another bus</button>}
+    {!stop&&pinned&&<button className="text-action" onClick={share} aria-label={recording?'Share this recording':'Share this bus'} data-share-bus>
+     <Share2 size={14} aria-hidden="true"/> Share</button>}
    </div>}
    {absent&&riding&&<div className="bus-card-actions"><div className="ride-status" data-state={rideState}>
     <span className="ride-status-words">Riding along · waiting for a new report from this bus</span>
@@ -1156,10 +1263,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
     onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
     link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}/>}
-  {/* For someone with no stop in mind: a bus whose ride has the front view now, from the latest
-      publication's own eligibility. Choosing one is exploring, and the page says so. */}
-  {panelMode==='home'&&buses.length>0&&mode==='live'&&<ExploreFront buses={buses}
-    onChoose={bus=>{pick({route:routeId(bus),direction:bus.direction});chooseBus(bus);scrollTo('#lm-bus-card')}}/>}
+  {/* For someone with no stop in mind: Try Ride-along, from the latest publication's own
+      eligibility, and a dated recording when nothing live suits. Choosing starts the ride. */}
+  {panelMode==='home'&&!recording&&(mode==='live'||recordings.length>0)&&<TryRide buses={mode==='live'?buses:[]}
+    live={mode==='live'} recordings={recordings} onRide={startRide} onWatch={ride=>onWatchRecording?.(ride)} error={recordingError}/>}
   {panelMode==='home'&&(buses.length>0||choice)&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">{choice?`Route ${routeNumber(route)}`:'Or follow a route'}<small>{choice?'directions, stops and buses':'without choosing a stop'}</small>
     {choice&&<button className="text-action filter-clear" onClick={()=>{setChoice(null);setDirKey(null)}} data-clear-route>Clear route</button>}</h3>
@@ -1221,6 +1328,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
 
   {panelMode!=='plan'&&<p className="follow-notes panel-notes">{mode==='archive'
    ?'A recording: times are when each bus reported on the day, not how long ago. '
+   :recording?`A recorded ride from ${recording.date}, replayed at the pace it was published; nothing between its reports was recorded. `
    :`Positions older than ${expiryMinutes} minutes are withheld. `}
    Progress is counted in timetabled stops from each bus’s last report. Where the operator’s timetable names the journey, its scheduled time at your stop is shown as the timetable’s; no arrival time is predicted.
    {' '}<button className="text-action" onClick={onOpenEvidence}>How this works</button></p>}

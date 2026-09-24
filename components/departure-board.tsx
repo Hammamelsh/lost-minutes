@@ -75,7 +75,11 @@ export function DepartureBoard({stop,buses,nowMs,filterLine,onChooseBus}:{
   <ExternalLink size={13} aria-hidden="true"/> Live departures on Bee Network (official)</a>;
 
  return <section className="departures" aria-label="Next departures from this stop" data-departures={rows?rows.length:'loading'}>
-  <h3 className="section-head">Next departures<small>from the operators’ timetables</small></h3>
+  {/* The claim is on the heading as well as on every row: above this board the feed's badge says
+      LIVE, which is about positions, and a first-time visitor read the two together (23 September
+      2026). The badge here is the same shape as a row's, so the two kinds are one vocabulary. */}
+  <h3 className="section-head">Next departures<small>from the operators’ timetables</small>
+   <span className="departure-kind" data-kind="scheduled" data-board-kind>Scheduled · not live</span></h3>
   {rows===null&&<p className="departures-note">Reading the timetable for this stop…</p>}
   {rows!==null&&loaded===null&&<p className="departures-note" data-departures-missing>
    No timetable board is published for this stop here. The operator’s own live board has one.</p>}

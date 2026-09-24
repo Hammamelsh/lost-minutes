@@ -27,8 +27,10 @@ test('a bus with no accepted road geometry travels to each report instead of jum
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: start, speed: 9, cadence: 10})]);
   await page.goto('/');
   await waitForPaint(page);
-  await page.locator('.follow-row').first().click();
-  await page.getByRole('button', {name: /Ride along/i}).first().click();
+  // Try Ride-along's first row is this bus (fresh, placed on its pattern, no checked road) and
+  // choosing it starts the ride at once (23 September 2026).
+  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
 
   const points = [];
@@ -72,8 +74,10 @@ test('the front view says what it can do before it is pressed, and never becomes
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: Date.now()})]);
   await page.goto('/');
   await waitForPaint(page);
-  await page.locator('.follow-row').first().click();
-  await page.getByRole('button', {name: /Ride along/i}).first().click();
+  // Try Ride-along's first row is this bus (fresh, placed on its pattern, no checked road) and
+  // choosing it starts the ride at once (23 September 2026).
+  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
   const button = page.locator('.ride-camera');
   await expect(button).toBeVisible();
   await expect(button, 'it names the reason on its face, before it is pressed').toContainText(/not on this route|checking|not here yet/);

@@ -1603,3 +1603,70 @@ different state for "there is nothing to wait for". Cheap to check by grepping t
 **Next cheap step.** The three waiting labels in the app now each resolve; a check would be to grep
 for `checking|loading|waiting` in rendered strings at review time and ask the question of each.
 Status: done for this build, not automated.
+
+## 49. A threshold that lives in two languages has two values
+
+**Problem and evidence.** The phone sheet's expanded height was `100dvh - 200px` in
+`app/globals.css` and the drag's snap-to-expanded was `0.72 * window.innerHeight` in
+`components/follow-view.tsx`. On a phone whose browser bars take 180 px the first came to 464 px
+and the second to 478 px, so the drag could never reach the state the stylesheet drew — every
+upward drag snapped back to half, which is the owner's first report of 23 September 2026. In
+Chromium's emulation (no bars) the two numbers were 644 and 608 and every check passed. Neither
+value was wrong on its own; they were two answers to one question. Same class as entry 48 (two
+conditions written as one): here, one condition written twice.
+
+**Who hits it, workaround.** Anyone with a phone and Safari's bars; there was no workaround.
+
+**Recurrence and effort.** Once found; unknown how many other pairs exist. The fix took an evening
+because the emulation could not show it: it had to be reasoned from Safari's geometry and then
+reproduced at a 390 × 664 viewport.
+
+**Small fix, script, tool or product.** A house rule and a habit, not a tool: **a number the
+stylesheet and a script both need is written once, by the script, as a custom property the
+stylesheet reads** (`lib/use-sheet-viewport.ts` does this for the sheet's three heights). The
+cheap check is a grep for `innerHeight|innerWidth|dvh|vh)` across both file kinds and asking of
+each hit what the other side thinks the value is.
+
+**Next cheap step.** Grep once for the pattern; list the pairs. Status: done for the sheet; the
+grep not run across the rest.
+
+## 50. Raw control bytes in a source file, invisible to every editor and fatal to every grep
+
+**Problem and evidence.** `lib/journey-context.ts` carried a literal NUL and a literal 0x1F
+inside a regular expression's character class from 20 September 2026 (the escapes `\x00-\x1f`
+had been written as the bytes themselves). TypeScript, ESLint and Next accepted it, the regex
+worked, and nothing in CI noticed. `grep` treated the file as binary and returned nothing for a
+function it exports; `file` called it "data". It was found only because a search for that function
+came back empty and that seemed impossible.
+
+**Who hits it, workaround.** Anyone searching the code, including this assistant; the workaround
+is `grep -a`, if you know to use it.
+
+**Small fix, script, tool or product.** A one-line check in CI: `git grep -lP '[\x00-\x08\x0e-\x1f]'`
+over source files should be empty. Existing tools: `git diff --check` does not catch it;
+`.gitattributes` `text` does not either. A pre-commit hook is the natural place.
+
+**Next cheap step.** Add the grep to `.github/workflows/checks.yml`. Status: the byte is fixed;
+the check is not added.
+
+## 51. One command from retained captures to a before/after movement report
+
+**Problem and evidence.** Judging whether a drawing change made a ride better now takes four
+steps by hand: pull a window of the server's position captures (`scp`), rebuild the publications a
+phone was served (`pipeline/replay_publications.py`), replay them through the built page and
+record what it drew (`scripts/probes/movement-replay.mjs`, once per view, before and after), and
+compare the traces in a Python one-liner. Done twice this week (22 September for the route-15 snap,
+23 September for the 163's pacing), about forty minutes each, most of it waiting and re-typing
+paths. The recorded-ride cutter (`scripts/make-recorded-ride.mjs`) is a fifth step that reads the
+same reel.
+
+**Who hits it, workaround.** Whoever changes `lib/motion.ts` or the camera; the workaround is the
+four steps.
+
+**Small fix, script, tool or product.** A script: `scripts/movement-report.sh --from 20:44 --to
+21:17 --vehicle 3426 --before b9cbe88` that does the pull, the rebuild, both replays on both builds
+and prints the table in §2 of `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. No novelty
+claimed: it is glue over things that exist. A visual interface would not help; the table is the
+product.
+
+**Next cheap step.** Write the glue when the third such comparison is needed. Status: not started.

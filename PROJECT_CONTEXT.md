@@ -4,7 +4,59 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 23 September 2026 (the ride-along made legible, three silent teleports and a 269 km/h
+Last updated: 23 September 2026, late evening (the phone sheet that would not stay up, the ride
+paced by its reports rather than their arrival, Try Ride-along and a recorded ride).
+
+**23 September, late evening — the sheet, the pacing, and a way in to Ride-along.** Detail and
+evidence: `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. Three reports from the owner's own
+phone, each reproduced before it was changed.
+- **The sheet had two clocks for one threshold.** Its expanded height was `100dvh − 200px` in CSS
+  and the drag's snap to it `72% of innerHeight` in code; with Safari's bars on a 390 × 844 phone
+  those are **464 px and 478 px**, so no upward drag could ever register as expanded, and every one
+  fell back to half. Emulation has no bars (644 and 608) and every check passed. Reproduced at
+  390 × 664 with real touch events, then fixed with one source: `lib/use-sheet-viewport.ts` measures
+  the visual viewport and writes the three rest heights for both the stylesheet and the drag; the
+  sheet is fixed to the visual viewport (above the keyboard on iOS), a flick goes to the next state,
+  and a labelled control — **Open full list** / **Show map** — does what the drag does.
+  `tests/browser/sheet.spec.mjs`, 8 of 8 on the phone profile: the drag reaches full and stays,
+  through list scrolling, three publications, a location update, a fit, and the keyboard.
+- **The ride was paced by arrival, not by the bus.** A phone gets reports 10–40 s after they are
+  made and often two in one publication, so the drawn bus sprinted through the pair and stood until
+  the next poll: on 27 recorded journeys replayed with a phone's arrival jitter, **moving in 57% of
+  frames with 59.7 stalls over 5 s an hour**. `PLAYBACK` draws the bus where its reports put it a
+  bounded **20–40 s** ago on a steady clock (the median observed lag + 8 s; 0.8–1.2× by buffer
+  depth; never backwards): **73% moving, 18.6 stalls an hour, 3 steps over a bus length against 33**,
+  all three refused gaps and said; the cost, stated on the card, is a median **113 m** behind the
+  newest report. The 163 in the owner's screenshot (BNGN 3426, journey 1147, 20:48–21:15 UTC),
+  rebuilt from the server's captures and played through the page: ride-along **88% → 92%** of frames
+  moving, longest pause 20.4 → 15.5 s, largest step 3.47 → 1.97 m; the two pauses left are the bus
+  standing (a new report arrived at the same coordinates). Reduced motion unchanged.
+- **Try Ride-along** (`components/try-ride.tsx`) replaces the explore section: what the ride is in
+  one line, up to three buses whose ride is certain now in order of what it can be — *Estimated
+  movement · Front view*, *Reported positions · may pause · Front view*, *Reported positions · may
+  pause* — and choosing one starts the ride at once, with no stop. **A recorded ride, dated**, when
+  nothing live suits: the 163 journey above, cut from the reel by `scripts/make-recorded-ride.mjs`
+  (86 publications as published, hashes and matches intact, 141 KB / 18 KB compressed), replayed in
+  place of the feed by `lib/recorded-ride.ts`, badged RECORDED RIDE on the bar, the handle, the panel
+  and the ride card, never written into the journey stores, shared as `?ride=<id>`, left by one
+  action. `try-ride.spec` 10/10, `recorded-ride.spec` 6/6.
+- **Less friction on the phone:** the board's heading carries **Scheduled · not live** in the same
+  badge as its rows and the bar says *LIVE · positions updated*; a bus with no current report is
+  *Last seen 21:17*, **Stop following**, Details; one age on the card; the handle's controls and two
+  21 px links are 44 px; the map-drawing notice no longer sits under the view buttons.
+- **Found on the way:** a raw NUL byte in `lib/journey-context.ts` since 20 September (grep called
+  the file binary); fixed. Backlog 23 (return to flat on leaving the front view): see the record.
+- **The gate found one real defect in the new drawing** — an 877 m shift under the bus eased as a
+  "smooth" correction in two seconds — now a said repositioning past the drawing's 150 m snap
+  distance, and an ease at about 10 m/s under it, with a Node test; the A/B figures above are
+  unchanged by it. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
+  final build **344 passed, 46 skipped by design, 4 failed in 51.9 minutes** — the four being two
+  checks on both profiles that encoded arrival-timed drawing and the uncompacted card, restated
+  with the reason beside each and re-run on the same build (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
+  §6 has the account, including a first gate thrown away by a second run of my own). Emulation
+  only; the physical-device checklist has the sheet, the keyboard, Try Ride-along and the recording.
+
+Before that, 23 September 2026 (the ride-along made legible, three silent teleports and a 269 km/h
 correction traced and fixed, and the stop answering "when is the next bus?" from the timetable).
 
 **23 September — the ride, the jumps, and the departure board.** Detail and evidence:
@@ -734,6 +786,15 @@ node scripts/probes/camera-switch.mjs --base http://127.0.0.1:8098/ [--real]
                             # outside and street preview in turn: no restart, reset, jump or frozen camera
 node scripts/make-icons.mjs # the PNG icons (Apple 180 px, 192, 512, maskable 512) from the SVGs
 .venv/bin/python -m pipeline.assess_matching --at 2026-09-13T13:16:22Z   # matching on a frozen moment
+.venv/bin/python -m pipeline.replay_publications --captures DIR --db PATH --vehicle 3426 --out reel.json
+                            # the publications a phone was served over a past window, rebuilt from captures
+node scripts/probes/movement-replay.mjs --reel reel.json --vehicle 3426 --label name [--ride] [--phone]
+                            # that reel through the built page, tracing every frame it draws
+node scripts/make-recorded-ride.mjs --reel reel.json --operator BNGN --vehicle 3426 --journey 1147 --id <id>
+                            # one vehicle on one journey as a published recorded ride (public/data/rides/)
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-playback.mjs \
+  --reports data/evaluation/motion-reports-fresh.json --jitter 8000,38000 [--baseline b9cbe88]
+                            # the drawing between reports against the glide it replaced, same frames
 ```
 
 The warehouse is single-writer: a pattern build waits for a running collector to finish.

@@ -63,6 +63,9 @@ test('a shared link opens its stop and service; a bus it names that has gone is 
   await expect(page.locator('.waiting .follow-row')).not.toHaveCount(0);
   await expect(pressedRow(page)).toHaveCount(0);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-journey-gone.png`), fullPage: true});
+  // Since 23 September 2026 the missing bus is a short status — last seen, Stop following — and the
+  // alternatives sit behind its Details, so the passenger is not offered another bus unasked.
+  await card.locator('.selection-detail > summary').click();
   await page.getByRole('button', {name: 'Follow 256 to Piccadilly Gardens instead'}).click();
   await expect(pressedRow(page)).toContainText('3 stops before yours');
   await expect(page.locator('.selection-note')).toHaveCount(0);

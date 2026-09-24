@@ -171,6 +171,35 @@ By design the matches lie over the map so the keyboard does not push them off sc
 layout probe reports the 2D, City and Fit journey buttons as covered while they are open (three
 controls, down from eight before the sheet). Escape or a tap outside clears them. Left as is.
 
+## 26. Street-level imagery in the front view — a decision
+The owner asked for actual Manchester street visuals in the front view (24 September 2026).
+Researched: **Mapillary** (CC BY-SA 4.0, good coverage in cities; the Graph API needs a client or
+user token, and its documentation says a client token in a browser query string is "strongly
+discouraged", so the honest design is a small server route on the Caddy host holding the token
+and answering "the nearest image ahead of this point on this road" — the same pattern as the BODS
+key; search calls are limited to 10,000 a minute per app); **Panoramax** (open, keyless STAC API,
+CC BY-SA; the API returned five pictures for central Manchester and one for the wider area, so no
+coverage to build on); **Google Street View Static** (paid per image). The design would show one
+dated photo from the road ahead beside the front view, labelled with its date and contributor —
+not live, not the bus's view. **Needs the owner to create a free Mapillary developer app and put
+its token on the server**, like the BODS key; nothing is built until then.
+
+## 27. The road ahead, lit, in the ride-along
+With the drawn bus now on its checked road, the stretch of road ahead of it (the next few hundred
+metres of the accepted shape) can be drawn as a soft lime ribbon under the ride, with the next
+stop's name on it — a cue that this is *its* road, and part of the "wow" the owner asked for. Cheap:
+the trail source already carries a per-frame line for the estimate; this is the same for the
+observed playback's `buffer.roadS`. Not done in the pacing milestone so the pacing could be gated
+on its own.
+
+## 28. Buses that report every two or three minutes
+The fleet check (`scripts/evaluate-fleet-playback.mjs`) lists 23 of 334 vehicle-journeys in the
+evening reel drawn standing while their reports moved more than 150 m: almost all report 9–16
+times in twenty minutes, so every pair is a silence over 45 s and is refused (a repositioning, said)
+rather than travelled. Honest, but such a bus is a poor ride. Whether to travel a silence up to,
+say, 90 s along a *checked* road (the road between two on-road reports is known, only the timing
+is not) is a question for the drawing's rules, with the fleet check as the judge.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

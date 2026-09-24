@@ -191,6 +191,10 @@ test('a tap as the camera goes to the bus finishes the glide quickly, not strand
   await ride(page).click();
   await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
   await page.waitForTimeout(150);
+  // A tap anywhere ends the glide. In one run of the gate (24 September 2026) this point fell on a
+  // boarding-point sign — the bus is drawn on its road now, 30–60 s behind its reports, so what
+  // lies under a fixed point differs run to run — and a tapped sign chose that stop and ended the
+  // ride. In the ride a sign now does nothing (the ride is about the bus), so the tap is a tap.
   const box = await page.locator('.vector-map-canvas').boundingBox();
   await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.55);
   await expect(map(page)).toHaveAttribute('data-ride', /returning|following/);

@@ -311,7 +311,7 @@ allowance. Against the 14 September corridor figures (p80 143.5 m, snaps 10.3%) 
 would pass; the same-day comparator is the fair one and is the one used. Route 263 keeps the
 front view and travels between its reports; no arrival estimate is touched.
 
-## Drawing between reports: playback on a clock (23 September 2026)
+## Drawing between reports: playback on a clock (23–24 September 2026)
 
 Not part of the model, and not an estimate: how a bus *outside* the evaluated patterns is drawn
 between its own reports. Until 23 September the drawn bus travelled from the report it was drawn
@@ -319,19 +319,41 @@ at to the report that had just arrived, taking the time the bus itself took, the
 Honest, but paced by *arrival*: a phone receives reports 10–40 s after they are made and often two
 in one publication, so the bus sprinted through the pair and stood until the next poll.
 
-`PLAYBACK` in `lib/motion.ts` draws the bus where its reports put it a fixed delay ago, on a display
-clock that advances steadily. The delay is the median arrival lag the page has itself observed plus
-8 s, bounded to 20–40 s; the clock runs at 0.8× when the buffer is thin and up to 1.2× when it is
-deep, never backwards. Between two reports the bus travels the checked road where both measure onto
-it, else the chord. A refused pair (over 400 m, or a silence over 45 s with more than scatter
-between) is not travelled: the bus waits at the earlier report and is repositioned, said as such.
-A report filed late between two already being played moves the path under the bus: under 150 m
-that is eased at about 10 m/s and said as a correction; beyond it, a repositioning with its reason. The card reads *Moving between its reports · drawn N s behind*.
+`PLAYBACK` in `lib/motion.ts` (24 September, the second version, after the first was watched on a
+real 142 and a real 219):
 
-Measured by `scripts/evaluate-playback.mjs` on 27 recorded journeys (2,107 reports) at 60 fps with
-8–38 s of seeded arrival jitter, against the glide read from the commit it shipped in
-(`--baseline b9cbe88`): moving in 73% of frames against 57%, 18.6 stalls over five seconds an hour
-against 59.7, three single-frame steps over a bus length against 33 (all three refused gaps, each
-said), at the cost of being a median 113 m behind the newest report against 12 m. Delays of 30, 40,
-50 and 60 s all gave 73–74% moving: what remains is the bus standing. Nothing here changes the
+- **A path through the reports.** Each report is projected onto the checked road where it lies on
+  it (within `offTrack`, 40 m); consecutive reports are joined by the road between them where both
+  are on it, in order and not the long way round, and by the chord otherwise; a pair GLIDE refuses
+  (over 400 m, or a silence over 45 s that ends more than scatter away) is not joined at all. On the
+  road, the bus is drawn *on* the road with the road's heading — the first version carried each
+  report's own offset across the stretch and drew a bus 15–35 m beside Rochdale Road.
+- **Distance against time**: on each stretch a cubic that leaves the earlier report at the pace the
+  stretch before implied and arrives at the pace this stretch implies, held monotone; each stretch
+  depends only on reports at or before its end, so a later report never reshapes a stretch being
+  played (Fritsch–Carlson tangents looked ahead and bent the current stretch by 10–24 m at every
+  publication).
+- **A smoothed place.** The reports' own timing is jerky — a real 219 reported 207 m in 24 s, 16 m
+  in 17 s, 345 m in 28 s, 67 m in 16 s along open road — and a drawing that reaches every report at
+  its exact moment must surge like that. The place shown is the path's average over the previous
+  24 s (`PACE.smoothMs`): a causal box filter, monotone, never ahead of any report, never reshaped
+  by a later one, at the cost of about 12 s of added lag, said on the card. The clock may run one
+  window past the newest report on the reading that the bus then stood; when the next report says
+  it moved on, the place moves ahead and the drawn bus catches it up at its own pace.
+- **A bus's pace.** The drawn bus follows that place with acceleration held to 1.0 m/s² and braking
+  to 1.5 m/s² (`PACE`; the fleet's own 20 s segments imply accelerations under 0.82 m/s², p99 0.53;
+  real buses measured peak at 1.4 accelerating and 1.8 braking), never faster than 22 m/s, at most
+  12% over the reports' own speed while catching up, braking to a stand at the newest report when
+  nothing newer is known. It is never drawn ahead of the newest report.
+- **The clock** runs `delay` behind the presentation clock: the median arrival lag seen plus a
+  report interval (20 s), bounded 30–60 s (a delay of lag + 8 s ran dry at every late report on the
+  219), at real time, or 5% over while behind — the old 0.8–1.2× band was the "too fast, not really
+  fast" the owner saw. A refused pair is crossed as a repositioning, said with its reason, read from
+  the stretch the drawn bus is on (reading the clock's stretch missed two of three in the A/B).
+
+**Measured**, `scripts/evaluate-playback.mjs` (27 recorded journeys, 2,107 reports, 60 fps, 8–38 s
+of arrival jitter, against the glide read from `b9cbe88`) and `scripts/evaluate-fleet-playback.mjs`
+(every vehicle in the 63-publication evening reel of 22 September, 334 vehicle-journeys, 118 with a
+checked road, each replayed with its own road and judged bus by bus): see
+`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §2b for the numbers. Nothing here changes the
 estimator, its parameters, its release gate or its scores above.

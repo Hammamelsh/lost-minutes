@@ -241,8 +241,9 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // on route 263 the road is checked and what is withheld is the evaluation, and a fixed clause
   // about geometry was false there. Nothing here is a guess about where the bus is now.
   const delayed=info.displayDelaySeconds!=null&&info.displayDelaySeconds>0
-   ?` It is drawn where its reports put it ${info.displayDelaySeconds} seconds ago, so that it moves steadily `
-    +'instead of stopping and starting as each report arrives; it is never ahead of a report.':'';
+   ?` It is drawn where its reports put it about ${info.displayDelaySeconds} seconds ago, at a bus’s own pace — `
+    +'its speed smoothed over the previous half-minute, pulling away and slowing as a bus does — so that it moves '
+    +'steadily instead of stopping and starting as each report arrives; it is never ahead of a report.':'';
   const cycle=info.travels
    ?(delayed||' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
     +'little behind, never ahead, and may pause.')

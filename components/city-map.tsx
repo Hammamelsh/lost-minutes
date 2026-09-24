@@ -684,7 +684,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      if(ranked.length){onSelect(ranked[0][0]);return}
      // No bus under the finger: a stop, if one is drawn there. Two stops within reach and neither
      // clearly nearer (the two sides of a road at a wide zoom) are asked about, never guessed.
-     if(!instance.getLayer('lm-stops-dot')||!selectStopRef.current)return;
+     // Not in the ride-along: the ride is about the bus, and a tap on a sign there — a stray one,
+     // or one meant to end the camera's glide — chose the stop and, since the bus does not call
+     // there, ended the ride (seen in the gate, 24 September 2026). Signs wait for the ride's end.
+     if(!instance.getLayer('lm-stops-dot')||!selectStopRef.current||viewRef.current==='ride')return;
      const stopHits=new Map<string,number>();
      for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers:['lm-stops-dot']})){
       const id=feature.properties?.id;

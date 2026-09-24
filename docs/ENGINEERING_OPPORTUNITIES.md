@@ -1669,4 +1669,28 @@ and prints the table in §2 of `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY
 claimed: it is glue over things that exist. A visual interface would not help; the table is the
 product.
 
-**Next cheap step.** Write the glue when the third such comparison is needed. Status: not started.
+**Next cheap step.** Write the glue when the third such comparison is needed. Status: the replay
+half exists as `scripts/evaluate-fleet-playback.mjs` (24 September 2026 — every vehicle in a reel
+through the drawing with its own road, judged bus by bus); the pull and the rebuild are still by
+hand.
+
+## 52. A fault on one bus in 334 is invisible in an average, and visible in a per-bus listing
+
+**Problem and evidence.** The playback's second version looked right on the two buses in the
+owner's screenshots and in the A/B's aggregate (79% of frames moving, three said repositionings).
+Replaying every vehicle in a 63-publication window and listing each bus against fixed bounds
+found four distinct faults, each on one or two buses: a 602 m late-filed report crossed unsaid, a
+22 m hop between two arms of a road where the projection was ambiguous, a 46 m step from a
+floating-point tie, and a pace that surged because the trail's origin moved at every publication
+(`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §2b). None showed in a fleet average;
+all showed as "this bus, this frame, this number".
+
+**Who hits it, workaround.** Whoever changes the drawing. The workaround was watching individual
+buses by eye, which found the first two faults of the day and none of the four.
+
+**Small fix, script, tool or product.** Done as a script: the fleet check prints outliers by bus
+with the frame and the metres, and treats "a step over a bus length with nothing said on that
+frame" as a fault in its own right. The reusable idea is the bound-per-bus listing, not the script.
+
+**Next cheap step.** Run it in the gate on a fixed reel, so a regression on one bus fails the
+build. Status: script exists, not in the gate.

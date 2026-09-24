@@ -110,6 +110,81 @@ in `data/evaluation/reel-163-3426.json` (not in Git); the traces and frames are 
 steps every 3 s; the playback clock is the same either way, because it is what makes the position
 honest, not a decoration.
 
+### 2b. The second version, from the deployed site (24 September)
+
+Two screenshots from the deployed build — the recorded 163 on Rochdale Road and a live 142 on
+Wilmslow Road — showed the bus drawn *beside* its road, headed roughly along it, and the owner
+described the pace as "too fast, not really fast" from time to time. Both were traced.
+
+- **Beside the road.** The road travel carried each report's own offset from the road across the
+  stretch, so a bus whose reports sat 15–35 m off the road was drawn there, with the report's
+  bearing rather than the road's. The reports of the recorded 163 lie 1.6 m from its accepted road
+  at the median and 5.3 m at the 95th percentile, so the offset was the wrong thing to keep. The
+  playback now builds one **path** through the reports — on the road where both ends of a stretch
+  measure onto it in order and not the long way round, the chord otherwise, nothing across a pair
+  GLIDE refuses — and draws the bus **on** the road with the road's heading. Replayed with its real
+  road, the recorded 163 is now within **0.4 m** of it in every frame (it had been up to 40 m off).
+- **Fits and starts, three causes found in order, each by tracing one real bus.** (1) The clock's
+  rate band, 0.8–1.2×, was itself the visible speed change; the clock now runs at real time, or 5%
+  over while behind. (2) The delay, median arrival lag + 8 s, ran dry at every late report on a
+  real 219 (reports every 20 s, arriving 16–23 s later), so the bus braked to a stand and set off
+  again at each one; the delay now covers the lag and a report interval, bounded **30–60 s**.
+  (3) The reports' own timing is jerky — that 219 reported 207 m in 24 s, 16 m in 17 s, 345 m in
+  28 s, 67 m in 16 s along open road — and any drawing that reaches every report at its exact
+  moment must surge like that. The place shown is now the path's **average over the previous
+  24 s**: causal, monotone, never ahead of a report, never reshaped by a later one, at about 12 s
+  of added lag, said on the card. On top of it a **follower at a bus's pace**: acceleration held to
+  1.0 m/s² and braking to 1.5 m/s² (real buses measured peak at 1.4 and 1.8; the fleet's own 20 s
+  segments imply under 0.82), never over 22 m/s, at most 12% over the reports' speed while catching
+  up, braking to a stand at the newest report when nothing newer is known.
+- **Two versions were wrong on the way, and the measurement said so.** Fritsch–Carlson tangents
+  looked ahead, so every new report bent the stretch being played by 10–24 m and the follower
+  chased it; each stretch now depends only on reports up to its end. And reading a crossed
+  refused pair from the *clock's* stretch missed the repositioning when the follower lagged the
+  clock — two of the A/B's three big steps went unsaid; it is read from the drawn bus's own
+  stretch now.
+
+**Measured, the same A/B as §2** (27 recorded journeys, 8–38 s arrival jitter, against the glide):
+moving in **79%** of frames (57% glide, 73% the first playback), **19.1** stalls over 5 s an hour
+(59.7; 18.6), drawn speed p95 **12.3 m/s** (16.2; 14.7), **3** steps over a bus length (33; 3), all
+three refused gaps and said, and the drawn bus **65 m** behind the newest report at the median
+(12; 113), 291 m at the 95th percentile.
+
+**Measured, every bus.** `scripts/evaluate-fleet-playback.mjs` replays every vehicle in a reel of
+rebuilt publications with its own road and judges each: the 63-publication evening window of
+22 September holds **334 vehicle-journeys, 118 on a checked road**. Across them: the median bus
+moving in **69%** of its frames (45 stood the whole window, by their reports); the 20-second speed
+swing a passenger would see (p95 per bus) **6.0 m/s** at the median bus and **8.1** at the 90th
+percentile, against 8.7 and 11.7 before the smoothing; no bus drawn faster than **21.8 m/s**; a
+bus on a checked road never off it by more than 0.1 m at its 95th percentile (one 51 m excursion,
+an eased correction across a bend, said as one); **65 repositionings, every one said** with its
+reason, and **no single-frame step over a bus length left unsaid** — the check that found the four
+faults above, each of which had been unsaid on one bus among the 334. 23 buses are drawn standing
+while their reports moved more than 150 m: almost all report 9–16 times in twenty minutes, so every
+pair is a silence over 45 s and refused (backlog 28).
+
+**Verified in the browser** (the same build as the gate below unless said): the ride, ride-quality,
+ride-offer, motion, recorded-ride, try-ride, replay, selection and journey-context specs — **134
+passed, 4 skipped by design, none failing** — and then the full gate: **335 passed, 36 skipped, 3
+failed in 52.5 minutes**. The three: a saved-route check whose map fell back with `tiles_failed`
+(the tile host, not the page; it passed alone, twice); the phone ride-quality check, whose fixture
+stands until the test's own start so a drawing 30–60 s behind honestly shows that standing for most
+of the check's window (it passed and failed on page-load timing alone; restated with ninety seconds
+of moving history, and passing); and the phone entry-tap check, whose fixed tap point fell on a
+boarding-point sign in that run — the bus is drawn on its road now, so what lies under a fixed
+point differs run to run — and the tapped sign chose the stop and ended the ride. That last one is
+a real finding about the map, not the check: in the ride a stray tap on a sign threw the passenger
+out of it. **Signs now stand down while riding** (a one-line change in the tap handler), the check
+keeps its tap, and the ride, ride-quality, map, layout, selection and navigation specs were re-run
+on that build: **118 passed, 18 skipped by design, none failing** (21.6 minutes), the entry-tap
+check on both profiles among them, and the layout check that taps a sign *outside* the ride still
+choosing the stop. That build is the one deployed.
+
+**Measured, the recorded 163 with its road:** on the road in every frame (**0.0 m** off it at the
+median, the 95th percentile and at worst; it had been up to 40 m off), moving in **87%** of frames, drawn
+speed 5.6 m/s at the median and 12.2 at the 95th percentile (13.8 at most), acceleration **0.50 m/s²**
+at the 95th percentile, and the largest step between two frames 100 ms apart **1.38 m**.
+
 ## 3. A way in: Try Ride-along, and a recorded ride when nothing live suits
 
 **Try Ride-along** replaces the "Explore a bus with the front view" section on the home screen

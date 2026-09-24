@@ -12,7 +12,7 @@
 // PLAYBACK.minDelayMs and the clock sets off from the first report at the moment the second lands.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {GLIDE, historyFrom, metres, needsFrames, observedAt, stepVisual} from '../lib/motion.ts';
+import {GLIDE, historyFrom, metres, needsFrames, observedAt, PACE, stepVisual} from '../lib/motion.ts';
 
 const at = (t, lat, lon, bearing = 90) => ({at: t, lat, lon, bearing, service: 's', source: 'h' + t});
 const A = [53.45, -2.31];
@@ -28,19 +28,28 @@ function run(second, {t = 20_000, until = 2000, step = 100} = {}) {
   return {frames, last: frames[frames.length - 1].v, second};
 }
 
-test('a report that arrives is travelled to over the time the bus took, and the bus stops exactly there', () => {
+test('a report that arrives is travelled towards over the time the bus took, at a bus\'s pace, and never past it', () => {
   const second = at(20_000, 53.4511, -2.31);           // about 122 m on, twenty seconds later
-  // The clock runs the 20 s between the reports at real time while the buffer is full and eases
-  // towards PLAYBACK.slowestRate as it runs down, so the report is reached inside 26 s.
-  const {frames, last} = run(second, {until: 26_000, step: 500});
+  // The clock runs the 20 s between the reports at real time. The place shown is the path's
+  // average over the previous PACE.smoothMs, so with nothing newer known it comes to a stand
+  // short of the newest report — by at most that window's travel — and waits there for the next
+  // report; the report's own ring on the map marks where the bus really was.
+  const {frames, last} = run(second, {until: 50_000, step: 500});
   const steps = frames.slice(1).map((f, i) => metres(frames[i].v, f.v));
   assert.ok(Math.max(...steps) < 8, `no frame jumps the whole way: largest ${Math.max(...steps).toFixed(1)} m`);
   const moving = steps.filter(d => d > 0.05).length;
-  assert.ok(moving > steps.length * 0.8, `it is moving for most of the interval (${moving} of ${steps.length})`);
+  assert.ok(moving > steps.length * 0.5, `it is moving for most of the travel (${moving} of ${steps.length})`);
   assert.ok(frames.some(f => f.dt > 2000 && f.dt < 18_000 && metres(f.v, A_POINT) > 20 && metres(f.v, second) > 20),
     'it is drawn between the two reports while it travels');
-  assert.equal(+last.lat.toFixed(6), +second.lat.toFixed(6), 'it ends at the report');
-  assert.ok(last.buffer && last.buffer.shown === second.at, 'and the clock has reached it');
+  const shortfall = (metres(A_POINT, second) / 20) * (PACE.smoothMs / 2000) + 5;
+  assert.ok(metres(last, second) <= shortfall, `it ends within the window's travel of the report: ${metres(last, second).toFixed(0)} m short`);
+  assert.ok(metres(A_POINT, last) <= metres(A_POINT, second) + 0.5, 'and never past it');
+  assert.ok(last.buffer && last.buffer.shown >= second.at, 'and the clock has reached it (it may run one smoothing window past it)');
+  // Once the reports say it stood at that report, it is drawn there exactly.
+  const third = at(40_000, second.lat, second.lon);
+  let v = last;
+  for (let now = 40_000; now <= 80_000; now += 500) v = draw(v, [at(0, A[0], A[1]), second, third], now);
+  assert.equal(+v.lat.toFixed(6), +second.lat.toFixed(6), 'it ends at the report once its reports stand there');
 });
 
 const A_POINT = {lat: A[0], lon: A[1]};
@@ -78,11 +87,11 @@ test('a wobble smaller than the floor is not animated, and frames stop once the 
   const {last} = run(wobble, {until: 200});
   assert.equal(last.glide, null, 'a sub-metre wobble is placed, not travelled');
   const second = at(20_000, 53.4511, -2.31);
-  const {frames} = run(second, {until: 26_000, step: 500});
+  const {frames} = run(second, {until: 50_000, step: 500});
   const history = historyFrom([at(0, A[0], A[1]), second]);
   const mid = frames.find(f => f.dt === 5000).v, end = frames.at(-1).v;
   assert.equal(needsFrames(observedAt(history, 25_000, 'no shape'), mid), true, 'drawing while it travels');
-  assert.equal(needsFrames(observedAt(history, 46_000, 'no shape'), end), false, 'and parked once it has arrived');
+  assert.equal(needsFrames(observedAt(history, 70_000, 'no shape'), end), false, 'and parked once it has come to its stand');
 });
 
 test('a newer report while travelling is taken up from where the bus is, not queued behind the old one', () => {
@@ -93,11 +102,19 @@ test('a newer report while travelling is taken up from where the bus is, not que
   const mid = {lat: v.lat, lon: v.lon};
   v = draw(v, [...first, second, third], 20_400);
   assert.ok(metres(mid, v) < 15, 'it carries on from where it was drawn');
-  // Its own clock reaches the third report when it reaches it — 20.4 s of travel, up to
-  // PLAYBACK.fastestRate faster with a full buffer in hand — and no sooner: not queued, not hurried.
-  let last = v;
-  for (let dt = 0; dt <= 26_000; dt += 100) last = draw(last, [...first, second, third], 20_400 + dt);
-  assert.equal(+last.lat.toFixed(6), +third.lat.toFixed(6), 'and arrives at the newest report');
+  // Its own clock reaches the third report when it reaches it, 20.4 s on; the third report is
+  // 100 m past the second and 0.4 s after it, which no bus does, so the drawn bus — held to a
+  // bus's pace (PACE) — closes that stretch behind the clock and arrives a little later, never
+  // faster than a bus and never past the report. Not queued, not hurried.
+  let last = v, fastest = 0;
+  for (let dt = 0; dt <= 40_000; dt += 100) { last = draw(last, [...first, second, third], 20_400 + dt); fastest = Math.max(fastest, last.velocity); }
+  assert.ok(metres(A_POINT, last) > metres(A_POINT, second) - 80, 'it went on towards the newest report');
+  assert.ok(metres(A_POINT, last) <= metres(A_POINT, third) + 0.5, 'and never past it');
+  assert.ok(fastest <= 22.01, `never faster than a bus: ${fastest.toFixed(1)} m/s`);
+  // A fourth report standing at the third: the drawn bus arrives there exactly.
+  const fourth = at(40_400, third.lat, third.lon);
+  for (let now = 40_400; now <= 90_000; now += 100) last = draw(last, [...first, second, third, fourth], now);
+  assert.equal(+last.lat.toFixed(6), +third.lat.toFixed(6), 'and is there once its reports stand there');
 });
 
 // ---------------------------------------------------------------- between its own reports
@@ -131,15 +148,19 @@ test('the travel between two reports takes the time the bus itself took, not a h
 
 test('a report that arrives late leaves the bus waiting at the one it reached, not guessing on', () => {
   const fixes = [at(0, A[0], A[1]), at(20_000, 53.4511, -2.31)];
-  const frames = watch(fixes, 0, 70_000, 1000);
+  const frames = watch(fixes, 0, 90_000, 1000);
   const end = frames.at(-1).v;
-  assert.equal(+end.lat.toFixed(6), 53.4511, 'it waits at what is known');
-  assert.equal(needsFrames(observedAt(historyFrom(fixes), 70_000, 'r'), end), false, 'and stops drawing');
+  const shortfall = (metres(A_POINT, fixes[1]) / 20) * (PACE.smoothMs / 2000) + 5;
+  assert.ok(metres(end, fixes[1]) <= shortfall && metres(A_POINT, end) <= metres(A_POINT, fixes[1]) + 0.5,
+    `it waits short of what is known, never past it: ${metres(end, fixes[1]).toFixed(0)} m short`);
+  assert.equal(needsFrames(observedAt(historyFrom(fixes), 90_000, 'r'), end), false, 'and stops drawing');
 });
 
 test('a gap too long to have been followed is not travelled through', () => {
   const fixes = [at(0, A[0], A[1]), at(90_000, 53.4511, -2.31)];   // a minute and a half apart
-  const frames = watch(fixes, 88_000, 118_000, 500);
+  // The clock starts a delay behind and resyncs when it is further behind than that plus
+  // PLAYBACK.resyncMs, so the far report's moment is crossed within about a minute of it.
+  const frames = watch(fixes, 88_000, 165_000, 500);
   for (const {v} of frames) assert.ok(metres(v, A_POINT) < 1 || metres(v, fixes[1]) < 1, 'never drawn between');
   const end = frames.at(-1).v;
   assert.equal(+end.lat.toFixed(6), 53.4511, 'it is drawn at the report once the clock reaches it');
@@ -154,11 +175,11 @@ test('"reported positions only" is exactly that: no history, no travel', () => {
   assert.equal(v.lat, 53.4511, 'it is placed at the newest report, as before');
 });
 
-// A report filed late can move the path under the bus. Under the drawing's snap distance that is
-// eased at about 10 m/s and said as a correction; beyond it the ground between is not known, so it
-// is a repositioning with its reason — never an ease that covers 877 m in two seconds, which is
-// what the first playback did on 24 September 2026.
-test('a late report that moves the path under the bus is eased at about 10 m/s, and past the snap distance it is a repositioning', () => {
+// A report filed late moves the path under the bus. The drawn bus keeps its place on the new
+// path and carries on along it — no jump, no dash — and a late report too far off to have been
+// travelled to is a refused pair, said as a repositioning when the moment shown crosses it, never
+// an ease that covers 877 m in two seconds (which is what the first playback did, 24 September 2026).
+test('a late report moves the path under the bus without a jump, and one too far off is a said repositioning', () => {
   const at = (t, lat, lon) => ({at: t, lat, lon, bearing: 0, service: 's', source: 'h' + t});
   const M = 1 / 111195;
   const draw = (previous, fixes, now) => {const h = historyFrom(fixes); return stepVisual(previous, observedAt(h, now, 'no shape'), now, null, undefined, h)};
@@ -170,19 +191,21 @@ test('a late report that moves the path under the bus is eased at about 10 m/s, 
   let v = play();
   assert.equal(v.lastCorrection, null);
   assert.ok(v.buffer.shown > 40_000 && v.buffer.shown < 60_000, `shown ${v.buffer.shown}`);
-  // A late report at 50 s, 60 m off the line: the moment shown moves by about 30 m — eased, and said as smooth.
+  // A late report at 50 s, 60 m off the line: the path bends, the drawn bus stays where it was and
+  // follows the new path from there.
   const late = offset => [line(0), line(1), line(2), at(50_000, 53.45 + 300 * M + offset * M, -2.31), line(3)];
   const before = {lat: v.lat, lon: v.lon};
   v = draw(v, late(60), 75_100);
-  assert.equal(v.lastCorrection?.kind, 'smooth');
-  const eased = v.buffer.ease;
-  assert.ok(eased && eased.ms >= v.lastCorrection.metres * 100 - 1, `eased over ${eased?.ms} ms for ${v.lastCorrection.metres} m: about 10 m/s`);
-  assert.ok(metres(v, before) < 2, 'the ease starts where the bus was drawn, not at the new place');
-  // A late report 500 m off the line shifts the moment shown by about 250 m: a repositioning, said as too far, not an ease.
-  let w = play();
-  w = draw(w, late(500), 75_100);
-  assert.equal(w.lastCorrection?.kind, 'snap');
-  assert.equal(w.lastCorrection?.why, 'too_far');
-  assert.equal(w.buffer.ease, null, 'no ease is running');
-  assert.ok(w.lastCorrection.metres > 150, `moved ${w.lastCorrection.metres} m`);
+  assert.ok(metres(v, before) < 8, `no jump when the path moved: ${metres(v, before).toFixed(1)} m`);
+  assert.ok(v.lastCorrection === null || v.lastCorrection.kind === 'smooth', 'never a repositioning for a small shift');
+  let w = v; for (let now = 75_200; now <= 95_000; now += 100) w = draw(w, late(60), now);
+  const steps = []; let prev = v; for (let now = 75_200; now <= 95_000; now += 100) { const n = draw(prev, late(60), now); steps.push(metres(prev, n)); prev = n; }
+  assert.ok(Math.max(...steps) < 3, `it moves at a bus's pace along the new path: largest step ${Math.max(...steps).toFixed(2)} m per 100 ms`);
+  // A late report 900 m off the line cannot have been travelled to (over GLIDE.maxMetres from the
+  // report before it): the pair is refused, the bus waits at the report before it, and is
+  // repositioned and said when the moment shown crosses it.
+  let x = play();
+  for (let now = 75_100; now <= 100_000; now += 100) x = draw(x, late(900), now);
+  assert.equal(x.lastCorrection?.kind, 'snap');
+  assert.equal(x.lastCorrection?.why, 'too_far');
 });

@@ -127,10 +127,11 @@ finger are all absent from Chromium.
       the bar, the handle, the panel and the ride card all say it is a recording from 23 September
       2026; the bus moves between its reports; **Back to live buses** brings the feed back and the
       recorded bus is gone. Share it: the copied link reopens the recording. *unchecked*
-- [ ] Ride a bus on a service with no checked road (most of them): the bus should move for most of
-      the time, about 20–40 s behind its newest report (the card says how far), and never sprint.
-      Measured in emulation at 92% of frames moving on a real 163; a real phone's frame rate is the
-      question. *unchecked*
+- [ ] Ride a bus on a service with a checked road (a 142 on Wilmslow Road, a 163 on Rochdale Road):
+      the bus should sit *on* the road, headed along it, and move at a bus's pace — pulling away,
+      slowing, never surging or teleporting — about 30–60 s behind its newest report (the card says
+      how far). Watch one for three minutes and count anything that looks like a jump. Then a bus
+      with no checked road: the same, along the straight lines between its reports. *unchecked*
 
 ## When something looks wrong
 

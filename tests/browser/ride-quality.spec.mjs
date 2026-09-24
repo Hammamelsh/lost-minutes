@@ -23,7 +23,12 @@ test('a bus with no accepted road geometry travels to each report instead of jum
   await servePatterns(page);
   await serveMotion(page);
   await noGeometry(page);                       // after serveMotion, so this route wins
-  const start = Date.now();
+  // The fixture's bus stands until `startMs` and moves from then; since 24 September 2026 a bus
+  // at its reports is played back 30–60 s behind them at a bus's pace, so with `startMs` at the
+  // test's own start the check's window would honestly show that standing (it passed or failed
+  // on page-load timing alone). A minute and a half of moving history puts the ride in motion
+  // from its first frame, which is what this checks.
+  const start = Date.now() - 90_000;
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: start, speed: 9, cadence: 10})]);
   await page.goto('/');
   await waitForPaint(page);

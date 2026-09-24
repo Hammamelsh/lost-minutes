@@ -49,8 +49,31 @@ phone, each reproduced before it was changed.
   the file binary); fixed. Backlog 23 (return to flat on leaving the front view): see the record.
 - **The gate found one real defect in the new drawing** — an 877 m shift under the bus eased as a
   "smooth" correction in two seconds — now a said repositioning past the drawing's 150 m snap
-  distance, and an ease at about 10 m/s under it, with a Node test; the A/B figures above are
-  unchanged by it. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
+  distance, and an ease at about 10 m/s under it, with a Node test.
+- **24 September, from the deployed site: the bus beside its road, and the pace.** Two screenshots
+  (the recorded 163 on Rochdale Road, a live 142 on Wilmslow Road) showed the bus drawn 15–35 m
+  beside its road — the road travel carried each report's own offset across the stretch — and the
+  owner still saw "too fast, not really fast". The playback is now a **path** through the reports,
+  on the checked road where both ends of a stretch measure onto it (the bus drawn *on* the road,
+  headed along it; the recorded 163 within 0.4 m of it in every frame), a **causal cubic** whose
+  stretches never change once played, the place shown **averaged over the previous 24 s** because
+  the reports' own timing is jerky (a real 219: 207 m in 24 s, 16 m in 17 s, 345 m in 28 s), and a
+  **follower at a bus's pace** (1.0 m/s² accelerating, 1.5 braking, never over 22 m/s, at most 12%
+  over the reports' speed) on a clock at real time, 30–60 s behind. Three wrong versions on the way
+  were each caught by a measurement, not by eye. Against the glide, same reports and jitter:
+  **79% of frames moving** (57%), **19.1** stalls an hour (59.7), speed p95 12.3 m/s (16.2), 3 said
+  repositionings (33 unsaid steps), 65 m behind the newest report at the median. Every bus in the
+  22 September evening reel replayed with its own road (`scripts/evaluate-fleet-playback.mjs`,
+  334 vehicle-journeys, 118 with a checked road): the 20 s speed swing a passenger sees down from
+  8.7 to **6.0 m/s** at the median bus, none drawn over 21.8 m/s, a bus on a checked road never off
+  it, **65 repositionings all said and no unsaid step over a bus length** — the fleet check is
+  what found four of the faults, each on one bus among the 334. `docs/MOTION_MODEL.md` has the
+  rules; backlog 26–28 hold the imagery decision, the road-ahead idea and the slow reporters.
+  **Verified:** 219 Node; the drawing's nine browser specs 134 passed / 4 skipped; the full gate
+  **335 passed, 36 skipped, 3 failed in 52.5 min** — the tile host once (passed alone), and two
+  checks whose fixtures stood still until the test began (restated), one of which exposed that a
+  stray tap on a boarding-point sign during the ride chose the stop and ended the ride: **signs
+  now stand down while riding**. Emulation only. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
   final build **344 passed, 46 skipped by design, 4 failed in 51.9 minutes** — the four being two
   checks on both profiles that encoded arrival-timed drawing and the uncompacted card, restated
   with the reason beside each and re-run on the same build (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
@@ -796,6 +819,9 @@ node scripts/make-recorded-ride.mjs --reel reel.json --operator BNGN --vehicle 3
 node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-playback.mjs \
   --reports data/evaluation/motion-reports-fresh.json --jitter 8000,38000 [--baseline b9cbe88]
                             # the drawing between reports against the glide it replaced, same frames
+node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-fleet-playback.mjs \
+  --reel data/evaluation/reel-live-evening.json   # every bus in a reel through the drawing with its own
+                            # road: movement, speed, swing, off-road distance, every repositioning, by bus
 ```
 
 The warehouse is single-writer: a pattern build waits for a running collector to finish.

@@ -940,7 +940,10 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
    bus stays in view while the board below it is browsed, which is what the separate strip above the
    card used to do before the two were merged. */
 .active-bus.bus-card-summary{position:sticky;top:-2px;z-index:6;margin:-2px -2px 0;padding:2px 2px 6px;
- background:linear-gradient(#16212a 82%,#16212a00)}
+ background:#16212a;box-shadow:0 6px 8px -6px #0b141b}
+/* The summary sticks while the card scrolls under it, so its background is solid to its last line:
+   a gradient that faded over its bottom fifth let the card's text show through the "Last reported
+   near" line (seen on the live site, 24 September 2026). */
 .active-bus-copy{margin:5px 0 0;min-width:0}
 .active-bus-copy small{display:block;font-size:12px;line-height:1.45;color:#a9bcc7}
 .active-bus.absent .active-bus-copy small,.active-bus.new_journey .active-bus-copy small{color:#f1c68a}

@@ -76,7 +76,9 @@ phone, each reproduced before it was changed.
   now stand down while riding**. The walk on the deployed site then found the recorded ride paused
   because its own vehicle was live that morning on another journey and had been pinned first: the
   live feed is cleared when a recording starts and the ride is pinned from the recording only.
-  Emulation only. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
+  **Deployed as `103e4a8`** and walked on the served site with that vehicle still live: the
+  recording follows from its first frame, 0.0 m off its road at the 95th percentile, *drawn 30 s
+  behind*. Emulation only. **Verified:** 219 Node tests, typecheck and lint; the full browser gate on the
   final build **344 passed, 46 skipped by design, 4 failed in 51.9 minutes** — the four being two
   checks on both profiles that encoded arrival-timed drawing and the uncompacted card, restated
   with the reason beside each and re-run on the same build (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`

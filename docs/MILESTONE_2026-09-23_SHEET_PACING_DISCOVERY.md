@@ -183,7 +183,17 @@ visible only in the morning: **the recorded 163's own vehicle was live on today'
 page pinned the live one before the recording's first publication replaced the feed, read the
 recording as a change of journey, and paused the ride. The live feed is now cleared the moment a
 recording starts and the ride is pinned only from the recording's own publications, with a check
-that serves the same vehicle live on another journey.
+that serves the same vehicle live on another journey (`recorded-ride.spec`, `try-ride.spec` and
+`journey-context.spec` on that build: 24 passed, none failing). **Deployed as `103e4a8`** (05:30 UTC,
+the served page chunk identical to the local build's, `a2cd913` kept for `deploy/rollback.sh`, the
+collector and three timers active) and walked again on the served site at 05:36 UTC, with its own
+vehicle still live: the recorded ride **following** from its first frame on the phone and the
+desktop, 69 → 550 m in its first minute, the card reading *drawn 30 s behind*; a sample of 200
+frames over 41 s put the drawn bus **0.0 m off the road at the median and the 95th percentile, 0.1 m
+at worst**, moving in 97% of them, no 200 ms step over 2.01 m; the sheet dragged to full at
+390 × 664 and stayed; Try Ride-along offered three live estimated rides and the recording; a live
+desktop ride (SL63GAO, a 250) was followed at an estimated position and left the map at pitch 0.
+Emulation against the real site, not a phone in hand.
 
 **Measured, the recorded 163 with its road:** on the road in every frame (**0.0 m** off it at the
 median, the 95th percentile and at worst; it had been up to 40 m off), moving in **87%** of frames, drawn

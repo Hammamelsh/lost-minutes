@@ -469,7 +469,92 @@ and the measured delay (presentation time less the moment shown) exactly 30.0 s 
 `outputs/probes/milestone/finished-flow/before-after.png` (git-ignored, with the frames it is made
 from). Emulation against the real site; no phone in hand.
 
-## 9. Limitations
+## 9. Backlog 23 fixed: a publication landing during the hand-over
+
+The owner's brief (24 September, afternoon): finish backlog 23 as a bounded camera-exit fix, from
+the actual failing sequence and the competing camera updates, with the assertion kept intact, the
+hand-over verified on both layouts and under reduced motion, and the required gates reported
+exactly on the final candidate.
+
+**The failing sequence, logged.** The flat-return check was copied with every MapLibre camera call
+and every publication after Exit recorded, and run under the runner on the deployed build: 20 runs.
+Every failing run had a publication fetched within 400 ms of Exit; every passing run had none, or
+one after 700 ms. The exit's own calls are always the same — the view effect's ease to flat, then
+the ride effect's stop, resize, padding, pitch limit and the fit's 500 ms ease to pitch 0 — and in
+each failing run one more followed while the map was moving: `easeTo({center, duration: 450})` from
+the effect that brings the frame to a new report outside it. That ease carries no pitch, so the map
+kept the tilt it had reached (68.4°, 44.9° in the logs), which is why the residue was anything from
+5° to 69°. The morning's probe had passed 32 of 32 only because its own five-second wait moved Exit
+away from the ten-second poll, and the midday note's two readings of it — a return-to-bus glide on
+the Exit tap, and the runner's polling — are withdrawn in backlog 23.
+
+**The fix**, in that one effect (`components/city-map.tsx`): a new report never starts a camera move
+while the camera is already moving, because that move was asked for — the hand-over, a fit, City's
+tilt, a gesture — and is judged once the camera is at rest; and on leaving the ride it does not
+chase at all, because the hand-over's fit frames the bus. The same effect could stop City's 0.9 s
+tilt partway, and did on the phone. Nothing else on the camera path was changed; *Follow on the
+map*, which re-centres on each report by a separate effect, has the same shape and is recorded in
+backlog 23 for its own fix.
+
+**Checks that hit the case every time.** Four checks in `ride.spec.mjs` land a publication inside
+the camera move on purpose, by pressing the page's own *Check for newer positions* from script 60 ms
+after Exit, with each publication carrying a report a second newer than the last:
+- leaving the front view, and leaving the outside view, each on desktop and phone: the ride off,
+  flat and north up, the phone's full-screen ride layout gone, the Ride along button back, and your
+  stop and your bus on the map. **On the deployed build all four failed** (flatness);
+- City's tilt with a report landing mid-tilt on the phone: it reaches 58° and then the frame goes to
+  the report. **On the deployed build it stopped at 6–7°.** On the desktop frame the far end of the
+  fixture road lies inside City's tilted view, so nothing is chased and the check is skipped there
+  with that reason;
+- leaving the front view under reduced motion, both profiles: flat within two seconds, the same
+  hand-over assertions. There is no ease to interrupt, so this checks the hand-over rather than the
+  fault, and it passed on the deployed build too.
+
+A first version of the hand-over checks put the bus a kilometre from the stop; the fit then frames
+the stop's surroundings, and the next report rightly brings the frame to the bus, which failed the
+"stop and bus on the map" assertion for a reason that is not this defect. The checks now use a bus
+400 m before the stop, and say why. The original flat-return check is unchanged.
+
+**The hand-over on the served site, and one more gap it showed.** The fix was deployed as
+`f964c7d` (after a full gate of 357 passed, 37 skipped, none failed) and the hand-over was then
+driven on the real site with the real feed: a Try Ride-along ride, the front view where offered,
+Exit, and a publication landed 60 ms later, on the phone and the desktop, with and without reduced
+motion (`outputs/probes/milestone/handover-live.mjs`, git-ignored). The map was flat and north up
+every time — 433 ms after Exit with the ease on the desktop, 9–12 ms under reduced motion, where
+there is no glide. But on the phone Exit came back to the **full list**: Try Ride-along opens the
+sheet to full and the ride starts from one of its rows, so the map the camera had just returned to
+flat was behind the list (`outputs/probes/milestone/finished-flow/handover-phone-no-preference.png`).
+Leaving the ride now brings a full sheet back to half, so the passenger returns to the map with the
+bus's card under it (one line in `changeView`, `components/follow-view.tsx`); the ride card's
+*Details*, which leaves the ride in order to open the card, is a different path and is unchanged. A
+phone check in `try-ride.spec.mjs` starts the ride from the full list and holds that Exit lands on
+the half sheet with the Ride along button on screen.
+
+**One check that raced, found on the way.** The focused run on that change failed the sheet's
+"showing the map and coming back keeps the place in the list" once. Logged, the check's fixed 400 ms
+wait after choosing a bus did not see the list's smooth scroll end — it was still moving at 300–462 px
+— so the passenger's scroll to 220 px was overtaken and the sheet's toggle then stopped the list at
+89–156 px, against the assertion's 150. The same log on `f964c7d`, which does not have the sheet
+change, showed the same race (3 of 4 below 150), so it predates it. The check now waits for the list
+to come to rest and confirms the passenger's place took before going on; the assertion is unchanged
+(6 of 6 on the phone profile). Opportunity 53 records the pattern.
+
+**Verified on the final candidate** (`2c00759`): 225 Node tests; 131 Python tests; typecheck; lint with no errors (12 warnings, all in files this work did not touch); the build; CI's built-site and deployment-syntax checks; and the full browser suite, **358 passed, 38 skipped by design, none failed, in 56.2 minutes**, desktop and phone emulation in Chromium with SwiftShader. The five hand-over checks and the
+original flat-return check, repeated five times each per profile on the fix before the sheet change:
+45 passed, 5 skipped (the City check on the desktop), none failing. **Deployed as `2c00759`** (16:42
+UTC; the served page chunk identical to the gated build's, `f964c7d` kept for `deploy/rollback.sh`,
+the collector and three timers active) and driven on the served site with the real feed: on the
+phone and the desktop, with and without reduced motion, a Try Ride-along ride in the front view,
+Exit, and a publication landed 60 ms later — flat and north up **429 ms and 435 ms** after Exit with
+the ease, **3 ms and 6 ms** under reduced motion, the ride layout gone, the sheet at half, the Ride
+along button on screen, four of four. The demonstration's stop step on the phone: Trafford Bar (by)
+listed a tracked 250 "14 stops before yours" and scheduled 250s at 17:44 and 17:53. The desktop page
+itself did not scroll at any step (measured, 0 px). Emulation against the real site; no phone in
+hand. One thing seen and not changed: on the phone, after the big zoom of the hand-over, the map's
+*The detailed map is slow to arrive* offer can show over a map already drawn while the live tile
+host is slow to send the rest — the slow-tile allowance working as designed, on this network.
+
+## 10. Limitations
 
 - Emulation only. The sheet's fix is reasoned from Safari's geometry and verified at Safari's
   viewport size in Chromium; Safari itself, and iOS's keyboard, are on the physical checklist.

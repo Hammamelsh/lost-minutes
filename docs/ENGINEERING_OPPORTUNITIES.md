@@ -1694,3 +1694,30 @@ frame" as a fault in its own right. The reusable idea is the bound-per-bus listi
 
 **Next cheap step.** Run it in the gate on a fixed reel, so a regression on one bus fails the
 build. Status: script exists, not in the gate.
+
+## 53. A race that a fixed wait or a probe's own delay hides
+
+**Problem and evidence.** Twice on 24 September 2026 an intermittent browser check was a real race
+that the tooling around it concealed. Backlog 23 (the map left tilted after the ride) was probed
+outside the runner 32 times without a failure, because the probe's own five-second wait moved Exit
+off the ten-second poll; logged *inside* the failing check, every failure had a publication within
+400 ms of Exit and one camera call made while the map was moving
+(`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §9, `docs/BACKLOG.md` 23). The same day the
+sheet's place-in-the-list check failed once: its fixed 400 ms wait did not see a smooth scroll end,
+on the build before the change and after it alike (logged 300–462 px still moving at 400 ms). The
+earlier camera competition of 21 September was the same kind of thing.
+
+**Who hits it, workaround.** Whoever changes the camera, the sheet or the poll; the workaround was a
+throwaway spec that patches MapLibre's camera methods in the page and logs each call with its caller
+and the pitch, and a logged copy of the scroll check (both kept, git-ignored, in
+`outputs/probes/milestone/`).
+
+**Small fix, script, tool or product.** Two small fixtures in this repository, not a product: a
+`recordCamera(page)` helper that logs MapLibre camera calls after a moment and prints them on
+failure, and a `settled(locator, read)` helper that waits for a value to stop changing instead of a
+fixed time. A visual interface would not help. No novelty is claimed; Playwright's trace records
+screenshots, not the map's own calls.
+
+**Next cheap step.** Promote the camera logger into `tests/browser/fixtures.mjs` the next time a
+camera check is intermittent. Status: both one-off diagnostics exist; the fix to the sheet check's
+wait is in (`tests/browser/sheet.spec.mjs`).

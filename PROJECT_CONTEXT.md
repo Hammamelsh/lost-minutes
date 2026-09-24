@@ -4,9 +4,9 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 24 September 2026, midday (the finished flow: Try Ride-along's way in and rows, the
-road ahead lit under the ridden bus, the framing and entrance, the delay stated to five seconds and
-shown never to reach a stop decision, one Exit).
+Last updated: 24 September 2026, afternoon (backlog 23 found and fixed: a publication landing as
+the ride is left no longer stops the map's return to flat; the beta release recorded in
+`docs/RELEASE.md` with the steps to demonstrate it).
 
 **23 September, late evening — the sheet, the pacing, and a way in to Ride-along.** Detail and
 evidence: `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. Three reports from the owner's own
@@ -86,6 +86,23 @@ phone, each reproduced before it was changed.
   §6 has the account, including a first gate thrown away by a second run of my own). Emulation
   only; the physical-device checklist has the sheet, the keyboard, Try Ride-along and the recording.
 
+- **24 September, afternoon — backlog 23 found and fixed** (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
+  §9). The failing check itself, with every camera call and publication after Exit logged under the
+  runner, showed the cause: a publication fetched within 400 ms of Exit in every failing run, and
+  then the effect that brings the frame to a new report easing by centre alone *while the map was
+  moving*, which stopped the ease to flat where it stood (68.4°, 44.9°). A new report now never
+  starts a camera move while one is running — it is judged once the camera is at rest — and does not
+  chase at all on leaving the ride. Four checks land a publication inside the move on purpose (both
+  exits on both profiles, and City's tilt on the phone, which stopped at 6–7° of 58°): all failed on
+  the deployed build; plus the hand-over under reduced motion. The original check is unchanged. Two
+  readings of the morning's probe were wrong and are withdrawn in backlog 23. Driving the hand-over on
+  the served site then showed Exit on a phone landing on the full list (Try Ride-along opens it
+  there); leaving the ride now brings the sheet back to half. A sheet check that raced a smooth
+  scroll (on the build before too) waits for the list to settle; its assertion is unchanged.
+  **Verified on the final candidate `2c00759`:** 225 Node, 131 Python, typecheck, lint (no errors),
+  the build, CI's built-site checks, and the full browser suite **358 passed, 38 skipped, none
+  failed, 56.2 min**. **Deployed as `2c00759`**; on the served site the map was flat after Exit with
+  a publication landed, 4 of 4 (desktop and phone, with and without reduced motion). Emulation only.
 - **24 September, midday — the finished flow** (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
   §8). Try Ride-along's three rows had been three 250s with every title cut short on a phone; the
   first bus of each service now leads, titles wrap, the recording reads *Recorded ride · to Bury

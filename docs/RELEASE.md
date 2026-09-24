@@ -4,12 +4,45 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | *Prepare a public beta: trace the coverage to its source, make the ride-along the screen on a phone, and write the release down* — the commit this file was released with. A hash written here can only ever be the previous commit's, so `git log -1` is the record, and the running site carries its own stamp (below) |
+| **Commit** | **`2c00759`**, deployed 24 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
-| **Public address** | **temporary**, from a Cloudflare Quick Tunnel: it changes at every restart and lives only while this laptop and WSL are up. `scripts/preview.sh status` prints the one in force. It has already changed once — the laptop slept on 17 September and both the link and collection stopped with it |
-| **Deployment status** | **not provisioned.** `deploy/` is complete and validated on this machine; no server exists, nothing has been bought |
-| **Collection** | one bounded run on this laptop; nothing runs when it is off |
-| **Verdict** | **Ready for invited testing, and ready to be hosted.** The one thing that looked like a blocker tonight — the collector's memory rising ~300 MB an hour — **does not reproduce at the thread count the server will run**: flat at about 376 MB over 19 minutes with two threads. Nothing else is blocking except provisioning itself. See "What stands between this and a public beta" |
+| **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
+| **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
+| **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
+| **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 24 September: the beta release
+
+**Deployed: `2c00759`** (16:42 UTC), with the previous release (`f964c7d`) kept for `deploy/rollback.sh`. What
+it adds since 23 September is in `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`: the phone
+sheet that stays up, the ride paced at a bus's own pace and drawn on its road, Try Ride-along with
+a dated recording, the road ahead lit in the ride, and (§9) the map returning to flat when the ride
+is left even if a publication lands at that moment. **Verified on the final candidate:** 225 Node tests; 131 Python tests; typecheck; lint with no errors (12 warnings, all in files this work did not touch); the build; CI's built-site and deployment-syntax checks; and the full browser suite, **358 passed, 38 skipped by design, none failed, in 56.2 minutes**, desktop and phone emulation in Chromium with SwiftShader. On the served site: the map flat after leaving the ride with a publication landed, 4 of 4
+(desktop and phone, with and without reduced motion). **Nothing has been checked on a phone in
+hand**; `docs/PHYSICAL_DEVICE_CHECKLIST.md` is that check.
+
+**Demonstrating the best supported experience** — on a phone in its ordinary browser, by day, when
+the 250 and 15 are running (the only routes with estimated movement; 332 journeys a day each way
+on the 250):
+1. Open **https://lost-minutes.duckdns.org**. Under **Buses near me**, tap **Or try Ride-along**:
+   the sheet opens on three rides, each saying what it will be.
+2. Tap a row reading **Estimated movement · Front view**. The camera settles behind the bus, the
+   road ahead is lit under it with its next stops named, and the card gives the report's age.
+3. Tap **Front view** for the street ahead, then **Outside view**. Drag the map to look around;
+   **Return to bus**. Tap **?** for what this is and is not.
+4. Tap **Exit**: the map comes back flat and north up, with the bus.
+5. The stop journey: search **Trafford Bar** and choose **Trafford Bar (by)**, on Chester Road,
+   westbound (ATCO 1800SJ00311; eight stops share the name) — the 250 towards The Trafford Centre
+   boards there 17 stops into its route, so several are usually coming. The board lists the tracked buses coming, "N stops before yours" by each
+   one's last report, and the scheduled departures, labelled *Scheduled · not live*. Tap a 250, then
+   **Ride along**, then **Exit** and **Back** to the board.
+6. When nothing live suits (late at night): **Recorded ride · to Bury Interchange** in the same
+   section, or the link `https://lost-minutes.duckdns.org/?ride=2026-09-23-bngn-3426-163`, badged
+   RECORDED RIDE throughout.
+
+What not to promise while demonstrating: an arrival time (none is predicted), a view from on board
+(the front view is drawn from the map), or a live position (every drawn bus says how old its
+report is, and a bus between its reports is drawn about 30 s behind them).
 
 ## 20 September: hosted, and the passenger's two questions answered as far as the data allows
 

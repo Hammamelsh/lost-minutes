@@ -134,7 +134,7 @@ provider; a live one needs an account, a key on the server and a request budget 
 code. §4 of that document is the serving design. **Waiting on the owner's decision; nothing is
 built, nothing is paid for.**
 
-## 23. Leaving the front view can leave the map a few degrees off flat
+## 23. Leaving the front view can leave the map a few degrees off flat — fixed 24 September 2026
 Found on 23 September 2026 by a check that had been passing by luck. Leaving the ride asks for a
 fit that returns the map to flat, and `fitBounds` works its camera out from the bounds without
 carrying a pitch, so whenever two or more things were framed the map kept the ride's tilt —
@@ -179,6 +179,39 @@ than at the camera code, and the mechanism is still not proved. The check keeps 
 assertion. Next step, if it is taken up: a `data-camera-calls` diagnostic on the map (the last few
 camera actions of our own code, tagged), read by the check on failure, so a failing run under the
 runner says which call cut the ease short.
+
+**24 September 2026, afternoon — found and fixed.** Two claims in the paragraph above are
+withdrawn. The first camera call after Exit was *not* a return-to-bus glide; and the cause was *not*
+the runner's polling. The failing check itself was copied with every MapLibre camera call and every
+publication after Exit logged, and run under the runner on the deployed build
+(`outputs/probes/milestone/exit-diagnose.spec.mjs` and its log, git-ignored). Every failing run had a
+publication fetched within 400 ms of Exit (41, 166, 179, 397 ms); every passing run had none, or
+one after 700 ms. In each failing run the call that stopped the hand-over's ease to flat was
+`easeTo({center, duration: 450})` from the effect that brings the frame to a new report outside
+it, made *while the map was moving* (at 68.4° and 44.9°). An ease by centre alone carries no pitch,
+so the map kept whatever tilt it had reached — which is why the residue was anything from 5° to
+69°. The earlier probe passed 32 of 32 only because its own five-second wait moved Exit away from
+the ten-second poll. Landing a publication inside the hand-over on purpose failed 9 of 10.
+
+The fix is in that effect alone (`components/city-map.tsx`): a new report never starts a camera
+move while the camera is already moving — the move was asked for, whether the hand-over, a fit,
+City's tilt or a gesture — and is judged once the camera is at rest (`moveend`); and on leaving the
+ride it does not chase at all, because the hand-over's fit frames the bus. The same effect could
+equally stop City's 0.9 s tilt partway (measured on the phone: 6–7° of 58°). Four checks in
+`ride.spec.mjs` land a publication inside the camera move on purpose, so the case the poll hit by
+chance is hit every time: leaving the front view and leaving the outside view, each on both
+profiles (on the deployed build, all four failed); City's tilt on the phone (failed); and leaving
+the front view under reduced motion, where there is no ease to interrupt and which checks the
+hand-over itself. Each hand-over check asserts the ride off, flat and north up, the phone's
+full-screen ride layout gone, the Ride along button back, and your stop and your bus on the map.
+The original check keeps its assertion unchanged. On the final candidate (`2c00759`, deployed) the
+full browser suite passed 358, 38 skipped by design, none failing, and on the served site the map was
+flat after Exit with a publication landed in four of four runs (desktop and phone, with and without
+reduced motion). Closed.
+
+Not changed, and the same shape: *Follow on the map* in 2D or City re-centres on each new report
+with an ease by centre and zoom, which a report landing during City's tilt could also cut short
+while following. It is a separate path from leaving the ride and was left for its own fix.
 
 ## 24. More recorded rides, and one on an evaluated route
 One recording is published (the 163 of 23 September 2026, on an accepted road, so the front view is

@@ -123,3 +123,24 @@ test('an accepted road on an ageing report still rides; a bus with no road rides
     bus('b', {match: placed('P:none'), freshness: 'ageing', ageSeconds: 100})], accepted, null);
   assert.deepEqual(out.map(c => c.bus.vehicle), ['a']);
 });
+
+test('three different services come first; a second bus of a listed service only fills a short list', () => {
+  const accepted = new Set(['P:eval', 'P:road']);
+  const buses = [
+    bus('a250', {match: placed('P:eval'), ageSeconds: 5, route: '250', destination: 'Piccadilly'}),
+    bus('b250', {match: placed('P:eval'), ageSeconds: 8, route: '250', destination: 'Piccadilly'}),
+    bus('c250', {match: placed('P:eval'), ageSeconds: 9, route: '250', destination: 'Piccadilly'}),
+    bus('d15', {match: placed('P:road'), ageSeconds: 20, route: '15', destination: 'Roedean'}),
+    bus('e142', {match: placed('P:none'), ageSeconds: 30, route: '142', destination: 'Parrs Wood'}),
+  ];
+  // Ranked by tier alone the list was three 250s — one choice dressed as three (the deployed site,
+  // 24 September 2026). Each service's first bus keeps its rank; the 250's second bus comes only
+  // after every other service, and only where there is room.
+  assert.deepEqual(rideCandidates(buses, accepted, model).map(c => c.bus.vehicle), ['a250', 'd15', 'e142']);
+  assert.deepEqual(rideCandidates(buses, accepted, model, 5).map(c => c.bus.vehicle), ['a250', 'd15', 'e142', 'b250', 'c250']);
+  // Direction and destination tell services apart too: the same number the other way is another ride.
+  const both = [bus('out', {match: placed('P:eval'), route: '250', direction: 'outbound', destination: 'Trafford'}),
+    bus('in', {match: placed('P:eval'), route: '250', direction: 'inbound', destination: 'Piccadilly'}),
+    bus('in2', {match: placed('P:eval'), route: '250', direction: 'inbound', destination: 'Piccadilly', ageSeconds: 12})];
+  assert.deepEqual(rideCandidates(both, accepted, model).map(c => c.bus.vehicle), ['out', 'in', 'in2']);
+});

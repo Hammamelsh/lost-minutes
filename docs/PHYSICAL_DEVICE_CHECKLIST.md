@@ -133,6 +133,18 @@ finger are all absent from Chromium.
       how far). Watch one for three minutes and count anything that looks like a jump. Then a bus
       with no checked road: the same, along the straight lines between its reports. *unchecked*
 
+- [ ] The way in: on the home screen, under **Buses near me**, the line *Or try Ride-along* opens
+      the sheet and lands on the section with three different services (not one route three
+      times) and the recording, every title whole. *unchecked*
+- [ ] Entering a ride: the camera settles behind the bus rather than arriving at speed; the
+      controls fade in; the bus sits in the lower half of the clear band with the road ahead above
+      it; a soft lime ribbon lies on the road ahead and the next stops are named on it (on a bus
+      with a checked road — a 142, a 163, a 250); no ribbon on a bus without one. *unchecked*
+- [ ] With reduced motion on (iOS: Settings › Accessibility › Motion): no fade, no glide, the ride
+      simply appears on the bus. *unchecked*
+- [ ] The card reads *drawn about N s behind* and N is 30 to 60; it changes by fives, never
+      flickers. *unchecked*
+
 ## When something looks wrong
 
 Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report

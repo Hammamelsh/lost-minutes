@@ -35,13 +35,13 @@ export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
     data-ride-recording={ride.id}
     aria-label={`Watch a recorded ride: route ${ride.route} to ${destinationLabel(ride.destination)}, ${rideWords(ride)}, a recording, not live`}>
    <span className="route-pill">{ride.route}</span>
-   <span className="follow-row-copy"><strong><Film size={13} aria-hidden="true"/> Watch a recorded ride · to {destinationLabel(ride.destination)}</strong>
+   <span className="follow-row-copy"><strong><Film size={13} aria-hidden="true"/> Recorded ride · to {destinationLabel(ride.destination)}</strong>
     <small>{rideWords(ride)} · a recording, not live</small></span>
    <span className="fresh-chip archive">recorded</span>
   </button>)}
   {error&&<p className="follow-hint warn" role="alert">{error}</p>}
  </div>;
- return <section className="try-ride" aria-label="Try Ride-along" data-rides={state} data-ride-live={candidates.length}>
+ return <section className="try-ride" id="try-ride" aria-label="Try Ride-along" data-rides={state} data-ride-live={candidates.length}>
   <h3 className="section-head"><Armchair size={15} aria-hidden="true"/> Try Ride-along
    <small>the map follows one bus · not a film</small></h3>
   <p className="try-ride-lead">Choose a bus and the map rides with it through the streets, at the pace its own
@@ -58,7 +58,10 @@ export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
      data-ride-bus={bus.key} data-ride-tier={tier}
      aria-label={`Try Ride-along with route ${bus.route} to ${destinationLabel(bus.destination)}: ${TIER_WORDS[tier]}`}>
     <span className="route-pill">{bus.route}</span>
-    <span className="follow-row-copy"><strong>Ride along · to {destinationLabel(bus.destination)}</strong>
+    {/* The section is the verb; a row says where the bus goes. "Ride along · to The Trafford Centre"
+        was cut short on a 390 px phone and the destination, the one thing that tells rows apart,
+        was what it lost. The accessible name keeps the whole sentence. */}
+    <span className="follow-row-copy"><strong>to {destinationLabel(bus.destination)}</strong>
      <small>{directionLabel(bus.direction)} · {TIER_WORDS[tier]}</small></span>
     <span className={`fresh-chip ${bus.freshness??'unknown'}`}>{bus.ageWords.replace('reported ','')}</span>
    </button>)}

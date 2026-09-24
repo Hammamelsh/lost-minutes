@@ -53,7 +53,10 @@ test('with no live feed, the recording is offered, rides its own bus, is badged 
   await expect(section).toHaveAttribute('data-rides', 'offline');
   await expect(section.locator('button[data-ride-bus]')).toHaveCount(0);
   const offer = section.locator(`button[data-ride-recording="${RIDE_ID}"]`);
-  await expect(offer).toContainText('Watch a recorded ride');
+  // The visible title is short ("Recorded ride · to …") so the destination survives a phone's
+  // width; the accessible name still says "Watch a recorded ride".
+  await expect(offer).toContainText('Recorded ride');
+  await expect(offer).toHaveAccessibleName(/Watch a recorded ride/);
   await expect(offer).toContainText('13 September 2026, 12:00 · 2 min');
   await expect(offer).toContainText('a recording, not live');
   await offer.click();

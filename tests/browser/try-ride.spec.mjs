@@ -95,3 +95,59 @@ test('with no live feed and no recording the section is not shown at all', async
   await expect(page.locator('.follow-badge')).toContainText('NOT COLLECTING');
   await expect(section(page)).toHaveCount(0);
 });
+
+test('three different services come first, and a row keeps its destination whole', async ({page}) => {
+  await servePatterns(page);
+  await serveMotion(page);
+  await noRecordings(page);
+  const startMs = Date.now() - 60_000;
+  await serveLive(page, [() => {
+    // FX-MOVING and FX-PASSED are both the 256 to Piccadilly Gardens on the evaluated road; a third
+    // of the same service, and one 256 the other way on the branch (a checked road it is not on,
+    // so "placed"): four candidates for three places.
+    const live = movingLive({startMs});
+    const passed = live.vehicles.find(v => v.vehicle === 'FX-PASSED');
+    live.vehicles.push({...passed, vehicle: 'FX-THIRD', journeyRef: 'FX-THIRD'});
+    live.vehicles.push({...passed, vehicle: 'FX-OTHER', journeyRef: 'FX-OTHER', destination: 'Chester_Road',
+      match: {...passed.match, patternId: 'FX:256:branch', patternDestination: 'Chester Road (fixture branch)'}});
+    return live;
+  }]);
+  await page.goto('/');
+  await waitForPaint(page);
+  await expect(section(page)).toHaveAttribute('data-rides', 'ready', {timeout: 15_000});
+  const rows = section(page).locator('button[data-ride-bus]');
+  await expect(rows).toHaveCount(3);
+  // Ranked by tier alone this read three 256s to Piccadilly Gardens; the other service now comes
+  // second, and the second Piccadilly bus takes the last place.
+  await expect(rows.nth(0)).toContainText('to Piccadilly Gardens');
+  await expect(rows.nth(1)).toContainText('to Chester Road');
+  await expect(rows.nth(1)).toHaveAttribute('data-ride-tier', 'placed');
+  await expect(rows.nth(2)).toContainText('to Piccadilly Gardens');
+  // The destination is not cut short on a phone: the title wraps instead.
+  for (const i of [0, 1, 2]) {
+    const title = rows.nth(i).locator('strong');
+    const clipped = await title.evaluate(el => el.scrollWidth > el.clientWidth + 1);
+    expect(clipped, `row ${i} shows its whole destination`).toBe(false);
+  }
+});
+
+test('the way in from the first screen: a quiet line under Buses near me opens the section', async ({page}, testInfo) => {
+  await servePatterns(page);
+  await serveMotion(page);
+  await noRecordings(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  const link = page.locator('[data-try-ride-link]');
+  await expect(link).toBeVisible();
+  await expect(link).toContainText('Or try Ride-along');
+  // Finding a stop stays the primary task: the big button is Buses near me, the ride is a text line.
+  const primary = page.getByRole('button', {name: 'Buses near me'});
+  const [big, small] = await Promise.all([primary.boundingBox(), link.boundingBox()]);
+  expect(big.height).toBeGreaterThan(small.height);
+  expect(small.y).toBeGreaterThan(big.y);
+  await link.click();
+  await expect(section(page)).toBeInViewport({timeout: 5000});
+  if (testInfo.project.name === 'mobile') await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'full');
+  await expect(section(page).locator('button').first()).toBeFocused();
+});

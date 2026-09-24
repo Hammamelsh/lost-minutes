@@ -3,7 +3,8 @@
 // for other buses, and the front view says what it can do before it is pressed. FIXTURE data on
 // real NaPTAN stops; SwiftShader, so the frame times are a software renderer's, not a phone's.
 import {test, expect} from '@playwright/test';
-import {journeyLive, mapBand, metresOffFixtureRoad, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
+import {FIXTURE_STOP_OFFSETS, fixtureOffsetOf, journeyLive, mapBand, metresOffFixtureRoad, movingLive, serveLive, serveMotion,
+  servePatterns, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 const map = page => page.locator('.vector-map').first();
@@ -193,4 +194,91 @@ test('a move too far to have been followed is repositioned and said, never a sil
   await expect(line).toContainText('too far to have been followed');
   await expect(map, 'and the map records it as a repositioning, not as travel')
     .toHaveAttribute('data-correction', /^snap:/);
+});
+
+test('coming or past is judged by the newest report while the drawn bus is still half a minute behind it, and the stated delay is the measured one', async ({page}) => {
+  test.setTimeout(160_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});   // a checked road and no prediction: played back 30–60 s behind
+  // Stop A is index 6 on the fixture road, 1499 m along it; the newest report is nearest the stop
+  // after it once past 1655 m. At 11 m/s from 500 m a minute ago, the first publication's newest
+  // report is about 1120 m in — one stop before yours — and it passes 1655 m about 45 s after the
+  // page opens, while the drawn bus, half a minute or more behind, is still short of the stop.
+  const started = Date.now() - 60_000;
+  await serveLive(page, Array.from({length: 40}, () => () =>
+    movingLive({startMs: started, startS: 500, speed: 11, cadence: 10, delay: 4})));
+  await page.goto(`/?stop=${STOP_A}&bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J`);
+  await waitForPaint(page);
+  const card = page.locator('article.bus-card');
+  await expect(card).toContainText(/before yours/, {timeout: 20_000});
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  const progress = page.locator('.ride-card .ride-progress');
+  await expect(progress).toContainText(/before yours|from your stop/);
+  // The newest report passes the stop. The card says so at the publication that carried it — not
+  // 30–60 s later when the drawn bus gets there — so at that moment the drawn bus is still before
+  // the stop. The decision came from the report; the drawing had nothing to do with it.
+  // Past the stop the bus is no longer one of the stop's: the card's eyebrow says so ("Selected
+  // bus · past your stop") and the progress line goes with the answer it belonged to.
+  await expect(page.locator('.ride-card')).toContainText(/past your stop/i, {timeout: 100_000});
+  const display = (await map(page).getAttribute('data-display')) || '';
+  const [lat, lon] = display.split(',').map(Number);
+  const drawnS = fixtureOffsetOf(lat, lon), stopS = FIXTURE_STOP_OFFSETS[6];
+  expect(drawnS, `the drawn bus (${drawnS.toFixed(0)} m) is still before the stop (${stopS.toFixed(0)} m) as the card says past`)
+    .toBeLessThan(stopS);
+  // And the delay the card states is the real one: this frame's presentation time less the moment
+  // being shown, said to the nearest five seconds.
+  const label = (await page.locator('.ride-card .ride-motion').textContent()) ?? '';
+  const said = Number(/drawn about (\d+) s behind/.exec(label)?.[1]);
+  const frame = Number(display.split(',')[4]), shown = Number(await map(page).getAttribute('data-shown'));
+  const actual = (frame - shown) / 1000;
+  expect(said, `the card states the delay (${label})`).toBeGreaterThanOrEqual(25);
+  expect(Math.abs(said - actual), `stated ${said} s, measured ${actual.toFixed(1)} s`).toBeLessThanOrEqual(6);
+  // Leaving the ride, the panel's card says the same thing as the ride card did.
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await expect(card).toContainText(/already past|past your stop/i);
+  await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-past-by-report.png`)});
+});
+
+test('the road ahead is lit under the ridden bus where it is on its checked road, outside only, and never on a chord', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  const started = Date.now() - 90_000;
+  await serveLive(page, Array.from({length: 40}, () => () =>
+    movingLive({startMs: started, startS: 250, speed: 9, cadence: 20, delay: 4})));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  // Not in the ordinary map: the ribbon belongs to the ride.
+  await expect(map(page)).toHaveAttribute('data-road-ahead', '');
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  await expect(map(page)).toHaveAttribute('data-road-ahead', /^\d+$/, {timeout: 20_000});
+  const metres = Number(await map(page).getAttribute('data-road-ahead'));
+  expect(metres, 'about three hundred metres of the checked road ahead').toBeGreaterThan(200);
+  expect(metres).toBeLessThanOrEqual(320);
+  // The next stops on its pattern are named on that road, outside as well as in the front view.
+  await expect(map(page)).toHaveAttribute('data-stops-ahead', /^[1-3]$/);
+  await page.waitForTimeout(600);
+  await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-road-ahead.png`)});
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'off');
+  await expect(map(page)).toHaveAttribute('data-road-ahead', '', {timeout: 5000});
+});
+
+test('a bus with no checked road gets no road ahead: nothing is lit that is not known to be its road', async ({page}) => {
+  await servePatterns(page);
+  await serveMotion(page);
+  await noGeometry(page);
+  const start = Date.now() - 90_000;
+  await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: start, speed: 9, cadence: 10})]);
+  await page.goto('/');
+  await waitForPaint(page);
+  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
+  await page.waitForTimeout(1500);
+  await expect(map(page)).toHaveAttribute('data-road-ahead', '');
 });

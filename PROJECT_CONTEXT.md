@@ -4,8 +4,9 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 23 September 2026, late evening (the phone sheet that would not stay up, the ride
-paced by its reports rather than their arrival, Try Ride-along and a recorded ride).
+Last updated: 24 September 2026, midday (the finished flow: Try Ride-along's way in and rows, the
+road ahead lit under the ridden bus, the framing and entrance, the delay stated to five seconds and
+shown never to reach a stop decision, one Exit).
 
 **23 September, late evening — the sheet, the pacing, and a way in to Ride-along.** Detail and
 evidence: `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. Three reports from the owner's own
@@ -84,6 +85,23 @@ phone, each reproduced before it was changed.
   with the reason beside each and re-run on the same build (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
   §6 has the account, including a first gate thrown away by a second run of my own). Emulation
   only; the physical-device checklist has the sheet, the keyboard, Try Ride-along and the recording.
+
+- **24 September, midday — the finished flow** (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
+  §8). Try Ride-along's three rows had been three 250s with every title cut short on a phone; the
+  first bus of each service now leads, titles wrap, the recording reads *Recorded ride · to Bury
+  Interchange*, and one quiet line under **Buses near me** — *Or try Ride-along* — opens the section
+  from the first screen (the sheet opens to it on a phone). In the ride: **the road ahead lit** —
+  the next 320 m of the checked road from the drawn bus, only where the drawn bus is on it (backlog
+  27, built); the next stops named outside as well as in the front view; the bus three-fifths down
+  the clear band so the road ahead has the frame; an entrance that settles (ease-out, 1.1 s) with
+  the controls fading in, nothing under reduced motion; Locate me stands down while riding. **The
+  delay cannot reach a decision**: coming, near or past is `relateToStop` on the publication's
+  newest report, and the drawing is never an input (a Node test and a browser check that holds
+  *past your stop* said while the drawn bus is still short of the stop); the card's figure is the
+  map's own measurement, now said to five seconds as *drawn about 30 s behind*, held against
+  `data-shown` in the same check. The panel's second **Exit** beside the map's is gone. **Verified:** 225 Node, typecheck, lint; the full gate **344 passed, 36 skipped, 6 failed in
+  55.8 min**, the six being three older checks on both profiles that read the label's earlier
+  *drawn N s behind*, restated and re-run (6 passed). Emulation only. {{PCDEPLOY}}
 
 Before that, 23 September 2026 (the ride-along made legible, three silent teleports and a 269 km/h
 correction traced and fixed, and the stop answering "when is the next bus?" from the timetable).

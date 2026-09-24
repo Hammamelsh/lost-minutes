@@ -352,12 +352,104 @@ recorded as **not reproduced in 13 runs on this build, cause plausible but not e
 check keeps its full strength, and the physical-device checklist keeps its item, because a real
 GPU's frame timing is the one variable emulation cannot vary.
 
-## 8. Limitations
+## 8. The finished flow: the way in, the ride's presentation, the delay and the decisions
+
+The owner's brief of 24 September (midday): finish the Try Ride-along experience with finding a
+bus still the primary task; improve the ride's presentation by framing, a brief entrance, readable
+road and stop context and compact controls, and evaluate the road-ahead ribbon; verify that the
+30–60 s playback delay cannot affect whether a bus is judged approaching or past a stop, and state
+the delay accurately; review the finished flow for duplicated information, confusing labels and
+unnecessary actions. No change to the movement rules, which stand on §2b's measurements.
+
+**Try Ride-along, finished.** Two things were wrong on the served site and both are visible in the
+frames the walk kept (`outputs/probes/try-ride-walk/deployed-4/`). The three rows were three 250s —
+two to The Trafford Centre and one to Piccadilly Gardens — because the ranking was by tier and then
+age alone, which is one choice dressed as three; `rideCandidates` now ranks the first bus of each
+service (operator, route, direction, destination) ahead of a second bus of a service already
+listed, which fills the list only where fewer services than places qualify (a Node test holds the
+order and the fill). And every title was cut short on a 390 px phone — *Ride along · to The
+Trafford …*, *Watch a recorded ride · to Bu…* — losing the destination, the one thing that tells
+rows apart. The section is the verb now: a row reads *to The Trafford Centre* with its kind of ride
+under it, a recording *Recorded ride · to Bury Interchange*, titles wrap rather than clip, and the
+accessible names keep the whole sentence. The way in from the first screen is one quiet line under
+**Buses near me** — *Or try Ride-along · the map rides with one bus* — a text action, smaller and
+below the primary button; on a phone it opens the sheet and brings the section into view with its
+first row focused. The live choices and the labelled recording are the same ones as before.
+
+**The ride's presentation.** Four changes, each small:
+- **The road ahead, lit** (backlog 27, built). In the ride's outside view the next 320 m of the
+  checked road from where the bus is drawn is a soft lime ribbon about a lane wide at the ride's
+  zoom (`lm-road-ahead`, from the trail source, per frame). It is drawn only where the drawn bus is
+  *on* that road — an estimate's place along its track, or a playback whose stretch was measured
+  onto the road — so a bus travelling a chord, or one with no checked road, gets no ribbon: nothing
+  is lit that is not known to be its road. Hidden in the front view (the road is the ground there)
+  and outside the ride. `data-road-ahead` carries the metres drawn.
+- **The next stops named, outside too.** The next three stops on the bus's pattern were labelled in
+  the front view only; they are now labelled on the road ahead in the outside view as well, so a
+  passenger reads where the bus is going, not only where it is.
+- **Framing.** The camera looks along the bus's heading, so what is ahead of it is up the screen and
+  what is behind it has been seen. Centred in the clear band between the bar and the card, the bus
+  gave half the frame to the road behind it; it now sits about three-fifths of the way down the
+  band and the road ahead has the rest (`ridePadding`, 24% of the band added above).
+- **The entrance.** The glide's last leg settles — fast away from the flat map, slowing into the
+  framing behind the bus (an ease-out cubic, 1.1 s on entering, 0.9 s on a return) — where MapLibre's
+  symmetrical ease arrived at speed; the ride's controls fade in over 0.45 s as the glide begins,
+  and nothing animates under reduced motion. **Locate me** stands down while riding: the camera is
+  on the bus, and the button sat over the road ahead on a phone. Zoom and the theme stay.
+
+**The delay cannot reach a decision, and the figure stated is the measured one.** Whether a bus is
+coming to a stop, near it or past it is decided by `relateToStop` from the publication's match of
+the *newest* report (`patternIndex` against the stop's index in the pattern), and by `stopBoard`
+from that relation; *appears stopped near* reads the reports themselves. Nothing about where the
+bus is drawn — the playback's moment, its place on the road — is an input to any of them: the
+drawing reads the publication, never the other way round. A Node test holds that a bus's
+coordinates and trail change nothing in `relateToStop`; a browser check rides a fixture bus toward
+Stop A and holds that the ride card says *past your stop* at the publication whose newest report
+passed it, at which moment the drawn bus — played back half a minute or more behind — is still short
+of the stop on the same road. The delay the card states was the map's own measurement already
+(this frame's presentation time less the moment being shown, never the setting), emitted to the
+card in five-second steps; it is now *said* to the nearest five seconds with "about" — *drawn
+about 30 s behind* — so the figure is honest to what the reader can use and does not flicker as
+the clock runs at real time, and under three seconds it is not a delay and the report's own age is
+given instead. The same browser check holds the stated figure against the measured one from the
+map's `data-shown` and `data-display` diagnostics, within six seconds.
+
+**Duplicates, labels and actions.** On a computer the ride's map carries **Exit ride-along**, the
+mode pill and **What is this?**, and the panel's card beside it carried *Riding along · following
+the bus* with a second **Exit**: the same action twice, a hand's width apart, and nothing on a phone
+(where the ride is the whole screen and the card is not on it). The panel keeps the sentence, so the
+map and the card still say the same thing, and loses the button. The Try Ride-along titles above
+were the other duplication of a kind — one service three times. Left alone on purpose: the ride
+card over the map on a computer repeats the route and destination the panel shows, because on a
+phone that card is the only summary and the checks read it on both profiles; the panel's *No stop
+chosen* hint under a Try Ride-along ride, which is true and a way on.
+
+**Verified.** 225 Node tests (four new: the delay words; a bus's coordinates and trail change nothing
+in `relateToStop`; distinct services first and the fill), typecheck and lint. The full browser gate
+on the candidate build: **344 passed, 36 skipped by design, 6 failed in 55.8 minutes** — the six
+being three older checks on both profiles (`motion.spec`, and two in `ride-offer.spec`) whose
+patterns read the label's earlier form *drawn N s behind*; restated for *drawn about N s behind*
+with the reason beside each and re-run on the same build, 6 passed. Before the gate, the focused run
+of the specs this pass touched (92 passed, 3 skipped, 5 failed) found five of the same kind — one
+more of those patterns, a new check that read the sheet's state from the panel rather than the
+workspace root, and the new stop check waiting for a progress line the card rightly drops once a
+bus is past the stop (its eyebrow says *Selected bus · past your stop* instead) — each restated and
+re-run, 6 passed; none was a defect in the page. New browser checks: three services first and
+titles whole; the way in from the first screen on both profiles, the sheet opened to full on the
+phone; coming-or-past judged by the newest report with the drawn bus measured still short of the
+stop at that moment and the stated delay within six seconds of the measured one; the road ahead
+present on entering the ride and gone on leaving; no road ahead for a bus with no checked road.
+Emulation only; the physical checklist gained four items. {{DEPLOY}}
+
+## 9. Limitations
 
 - Emulation only. The sheet's fix is reasoned from Safari's geometry and verified at Safari's
   viewport size in Chromium; Safari itself, and iOS's keyboard, are on the physical checklist.
-- The playback's delay is a cost: the drawn bus is 20–40 s behind its newest report and the card
-  says so. A passenger who wants the newest report itself still has *Show reported positions only*.
+- The playback's delay is a cost: the drawn bus is 30–60 s behind its newest report and the card
+  says so, to five seconds. A passenger who wants the newest report itself still has *Show reported
+  positions only*. The delay never enters a decision about a stop (§8).
+- The road ahead is the accepted shape and nothing more: it does not say the bus will keep to it,
+  only that this is the road checked against this service's reports.
 - One recorded ride, on one line. Adding another is one command from a reel; the index carries any
   number. The archive replay is not a ride.
 - The 163 comparison is one journey, at one time of day, through a software renderer; the A/B on

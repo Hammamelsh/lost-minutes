@@ -291,8 +291,9 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   // Its wording changed on 21 September 2026: a bus with no checked road is now drawn moving
   // between two of its own reports, so the card states the age of what is shown and says plainly
   // that it is neither estimated nor followed continuously. Since 23 September it is played back
-  // on a clock and the label says how far behind its reports it is drawn ("drawn 22 s behind").
-  await expect(page.locator('.ride-motion')).toContainText(/Moving between its reports · drawn \d+ s behind|Last reported position/);
+  // on a clock and the label says how far behind its reports it is drawn — to the nearest five
+  // seconds, as "about", since 24 September ("drawn about 30 s behind").
+  await expect(page.locator('.ride-motion')).toContainText(/Moving between its reports · drawn about \d+ s behind|Last reported position/);
   await expect(page.locator('.ride-motion')).not.toContainText('Estimated position');
   const before = await camera(page);
   await page.waitForTimeout(12_000);           // a new report: the camera goes to it

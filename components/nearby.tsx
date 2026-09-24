@@ -16,11 +16,14 @@ const COMPASS_DEGREES:Record<string,number>={N:0,NE:45,E:90,SE:135,S:180,SW:225,
  * live vehicles, so finding your stop works when collection is down.
  */
 export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocate,locating,
-                                locationError,onClearHere,areaLabel,day,browseAt=null,onStopBrowsing}:{
+                                locationError,onClearHere,areaLabel,day,browseAt=null,onStopBrowsing,onTryRide}:{
  stops:Stop[];patterns:PatternCatalogue|null;here:{lat:number;lon:number;accuracyMetres?:number}|null;
  /** The map's centre after the passenger moved it and asked for stops there: the list is
   *  centred on it instead of on the device until they go back to their location. */
  browseAt?:{lat:number;lon:number}|null;onStopBrowsing?:()=>void;
+ /** Try Ride-along, further down the panel: one quiet line under the primary task, so the ride
+  *  is found from the first screen without competing with finding a stop. */
+ onTryRide?:()=>void;
  outsideArea:boolean;onSelect:(stop:Stop)=>void;onLocate:()=>void;locating:boolean;
  locationError?:string;onClearHere:()=>void;areaLabel:string;day:string}){
  const origin=browseAt??(here&&!outsideArea?here:null);
@@ -31,6 +34,8 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
    <button className="nearby-action" onClick={onLocate} disabled={locating}>
     <Navigation size={19}/>{locating?'Finding you…':'Buses near me'}</button>
    <p className="nearby-or">or search above, without sharing a location</p>
+   {onTryRide&&<button className="text-action nearby-try-ride" onClick={onTryRide} data-try-ride-link>
+    Or try Ride-along<small>the map rides with one bus</small></button>}
   </div>
 
   {locationError&&<p className="nearby-note warn">{locationError}</p>}

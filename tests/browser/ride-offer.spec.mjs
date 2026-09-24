@@ -63,8 +63,9 @@ test('a checked road the model was never scored on: reported positions, may paus
   await enterRide(page);
   // Between reports it travels; at the newest it waits. Either way the age of the report is there.
   // Since 23 September 2026 a bus between its reports is played back on a clock, and the label says how
-  // far behind them it is drawn rather than the newest report's age (docs/MOTION_MODEL.md).
-  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn \d+ s behind|Last reported position · \d+ s ago)$/);
+  // far behind them it is drawn rather than the newest report's age (docs/MOTION_MODEL.md); since
+  // 24 September to the nearest five seconds, as "about".
+  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
   await expect(page.getByRole('button', {name: 'Front view', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Front view', exact: true}).click();
   await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
@@ -82,7 +83,7 @@ test('no accepted road: reported positions, may pause, and no front view promise
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
   await expect(offer(page)).toHaveText('Reported positions · may pause');
   await enterRide(page);
-  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn \d+ s behind|Last reported position · \d+ s ago)$/);
+  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
   // The button says on its face what it cannot do, and stays where it is: no exit, no repeat note.
   const front = page.locator('.ride-camera.unavailable');
   await expect(front).toHaveText(/Front view · not on this route/);

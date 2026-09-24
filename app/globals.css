@@ -424,6 +424,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  font-size:17px;font-weight:700;letter-spacing:-.2px}
 .nearby-action:disabled{opacity:.65}
 .nearby-or{margin:0;text-align:center;font-size:12px;color:#8fa6b3}
+/* The quiet way in to Try Ride-along, under the primary task and never competing with it. */
+.nearby-try-ride{display:block;margin:8px auto 0;min-height:36px;font-size:13px;font-weight:650;color:#dff5bd;text-align:center}
+.nearby-try-ride small{display:block;font-size:11.5px;font-weight:500;color:#8fa6b3}
 .nearby-note{margin:9px 2px 0;font-size:12px;line-height:1.6;color:#8fa6b3}
 .nearby-note.warn{color:#f1c68a}
 .nearby-outside{display:flex;gap:11px;align-items:flex-start;background:#2b2519;
@@ -616,6 +619,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 
 /* ---- Ride-along: a map visualisation, labelled as one, with a way out that is always in reach. */
 .ride-hud{position:absolute;inset:0;z-index:3;pointer-events:none}
+/* The controls arrive with the camera: a short fade as the glide begins, none under reduced motion. */
+@keyframes ride-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.vector-map[data-ride=entering] .ride-hud>*{animation:ride-in .45s ease-out both}
+@media(prefers-reduced-motion:reduce){.vector-map[data-ride=entering] .ride-hud>*{animation:none}}
+/* Locate me stands down while riding: the camera is on the bus, and the button sat over the road ahead. */
+.vector-map.view-ride .map-tools button[data-tool=locate]{display:none}
 .ride-hud>*{pointer-events:auto}
 .ride-notes{position:absolute;left:11px;top:62px;display:flex;flex-direction:column;align-items:flex-start;
  gap:6px;max-width:min(440px,calc(100% - 86px))}
@@ -1357,6 +1366,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .try-ride-lead{margin:0 4px 8px;font-size:13px;line-height:1.5;color:#b7c8d2}
 .try-ride .follow-hint{margin-top:6px}
 .try-ride-recorded{margin-top:6px}
+/* A row's title wraps rather than losing its destination: on a 390 px phone every title was cut. */
+.try-ride .follow-row-copy strong{white-space:normal;line-height:1.25}
 .try-ride .follow-row.recorded{border-style:dashed}
 .try-ride .follow-row.recorded strong svg{vertical-align:-2px;margin-right:2px}
 .fresh-chip.archive{background:#362d21;color:#f1c68a;border-color:#7e6541}

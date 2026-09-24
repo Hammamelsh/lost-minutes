@@ -192,6 +192,13 @@ the trail source already carries a per-frame line for the estimate; this is the 
 observed playback's `buffer.roadS`. Not done in the pacing milestone so the pacing could be gated
 on its own.
 
+**24 September 2026, later: built.** `lm-road-ahead` draws the next 320 m of the checked road from
+the drawn bus in the ride's outside view, only where the drawn bus is on that road (an estimate's
+`s`, or a playback stretch measured onto it); the next three pattern stops are named on it outside
+as well as in the front view. Two browser checks: the ribbon appears on entering the ride and goes
+on leaving, and a bus with no checked road gets none.
+`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §8.
+
 ## 28. Buses that report every two or three minutes
 The fleet check (`scripts/evaluate-fleet-playback.mjs`) lists 23 of 334 vehicle-journeys in the
 evening reel drawn standing while their reports moved more than 150 m: almost all report 9–16

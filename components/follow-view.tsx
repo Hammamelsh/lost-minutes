@@ -990,7 +990,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       <Nearby stops={stops} patterns={patterns} here={here} outsideArea={outsideArea} day={day}
        onSelect={selectStop} onLocate={onLocate??(()=>{})} locating={!!locating}
        locationError={locationError} onClearHere={onClearHere} areaLabel="Manchester"
-       browseAt={browseAt} onStopBrowsing={()=>{setBrowseAt(null);if(!here)onLocate?.()}}/>
+       browseAt={browseAt} onStopBrowsing={()=>{setBrowseAt(null);if(!here)onLocate?.()}}
+       onTryRide={!recording&&(mode==='live'||recordings.length>0)?()=>{
+        // The section is further down the panel; on a phone that is under the fold of the half
+        // sheet, so the sheet opens and the section comes into view with its first row focused.
+        sheetTo('full');
+        setTimeout(()=>{scrollTo('.try-ride');
+         document.querySelector<HTMLElement>('.try-ride button')?.focus({preventScroll:true})},60);
+       }:undefined}/>
      </div>)}
   {blocked&&<p className="follow-hint warn">This device would not let us save that. It still works for this visit.</p>}
   {shareState==='copied'&&<p className="follow-hint" data-share-copied>{recording
@@ -1215,10 +1222,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {shown&&!absent&&(riding||!pausedJourney)&&<div className="bus-card-actions">
     {riding
      ? <div className="ride-status" data-state={rideState}>
+        {/* The card says what the map's camera is doing, so the two agree; the ride's own controls
+            — Exit, Return to bus, the viewpoint — are on the map beside it, once. A second Exit
+            here was the same action twice on a computer, and nothing on a phone, where the ride
+            is the whole screen and this card is not on it. */}
         <span className="ride-status-words">Riding along · {rideState==='exploring'
          ?'you moved the map; return to the bus on the map':RIDE_WORDS[rideState]||'starting'}</span>
-        <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
-         aria-pressed="true"><X size={16}/><span>Exit</span></button>
        </div>
      : <button className={`follow-toggle ${follow?'on':''}`} onClick={toggleFollow}
         aria-pressed={follow} aria-label={follow?'Stop following this bus':'Keep this bus centred'}>
@@ -1228,9 +1237,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      <Share2 size={14} aria-hidden="true"/> Share</button>}
    </div>}
    {absent&&riding&&<div className="bus-card-actions"><div className="ride-status" data-state={rideState}>
-    <span className="ride-status-words">Riding along · waiting for a new report from this bus</span>
-    <button className="ride-state" onClick={()=>setView('2d')} aria-label="Leave the ride-along"
-     aria-pressed="true"><X size={16}/><span>Exit</span></button></div></div>}
+    <span className="ride-status-words">Riding along · waiting for a new report from this bus</span></div></div>}
    {shown&&<details className="bus-evidence-toggle">
     <summary>How we know this</summary>
     <BusEvidence bus={shown} relation={cardRelation} patterns={patternsById} mode={mode}

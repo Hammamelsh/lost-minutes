@@ -142,3 +142,16 @@ test('scheduled seconds travel with the pattern as a parallel array, and a misma
  assert.deepEqual(parsePatterns({...published,patterns:[partial]}).patterns[0].seconds,[0,60,null,null,null,null]);
  assert.throws(()=>parsePatterns({...published,patterns:[{...pattern,id:'p6',seconds:[0,60]}]}),/scheduled seconds disagree/);
 });
+
+test('a bus is related to a stop by its published match alone: its coordinates and trail never enter',()=>{
+ // The map draws a played-back bus 30–60 s behind its newest report (PLAYBACK). Whether it is
+ // coming to a stop or already past it is decided here, from the publication's match of that
+ // newest report, and nothing about where the bus is drawn — or where its earlier reports were —
+ // can reach this function: it reads `match` and nothing else.
+ const past={...at('p1',4),lat:53.0,lon:-2.0,trail:[{at:1,lat:53.1,lon:-2.1,bearing:null,source:null}]};
+ assert.equal(relateToStop(past,'S1',index).kind,'beyond');
+ const elsewhere={...past,lat:0,lon:0,trail:[]};
+ assert.deepEqual(relateToStop(elsewhere,'S1',index),relateToStop(past,'S1',index));
+ const coming={...at('p1',1),lat:0,lon:0};
+ assert.equal(relateToStop(coming,'S4',index).kind,'approaching');
+});

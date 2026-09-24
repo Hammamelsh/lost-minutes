@@ -15,7 +15,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
 import {daylightAt} from '@/lib/daylight';
-import {historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
+import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
 import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
 import {destinationLabel,type FollowBus} from '@/lib/follow';
@@ -144,6 +144,10 @@ const TAP_MARGIN=14;
 const CHOOSER_MARGIN=8;
 /** How long a repositioning is traced on the map after it happens. */
 const SNAP_TRACE_MS=6000;
+// The road ahead of the ridden bus, lit under it in the ride's outside view: the next stretch of
+// the shape checked against this service's own reports, from where the bus is drawn. About what
+// a bus covers in half a minute, so it reads as "its road" rather than the whole route.
+const ROAD_AHEAD_METRES=320;
 /** How long "checking" may stand before it becomes an answer: a fetch of one shape file, generously. */
 const FRONT_WAIT_MS=8000;
 /** A stable empty catalogue, so a map given no stops does not re-run its stops effect. */
@@ -292,8 +296,12 @@ function ridePadding(canvas:HTMLElement){
  const top=Math.max(0,...['.ride-bar','.ride-notes'].map(s=>edge(s,'bottom')??0));
  const cardTop=Math.min(...['.ride-actions','.ride-card'].map(s=>edge(s,'top')??Infinity));
  const bottom=Number.isFinite(cardTop)?Math.max(0,box.height-cardTop):0;
- if(box.height-top-bottom<90)return {top:Math.round(box.height*0.1),bottom:0,left:0,right:0};
- return {top:Math.round(top+8),bottom:Math.round(bottom+8),left:0,right:0};
+ const band=box.height-top-bottom;
+ if(band<90)return {top:Math.round(box.height*0.1),bottom:0,left:0,right:0};
+ // The camera looks along the bus's heading, so what is ahead of it is up the screen and what is
+ // behind it has been seen. Centred in the band the bus gave half the frame to the road behind
+ // it; it now sits about three-fifths of the way down the band, and the road ahead has the rest.
+ return {top:Math.round(top+8+band*0.24),bottom:Math.round(bottom+8),left:0,right:0};
 }
 
 /**
@@ -369,9 +377,14 @@ async function approach(instance:MapLibreMap,target:()=>CameraOptions&{center:Ln
   await glide(instance,{center:target().center,duration:Math.round(Math.min(600,Math.max(250,off*0.8)))});
   if(!still())return false;
  }
- await glide(instance,{...target(),duration});
+ // The last leg settles: fast away from the flat map, slowing into the framing behind the bus, as
+ // a camera lowered onto a road does, rather than MapLibre's symmetrical ease.
+ await glide(instance,{...target(),duration,easing:settle});
  return still();
 }
+
+/** Ease-out (cubic): all of the speed at the start, none at the end. */
+const settle=(t:number)=>1-Math.pow(1-t,3);
 
 /** Bearing from one point to another, degrees from north; flat, which is exact enough over 30 m. */
 const bearingTo=(a:{lat:number;lon:number},b:{lat:number;lon:number})=>
@@ -439,6 +452,9 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
   +`${v.bearing===null?'':v.bearing.toFixed(1)},${Math.round(v.frame)},${Math.round(wall)}`:'');
  el.setAttribute('data-correction',v?.lastCorrection
   ?`${v.lastCorrection.kind}:${Math.round(v.lastCorrection.metres)}:${Math.round(v.lastCorrection.at)}`:'none');
+ // A played-back bus: the report-time moment being shown (ms), so the delay the card states can be
+ // held against the real one, this frame's presentation time less this.
+ el.setAttribute('data-shown',v?.buffer?String(Math.round(v.buffer.shown)):'');
  // Where the drawn bus is on the canvas, in CSS pixels from its top-left corner.
  el.setAttribute('data-bus-screen',screen?`${Math.round(screen.x)},${Math.round(screen.y)}`:'');
  // The middle frame interval of the last 90, in milliseconds: how fast this device is actually
@@ -1245,6 +1261,20 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     const band=uncertaintyAt(input.profile,e.reportAge);
     if(band)features.push(lineFeature(slice(input.track,v.s-band.metres,v.s+band.metres),'band'));
    }
+   // The road ahead (backlog 27), only in the ride and only where the drawn bus is on the checked
+   // road: an estimate's place along its track, or a playback whose stretch was measured onto the
+   // road. A bus travelling a chord, or with no road, gets no ribbon — nothing is drawn that is
+   // not known to be its road. The layer itself is shown only in the ride's outside view.
+   let ahead=0;
+   if(input.view==='ride'&&input.track){
+    const roadS=e.mode==='estimated'?v.s:v.buffer?.onRoad?v.buffer.roadS:null;
+    if(roadS!==null&&roadS<input.track.length-5){
+     const to=Math.min(input.track.length,roadS+ROAD_AHEAD_METRES);
+     features.push(lineFeature(slice(input.track,roadS,to),'ahead'));
+     ahead=Math.round(to-roadS);
+    }
+   }
+   root.current?.setAttribute('data-road-ahead',ahead?String(ahead):'');
    trailSource?.setData({type:'FeatureCollection',features} as never);
    modelSource?.setData(input.modelShown&&input.model
     ?{type:'FeatureCollection',features:v.bearing!==null?orientedBus(input.model,v,v.bearing,input.selected.key)
@@ -1320,7 +1350,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const info=motionInfo(e,v,input.profile,input.params,now,
    Boolean(input.replay&&input.history&&input.history.fixes.length>1),
    Boolean(input.replay&&input.track&&e.mode==='observed'));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${Math.floor((info.displayDelaySeconds??0)/5)}`;
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${delaySeconds(info.displayDelaySeconds)??''}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that
@@ -1425,9 +1455,13 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     const kerb=inside?FRONT[theme].kerb:own(layer)?.['line-color'];
     if(extra>0&&kerb)instance.setPaintProperty(layer,'line-color',kerb as never);
    }
-   // The front view's own labels: upright street names, and the next stops on the bus's pattern.
-   for(const id of ['lm-front-street-name','lm-stops-ahead-dot','lm-stops-ahead-label'])
-    if(instance.getLayer(id))instance.setLayoutProperty(id,'visibility',inside?'visible':'none');
+   // The front view's own labels: upright street names. The next stops on the bus's pattern are
+   // named in both views of the ride — on the road ahead outside as in the street ahead inside —
+   // and the road ahead itself is lit only outside, where the road is seen from above.
+   if(instance.getLayer('lm-front-street-name'))instance.setLayoutProperty('lm-front-street-name','visibility',inside?'visible':'none');
+   for(const id of ['lm-stops-ahead-dot','lm-stops-ahead-label'])
+    if(instance.getLayer(id))instance.setLayoutProperty(id,'visibility',view==='ride'?'visible':'none');
+   if(instance.getLayer('lm-road-ahead'))instance.setLayoutProperty('lm-road-ahead','visibility',view==='ride'&&!inside?'visible':'none');
    // Street and river names are laid along their lines. From eye height the name of the road
    // ahead stands on end and overlaps itself, so the front view leaves them out.
    for(const layer of instance.getStyle().layers??[])
@@ -1435,7 +1469,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      instance.setLayoutProperty(layer.id,'visibility',inside?'none':'visible');
   }catch{/* the flat symbol stays: the 2D map is always the fallback */}
   kick();
- },[ready,modelShown,kick,camera,theme]);
+ },[ready,modelShown,kick,camera,theme,view]);
 
  // --- camera ----------------------------------------------------------------------
  // `camera` is the tilt and heading to end at; without it the current tilt is kept.
@@ -1571,7 +1605,9 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   if(!instance||viewRef.current!=='ride')return;
   const token=++r.transition;
   instance.stop();
-  const duration=fast?450:900;
+  // Entering is the one glide a passenger watches from the start; a return is to a framing they
+  // have already seen. Both are over well inside the two seconds the checks allow.
+  const duration=fast?450:as==='entering'?1100:900;
   // Once outside again, the map's own pitch limit returns.
   const settle=()=>{
    if(r.camera==='outside'&&instance.getPitch()<=OUTSIDE_MAX_PITCH)instance.setMaxPitch(OUTSIDE_MAX_PITCH);
@@ -1791,7 +1827,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    {/* The front view sets its own height: zooming there would move the eye out of the bus. */}
    <button onClick={()=>zoomBy(1)} aria-label="Zoom in" disabled={camera==='front'}><Plus size={18}/></button>
    <button onClick={()=>zoomBy(-1)} aria-label="Zoom out" disabled={camera==='front'}><Minus size={18}/></button>
-   {onLocate&&<button onClick={onLocate} disabled={locating} aria-label="Locate me">
+   {onLocate&&<button onClick={onLocate} disabled={locating} aria-label="Locate me" data-tool="locate">
     <LocateFixed size={17} className={locating?'spin':''}/></button>}
    <button onClick={()=>setExpanded(value=>!value)} aria-pressed={expanded}
     aria-label={expanded?'Make the map smaller':'Make the map bigger'}>

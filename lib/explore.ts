@@ -37,7 +37,17 @@ export function rideCandidates(buses:FollowBus[],accepted:Set<string>,model:Moti
    out.push({bus,tier:'placed',estimated:false});
   }
  }
- return out.sort((a,b)=>TIER_ORDER[a.tier]-TIER_ORDER[b.tier]||(a.bus.ageSeconds??999)-(b.bus.ageSeconds??999)).slice(0,limit);
+ const ranked=out.sort((a,b)=>TIER_ORDER[a.tier]-TIER_ORDER[b.tier]||(a.bus.ageSeconds??999)-(b.bus.ageSeconds??999));
+ // Three different rides, not one service three times: on the deployed site the list read two
+ // 250s to Piccadilly Gardens and a third 250, which is one choice dressed as three. The first
+ // bus of each service (operator, route, direction, destination) keeps its rank; a second bus of a
+ // service already listed fills the list only where fewer services than places qualify.
+ const seen=new Set<string>(),distinct:RideCandidate[]=[],rest:RideCandidate[]=[];
+ for(const c of ranked){
+  const service=`${c.bus.operator}|${c.bus.route}|${c.bus.direction}|${c.bus.destination}`;
+  if(seen.has(service))rest.push(c);else{seen.add(service);distinct.push(c)}
+ }
+ return [...distinct,...rest].slice(0,limit);
 }
 
 /** How many of the reporting buses are on an accepted road at all, recent or not: the denominator. */

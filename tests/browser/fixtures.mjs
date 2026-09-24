@@ -339,6 +339,25 @@ export function metresOffFixtureRoad(lat, lon) {
   return best;
 }
 
+/** Metres along the fixture road of the point on it nearest to (lat, lon): where a drawn bus is,
+ *  measured the way its reports are, so a check can hold it against a stop's own offset. */
+export function fixtureOffsetOf(lat, lon) {
+  let best = Infinity, at = 0;
+  const k = Math.cos(lat * Math.PI / 180);
+  for (let i = 1; i < TRACK.points.length; i++) {
+    const [ax, ay] = TRACK.points[i - 1], [bx, by] = TRACK.points[i];
+    const dx = (bx - ax) * k * 111195, dy = (by - ay) * 111195;
+    const px = (lon - ax) * k * 111195, py = (lat - ay) * 111195;
+    const len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, (px * dx + py * dy) / len)) : 0;
+    const d = Math.hypot(px - dx * t, py - dy * t);
+    if (d < best) { best = d; at = TRACK.cum[i - 1] + Math.sqrt(len) * t; }
+  }
+  return at;
+}
+/** The fixture road's stop offsets, as the recorded shape declares them (Stop A is index 6). */
+export const FIXTURE_STOP_OFFSETS = SHAPE.stopOffsets;
+
 /** Google's encoded polyline at precision 6: the inverse of decodePolyline6, for served fixtures. */
 function encodePolyline6(points) {
   let out = '', lastLat = 0, lastLon = 0;

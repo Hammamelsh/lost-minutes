@@ -103,6 +103,13 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   // The chosen bus's recent reports and, apart from them, where it is estimated to be: dots are
   // reports; a dashed line along the road from the last report is the estimate; a pale band
   // around it spans where 8 in 10 held-out estimates at this report age were actually found.
+  // The road ahead of the ridden bus (backlog 27): the next stretch of its checked road, lit
+  // softly under the bus in the ride's outside view, about a lane wide at the ride's zoom. It is
+  // the accepted shape and nothing else; the map shows the layer only while riding, outside.
+  {id:'lm-road-ahead',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'ahead'],
+   layout:{'line-cap':'round','line-join':'round',visibility:'none'},
+   paint:{'line-color':'#c6f36a','line-opacity':0.34,'line-blur':1.5,
+          'line-width':['interpolate',['exponential',2],['zoom'],15,2,18,10,20,34]}},
   {id:'lm-trail-band',type:'line',source:TRAIL_SOURCE,filter:['==',['get','kind'],'band'],
    layout:{'line-cap':'round','line-join':'round'},
    paint:{'line-color':'#c6f36a','line-opacity':0.28,'line-width':['interpolate',['linear'],['zoom'],13,7,18,22]}},

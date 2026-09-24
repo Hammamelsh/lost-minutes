@@ -455,7 +455,19 @@ in full; and the **previously deployed build, rebuilt and run under the same run
 failed 4 of 10 against this build's 1 of 10**. The residue predates this pass; backlog 23 has the
 detail and the next step. On this final build the ride, ride-quality, recorded-ride and try-ride specs: **81 passed,
 2 skipped by design, 1 failed in 18.2 minutes** — the one being that flat-return check on the phone
-profile, which is backlog 23 and is left at full strength. {{DEPLOY}}
+profile, which is backlog 23 and is left at full strength. **Deployed as `4b67dfc`** (13:08 UTC; the served page chunk identical to the local build's,
+`110428d` kept for `deploy/rollback.sh`, the collector and three timers active) and walked on the
+served site (`outputs/probes/try-ride-walk/deployed-6/`): on the phone the sheet dragged to full and
+stayed; Try Ride-along offered three estimated rides on three services — a 250 to Piccadilly
+Gardens, a 15 to Roedean Gardens, a 250 to The Trafford Centre — and *Recorded ride · to Bury
+Interchange*; the recording followed from its first frame, 69 → 552 m in its first minute, the card
+*drawn about 30 s behind*, and leaving it brought the live feed back with a clean address; on the
+desktop a live 250 was followed at an estimated position and left the map at pitch 0. The map's own
+diagnostics on the served recording, both profiles: 320 m of road ahead drawn, three stops named,
+and the measured delay (presentation time less the moment shown) exactly 30.0 s against the stated
+*about 30 s*. The before-and-after sheet, first and final served frames side by side, is
+`outputs/probes/milestone/finished-flow/before-after.png` (git-ignored, with the frames it is made
+from). Emulation against the real site; no phone in hand.
 
 ## 9. Limitations
 

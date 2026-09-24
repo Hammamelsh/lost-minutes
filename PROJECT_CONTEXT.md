@@ -101,7 +101,12 @@ phone, each reproduced before it was changed.
   map's own measurement, now said to five seconds as *drawn about 30 s behind*, held against
   `data-shown` in the same check. The panel's second **Exit** beside the map's is gone. **Verified:** 225 Node, typecheck, lint; the full gate **344 passed, 36 skipped, 6 failed in
   55.8 min**, the six being three older checks on both profiles that read the label's earlier
-  *drawn N s behind*, restated and re-run (6 passed). Emulation only. {{PCDEPLOY}}
+  *drawn N s behind*, restated and re-run (6 passed). Emulation only. The ribbon was then lifted to half opacity (invisible on an orange primary road at a third) and
+  backlog 23's flat-return check, failing intermittently on the way, was measured across builds
+  rather than re-run: the previous deploy 4 of 10, this build 1 of 10, under the same runner. Final
+  focused run 81 passed / 2 skipped / 1 failed (that check). **Deployed as `4b67dfc`** and walked on
+  the served site: three services in Try Ride-along, the recording named, the road ahead lit on
+  Rochdale Road, *drawn about 30 s behind* against a measured 30.0 s. Emulation only.
 
 Before that, 23 September 2026 (the ride-along made legible, three silent teleports and a 269 km/h
 correction traced and fixed, and the stop answering "when is the next bus?" from the timetable).

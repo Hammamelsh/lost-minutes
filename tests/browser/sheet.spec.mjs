@@ -132,9 +132,16 @@ test.describe('the sheet', () => {
     await expect(page.locator('article.bus-card')).toHaveAttribute('data-vehicle', /FX-/);
     const vehicle = await page.locator('article.bus-card').getAttribute('data-vehicle');
     // Choosing a bus scrolls the list to its top for the new task, a moment later; the place in
-    // the list being kept is the one the passenger then reads to.
-    await page.waitForTimeout(400);
+    // the list being kept is the one the passenger then reads to. That scroll is smooth, and a
+    // fixed 400 ms did not always see it end: logged on 24 September 2026 (on f964c7d and on the
+    // build after it alike) the list was still moving at 300–462 px at 400 ms, overtook the 220
+    // set here, and the sheet's toggle then stopped it at 89–156 px — so the check failed or
+    // passed on timing. It now waits for the list to come to rest, as a reader's thumb would.
+    let last = -1;
+    await expect.poll(async () => { const now = await body(page).evaluate(el => el.scrollTop); const still = now === last; last = now; return still; },
+      {intervals: [150], timeout: 5000, message: 'the list comes to rest after the bus is chosen'}).toBe(true);
     await body(page).evaluate(el => { el.scrollTop = 220; });
+    expect(await body(page).evaluate(el => el.scrollTop), 'the passenger’s place is taken').toBe(220);
     await page.locator('[data-sheet-toggle]').click();
     await expect(follow(page)).toHaveAttribute('data-sheet', 'half');
     await page.locator('[data-sheet-toggle]').click();

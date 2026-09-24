@@ -151,3 +151,24 @@ test('the way in from the first screen: a quiet line under Buses near me opens t
   if (testInfo.project.name === 'mobile') await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'full');
   await expect(section(page).locator('button').first()).toBeFocused();
 });
+
+test('a ride started from the full list hands back to the map, not to the list', async ({page}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'the sheet exists on phones only');
+  await servePatterns(page);
+  await serveMotion(page);
+  await noRecordings(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  // The way in opens the sheet to full, and the ride starts from a row in it.
+  await page.locator('[data-try-ride-link]').click();
+  await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'full');
+  await section(page).locator('button[data-ride-bus]').first().click();
+  await expect(page.locator('.vector-map')).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await expect(page.locator('.vector-map')).toHaveAttribute('data-ride', 'off');
+  // Found on the served site: Exit came back to the full list, over the map just returned to flat.
+  await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'half');
+  await expect(page.locator('.ride-launch')).toBeInViewport();
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+});

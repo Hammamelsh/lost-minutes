@@ -532,6 +532,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  }
  function changeView(next:MapView){
   if(next==='ride'&&selection.kind==='none'&&shown)pinBus(shown,'ride');
+  // Leaving the ride hands back to the map: on a phone a sheet left full (Try Ride-along opens it
+  // there, and the ride is started from its rows) came back over the map the camera had just
+  // returned to flat, so Exit landed on a list with no map (the served site, 24 September 2026).
+  if(view==='ride'&&next!=='ride')setSheet(s=>s==='full'?'half':s);
   setView(next);
  }
  function showCard(){

@@ -207,6 +207,9 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  travels?:boolean;
  /** Observed and travelling down a checked road between its reports, rather than along the chord. */
  onRoad?:boolean;
+ /** Observed, with a checked road that its reports have left here for another street: drawn in a
+  *  straight line between them. */
+ offRoad?:boolean;
  /** Observed and played back: how far behind its reports the bus is drawn, in seconds. */
  displayDelaySeconds?:number|null;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
@@ -219,6 +222,7 @@ export const REPOSITION_WORDS:Record<RepositionReason,string>={
  no_earlier_report:'there was no earlier report to travel from',
  too_far:'it is too far to have been followed between reports',
  too_long:'too long passed between its reports',
+ resumed:'the page was in the background, so its movement meanwhile was not drawn',
 };
 
 const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds/60)} min`;
@@ -263,8 +267,14 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
     +(info.onRoad
       ?' Between two reports it goes down the road checked against this service’s own reports, because both'
        +' of them were measured onto it.'
+      :info.offRoad
+      ?' Here its reports have left the road checked for this service — they lie on another street — so it is'
+       +' drawn in a straight line between them: the streets it took are not known.'
       :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
+  if(info.between&&info.offRoad)return {label:delay!==null?`Off its checked road · drawn about ${delay} s behind`
+    :`Off its checked road · latest ${ageWords(info.reportAge)} ago`,
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
   if(info.between)return {label:delay!==null?`Moving between its reports · drawn about ${delay} s behind`
     :`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};

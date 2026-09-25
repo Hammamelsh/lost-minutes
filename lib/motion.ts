@@ -485,7 +485,13 @@ export type Visual = {
           ease: {fromLat: number; fromLon: number; at: number; ms: number} | null;
           /** The drawn bus along its path: distance, speed (m/s), the path's end, whether it is on
            *  the checked road, and the path itself keyed by its reports' times. */
-          sd: number; vd: number; end: number; goalS: number; k: number; onRoad: boolean; roadS: number | null; pathKey: string; path: unknown} | null;
+          sd: number; vd: number; end: number; goalS: number; k: number; onRoad: boolean; roadS: number | null; pathKey: string; path: unknown;
+          /** The report-time moment the drawn place stands for (what "drawn N s behind" is measured
+           *  from), and, while it waits for fresh reports after a pause in drawing, when it began. */
+          represented?: number; resume?: number | null;
+          /** The furthest the clock may run on the reports it has: when it stands here, the frame loop
+           *  may rest, and a gap in frames is not a pause in drawing. */
+          latestAt?: number} | null;
 };
 
 /**
@@ -493,7 +499,7 @@ export type Visual = {
  * evidence, not about the app: there was nothing to travel from, the move is too far to have been
  * followed, or too long went unseen. The passenger is told which.
  */
-export type RepositionReason = 'no_earlier_report' | 'too_far' | 'too_long';
+export type RepositionReason = 'no_earlier_report' | 'too_far' | 'too_long' | 'resumed';
 
 /**
  * Moving a bus shown at its reports from one report to the next.
@@ -578,8 +584,29 @@ export const PLAYBACK = {
   *  slower rather than a stop when the next report is late, a little faster rather than a sprint
   *  when it has caught up. Neither is a speed a passenger would read as wrong. */
  slowestRate: 1, fastestRate: 1.05,
- resyncMs: 45_000,
+ /** Behind the delay by more than this, the clock is repositioned (and says so) rather than left
+  *  to crawl back at `fastestRate`. It was 45 s, which let the drawing sit up to 105 s behind for
+  *  minutes: on 24 September 2026 a route-43 ride read "drawn about 75 s behind", and a 90 s gap in
+  *  publications left it 87 s behind a minute after they resumed. */
+ resyncMs: 15_000,
+ /** While the reports say the bus stood, the clock may run this much faster to make up time it
+  *  lost waiting for late reports: a standing bus looks the same at any rate, so nothing moves
+  *  faster than it should — the stand is only shorter. */
+ standingRate: 4,
 };
+
+/**
+ * Which way the drawn bus faces, and how fast it may turn. It faces the way it is drawn
+ * travelling: along its checked road where it is on the road, along the straight line where it is
+ * between two reports off the road, and as it was while it stands. Until 24 September 2026 a
+ * played-back bus faced the *reported* bearing of the next report the clock was heading for — a
+ * different moment from where it was drawn — so on Portland Street a route-43 bus faced the street
+ * it would turn into a minute later, 90–100° across its own road, and the ride-along camera, which
+ * takes the drawn heading, spun the whole view in one frame at each new report; a report with no
+ * bearing turned the bus into a round token. The reported bearing is still what the report says,
+ * in "How we know this"; this is only which way the drawn bus is pointed.
+ */
+export const HEADING = {settleMs: 450, maxDegPerSecond: 90};
 
 const median = (xs: number[]) => {
  if (!xs.length) return 0;
@@ -648,13 +675,49 @@ export const PACE = {accelMps2: 1.0, brakeMps2: 1.5, maxMps: 22, catchUpSeconds:
 export type PathNode = {fix: Fix; S: number; onRoad: boolean; roadS: number; road: boolean; jump: RepositionReason | null};
 export type Path = {nodes: PathNode[]; road: Track | null; key: string; tangents: number[]};
 
+/** How far a report whose own bearing agrees with its road may lie from it and still be placed on it. */
+export const BEARING_AGREED_METRES = 50;
+/** A reported bearing agrees with the road where they differ by no more than this. */
+const AGREE_DEGREES = 45;
+/** Within this of the road a report is on it whatever its bearing says: a bearing is the report's
+ *  own, and can be stale or noisy (at a stand, say); it chooses a place only for a report further off. */
+const ON_ROAD_WHATEVER_BEARING = 20;
+
+/**
+ * Where a report sits on its road: the nearest place, unless the report carries a bearing that the
+ * nearest place does not face, and a place within BEARING_AGREED_METRES along the way ahead does.
+ * On 24 September 2026 a route-43 bus's reports ran 18–44 m to one side of its accepted road for two
+ * minutes in the city centre — two other 43s crossed the same stretch within 20 m of it, and every
+ * one of its bearings matched the road's direction — and the report taken on the corner of Whitworth
+ * Street and Oxford Street, facing 150°, lay nearest the Whitworth Street arm (242°), 43.5 m off: just
+ * outside `offTrack`, it was drawn where it was made, and the bus crossed the block to it. Facing
+ * Oxford Street it is 44 m from the road, in order, at a bus's pace.
+ */
+function placeOnRoad(road: Track, fix: Fix, near: number | undefined): {s: number; offset: number; agrees: boolean | null} {
+ const p = project(road, fix, near);
+ if (fix.bearing === null || fix.bearing === undefined || p.offset <= ON_ROAD_WHATEVER_BEARING) return {s: p.s, offset: p.offset, agrees: null};
+ if (Math.abs(shortestTurn(fix.bearing, headingAt(road, p.s))) <= AGREE_DEGREES) return {s: p.s, offset: p.offset, agrees: true};
+ const from = Math.max(0, (near ?? p.s) - 60), to = Math.min(road.length, Math.max(near ?? p.s, p.s) + 400);
+ let best: {s: number; offset: number} | null = null;
+ for (let s = from; s <= to; s += 3) {
+  const q = pointAt(road, s), d = metres(q, fix);
+  if (d <= BEARING_AGREED_METRES && (!best || d < best.offset) && Math.abs(shortestTurn(fix.bearing, headingAt(road, s))) <= AGREE_DEGREES) best = {s, offset: d};
+ }
+ // No place facing its way: the nearest stands, under `offTrack` as for a report with no bearing.
+ return best ? {...best, agrees: true} : {s: p.s, offset: p.offset, agrees: null};
+}
+
 export function buildPath(fixes: Fix[], road: Track | null): Path {
  const nodes: PathNode[] = [];
  let S = 0, prevS: number | undefined;
  for (let i = 0; i < fixes.length; i++) {
   const fix = fixes[i];
-  const p = road && road.points.length ? project(road, fix, prevS) : null;
-  const onRoad = !!p && p.offset <= DEFAULT_PARAMS.offTrack;
+  const p = road && road.points.length ? placeOnRoad(road, fix, prevS) : null;
+  // On the road: within `offTrack` of it; or, where its own bearing agrees with a place on the road
+  // further off, within BEARING_AGREED_METRES of that place. (A first version also refused a report
+  // lying on the road because its bearing pointed elsewhere; a stale bearing then turned a bus's road
+  // into straight chords that cut its corners.)
+  let onRoad = !!p && p.offset <= (p.agrees ? BEARING_AGREED_METRES : DEFAULT_PARAMS.offTrack);
   let roadS = onRoad && p ? p.s : 0;
   let roadSeg = false, jump: RepositionReason | null = null, length = 0;
   if (i > 0) {
@@ -663,11 +726,31 @@ export function buildPath(fixes: Fix[], road: Track | null): Path {
    // where the road passes twice within reach (a loop at a terminus, both carriageways): the
    // projection is ambiguous there, and the bus is taken to have stood at the earlier one rather
    // than drawn hopping between the two arms (24 September 2026: a 22 m step, unsaid).
-   if (onRoad && prev.onRoad && Math.abs(roadS - prev.roadS) > gap * 1.6 + 15) roadS = prev.roadS;
+   // Only for reports close together: on 24 September 2026 a 250 whose accepted road loops for
+   // 1,353 m where the bus drove 302 m straight on had its report pinned back to the previous one's
+   // place on the road, and every report after it compared against that pinned place too — the bus
+   // was drawn standing while the clock ran on, re-anchored to the wrong pass up to 388 m behind,
+   // and at last repositioned 1,181 m. Far apart, the pair is simply not joined by the road: the
+   // stretch between their own places is straight (the along-road check below).
+   if (onRoad && prev.onRoad && gap < 30 && Math.abs(roadS - prev.roadS) > gap * 1.6 + 15) roadS = prev.roadS;
+   // A report within scatter of the one before is drawn as the same kind of place — on the road, or
+   // where it was made — as that one was: at a terminus stand two reports from one spot, one facing
+   // away from the road and one with no bearing, were drawn one where it was made and one on the
+   // road 34 m off, and the standing bus hopped sideways between them (24 September 2026, the fleet
+   // check). Only the kind is carried: taking the earlier report's place as well held a bus creeping
+   // in 8 m steps at one spot while its distance along the path grew, and the two disagreed.
+   if (gap < 10 && onRoad !== prev.onRoad) { onRoad = prev.onRoad; roadS = onRoad && p ? p.s : 0; }
    jump = travelable(prev.fix, fix);
    if (!jump) {
-    const along = roadS - prev.roadS;
-    roadSeg = prev.onRoad && onRoad && gap >= GLIDE.minMetres && along > 0 && along <= Math.max(60, gap * 1.6);
+    const along = roadS - prev.roadS, seconds = (fix.at - prev.fix.at) / 1000;
+    // The road joins two reports where it is not much longer than the line between them — or, round
+    // a corner, where it is longer only because both reports lie to the inside of the turn, which
+    // shows as a road up to three times the line at no more than a bus's pace (the route-43 corner
+    // of Whitworth Street and Oxford Street: 158 m of road between reports 69 m apart, 22 s, 7 m/s).
+    // A road far longer at an impossible pace (a 250's accepted road looping 1,353 m where it drove
+    // 302 m in 27 s) is not the way it went, and the stretch is straight.
+    roadSeg = prev.onRoad && onRoad && gap >= GLIDE.minMetres && along > 0
+     && (along <= Math.max(60, gap * 1.6) || (along <= gap * 3 && seconds > 0 && along / seconds <= 15));
     length = roadSeg ? along : gap;
    }
   }
@@ -758,7 +841,7 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
  if (k + 1 >= nodes.length) {
   const n = nodes[k];
   return n.onRoad && path.road ? {...nodePoint(path, n), heading: headingAhead(path.road, n.roadS), onRoad: true, roadS: n.roadS, k}
-   : {...nodePoint(path, n), heading: n.fix.bearing, onRoad: false, roadS: null, k};
+   : {...nodePoint(path, n), heading: null, onRoad: false, roadS: null, k};
  }
  const a = nodes[k], b = nodes[k + 1], len = b.S - a.S;
  const f = len > 0 ? Math.max(0, Math.min(1, (s - a.S) / len)) : 0;
@@ -767,22 +850,50 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
   return {...pointAt(path.road, rs), heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
  }
  // The chord: two positions the bus reported and the straight line between them, which is not
- // claimed to be the road, so no heading is taken from it — the reported bearing stands.
+ // claimed to be the road. The drawn bus faces along the line it is drawn travelling — a report's
+ // own bearing is another moment's, and pointed it across the line (24 September 2026). A
+ // stretch too short to have a direction leaves the heading as it was.
  const pa = nodePoint(path, a), pb = nodePoint(path, b);
  return {lat: pa.lat + (pb.lat - pa.lat) * f, lon: pa.lon + (pb.lon - pa.lon) * f,
-  heading: b.fix.bearing ?? a.fix.bearing, onRoad: false, roadS: null, k};
+  heading: metres(pa, pb) >= 2 ? bearingBetween(pa, pb) : null, onRoad: false, roadS: null, k};
 }
 
-/** The nearest place on the path to a point: its distance along, and how far off the path it is. */
-function nearestOnPath(path: Path, p: {lat: number; lon: number}): {S: number; metres: number; k: number} {
+const bearingBetween = (a: {lat: number; lon: number}, b: {lat: number; lon: number}) =>
+ (Math.atan2((b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD), b.lat - a.lat) / RAD + 360) % 360;
+
+/** The drawn heading one frame on: towards `target` at a bus's rate of turn, eased in; held where
+ *  there is no target, and taken at once across a repositioning (nothing is shown turning there). */
+function steer(from: number | null, target: number | null, dtMs: number, cut: boolean): number | null {
+ if (target === null) return from;
+ if (from === null || cut) return target;
+ const turnBy = shortestTurn(from, target), eased = turnBy * (1 - Math.exp(-dtMs / HEADING.settleMs));
+ const limit = HEADING.maxDegPerSecond * dtMs / 1000;
+ return (from + Math.max(-limit, Math.min(limit, eased)) + 360) % 360;
+}
+
+/** The nearest place on the path to a point: its distance along, and how far off the path it is.
+ *  Where the path passes the point more than once about as closely (reports wandering round a
+ *  stand, a road that doubles back), the pass nearest `preferS` is taken: on 24 September 2026 a
+ *  rebuilt path put a bus that had stood at its terminus back on its first pass, 32 m of wander
+ *  behind, and the delay it was drawn at read 153 s. */
+function nearestOnPath(path: Path, p: {lat: number; lon: number}, preferS?: number): {S: number; metres: number; k: number} {
  const nodes = path.nodes;
+ const candidates: {S: number; metres: number; k: number}[] = [];
  let best = {S: nodes[0].S, metres: metres(nodePoint(path, nodes[0]), p), k: 0};
+ candidates.push(best);
  for (let k = 0; k + 1 < nodes.length; k++) {
   const a = nodes[k], b = nodes[k + 1], len = b.S - a.S;
-  if (len <= 0) { const d = metres(nodePoint(path, b), p); if (d < best.metres) best = {S: b.S, metres: d, k: k + 1}; continue; }
+  if (len <= 0) { const d = metres(nodePoint(path, b), p); candidates.push({S: b.S, metres: d, k: k + 1}); if (d < best.metres) best = {S: b.S, metres: d, k: k + 1}; continue; }
   if (b.road && path.road) {
+   // A stretch along the road is measured along the road, or at its ends — never along the chord
+   // between them, which is another curve with other distances: taken for it, a place on the chord
+   // 0.6 m from the drawn bus was a place on the road 13 m on (24 September 2026, the fleet check).
    const pr = project(path.road, p, a.roadS);
-   if (pr.s >= a.roadS && pr.s <= b.roadS) { if (pr.offset < best.metres) best = {S: a.S + (pr.s - a.roadS), metres: pr.offset, k}; continue; }
+   if (pr.s >= a.roadS && pr.s <= b.roadS) { const c = {S: a.S + (pr.s - a.roadS), metres: pr.offset, k}; candidates.push(c); if (pr.offset < best.metres) best = c; }
+   else for (const [n, at, kk] of [[a, a.S, k], [b, b.S, k + 1]] as const) {
+    const c = {S: at, metres: metres(nodePoint(path, n), p), k: kk}; candidates.push(c); if (c.metres < best.metres) best = c;
+   }
+   continue;
   }
   const pa = nodePoint(path, a), pb = nodePoint(path, b);
   const cl = Math.cos(pa.lat * RAD);
@@ -790,9 +901,12 @@ function nearestOnPath(path: Path, p: {lat: number; lon: number}): {S: number; m
   const L = bx * bx + by * by, t = L > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / L)) : 0;
   const q = {lat: pa.lat + (pb.lat - pa.lat) * t, lon: pa.lon + (pb.lon - pa.lon) * t};
   const d = metres(q, p);
+  candidates.push({S: a.S + len * t, metres: d, k});
   if (d < best.metres) best = {S: a.S + len * t, metres: d, k};
  }
- return best;
+ if (preferS === undefined) return best;
+ const close = candidates.filter(c => c.metres <= best.metres + 2);
+ return close.reduce((x, c) => Math.abs(c.S - preferS) < Math.abs(x.S - preferS) ? c : x, best);
 }
 
 /** The moment the place shown was at a distance along the path: the inverse of pathAt, found by
@@ -805,6 +919,16 @@ function momentAt(path: Path, S: number): number {
  if (S >= pathAt(path, hi).S) return hi;
  for (let n = 0; n < 30 && hi - lo > 1; n++) { const mid = (lo + hi) / 2; if (pathAt(path, mid).S < S) lo = mid; else hi = mid; }
  return (lo + hi) / 2;
+}
+
+/** The last moment, up to `upTo`, at which the place the reports put the bus at was no further on
+ *  than `S` (half a metre's grace): bisection, the smoothed place being monotone in time. */
+function lastMomentAt(path: Path, S: number, upTo: number): number {
+ let lo = path.nodes[0].fix.at, hi = upTo;
+ if (pathAt(path, hi).S <= S + 0.5) return hi;
+ if (pathAt(path, lo).S > S + 0.5) return lo;
+ for (let n = 0; n < 30 && hi - lo > 1; n++) { const mid = (lo + hi) / 2; if (pathAt(path, mid).S <= S + 0.5) lo = mid; else hi = mid; }
+ return lo;
 }
 
 /**
@@ -837,16 +961,24 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  let shown: number, sd: number, vd: number, last = previous?.lastCorrection ?? null, correction: Correction = 'none';
  let ease = prior?.ease ?? null;
  let rebuilt: {lat: number; lon: number} | null = null;
+ let resume: number | null = null, resumed = false;
  // The stretch the drawn bus was on, carried across a rebuild of the path so that a refused pair
  // crossed on the very frame a publication arrives is still seen crossed (every publication
  // re-times its trail by a second or so, so the path is rebuilt at each one).
  let leftK: number | null = null;
- const elapsed = previous ? Math.max(0, now - previous.frame) : 0;
+ const raw = previous ? Math.max(0, now - previous.frame) : 0;
+ // The frame loop rests on purpose once the clock has reached the end of the reports it has and
+ // the bus stands there; it wakes when a publication arrives. The first frame after that is not a
+ // pause in drawing — nothing was left undrawn, the clock was waiting — so it carries on from where
+ // it waited, one frame on. Taken for a pause it would have jumped the bus and said the page had
+ // been in the background (found 24 September 2026, reading the playback against the frame loop).
+ const rested = prior?.latestAt != null && prior.shown >= prior.latestAt - 500;
+ const paused = raw > 1000 && !rested;
+ const elapsed = raw > 1000 && rested ? 100 : raw;
  // The follower integrates the time that really passed between frames, up to a second; after a
  // longer pause in drawing (a tab put away) it is put back at the reports' own place rather than
  // left to make the lost ground up, while the clock below keeps real time regardless.
- const paused = elapsed > 1000;
- const dt = paused ? 0 : elapsed / 1000;
+ const dt = paused ? 0 : Math.min(1000, elapsed) / 1000;
  if (!prior) {
   // Playback starts from where the bus is drawn where that is on the path: a bus that has waited
   // at its report until the next arrived sets off from that report. Starting at the delay's
@@ -862,27 +994,51 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
   vd = 0;
  } else {
   const behind = target - prior.shown;
-  if (behind > delay + PLAYBACK.resyncMs) {
-   // Too far behind to crawl back: this is a repositioning, and is said as one below.
+  // Newer reports than the moment shown exist to go to: the clock is behind for want of time, not
+  // for want of reports. While it has simply run out of reports it waits at the newest, as the bus
+  // is drawn doing, and that is true.
+  const reportsAhead = latestAt > prior.shown + 1000;
+  if (paused || prior.resume) {
+   // Coming back from a pause in drawing (the tab put away, the screen locked): nothing was drawn
+   // meanwhile, so the bus is not shown making up the time — the clock goes straight to the
+   // delay's moment and the bus to its place then, and if that is a move worth mentioning it is a
+   // repositioning, said as one. The first frame back often runs before the fresh publication the
+   // page asks for on its return has arrived; while the reports it has are older than the moment
+   // to show, it waits where it was drawn rather than moving twice (24 September 2026: a route-43
+   // tab shown again after a minute put the bus 125 m on in one frame and said nothing).
+   const fresh = latestAt >= target || now - (prior.resume ?? now) > 5000;
+   shown = fresh ? Math.min(latestAt, Math.max(prior.shown, target)) : prior.shown;
+   sd = prior.sd; vd = 0;
+   resume = fresh ? null : prior.resume ?? now;
+   resumed = fresh;
+  } else if (behind > PLAYBACK.resyncMs && reportsAhead) {
+   // Too far behind to make up unseen: the reports came late, and the time lost waiting for them
+   // is more than a stand can absorb. This is a repositioning, and is said as one below — not
+   // made up by driving faster than the reports say the bus went.
    shown = Math.min(latestAt, target);
    sd = pathAt(path, shown).S; vd = 0;
    correction = 'snap';
   } else {
    // Real time, and a shade over it while the clock is behind where the delay would have it
    // (it waits whenever the reports run out, and would otherwise never make that time back):
-   // 5% over is not a speed a passenger can see, where the old 20% was.
-   const rate = target - prior.shown > 2000 ? PLAYBACK.fastestRate : 1;
-   shown = Math.min(latestAt, Math.max(prior.shown, prior.shown + elapsed * rate));
+   // 5% over is not a speed a passenger can see, where the old 20% was. Where the reports say the
+   // bus stood, the time is made up faster: a standing bus looks the same at any rate.
+   const standing = pathAt(path, prior.shown).v < 0.3;
+   const rate = behind > 2000 ? (standing ? PLAYBACK.standingRate : PLAYBACK.fastestRate) : 1;
+   shown = Math.min(latestAt, Math.max(prior.shown, prior.shown + Math.min(elapsed * rate, Math.max(elapsed, behind))));
    sd = prior.sd; vd = prior.vd;
   }
-  if (prior.pathKey !== path.key) {
+  // A repositioning just decided (a resync, or the return from a pause) puts the bus at its goal:
+  // keeping its old place through the path's rebuild undid it, left it far behind with nothing
+  // said, and had it chase (24 September 2026, the incident's own reports after a 90 s gap).
+  if (prior.pathKey !== path.key && correction !== 'snap' && !resumed) {
    // The reports changed under the bus: a new report on the end, the trail's oldest dropped off,
    // or a late report filed in order between two already played. The drawn bus keeps its *place*
    // — the nearest point of the new path to where it is drawn — and its goal is read afresh from
    // the moment shown; because each stretch of the curve depends only on reports up to its end,
    // the goal is never behind it after a rebuild, so it never waits, it only catches up. How far
    // its place lies off the new path is how far a late report moved the path under it.
-   const near = nearestOnPath(path, previous!);
+   const near = nearestOnPath(path, previous!, pathAt(path, shown).S);
    sd = near.S;
    // The stretch is the one the place is on, not the clock's: a late report filed in before the
    // moment shown would otherwise be crossed unsaid (602 m, 24 September 2026).
@@ -893,7 +1049,8 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  }
  // The follower: towards the place the reports put the bus at the moment shown, at a bus's pace.
  const goal = pathAt(path, shown);
- if (paused && prior) { sd = goal.S; vd = goal.v; }
+ if (resumed) { sd = goal.S; vd = goal.v; }
+ else if (resume !== null) { /* waiting for the fresh publication: stand where drawn */ }
  else if (prior && goal.S - sd > GLIDE.maxMetres) {
   // Further behind its goal than a bus could be followed across — the reports moved on by more
   // than it can catch up at a bus's pace — it is repositioned, and that is said. Under that it
@@ -924,7 +1081,6 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  // clock's stretch and the bus's own decides: the bus is never drawn back at an earlier report it
  // has already left (24 September 2026: a 46 m step, unsaid, on a re-published trail).
  const at = pointOnPath(path, sd, Math.max(goal.i, leftK ?? 0));
- const bearing = (goal.i + 1 < path.nodes.length ? path.nodes[goal.i + 1] : path.nodes[goal.i]).fix.bearing;
  // The drawn bus has passed a report since the last frame. If the pair it left could not be
  // travelled between, it has just been moved across it, and that is said with the reason. Read
  // from the stretch the *drawn* bus is on, not the clock's: the bus follows the clock at its own
@@ -933,7 +1089,11 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  const left = leftK ?? at.k;
  const crossed = left < at.k ? path.nodes.slice(left + 1, at.k + 1).map(n => n.jump).find(j => j !== null) ?? null : null;
  const moved = previous ? metres(previous, at) : 0;
- if (correction === 'snap' && moved >= REPOSITION_METRES) last = {kind: 'snap', metres: moved, at: now, why: 'too_long'};
+ if (resumed && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: 'resumed'}; }
+ // A short pause (the device busy for a second or two) leaves a small move: eased over at the
+ // correction's own pace rather than hopped, and too small to be worth saying.
+ else if (resumed && previous && moved > 1) { ease = {fromLat: previous.lat, fromLon: previous.lon, at: now, ms: Math.max(400, moved * 100)}; correction = 'smooth'; }
+ else if (correction === 'snap' && moved >= REPOSITION_METRES) last = {kind: 'snap', metres: moved, at: now, why: 'too_long'};
  else if (crossed && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: crossed}; }
  else if (!prior && previous && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: 'too_long'}; }
  else if (previous && rebuilt) {
@@ -957,9 +1117,25 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
   const f = (now - ease.at) / ease.ms, w = f * f * (3 - 2 * f);
   drawn = {lat: ease.fromLat + (at.lat - ease.fromLat) * w, lon: ease.fromLon + (at.lon - ease.fromLon) * w};
  } else ease = null;
+ // Which way it faces: the way it is drawn travelling, turned into at a bus's rate; before it has
+ // ever moved, its road's direction or, with no road, the newest report's own bearing.
+ const cut = correction === 'snap' && last?.at === now;
+ const start = previous?.bearing ?? at.heading ?? fixes[fixes.length - 1].bearing ?? null;
+ const bearing = steer(previous ? previous.bearing ?? start : start, at.heading, previous ? Math.min(1000, Math.max(0, now - previous.frame)) : 0, cut);
+ // The moment the drawn place stands for: the delay the card states is measured from this, not
+ // from the clock, which the drawn bus may trail by a few seconds while it pulls away. At its goal
+ // it stands for the clock's own moment. Behind it, it stands for the *last* moment the reports
+ // still had the bus there — until then the drawn place was true: over a stand, or a slow start
+ // from one, every moment of the stand has that place, and reading the earliest (as the inverse
+ // does) put a bus pulling away from a terminus 150 s behind (24 September 2026).
+ // While a correction is eased in, the drawn place is between two paths and stands for no moment of
+ // either: the clock's moment is said (reading the re-anchored place put a 23 m eased correction at
+ // "165 s behind" for four seconds, 24 September 2026).
+ const represented = goal.S - sd < 0.5 || ease ? shown : lastMomentAt(path, sd, shown);
  return {...settled, lat: drawn.lat, lon: drawn.lon, bearing, heading: at.heading ?? bearing, velocity: vd,
   correction, lastCorrection: last, glide: null,
-  buffer: {shown, delay, lags, ease, sd, vd, end, goalS: goal.S, k: at.k, onRoad: at.onRoad, roadS: at.roadS, pathKey: path.key, path}};
+  buffer: {shown, delay, lags, ease, sd, vd, end, goalS: goal.S, k: at.k, onRoad: at.onRoad, roadS: at.roadS, pathKey: path.key, path,
+   represented, resume, latestAt}};
 }
 
 /**

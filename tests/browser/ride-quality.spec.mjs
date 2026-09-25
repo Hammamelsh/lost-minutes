@@ -282,3 +282,68 @@ test('a bus with no checked road gets no road ahead: nothing is lit that is not 
   await page.waitForTimeout(1500);
   await expect(map(page)).toHaveAttribute('data-road-ahead', '');
 });
+
+// The route-43 incident of 24 September 2026 (tests/incident-43.test.mjs has the real reports):
+// the drawn bus faced the next report's bearing — across its road — and the ride camera spun to it
+// in one frame at each report; a report with no bearing made it a round token.
+test('in the ride the bus and the camera face along its road, whatever bearing its reports carried', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});   // a checked road, played back between reports
+  const started = Date.now() - 90_000;
+  await serveLive(page, Array.from({length: 40}, () => () => {
+    const live = movingLive({startMs: started, startS: 250, speed: 9, cadence: 20, delay: 4});
+    const bus = live.vehicles.find(v => v.vehicle === 'FX-MOVING');
+    // Every report's bearing turned across the road, and every other one missing altogether.
+    bus.bearing = null; bus.bearingStatus = 'absent';
+    bus.trail = bus.trail.map((t, i) => [t[0], t[1], t[2], i % 2 ? null : (t[3] + 90) % 360, t[4]]);
+    return live;
+  }));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  const samples = [];
+  for (let i = 0; i < 80; i++) {
+    samples.push(await map(page).evaluate(el => ({heading: el.getAttribute('data-heading'), display: el.getAttribute('data-display'),
+      camera: el.getAttribute('data-camera')})));
+    await page.waitForTimeout(200);
+  }
+  const dir = (a, b) => (Math.atan2((b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180), b[0] - a[0]) * 180 / Math.PI + 360) % 360;
+  const turn = (a, b) => ((b - a) % 360 + 540) % 360 - 180;
+  expect(samples.filter(s => !s.heading).length, 'never a round token: it always faces somewhere').toBe(0);
+  const pos = samples.map(s => s.display.split(',').slice(0, 2).map(Number));
+  const offs = [];
+  for (let i = 1; i < samples.length; i++) {
+    const moved = metresApart(pos[i - 1], pos[i]);
+    if (moved >= 0.5) offs.push(Math.abs(turn(+samples[i].heading, dir(pos[i - 1], pos[i]))));
+  }
+  expect(offs.length, 'it moves').toBeGreaterThan(20);
+  const within = offs.filter(o => o < 30).length / offs.length;
+  expect(within, `it faces the way it moves (${offs.map(o => o.toFixed(0)).join(' ')})`).toBeGreaterThan(0.9);
+  const cams = samples.map(s => Number((s.camera || '').split(',')[4])).filter(Number.isFinite);
+  const swings = cams.slice(1).map((b, i) => Math.abs(turn(cams[i], b)));
+  expect(Math.max(...swings), 'the camera never swings further in 0.2 s than a bus turns').toBeLessThan(25);
+});
+
+test('a pause in drawing: the bus goes to its place, that is said, and nothing moves unsaid', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  const started = Date.now() - 90_000;
+  await serveLive(page, Array.from({length: 40}, () => () =>
+    movingLive({startMs: started, startS: 250, speed: 9, cadence: 10, delay: 4})));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  await page.waitForTimeout(3000);
+  // Seven seconds in which the page draws nothing, as a phone busy or put away does.
+  await page.evaluate(() => { const end = Date.now() + 7000; while (Date.now() < end) { /* the page draws nothing */ } });
+  const line = page.locator('.ride-card [data-snap]');
+  await expect(line, 'the move is said').toBeVisible({timeout: 5000});
+  await expect(line).toHaveAttribute('data-why', 'resumed');
+  await expect(line).toContainText('the page was in the background');
+});

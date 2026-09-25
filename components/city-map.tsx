@@ -455,6 +455,10 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
  // A played-back bus: the report-time moment being shown (ms), so the delay the card states can be
  // held against the real one, this frame's presentation time less this.
  el.setAttribute('data-shown',v?.buffer?String(Math.round(v.buffer.shown)):'');
+ // The moment the drawn place stands for, which the card's "drawn N s behind" is measured from.
+ el.setAttribute('data-represented',v?.buffer?.represented!=null?String(Math.round(v.buffer.represented)):'');
+ // Which way the drawn bus faces (the model, the marker and the ride camera all take this).
+ el.setAttribute('data-heading',v?.bearing!=null?v.bearing.toFixed(1):'');
  // Where the drawn bus is on the canvas, in CSS pixels from its top-left corner.
  el.setAttribute('data-bus-screen',screen?`${Math.round(screen.x)},${Math.round(screen.y)}`:'');
  // The middle frame interval of the last 90, in milliseconds: how fast this device is actually
@@ -473,8 +477,13 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   // is never captioned as moving, and the flip between the two labels is explained once.
   between:e.mode==='observed'&&((v.glide!==null&&now<v.glide.at+v.glide.ms)||(v.buffer!==null&&v.buffer.shown<e.basis.at)),
   travels:e.mode==='observed'&&travelling,
-  onRoad:e.mode==='observed'&&travelling&&onRoad,
-  displayDelaySeconds:e.mode==='observed'&&v.buffer?Math.round((now-v.buffer.shown)/1000):null,
+  onRoad:e.mode==='observed'&&travelling&&onRoad&&v.buffer?.onRoad!==false,
+  // A bus with a checked road that its reports have left for another street: drawn straight
+  // between them, and said, never presented as driving its road.
+  offRoad:e.mode==='observed'&&travelling&&onRoad&&v.buffer?.onRoad===false,
+  // Measured from the moment the drawn place stands for, not the clock (they differ while the bus
+  // trails its goal pulling away).
+  displayDelaySeconds:e.mode==='observed'&&v.buffer?Math.round((now-(v.buffer.represented??v.buffer.shown))/1000):null,
   speedKmh:e.mode==='estimated'&&e.speed!==null?Math.round(e.speed*3.6):null,
   eased:e.mode==='estimated'&&(e.speed??0)>0&&params.decay>0,
   uncertaintyMetres:band?.metres??null,uncertaintyN:band?.n??null,
@@ -1348,7 +1357,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     // move in front of the fit that returns the map to flat, and the tilt was left part-way.
     const bearing=input.view==='ride'&&r.state!=='off'&&v.bearing!==null?{bearing:v.bearing}:{};
     const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
-    if(Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
+    // A repositioning is a cut, not a sweep: gliding the camera across it drew the ground between as
+    // if the bus had travelled it (24 September 2026, a route-43 ride shown again after a minute).
+    const cut=v.lastCorrection?.kind==='snap'&&v.lastCorrection.at===now;
+    if(!cut&&Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
      instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
     else instance.jumpTo({center:[v.lon,v.lat],...bearing});
    }
@@ -1365,7 +1377,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const info=motionInfo(e,v,input.profile,input.params,now,
    Boolean(input.replay&&input.history&&input.history.fixes.length>1),
    Boolean(input.replay&&input.track&&e.mode==='observed'));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${delaySeconds(info.displayDelaySeconds)??''}`;
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${info.offRoad}|${delaySeconds(info.displayDelaySeconds)??''}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that

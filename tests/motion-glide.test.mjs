@@ -1,7 +1,7 @@
 // A bus with no accepted road geometry is shown at its reports, and travels from one to the next
-// instead of teleporting. It is never drawn past the newest report, its bearing is never taken from
-// the direction it is travelling, and a gap too large to have been followed is left as the jump it
-// is — said as one.
+// instead of teleporting. It is never drawn past the newest report, it faces the way it is drawn
+// travelling (since 24 September 2026; a report's own bearing is left as reported), and a gap too
+// large to have been followed is left as the jump it is — said as one.
 //
 // Restated on 23 September 2026 for PLAYBACK (lib/motion.ts). Until then each report was travelled
 // to *as it arrived*, over the time the bus had taken, so what these checks timed was the arrival.
@@ -63,11 +63,26 @@ test('it is never drawn past the newest report, so the drawn position is behind 
   }
 });
 
-test('the bearing stays the reported one: a bearing is never taken from movement', () => {
+test('the drawn bus faces the way it is drawn travelling; a report keeps its own bearing', () => {
+  // Restated on 24 September 2026. This held that the drawn bus always took a report's bearing and
+  // never one from movement. The route-43 incident showed that premise wrong for the drawing: the
+  // bearing it took was the *next* report's, from after a turn the drawn bus had not yet made, and
+  // it stood 90–100° across the road it was drawn on while the ride camera spun to it; a report with
+  // no bearing turned it into a round token (tests/incident-43.test.mjs). What stands is the data
+  // rule — a report's bearing is never replaced, and never published as anything else — and the
+  // drawn bus now faces along the path it is drawn on: here, the straight line between two reports.
+  const along = (Math.atan2((-2.31 - A[1]) * Math.cos(A[0] * Math.PI / 180), 53.4511 - A[0]) * 180 / Math.PI + 360) % 360;
+  const off = b => Math.abs(((b - along) % 360 + 540) % 360 - 180);
   const second = {...at(20_000, 53.4511, -2.31), bearing: null};
-  for (const {v} of run(second).frames) assert.equal(v.bearing, null, 'no bearing is invented from the travel');
-  const reported = run(at(20_000, 53.4511, -2.31, 217)).last;
-  assert.equal(reported.bearing, 217, 'the reported bearing is what is drawn');
+  const {frames} = run(second, {until: 12_000, step: 100});
+  const moving = frames.filter(({v}, i) => i && metres(frames[i - 1].v, v) > 0.05);
+  assert.ok(moving.length > 20, 'it travels');
+  for (const {v} of moving.slice(-10)) assert.ok(v.bearing !== null && off(v.bearing) < 1, `it faces along its line (${v.bearing})`);
+  assert.equal(second.bearing, null, 'and the report itself still has no bearing');
+  const reported = at(20_000, 53.4511, -2.31, 217);
+  const last = run(reported, {until: 12_000, step: 100}).last;
+  assert.ok(off(last.bearing) < 1, `a bearing reported the other way does not turn it across its line (${last.bearing})`);
+  assert.equal(reported.bearing, 217, 'and stays the report\'s own');
 });
 
 test('a gap too large to have been followed is left as a jump, and said by the numbers', () => {

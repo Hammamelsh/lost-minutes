@@ -29,6 +29,12 @@ const wanted = arg('vehicle', null);
 const label = arg('label', 'replay');
 const speed = Number(arg('speed', 1));
 const maxPubs = Number(arg('publications', 0));
+// How often the page polls, as the served configuration says: the site's own is 20 s. 5 s here
+// was the probe's default and delivers publications faster than a passenger's phone ever sees them.
+const pollSeconds = Number(arg('poll', 5));
+// A window of the reel, by UTC clock time (HH:MM:SS on the reel's own day) or epoch ms.
+const clockArg = (name) => { const v = arg(name, null); if (!v) return null; if (/^\d{13}$/.test(v)) return Number(v);
+  const day = new Date(reel.publications[0].receivedAtMs).toISOString().slice(0, 10); return Date.parse(`${day}T${v}Z`); };
 const phone = has('phone');
 const out = outDir('movement', label);
 const reel = JSON.parse(await (await import('node:fs/promises'))
@@ -36,6 +42,9 @@ const reel = JSON.parse(await (await import('node:fs/promises'))
 
 let publications = reel.publications;
 if (wanted) publications = publications.filter(p => p.live.vehicles?.some(v => v.vehicle === wanted));
+{ const from = clockArg('from'), until = clockArg('until');
+  if (from) publications = publications.filter(p => p.receivedAtMs >= from);
+  if (until) publications = publications.filter(p => p.receivedAtMs <= until); }
 if (maxPubs) publications = publications.slice(0, maxPubs);
 if (!publications.length) { console.error('no publications carry that vehicle'); process.exit(1); }
 
@@ -65,6 +74,9 @@ function rebase(entry, startedAtMs) {
 }
 
 const {base, stop} = await site();
+// The catalogue the publications were matched against, when it is not this build's own: a reel
+// rebuilt on the server carries the server's pattern ids.
+const patternsFile = arg('patterns', null);
 const browser = await launch();
 const size = phone ? {width: 390, height: 844} : {width: 1280, height: 860};
 const context = await browser.newContext({viewport: size, isMobile: phone, hasTouch: phone,
@@ -74,7 +86,8 @@ const page = await context.newPage();
 const startedAtMs = Date.now();
 const served = [];
 await page.route('**/data/config.json*', r => r.fulfill({json: {schemaVersion: 1, liveUrl: '/data/live.json',
-  replayUrl: '/data/replay.json', operationsUrl: '/data/operations.json', pollSeconds: 5}}));
+  replayUrl: '/data/replay.json', operationsUrl: '/data/operations.json', pollSeconds}}));
+if (patternsFile) await page.route('**/data/patterns.json*', r => r.fulfill({path: patternsFile, contentType: 'application/json'}));
 await page.route('**/data/live.json*', r => {
   const elapsed = (Date.now() - startedAtMs) * speed;
   let i = 0;
@@ -103,12 +116,20 @@ await page.evaluate(() => {
     window.__trace.push({t: performance.now(), display: d, motion: el.getAttribute('data-motion'),
       reason: el.getAttribute('data-motion-reason'), age: el.getAttribute('data-report-age'),
       correction: el.getAttribute('data-correction'), camera: el.getAttribute('data-camera'),
-      ride: el.getAttribute('data-ride'), screen: el.getAttribute('data-bus-screen')});
+      ride: el.getAttribute('data-ride'), screen: el.getAttribute('data-bus-screen'),
+      shown: el.getAttribute('data-shown'), ahead: el.getAttribute('data-road-ahead'),
+      represented: el.getAttribute('data-represented'), heading: el.getAttribute('data-heading')});
   };
   read();
   new MutationObserver(read).observe(el, {attributes: true, attributeFilter: ['data-display']});
 });
 
+if (has('topdown')) {
+  // A flat, north-up view that keeps the bus centred: where it is drawn against the road and which
+  // way it points, with no perspective and no camera turning to confuse either.
+  await page.getByRole('button', {name: /Keep this bus centred|Follow/}).first().click({timeout: 8000}).catch(() => {});
+  for (let z = 0; z < 3; z++) { await page.getByRole('button', {name: 'Zoom in'}).click().catch(() => {}); await page.waitForTimeout(400); }
+}
 if (has('ride')) {
   await page.getByRole('button', {name: /Ride along/i}).first().click({timeout: 8000}).catch(() => {});
   await page.waitForTimeout(2000);

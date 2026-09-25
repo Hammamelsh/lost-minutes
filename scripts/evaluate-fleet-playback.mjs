@@ -15,7 +15,7 @@
  */
 import {readFileSync, existsSync} from 'node:fs';
 import {join} from 'node:path';
-import {historyFrom, observedAt, stepVisual, makeTrack, decodePolyline, project, PACE} from '@/lib/motion';
+import {historyFrom, observedAt, stepVisual, makeTrack, decodePolyline, project, PACE, PLAYBACK} from '@/lib/motion';
 
 const arg = (k, d) => {const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d};
 const reelPath = arg('reel', 'data/evaluation/reel-live-evening.json');
@@ -34,6 +34,11 @@ const trackFor = id => {
 };
 const metres = (a, b) => Math.hypot((b.lat - a.lat) * 111195, (b.lon - a.lon) * 111195 * Math.cos(a.lat * Math.PI / 180));
 const q = (a, p) => {if (!a.length) return null; const b = [...a].sort((x, y) => x - y); return b[Math.floor((b.length - 1) * p)]};
+const dirOf = (a, b) => (Math.atan2((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 180 / Math.PI + 360) % 360;
+const turnOf = (a, b) => ((b - a) % 360 + 540) % 360 - 180;
+// How the page's publications reach a phone: every `--poll` seconds (the site's configuration is 20 s),
+// the newest publication written by then. 0 serves each at its own receipt time, as before.
+const pollMs = Number(arg('poll', 0)) * 1000;
 
 // Publications per vehicle, keeping the journey the vehicle is on (a new journey is a new run).
 const byVehicle = new Map();
@@ -53,18 +58,28 @@ for (const [key, pubs] of runs) {
   let vis = null, i = -1, prev = null, prevV = null;
   const steps = [], speeds = [], accels = [], off = [], snaps = [], swings = [], unsaidSteps = [];
   let frames = 0, moving = 0, onRoadFrames = 0, distinct = new Set();
+  // What 24 September's route-43 incident exposed, judged on every bus: which way it faces against
+  // the way it is drawn moving, one-frame turns, a lost heading, and the delay it is drawn at.
+  const headingOff = [], spins = [], delays = []; let nullAfterKnown = 0, knownYet = false, misRun = 0, misLongest = 0;
   // How far the reports themselves moved over the window: a bus drawn standing while its reports
   // moved is a drawing fault; one drawn standing because its reports stood is not.
   const reportPoints = pubs.map(p => ({lat: p.v.lat, lon: p.v.lon}));
   const reportsMoved = Math.max(0, ...reportPoints.map(r => metres(reportPoints[0], r)));
   const end = start + (pubs.at(-1).receivedAtMs - t0) + 20_000;
   for (let wall = start; wall <= end; wall += 100) {
-    while (i + 1 < pubs.length && pubs[i + 1].receivedAtMs + shift <= wall) i++;
+    const visibleAt = pollMs ? start + Math.floor((wall - start) / pollMs) * pollMs : wall;
+    while (i + 1 < pubs.length && pubs[i + 1].receivedAtMs + shift + (pollMs ? 2500 : 0) <= visibleAt) i++;
     if (i < 0) continue;
     const fixes = fixesOf(pubs[i].v); distinct.add(pubs[i].v.observedAtMs);
     if (fixes.length < 2) continue;
     const h = historyFrom(fixes), e = observedAt(h, wall, 'fleet');
     vis = stepVisual(vis, e, wall, null, undefined, h, road); frames++;
+    const said = vis.lastCorrection?.kind === 'snap' && wall - vis.lastCorrection.at <= 200;
+    if (vis.bearing !== null) knownYet = true; else if (knownYet) nullAfterKnown++;
+    if (prev && prev.bearing !== null && vis.bearing !== null && !said) spins.push(Math.abs(turnOf(prev.bearing, vis.bearing)));
+    if (prev && metres(prev, vis) >= 0.5 && vis.bearing !== null && !said) { const o = Math.abs(turnOf(vis.bearing, dirOf(prev, vis))); headingOff.push(o);
+      misRun = o > 30 ? misRun + 1 : 0; misLongest = Math.max(misLongest, misRun); }
+    if (vis.buffer && pubs[i].v.observedAtMs + shift > wall - PLAYBACK.maxDelayMs) delays.push((wall - (vis.buffer.represented ?? vis.buffer.shown)) / 1000);
     if (prev) { const st = metres(prev, vis); steps.push(st); if (st > 0.05) moving++;
       // A step over a bus length is a repositioning, and must have been said on that frame.
       if (st > 12 && !(vis.lastCorrection?.kind === 'snap' && wall - vis.lastCorrection.at <= 200)) unsaidSteps.push({at: wall - start, metres: Math.round(st)}); }
@@ -74,7 +89,7 @@ for (const [key, pubs] of runs) {
     speeds.push(vis.velocity ?? 0);
     if (speeds.length > 200) swings.push(Math.abs((vis.velocity ?? 0) - speeds[speeds.length - 201]));
     if (prevV !== null) accels.push(Math.abs((vis.velocity ?? 0) - prevV) / 0.1);
-    prev = {lat: vis.lat, lon: vis.lon}; prevV = vis.velocity ?? 0;
+    prev = {lat: vis.lat, lon: vis.lon, bearing: vis.bearing}; prevV = vis.velocity ?? 0;
   }
   if (frames < 50) continue;
   const unsaid = snaps.filter(s => s.why === 'unsaid').length;
@@ -82,7 +97,9 @@ for (const [key, pubs] of runs) {
     movingShare: moving / Math.max(1, steps.length), stepP95: q(steps, .95), stepMax: Math.max(0, ...steps),
     speedP95: q(speeds, .95), speedMax: Math.max(0, ...speeds), swing20sP95: q(swings, .95), accelP95: q(accels.slice(1), .95), accelMax: Math.max(0, ...accels.slice(1)),
     onRoadShare: road ? onRoadFrames / frames : null, offRoadP95: off.length ? q(off, .95) : null, offRoadMax: off.length ? Math.max(...off) : null,
-    snaps: snaps.length, unsaid: unsaid + unsaidSteps.length, unsaidSteps: unsaidSteps.slice(0, 3), snapList: snaps.slice(0, 4)});
+    snaps: snaps.length, unsaid: unsaid + unsaidSteps.length, unsaidSteps: unsaidSteps.slice(0, 3), snapList: snaps.slice(0, 4),
+    headingOffP95: q(headingOff, .95), misalignedLongestS: misLongest / 10, spinMax: Math.max(0, ...spins), nullHeadingFrames: nullAfterKnown,
+    delayP50: q(delays, .5), delayMax: delays.length ? Math.max(...delays) : null});
 }
 const fleet = {
   vehicles: results.length, withRoad: results.filter(r => r.road).length,
@@ -95,11 +112,20 @@ const fleet = {
   offRoadMaxMax: Math.max(0, ...results.filter(r => r.offRoadMax !== null).map(r => r.offRoadMax)),
   snapsTotal: results.reduce((a, r) => a + r.snaps, 0), unsaidTotal: results.reduce((a, r) => a + r.unsaid, 0),
   stoodWholeWindow: results.filter(r => r.movingShare < 0.05 && r.reportsMoved < 50).length,
+  headingOffP95Median: q(results.map(r => r.headingOffP95 ?? 0), .5), headingOffP95P90: q(results.map(r => r.headingOffP95 ?? 0), .9),
+  misalignedOver1_5s: results.filter(r => r.misalignedLongestS > 1.5).length, spinOver10: results.filter(r => r.spinMax > 10).length,
+  nullHeadingBuses: results.filter(r => r.nullHeadingFrames > 0).length,
+  delayP50Median: q(results.map(r => r.delayP50 ?? 0).filter(Boolean), .5), delayMaxMax: Math.max(0, ...results.map(r => r.delayMax ?? 0)),
+  delayOver75: results.filter(r => (r.delayMax ?? 0) > 75).length,
   drawnStandingWhileReportsMoved: results.filter(r => r.movingShare < 0.2 && r.reportsMoved > 150).length,
 };
 // Bounds the drawing is held to: a step over a bus length is a repositioning (and must be said);
 // speeds above PACE.maxMps and accelerations above the brake bound are the follower's own faults.
-const outliers = results.filter(r => r.unsaid > 0 || r.speedMax > PACE.maxMps + 0.5 || (r.offRoadP95 !== null && r.offRoadP95 > 5) || (r.movingShare < 0.2 && r.reportsMoved > 150))
+const outliers = results.filter(r => r.unsaid > 0 || r.misalignedLongestS > 1.5 || r.spinMax > 10 || (r.delayMax ?? 0) > 75 || r.speedMax > PACE.maxMps + 0.5 || (r.offRoadP95 !== null && r.offRoadP95 > 5) || (r.movingShare < 0.2 && r.reportsMoved > 150))
   .sort((a, b) => b.stepMax - a.stepMax);
-console.log(JSON.stringify({reel: reelPath, publications: reel.publications.length, minPubs, fleet,
+// The buses drawn furthest from the road they are said to be on, whatever their 95th percentile:
+// a single moment off the road is a moment a passenger can see.
+const furthestOffRoad = results.filter(r => r.offRoadMax !== null).sort((a, b) => b.offRoadMax - a.offRoadMax).slice(0, 5)
+  .map(r => ({key: r.key, offRoadMax: +r.offRoadMax.toFixed(1), offRoadP95: +(r.offRoadP95 ?? 0).toFixed(1), snaps: r.snapList}));
+console.log(JSON.stringify({reel: reelPath, publications: reel.publications.length, minPubs, fleet, furthestOffRoad,
   outliers: outliers.slice(0, top), slowest: results.filter(r => r.reportsMoved > 150).sort((a, b) => a.movingShare - b.movingShare).slice(0, top).map(r => ({key: r.key, movingShare: +r.movingShare.toFixed(2), reports: r.reports, reportsMoved: r.reportsMoved, road: r.road, snaps: r.snaps}))}, null, 1));

@@ -609,10 +609,11 @@ export const PLAYBACK = {
 // A bus turns only as it moves: at a stand the drawn bus turned 170° on the spot in two seconds as its
 // target swung between scatter and its road (25 September 2026, a 142 and a 143 at Piccadilly
 // Gardens; 110 of 334 buses in the fleet check turned over 20° within 5 s while drawn standing
-// still). 15° a metre is a turn of about a 4 m radius, tighter than a bus can, because the path it
-// is drawn along turns at a corner of straight lines; a bus's own ~6 m (9.5° a metre) left buses on
-// such lines facing sideways past a corner for up to 3 s, and 30° a metre let a creeping bus swing 69°.
-export const HEADING = {settleMs: 450, maxDegPerSecond: 90, maxDegPerMetre: 15};
+// still). How far a metre may turn it depends on how fast it is drawn going: 15° a metre while it
+// creeps under 0.5 m/s, rising to 60° from 1 m/s. One figure could not do both: 9.5° a metre (a bus's
+// own ~6 m radius) left buses on straight lines between reports facing sideways past a corner for up
+// to 3 s, 15° lagged a 263's terminus U-turn by a second, and 30° let a creeping bus swing 69°.
+export const HEADING = {settleMs: 450, maxDegPerSecond: 90, maxDegPerMetre: 15, movingDegPerMetre: 60, creepMps: 0.5, movingMps: 1};
 
 const median = (xs: number[]) => {
  if (!xs.length) return 0;
@@ -861,7 +862,9 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
  // the road between them, facing along it. As a chord it read "off its checked road" with no
  // heading for a 216 standing 3 m from its road at Piccadilly Gardens, and scatter a few metres
  // back along the road would have turned it round (25 September 2026, the served site).
- if (a.onRoad && b.onRoad && path.road && !b.jump && metres(pa, pb) <= HEADING_AHEAD) {
+ // Only where the reports themselves are that close: two reports 20 m apart leaving a 263's road at
+ // its terminus measured onto it 9 m apart, and were drawn backing along the road facing forwards.
+ if (a.onRoad && b.onRoad && path.road && !b.jump && metres(a.fix, b.fix) <= HEADING_AHEAD && metres(pa, pb) <= HEADING_AHEAD) {
   const rs = a.roadS + (b.roadS - a.roadS) * f;
   return {lat: pa.lat + (pb.lat - pa.lat) * f, lon: pa.lon + (pb.lon - pa.lon) * f,
    heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
@@ -885,7 +888,12 @@ function steer(from: number | null, target: number | null, dtMs: number, cut: bo
  if (target === null) return from;
  if (from === null || cut) return target;
  const turnBy = shortestTurn(from, target), eased = turnBy * (1 - Math.exp(-dtMs / HEADING.settleMs));
- const limit = Math.min(HEADING.maxDegPerSecond * dtMs / 1000, HEADING.maxDegPerMetre * travelled);
+ // Per metre: strict while creeping (scatter round a stand), loose once it is moving (a U-turn at a
+ // terminus loop, driven at 1–2 m/s, lagged a second behind its path at 15° a metre).
+ const speed = dtMs > 0 ? travelled / (dtMs / 1000) : 0;
+ const share = Math.max(0, Math.min(1, (speed - HEADING.creepMps) / (HEADING.movingMps - HEADING.creepMps)));
+ const perMetre = HEADING.maxDegPerMetre + (HEADING.movingDegPerMetre - HEADING.maxDegPerMetre) * share;
+ const limit = Math.min(HEADING.maxDegPerSecond * dtMs / 1000, perMetre * travelled);
  return (from + Math.max(-limit, Math.min(limit, eased)) + 360) % 360;
 }
 

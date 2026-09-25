@@ -82,3 +82,43 @@ test('a standing bus with no checked road does not turn on the spot as its repor
  }
  assert.ok(worst <= 30, `turned ${worst.toFixed(0)}° within 5 s while drawn moving under 2 m`);
 });
+
+test('a bus leaving its road on a terminus loop faces the way it goes, round a U-turn too', () => {
+ // BNML MJ74JMX, a 263 at its terminus on 25 September 2026, as the server captured it: standing,
+ // then 60 m north-west off its route and back round a U-turn. On cd711a3 two reports 20 m apart
+ // leaving the road measured onto it 9 m apart and were drawn backing along the road facing forwards
+ // for 2.6 s; and at 15° a metre the U-turn lagged its path by a second.
+ const reports = [['02:06:06', 53.480355, -2.237451], ['02:06:30', 53.480352, -2.237495], ['02:06:42', 53.480342, -2.237504],
+  ['02:07:06', 53.480329, -2.237453], ['02:07:30', 53.480444, -2.237678, 317], ['02:07:42', 53.480607, -2.237933, 304],
+  ['02:08:06', 53.480914, -2.23851, 311], ['02:08:33', 53.480859, -2.238878, 160], ['02:09:06', 53.480408, -2.238163, 159],
+  ['02:09:30', 53.480458, -2.238205], ['02:09:42', 53.480466, -2.23821], ['02:10:06', 53.480478, -2.238119],
+  ['02:10:30', 53.480408, -2.238063], ['02:10:42', 53.480374, -2.237992], ['02:11:06', 53.48034, -2.237964, 163],
+  ['02:11:27', 53.479995, -2.237411, 140], ['02:11:51', 53.479767, -2.237017, 140]]
+  .map(([t, lat, lon, bearing = null]) => ({at: T(t), lat, lon, bearing}));
+ const shape263 = JSON.parse(readFileSync(new URL('../public/data/shapes/BNML_263_outbound_7e76343f98.json', import.meta.url), 'utf8'));
+ const road263 = makeTrack('BNML:263:outbound:7e76343f98', decodePolyline(shape263.polyline6, 6), shape263.stopOffsets ?? []);
+ const frames = [];
+ let vis = null;
+ const start = T('02:07:40');
+ for (let w = start; w <= T('02:12:00'); w += 100) {
+  const polled = start + Math.floor((w - start) / 20_000) * 20_000;
+  const upto = reports.filter(r => r.at + 12_400 <= polled), last = upto.at(-1);
+  const fixes = upto.filter(r => last.at - r.at <= 75_000)
+   .map((f, i, a) => ({...f, service: 's', source: 'h', availableAt: i === a.length - 1 ? f.at + 12_000 : null}));
+  const h = historyFrom(fixes), e = observedAt(h, w, 'not evaluated');
+  vis = stepVisual(vis, e, w, null, drawingFor(e, null), h, road263);
+  frames.push({w, bearing: vis.bearing, lat: vis.lat, lon: vis.lon});
+ }
+ const metres = (a, b) => Math.hypot((b.lat - a.lat) * 111195, (b.lon - a.lon) * 111195 * Math.cos(a.lat * Math.PI / 180));
+ const direction = (a, b) => (Math.atan2((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 180 / Math.PI + 360) % 360;
+ let run = 0, longest = 0;
+ for (let i = 2; i < frames.length; i += 2) {
+  const a = frames[i - 2], b = frames[i];
+  if (metres(a, b) < 0.5 || b.bearing === null) continue;
+  run = Math.abs(turn(b.bearing, direction(a, b))) > 30 ? run + 0.2 : 0;
+  longest = Math.max(longest, run);
+ }
+ // The U-turn is 125°: at a bus's 90° a second it is over 30° off its path for up to a second
+ // whatever the drawing does (5c00509: under 0.6 s; this: 0.6 s; cd711a3: 3.2 s).
+ assert.ok(longest <= 1.0 + 1e-9, `faced over 30° off the way it was drawn going for ${longest.toFixed(1)} s`);
+});

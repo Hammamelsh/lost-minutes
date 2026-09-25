@@ -5,9 +5,9 @@ import type {ReactNode} from 'react';
 import {Armchair,Bus,Crosshair,Eye,LocateFixed,Maximize2,Minimize2,Minus,Moon,Plus,Scan,Sun,X} from 'lucide-react';
 import {BASEMAP_CREDITS,MAPLIBRE_MODULE_URL,prefersReducedMotion,webglAvailable} from '@/lib/basemap';
 import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,PALETTES,type MapTheme} from '@/lib/map-style';
-import {MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
+import {FLEET_LIVERY,MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
-import {ALL_STOPS_SOURCE,BUS_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
+import {ALL_STOPS_SOURCE,BUS_SOURCE,FLEET_MODEL_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_MIN_ZOOM,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
         overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,type RepositionReason,slice,stepVisual,tickClock,turnToward,
@@ -15,6 +15,8 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type ErrorProfile,type Estimate,type History,type LonLat,type MotionParams,type Track,
         type Visual} from '@/lib/motion';
 import {daylightAt} from '@/lib/daylight';
+import {fleetAtReports,reconcileFleet,stepFleet,type Fleet,type FleetStep} from '@/lib/fleet';
+import {elapsedWords} from '@/lib/live';
 import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
 import type {CameraOptions,GeoJSONSource,LngLat,LngLatLike,Map as MapLibreMap,MapMouseEvent} from 'maplibre-gl';
@@ -31,7 +33,14 @@ export type MapView = '2d'|'city'|'ride';
 export type SelectionKind='suggested'|'active'|'new_journey'|'absent';
 
 type Props = {
- buses:FollowBus[];selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
+ /** The buses of the passenger's stop or route: the ones the camera frames, drawn a little stronger. */
+ buses:FollowBus[];
+ /** Every bus in the publication, each drawn from its own reports (lib/fleet.ts); `buses` when absent. */
+ fleet?:FollowBus[];
+ /** The keys of the buses drawn a size stronger than the rest: the ones coming to the passenger's
+  *  stop, or on their route. Every bus in `buses` when absent. */
+ emphasis?:string[];
+ selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
  /** True while the passenger's page is behind the engineering area. The page stays mounted so the
   *  stop, the bus, the ride and this very map come back unchanged — but a map nobody can see must
   *  not go on drawing. Measured on 17 September 2026: hidden, it drew 27.6 frames a second, more
@@ -157,7 +166,32 @@ const FRONT_WAIT_MS=8000;
 /** A stable empty catalogue, so a map given no stops does not re-run its stops effect. */
 const NO_STOP_CATALOGUE:Stop[]=[];
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
-const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model'];
+const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model','lm-fleet-model'];
+/** Hovered with a mouse: the bus's route, destination and report age in a small tip. */
+const HOVERABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-fleet-model'];
+/** At most this many other buses get a 3D model at once, nearest the centre first. */
+const FLEET_MODEL_LIMIT=12;
+/** From this zoom the buses in view are drawn down their checked roads (their shapes are a few KB each). */
+const FLEET_ROAD_ZOOM=15;
+/** From this zoom the fleet is drawn every frame; below it ten times a second is plenty (a bus at
+ *  8 m/s moves under a pixel per tick at zoom 16). */
+const FLEET_EVERY_FRAME_ZOOM=17;
+/** A bus chosen on the map takes over the fleet's drawing of it, and gives it back when it is no
+ *  longer chosen: the same drawing carries on, so choosing a moving bus never moves it. Only a
+ *  drawing from reports is handed either way; an estimate is the map's own. The draw key is the
+ *  bus's key with its journey, as the frame loop keeps it. */
+function takeFromFleet(fleet:Fleet,drawKey:string):Visual|null{
+ const [operator,vehicle,route,direction,journeyRef]=drawKey.split('|');
+ const entry=fleet.get(`${operator}|${vehicle}`);
+ if(!entry||entry.journey!==`${route}|${direction}|${journeyRef}`||!entry.vis||entry.vis.mode!=='observed')return null;
+ const v=entry.vis;entry.vis=null;entry.e=null;
+ return v;
+}
+function handToFleet(fleet:Fleet,drawKey:string,v:Visual){
+ const [operator,vehicle,route,direction,journeyRef]=drawKey.split('|');
+ const entry=fleet.get(`${operator}|${vehicle}`);
+ if(entry&&entry.journey===`${route}|${direction}|${journeyRef}`&&v.mode==='observed')entry.vis=v;
+}
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
  *  drawn pointing north and turned by MapLibre to the bearing. */
@@ -251,6 +285,10 @@ function markerImages(theme:MapTheme){
   'lm-sel-ring':ring({stroke:'#c6f36a',outline:o.ink,radius:74}),
   'lm-bus-arrow':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:true}),
   'lm-bus-dot':marker({fill:o.other,stroke:o.otherStroke,outline:o.otherStroke,radius:6.5,nose:false}),
+  // Every other bus in the publication: the same disc and nose, muted and a size smaller, so the
+  // passenger's own buses and the chosen one still lead the eye.
+  'lm-fleet-arrow':marker({fill:o.fleet,stroke:o.fleetStroke,outline:o.fleetStroke,radius:5.6,nose:true}),
+  'lm-fleet-dot':marker({fill:o.fleet,stroke:o.fleetStroke,outline:o.fleetStroke,radius:5.6,nose:false}),
   'lm-stale-arrow':marker({fill:o.stale,stroke:o.staleStroke,outline:o.staleStroke,radius:6,nose:true}),
   'lm-stale-dot':marker({fill:o.stale,stroke:o.staleStroke,outline:o.staleStroke,radius:6,nose:false}),
   'lm-here-dot':marker({fill:'#5aa9e6',stroke:'#eaf4f8',outline:o.ink,radius:7.5,nose:false}),
@@ -258,7 +296,7 @@ function markerImages(theme:MapTheme){
  };
 }
 
-const HALO_LAYERS=['lm-stop-label','lm-here-label','lm-bus-label','lm-sel-caption'] as const;
+const HALO_LAYERS=['lm-stop-label','lm-here-label','lm-bus-label','lm-fleet-label','lm-sel-caption'] as const;
 
 function addOverlay(instance:MapLibreMap,theme:MapTheme){
  for(const [id,image] of Object.entries(markerImages(theme)))instance.addImage(id,image,{pixelRatio:2});
@@ -275,6 +313,7 @@ function restyleOverlay(instance:MapLibreMap,theme:MapTheme){
  instance.setPaintProperty('lm-stop-label','text-color',o.stopLabel);
  instance.setPaintProperty('lm-here-label','text-color',o.hereLabel);
  instance.setPaintProperty('lm-bus-label','text-color',o.busLabel);
+ if(instance.getLayer('lm-fleet-label'))instance.setPaintProperty('lm-fleet-label','text-color',o.busLabel);
  if(instance.getLayer('lm-stops-ahead-label')){
   instance.setPaintProperty('lm-stops-ahead-label','text-color',o.busLabel);
   instance.setPaintProperty('lm-stops-ahead-label','text-halo-color',o.halo);
@@ -518,7 +557,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * clearly labelled estimate between reports, which moves only along accepted road geometry,
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
-export default function CityMap({paused=false,buses,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
+export default function CityMap({paused=false,buses,fleet,emphasis,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  stops=NO_STOP_CATALOGUE,onSelectStop,onWantMap,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
@@ -593,6 +632,20 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
   gaps:[] as number[],lastTick:0,
   key:null as string|null,clock:null as PresentationClock|null});
+ // Every bus in the publication, drawn from its own reports (lib/fleet.ts): the drawings, the last
+ // step drawn (the source's data, and the tap diagnostic's), the fleet's own loop and its inputs.
+ const fleetBuses=fleet??buses;
+ const fleetRef=useRef<Fleet>(new Map());
+ const fleetDrawn=useRef<FleetStep|null>(null);
+ const fleetLoop=useRef({raf:null as number|null,lastDraw:0,lastPoints:0,ms:[] as number[],modelsDrawn:false,
+  roadsInFlight:0,clock:null as PresentationClock|null});
+ const fleetInputs=useRef({selectedKey:null as string|null,relevant:new Set<string>(),view:'2d' as MapView,
+  model:null as BusModel|null,clockOffsetMs:0});
+ const relevantKeys=useMemo(()=>new Set(emphasis??buses.map(b=>b.key)),[emphasis,buses]);
+ // The bus under the mouse, for the tip: set only when the bus changes, never per pixel.
+ const [hover,setHover]=useState<{key:string;x:number;y:number}|null>(null);
+ const hoverRef=useRef<(key:string|null,x:number,y:number)=>void>(()=>{});
+ useEffect(()=>{hoverRef.current=(key,x,y)=>setHover(prev=>key===null?(prev===null?prev:null):prev?.key===key?prev:{key,x,y})},[]);
  // One place changes the ride state, so the frame loop, the HUD and the card never disagree.
  const setRide=useCallback((next:RideState)=>{
   ride.current.state=next;
@@ -600,14 +653,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   setRideState(next);
  },[]);
 
- // The selected bus is drawn from its own source; every other bus stays a plain report.
+ // The selected bus is drawn from its own source; every other bus is drawn by the fleet, and this
+ // is where the fleet last drew it (at its newest report before the first tick).
  const busCollection=useCallback(()=>({type:'FeatureCollection' as const,
-  features:buses.filter(bus=>bus.key!==selected?.key).map(bus=>{
-   const stale=bus.freshness==='stale',nose=bus.bearing!==null;
-   return {type:'Feature' as const,geometry:{type:'Point' as const,coordinates:[bus.lon,bus.lat]},
-    properties:{key:bus.key,route:bus.route,selected:0,sort:stale?0:1,
-     icon:`lm-${stale?'stale':'bus'}-${nose?'arrow':'dot'}`,rotate:bus.bearing??0}};
-  })}),[buses,selected]);
+  features:(fleetDrawn.current??fleetAtReports(fleetRef.current,{selectedKey:selected?.key??null,relevant:relevantKeys})).features}),
+  [selected,relevantKeys]);
 
  // Diagnostic, not a feature: where every other bus is drawn on the canvas, written when the map
  // settles and when the buses change, so a check can tap the rendered marker itself and leave
@@ -620,12 +670,96 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    const {clientWidth:width,clientHeight:height}=instance.getContainer();
    const points=busCollection().features.map(feature=>{
     const [lon,lat]=feature.geometry.coordinates,at=instance.project([lon,lat]);
-    return {key:feature.properties.key,x:Math.round(at.x),y:Math.round(at.y)};
+    return {key:feature.properties.key,x:Math.round(at.x),y:Math.round(at.y),lat:+lat.toFixed(6),lon:+lon.toFixed(6)};
    }).filter(p=>p.x>=0&&p.y>=0&&p.x<=width&&p.y<=height).slice(0,80);
    el.setAttribute('data-bus-points',JSON.stringify(points));
   };
   busPoints.current();
  },[busCollection]);
+
+ // One tick of the fleet: every bus in view stepped along its reports, the rest at their newest
+ // report; the flat markers, and from the model's zoom the nearest few as 3D buses in the muted
+ // livery; the roads of the buses in view asked for from a street zoom; and the diagnostics a check
+ // reads (data-fleet: total, in view, moving, animating, modelled; data-fleet-ms: the tick's cost).
+ const fleetDraw=useRef<(why:'tick'|'publication')=>void>(()=>{});
+ useEffect(()=>{
+  fleetDraw.current=(why)=>{
+   const instance=map.current,el=root.current;
+   if(!instance||!el)return;
+   const t0=performance.now(),inp=fleetInputs.current,fl=fleetLoop.current;
+   const animate=!prefersReducedMotion();
+   fl.clock=tickClock(fl.clock,Date.now(),inp.clockOffsetMs);
+   const now=fl.clock.now;
+   const b=instance.getBounds(),w=b.getEast()-b.getWest(),h=b.getNorth()-b.getSouth();
+   const west=b.getWest()-w*0.25,east=b.getEast()+w*0.25,south=b.getSouth()-h*0.25,north=b.getNorth()+h*0.25;
+   const inView=(lat:number,lon:number)=>lat>=south&&lat<=north&&lon>=west&&lon<=east;
+   const zoom=instance.getZoom(),centre=instance.getCenter();
+   const models=inp.model&&inp.view!=='2d'&&zoom>=MODEL_MIN_ZOOM?{centre:{lat:centre.lat,lon:centre.lng},limit:FLEET_MODEL_LIMIT}:null;
+   const step=animate?stepFleet(fleetRef.current,now,{selectedKey:inp.selectedKey,relevant:inp.relevant,inView,animate:true,models})
+    :fleetAtReports(fleetRef.current,{selectedKey:inp.selectedKey,relevant:inp.relevant});
+   fleetDrawn.current=step;
+   (instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:step.features});
+   const modelSource=instance.getSource(FLEET_MODEL_SOURCE) as GeoJSONSource|undefined;
+   if(models&&inp.model){
+    const m=inp.model;
+    modelSource?.setData({type:'FeatureCollection',features:step.modelled.flatMap(x=>orientedBus(m,x,x.bearing,x.key,FLEET_LIVERY))} as never);
+    fl.modelsDrawn=true;
+   }else if(fl.modelsDrawn){modelSource?.setData(EMPTY);fl.modelsDrawn=false}
+   // The checked roads of the buses in view, a few at a time: a bus drawn down its road rather than
+   // the chord between two reports, once its reports next change.
+   if(zoom>=FLEET_ROAD_ZOOM)for(const entry of fleetRef.current.values()){
+    if(entry.road!==undefined||entry.roadAsked||fl.roadsInFlight>=4)continue;
+    const at=entry.vis??entry.bus;
+    if(!inView(at.lat,at.lon))continue;
+    const id=entry.bus.match&&'patternId' in entry.bus.match?entry.bus.match.patternId:null;
+    entry.roadAsked=true;
+    if(!id){entry.road=null;continue}
+    fl.roadsInFlight+=1;
+    loadTrack(id).then(result=>{entry.road=result.track},()=>{entry.road=null}).finally(()=>{fl.roadsInFlight-=1});
+   }
+   fl.ms.push(performance.now()-t0);
+   if(fl.ms.length>20)fl.ms.splice(0,fl.ms.length-20);
+   const sorted=[...fl.ms].sort((x,y)=>x-y);
+   el.setAttribute('data-fleet',`${step.total},${step.inView},${step.moving},${animate?1:0},${step.modelled.length}`);
+   el.setAttribute('data-fleet-ms',sorted[Math.floor(sorted.length/2)].toFixed(1));
+   if(why==='publication'||t0-fl.lastPoints>=250){fl.lastPoints=t0;busPoints.current()}
+  };
+ },[]);
+ // The fleet's own loop, apart from the chosen bus's: ten draws a second at map zooms, every frame
+ // from a street zoom, nothing while the page is hidden, behind the data, or under reduced motion
+ // (then every bus stands at its newest report, redrawn at each publication).
+ useEffect(()=>{
+  if(!ready||paused)return;
+  const instance=map.current;
+  if(!instance)return;
+  let live=true;
+  const fl=fleetLoop.current;
+  const tick=()=>{
+   if(!live)return;
+   fl.raf=null;
+   if(!document.hidden&&!prefersReducedMotion()){
+    const t=performance.now();
+    if(t-fl.lastDraw>=(instance.getZoom()>=FLEET_EVERY_FRAME_ZOOM?0:100)){fl.lastDraw=t;fleetDraw.current('tick')}
+   }
+   fl.raf=requestAnimationFrame(tick);
+  };
+  // Back from the background or the engineering area, every drawing starts afresh at the moment
+  // shown now, rather than crawling across what nobody watched.
+  const restart=()=>{if(!document.hidden)for(const entry of fleetRef.current.values())entry.vis=null};
+  restart();
+  document.addEventListener('visibilitychange',restart);
+  fl.raf=requestAnimationFrame(tick);
+  return()=>{live=false;if(fl.raf!==null)cancelAnimationFrame(fl.raf);fl.raf=null;document.removeEventListener('visibilitychange',restart)};
+ },[ready,paused]);
+ useEffect(()=>{
+  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs};
+ },[selected,relevantKeys,view,model,clockOffsetMs]);
+ // The other buses' models are shown wherever the City view or the ride shows buildings.
+ useEffect(()=>{
+  const instance=map.current;
+  if(!ready||!instance)return;
+  try{instance.setLayoutProperty('lm-fleet-model','visibility',view!=='2d'&&model?'visible':'none')}catch{/* not yet added */}
+ },[ready,view,model]);
 
  // --- create once -----------------------------------------------------------------
  useEffect(()=>{
@@ -740,9 +874,28 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     });
     // A drag is a change of subject; the offer at the old tap goes with it.
     instance.on('dragstart',()=>setChooser(null));
-    for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-bus-model','lm-stops-dot']){
+    for(const layer of ['lm-bus-marker','lm-sel-marker','lm-bus-label','lm-fleet-label','lm-bus-model','lm-fleet-model','lm-stops-dot']){
      instance.on('mouseenter',layer,()=>{instance.getCanvas().style.cursor='pointer'});
      instance.on('mouseleave',layer,()=>{instance.getCanvas().style.cursor=''});
+    }
+    // A mouse over a bus says which it is (a finger cannot hover, and taps choose). Only the bus
+    // changes re-render the page; the tip stays where the pointer met the bus.
+    if(typeof matchMedia==='function'&&matchMedia('(hover: hover) and (pointer: fine)').matches){
+     instance.on('mousemove',(event:MapMouseEvent)=>{
+      const {x,y}=event.point,m=8;
+      const layers=HOVERABLE.filter(l=>instance.getLayer(l));
+      let best:string|null=null,bestD=Infinity;
+      for(const feature of instance.queryRenderedFeatures([[x-m,y-m],[x+m,y+m]],{layers})){
+       const key=feature.properties?.key;
+       if(typeof key!=='string'||!key)continue;
+       const anchor=feature.geometry.type==='Point'?feature.geometry.coordinates as [number,number]
+        :typeof feature.properties?.alat==='number'?[feature.properties.alon,feature.properties.alat] as [number,number]:null;
+       const d=anchor?(()=>{const at=instance.project(anchor);return Math.hypot(at.x-x,at.y-y)})():m;
+       if(d<bestD){bestD=d;best=key}
+      }
+      hoverRef.current(best,x,y);
+     });
+     instance.getCanvas().addEventListener('mouseleave',()=>hoverRef.current(null,0,0));
     }
     setReady(true);
    });
@@ -938,11 +1091,16 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  },[ready,theme]);
 
  // --- data ------------------------------------------------------------------------
+ // A publication: the fleet takes it up (every bus's drawing kept where it can be) and is redrawn.
+ useEffect(()=>{
+  if(!ready||!map.current)return;
+  fleetRef.current=reconcileFleet(fleetRef.current,fleetBuses);
+  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs};
+  fleetDraw.current('publication');
+ },[ready,fleetBuses,relevantKeys,selected,view,model,clockOffsetMs]);
  useEffect(()=>{
   if(!ready||!map.current)return;
   const instance=map.current;
-  (instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData(busCollection());
-  busPoints.current();
   // Until the passenger has taken the camera, a new report that lands outside the frame
   // brings the frame to it; a journey the passenger has not chosen to go on with is not chased.
   if(!selected||follow||view==='ride'||userMoved.current||selectionKind==='new_journey')return;
@@ -1259,6 +1417,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const modelSource=instance.getSource(MODEL_SOURCE) as GeoJSONSource|undefined;
   if(!input.selected||!input.history){
    if(state.drawn){selectedSource?.setData(EMPTY);trailSource?.setData(EMPTY);modelSource?.setData(EMPTY);state.drawn=false}
+   // A bus no longer chosen goes back to the fleet where it was drawn, so nothing hops.
+   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current);
    visualRef.current=null;estimateRef.current=null;state.key=null;
    if(state.infoKey!=='none'){state.infoKey='none';input.onMotion?.(null)}
    diagnostics(root.current,null,null,state.frames,0,null);
@@ -1267,7 +1427,12 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // Another bus, or the same vehicle on another journey, is a new drawing, never a correction of
   // the last one: the other journey's reports say nothing about where this one is going.
   const drawKey=`${input.selected.key}|${input.selected.route}|${input.selected.direction}|${input.selected.journeyRef}`;
-  if(state.key!==drawKey){state.key=drawKey;visualRef.current=null;state.handoffIntoRide=false}
+  if(state.key!==drawKey){
+   // A bus tapped on the map takes over the fleet's drawing of it, so choosing it does not move it;
+   // the bus it replaces goes back to the fleet the same way.
+   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current);
+   state.key=drawKey;visualRef.current=takeFromFleet(fleetRef.current,drawKey);state.handoffIntoRide=false;
+  }
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
   const now=state.clock.now;
@@ -1890,10 +2055,10 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    data-ride={view==='ride'?rideState:'off'} data-ride-camera={view==='ride'?camera:'off'}
    data-walk={walk?'route':'none'} data-selected-key={selected?.key??''} data-selection={selectionKind??'none'}>
   <div ref={container} className="vector-map-canvas" aria-label={
-   `Map of ${buses.length} last reported bus positions${stop?`, your stop ${stop.name}`:''}.`}/>
+   `Map of ${fleetBuses.length} buses, each drawn from its own reports a little behind them${stop?`, and your stop ${stop.name}`:''}.`}/>
   <div className="map-vignette" aria-hidden="true"/>
   {chooser&&(()=>{
-   const rows=chooser.keys.map(key=>buses.find(b=>b.key===key)??(selected?.key===key?selected:null)).filter(b=>b!==null);
+   const rows=chooser.keys.map(key=>fleetBuses.find(b=>b.key===key)??buses.find(b=>b.key===key)??(selected?.key===key?selected:null)).filter(b=>b!==null);
    const stopRows=chooser.stopIds.map(id=>stops.find(s=>s.id===id)).filter((s):s is Stop=>Boolean(s));
    const count=rows.length+stopRows.length;
    if(count<2)return null;
@@ -1910,6 +2075,14 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
      <small>{[st.bearing?`${st.bearing.toUpperCase()}-bound`:null,st.street].filter(Boolean).join(' · ')}</small></button>)}
     <button type="button" className="bus-chooser-close" onClick={()=>setChooser(null)}>Neither</button>
    </div>;
+  })()}
+  {hover&&(()=>{
+   const b=fleetRef.current.get(hover.key)?.bus??fleetBuses.find(x=>x.key===hover.key)??(selected?.key===hover.key?selected:null);
+   if(!b)return null;
+   const w=root.current?.clientWidth??400,left=Math.max(8,Math.min(hover.x-92,w-196)),top=Math.max(8,hover.y-48);
+   const age=Math.max(0,Math.round((Date.now()+clockOffsetMs-b.observedAtMs)/1000));
+   return <div className="map-hover" role="tooltip" style={{left,top}} data-hover={b.key}>
+    <span className="route-pill">{b.route}</span><strong>to {destinationLabel(b.destination)}</strong><small>{elapsedWords(age)} ago</small></div>;
   })()}
   {!painted&&<div className="map-loading" role="status">
    <p>Drawing the map…</p>
@@ -1946,12 +2119,14 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   </div>
 
   {/* The legend and the ride button share the map's foot, stacking rather than overlapping. */}
-  {view!=='ride'&&(stop||here||selected)&&<div className="vector-map-foot">
+  {view!=='ride'&&(stop||here||selected||fleetBuses.length>0)&&<div className="vector-map-foot">
    <div className="map-legend-chips" aria-hidden="true">
     {here&&<span className="legend-you">{originKind==='chosen'?'Starting point':'You'}</span>}
     {walk&&<span className="legend-walk">Walk</span>}
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}
+    {/* Every bus in the publication is on the map, each drawn from its own reports (lib/fleet.ts). */}
+    {fleetBuses.length>0&&<span className="legend-fleet" data-fleet-count={fleetBuses.length}>{fleetBuses.length} buses</span>}
    </div>
    {selected&&<button className="ride-launch" ref={launchRef} onClick={startRide}
      aria-label={`Ride along with route ${selected.route}${offerWords?`: ${offerWords.replace(/ · /g,', ')}`:''}`}

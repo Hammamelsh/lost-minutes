@@ -551,3 +551,36 @@ export async function unfoldSheet(page) {
   await page.waitForTimeout(400);
   return (await follow.getAttribute('data-sheet')) !== 'peek';
 }
+
+/**
+ * A fleet on the fixture road: FX-MOVING as `movingLive` gives it, plus `count` more buses spaced
+ * `spacing` m apart along the road ahead of it, each moving at `speed` m/s from `startMs` and
+ * reporting every `cadence` s (the newest report `delay` s old). Routes 100 upwards, no timetable
+ * pattern held (`roads` gives them the fixture's checked road instead), so the map draws them as
+ * every other bus in the publication is drawn (lib/fleet.ts, 25 September 2026).
+ */
+export function fleetLive({nowMs = Date.now(), startMs = nowMs, count = 6, spacing = 250, speed = 7, cadence = 20,
+                           delay = 8, startS = 100, roads = false} = {}) {
+  const base = movingLive({nowMs, startMs, speed, cadence, delay, startS});
+  const now = Math.floor(nowMs / 1000) * 1000;
+  for (let n = 0; n < count; n++) {
+    const s0 = startS + (n + 1) * spacing;
+    const sAt = t => Math.min(TRACK.length - 30, s0 + speed * Math.max(0, (t - startMs) / 1000));
+    const newest = now - delay * 1000, times = [];
+    for (let t = newest; times.length < 7 && newest - t <= 240_000; t -= cadence * 1000) times.unshift(t);
+    const fixes = times.map(t => ({t, ...alongFixture(sAt(t))}));
+    const latest = fixes.at(-1), age = (now - latest.t) / 1000, index = nearestFixtureStop(sAt(latest.t));
+    base.vehicles.push({operator: 'BNML', vehicle: `FX-FLEET-${n}`, route: String(100 + n), direction: 'inbound',
+      journeyRef: `FX-FLEET-${n}-J`, destination: 'Fixture_Terminus', origin: 'Fixture',
+      observedAtMs: latest.t, recordedAt: new Date(latest.t).toISOString().replace('.000Z', '+00:00'),
+      lat: latest.lat, lon: latest.lon, ageSeconds: age, freshness: age <= 60 ? 'fresh' : age <= 150 ? 'ageing' : 'stale',
+      positionKind: 'observed', sourceHash: 'f'.repeat(64), bearing: latest.bearing, bearingStatus: 'reported',
+      aimedDeparture: null, retrievedAtMs: latest.t + 3000,
+      trail: fixes.slice(0, -1).map(f => [latest.t - f.t, f.lat, f.lon, f.bearing, 0]),
+      match: roads
+        ? {patternId: 'FX:256:main', patternIndex: index, nearestStop: FX.main[index][0], metresAlongPattern: FX.metres[index],
+           metresFromPatternStop: 12, patternDirection: 'inbound', patternDestination: 'Piccadilly Gardens', evidence: EVIDENCE}
+        : {unresolved: 'no_pattern_for_route', explanation: 'FIXTURE: no timetable pattern is held for this route label.'}});
+  }
+  return base;
+}

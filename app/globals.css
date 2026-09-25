@@ -609,6 +609,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .legend-you::before{background:#5aa9e6;box-shadow:0 0 0 2px #eaf4f8}
 .legend-stop::before{background:#ffd9a5;box-shadow:0 0 0 2px #ffb459}
 .legend-bus::before{background:#c6f36a;box-shadow:0 0 0 2px #1b2a12}
+.legend-fleet::before{background:#a3b6c1;box-shadow:0 0 0 2px #0b1720}
+/* The bus under the mouse: its route, destination and report age, beside the pointer. */
+.map-hover{position:absolute;z-index:5;pointer-events:none;display:flex;align-items:center;gap:7px;max-width:196px;padding:6px 9px;
+ border-radius:10px;background:rgba(11,23,32,.94);border:1px solid rgba(230,239,243,.18);box-shadow:0 6px 18px rgba(0,0,0,.3);color:#e6eff3;font-size:12px}
+.map-hover strong{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-hover small{color:#a7bac5;white-space:nowrap}
 .vector-map.view-ride .map-legend-chips{display:none}
 .theme-day .map-credit-line{background:#fbf6eadd;color:#5a4a35}
 .theme-day .map-credit-line a{color:#5a4a35}
@@ -662,6 +668,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 @media(max-width:640px){
  .vector-map-foot{bottom:28px}
  .map-legend-chips span{font-size:11px;padding:3px 8px 3px 6px}
+ /* The count of buses wrapped the legend into the notice above it on a phone; the map's accessible
+    name keeps the count there. */
+ .map-legend-chips .legend-fleet{display:none}
  /* Riding along on a phone: more map, and a card that gives the answer without the strip. */
  .vector-map.view-ride{height:clamp(420px,74vh,720px)}
  .ride-card .stop-progress{display:none}

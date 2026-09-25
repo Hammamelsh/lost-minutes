@@ -9,7 +9,9 @@ import type {MapTheme} from '@/lib/map-style';
 export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',MODEL_SOURCE='lm-model',
  WALK_SOURCE='lm-walk',SELECTED_SOURCE='lm-selected',TRAIL_SOURCE='lm-trail',STOPS_AHEAD_SOURCE='lm-stops-ahead';
 export const ALL_STOPS_SOURCE='lm-all-stops';
-export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
+/** The other buses' 3D models, from the ride's zoom: their own source, redrawn at the fleet's pace. */
+export const FLEET_MODEL_SOURCE='lm-fleet-model';
+export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,FLEET_MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
  TRAIL_SOURCE,STOPS_AHEAD_SOURCE] as const;
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
@@ -23,11 +25,11 @@ export const MODEL_MIN_ZOOM=18;
 /** Fills stay constant across themes (blue You, orange stop, lime chosen bus); strokes and
  *  labels change so each separates from paper by day and from ink by night. */
 export const OVERLAY:Record<MapTheme,{stopRing:string;stopLabel:string;hereLabel:string;busLabel:string;
- halo:string;other:string;otherStroke:string;stale:string;staleStroke:string;ink:string}>={
+ halo:string;other:string;otherStroke:string;fleet:string;fleetStroke:string;stale:string;staleStroke:string;ink:string}>={
  day:{stopRing:'#d9711c',stopLabel:'#7c3c0e',hereLabel:'#1d5a8f',busLabel:'#1e2b33',halo:'#fbf6ea',
-      other:'#26394a',otherStroke:'#fbf6ea',stale:'#8d8578',staleStroke:'#fbf6ea',ink:'#1b2a12'},
+      other:'#26394a',otherStroke:'#fbf6ea',fleet:'#6f8290',fleetStroke:'#fbf6ea',stale:'#8d8578',staleStroke:'#fbf6ea',ink:'#1b2a12'},
  night:{stopRing:'#ffb459',stopLabel:'#ffce8f',hereLabel:'#bcdcf5',busLabel:'#e6eff3',halo:'#0b1720',
-        other:'#e3eef2',otherStroke:'#0b1720',stale:'#7f97a5',staleStroke:'#0b1720',ink:'#0b1720'},
+        other:'#e3eef2',otherStroke:'#0b1720',fleet:'#a3b6c1',fleetStroke:'#0b1720',stale:'#7f97a5',staleStroke:'#0b1720',ink:'#0b1720'},
 };
 
 /** Once the 3D bus is drawn, the chosen bus's flat symbol steps aside for the ring and badge;
@@ -84,22 +86,34 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
    paint:{'circle-color':'#0b1116','circle-pitch-alignment':'map','circle-blur':0.75,
           'circle-opacity':['interpolate',['linear'],['zoom'],MODEL_MIN_ZOOM,0,19,0.3],
           'circle-radius':['interpolate',['exponential',2],['zoom'],MODEL_MIN_ZOOM,9,21,120]}},
+  // The other buses' models, in the fleet's muted livery, from the same zoom as the chosen bus's:
+  // in the ride-along the buses passing are buses. Shown in the City view and the ride only.
+  {id:'lm-fleet-model',type:'fill-extrusion',source:FLEET_MODEL_SOURCE,minzoom:MODEL_MIN_ZOOM,
+   layout:{visibility:'none'},
+   paint:{'fill-extrusion-color':['get','colour'],'fill-extrusion-base':['get','base'],
+          'fill-extrusion-height':['get','height'],'fill-extrusion-opacity':1,
+          'fill-extrusion-vertical-gradient':true}},
   {id:'lm-bus-model',type:'fill-extrusion',source:MODEL_SOURCE,minzoom:MODEL_MIN_ZOOM,
    layout:{visibility:'none'},
    paint:{'fill-extrusion-color':['get','colour'],'fill-extrusion-base':['get','base'],
           'fill-extrusion-height':['get','height'],'fill-extrusion-opacity':1,
           'fill-extrusion-vertical-gradient':true}},
-  // Every bus: a disc with a nose where a bearing was reported, lying flat on the map so the
-  // nose points along the street in the City view too. The chosen bus draws last and carries
-  // its route number.
+  // Every bus: a disc with a nose where it is drawn heading, lying flat on the map so the nose
+  // points along the street in the City view too. Since 25 September 2026 that is every bus in
+  // the publication, each drawn from its own reports (lib/fleet.ts): the buses of the passenger's
+  // stop or route a little stronger, the rest muted and smaller at wide zooms, so a city of buses
+  // reads as a city rather than a swarm. A bus with a 3D model gives up its flat marker where the
+  // model is drawn.
   {id:'lm-bus-marker',type:'symbol',source:BUS_SOURCE,
    layout:{'icon-image':['get','icon'],'icon-rotate':['get','rotate'],
+           'icon-size':['interpolate',['linear'],['zoom'],10,0.62,13.5,1],
            'icon-rotation-alignment':'map','icon-pitch-alignment':'map',
            'icon-allow-overlap':true,'icon-ignore-placement':true,'symbol-sort-key':['get','sort'],
            'text-field':['case',['==',['get','selected'],1],['get','route'],''],
            'text-font':['Noto Sans Bold'],'text-size':12.5,'text-allow-overlap':true,
            'text-ignore-placement':true,'text-rotation-alignment':'viewport','text-pitch-alignment':'viewport'},
-   paint:{'text-color':'#16240c'}},
+   paint:{'text-color':'#16240c',
+          'icon-opacity':['step',['zoom'],1,MODEL_MIN_ZOOM,['case',['==',['get','model'],1],0,1]]}},
   // The chosen bus's recent reports and, apart from them, where it is estimated to be: dots are
   // reports; a dashed line along the road from the last report is the estimate; a pale band
   // around it spans where 8 in 10 held-out estimates at this report age were actually found.
@@ -133,10 +147,18 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
           'circle-color':['case',['==',['get','latest'],1],'#c6f36a','rgba(0,0,0,0)'],
           'circle-stroke-color':'#c6f36a','circle-stroke-opacity':['case',['==',['get','latest'],1],1,0.7],
           'circle-stroke-width':1.5,'circle-pitch-alignment':'map'}},
-  {id:'lm-bus-label',type:'symbol',source:BUS_SOURCE,minzoom:13.5,filter:['==',['get','selected'],0],
+  // Route numbers: the passenger's own buses from neighbourhood zooms, every other bus a zoom
+  // later (labels give way to each other, so a crowded centre keeps its numbers legible).
+  {id:'lm-bus-label',type:'symbol',source:BUS_SOURCE,minzoom:13.5,
+   filter:['all',['==',['get','selected'],0],['==',['get','tier'],'relevant']],
    layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11.5,
            'text-anchor':'left','text-offset':[0.95,0],'text-padding':2},
    paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.8}},
+  {id:'lm-fleet-label',type:'symbol',source:BUS_SOURCE,minzoom:14.5,
+   filter:['all',['==',['get','selected'],0],['==',['get','tier'],'other']],
+   layout:{'text-field':['get','route'],'text-font':['Noto Sans Bold'],'text-size':11,
+           'text-anchor':'left','text-offset':[0.9,0],'text-padding':2},
+   paint:{'text-color':o.busLabel,'text-halo-color':o.halo,'text-halo-width':1.6,'text-opacity':0.85}},
   // With the model drawn: a lime ring on the ground around the bus, scaled to the ground, and
   // its route number floating above. Symbols are never hidden by buildings.
   {id:'lm-sel-ring',type:'symbol',source:SELECTED_SOURCE,minzoom:MODEL_MIN_ZOOM,

@@ -481,3 +481,22 @@ cause) and traced to a frame before it was changed:
 Measured on two reels (the 22 September evening reel, 335 bus-journeys, 79 hours ridden; the 24
 September incident reel, 810, 257 hours), met from their first publication, the deployed `a82abfb` with
 its estimate in the ride against this: the milestone record has the table.
+
+### Every bus on the map (25 September 2026, night)
+
+The map draws every bus in the publication by the same playback (`lib/fleet.ts` over PLAYBACK): each
+bus from its own reports, a bounded time behind them, moving between them at a bus's pace, standing at
+its newest report until the next. Only the buses inside the map's bounds (with a quarter's margin each
+side) are stepped each tick — ten times a second at map zooms, every frame from zoom 17 — and the rest
+stand at their newest report and start afresh when they come into view. A bus tapped on the map hands
+its `Visual` to the chosen bus's drawing and takes it back when it is no longer chosen, so choosing a
+moving bus does not move it (measured 2–6 m between the fleet's last drawn place and the chosen
+drawing's first, the bus's own movement in the moment between). From zoom 15 the checked roads of the
+buses in view are loaded, a few at a time, and a bus is drawn down its road once its reports next
+change (the path is rebuilt only then); from zoom 18 the nearest twelve with a heading are drawn as
+3D models in a muted livery (`FLEET_LIVERY`). Under reduced motion every bus stands at its newest
+report. The estimate is still drawn for the chosen bus alone, on the map, where the evaluation allows
+it. Nothing of the fleet's drawing is stored or published. Measured: 200 synthetic buses stepped in
+under 25 ms a tick in Node (`tests/fleet.test.mjs`); in Chromium with 124 fixture buses, 91 in view and
+89 moving, the tick's median cost was 0.6 ms (`tests/browser/fleet.spec.mjs`; MapLibre's own re-tiling
+of the source runs in its worker and is not in that figure).

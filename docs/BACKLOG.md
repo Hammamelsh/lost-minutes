@@ -345,6 +345,30 @@ top). None of it comes from the playback's rewind. Frames and metres in all, eve
 Also still open from the one-ride milestone: the 25 sprints of 3–4 s after a stand (15 and 10 events)
 and the heading lags pulling out of a stand (6 and 18).
 
+## 33. Every bus on the map — built, 25 September 2026 (night)
+
+The owner, riding the deployed `a63006b` from a bus link with no stop chosen, saw one bus on the whole
+map: the map drew only the chosen bus's route (or, at a stop, that stop's board), each at its newest
+report, stepping to the next every poll. Every phone already receives the whole publication (234 buses
+on the served site that evening, 229 with a trail to play back), so nothing more is fetched.
+
+Built (`lib/fleet.ts`, `components/city-map.tsx`): every bus in the publication is on the map, each
+drawn from its own reports exactly as the chosen bus is (the same PLAYBACK, one drawing everywhere),
+only those in view played back each tick, the rest standing at their newest report until they come
+into view; the passenger's own buses (the stop's board, the route) drawn a size stronger than the rest;
+route numbers from neighbourhood zooms; a tap on any of them chooses it, and the drawing is handed over
+so the bus does not move when chosen (and handed back when it is not); from a street zoom their checked
+roads are loaded, a few at a time; from the model's zoom the nearest twelve are 3D buses in a muted
+livery, so in the ride the buses passing are buses; a mouse over one names it; the legend counts them;
+under reduced motion every bus stands at its report. The fleet's tick is timed (`data-fleet-ms`) and its
+state written (`data-fleet`). Verified in `tests/fleet.test.mjs` and `tests/browser/fleet.spec.mjs`;
+the measurements are in `docs/RELEASE.md`.
+
+Open: a real phone's frame rate and battery with a city of buses moving (SwiftShader measures the
+JavaScript, not the GPU); the other buses' eased corrections are not said anywhere (the chosen bus's
+card says its own); trails or route lines for the other buses (deliberately not drawn: their roads are
+loaded only for movement); Metrolink is still not here.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

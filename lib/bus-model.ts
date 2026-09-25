@@ -43,9 +43,15 @@ function placer(lat:number,lon:number,bearing:number){
  };
 }
 
-/** The oriented model, when a bearing was reported. */
-export function orientedBus(model:BusModel,at:{lat:number;lon:number},bearing:number,key=''):Feature[]{
+/** Another bus on the map, not the chosen one: the same shape in a muted livery, so the lime bus
+ *  stays the only lime thing on the map (colours carry meaning: lime is your bus). */
+export const FLEET_LIVERY:Record<string,string>={body:'#8fa3ae',stripe:'#5d7079',roof:'#c9d3d8',pod:'#b6c2c8',sign:'#d9c48a'};
+
+/** The oriented model, when a bearing was reported. `livery` replaces the model's own colours by
+ *  name (the fleet's muted one); parts it does not name keep theirs. */
+export function orientedBus(model:BusModel,at:{lat:number;lon:number},bearing:number,key='',livery:Record<string,string>={}):Feature[]{
  const place=placer(at.lat,at.lon,bearing);
+ const colours={...model.colours,...livery};
  return model.parts.map(part=>{
   const [x0,x1]=part.x,[y0,y1]=part.y;
   const ring=[place(x0,y0),place(x1,y0),place(x1,y1),place(x0,y1),place(x0,y0)];
@@ -53,7 +59,7 @@ export function orientedBus(model:BusModel,at:{lat:number;lon:number},bearing:nu
    // The bus this is, and where it stands: at the ride-along's zoom the model is most of the
    // screen, and a click on it is a click on that bus (`anchor` keeps the tap's distance honest
    // against a flat marker beside it).
-   properties:{part:part.name,base:part.z[0],height:part.z[1],colour:model.colours[part.colour],
+   properties:{part:part.name,base:part.z[0],height:part.z[1],colour:colours[part.colour],
     key,alat:at.lat,alon:at.lon}};
  });
 }

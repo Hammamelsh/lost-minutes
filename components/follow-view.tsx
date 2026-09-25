@@ -314,6 +314,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
                       ...board.elsewhere].map(row=>row.bus.key));
   return buses.filter(b=>keys.has(b.key));
  },[stop,board,onRoute,buses]);
+ // The buses the map draws a size stronger than the rest of the fleet: those coming to the stop, or
+ // that may be, or last reported beside it; with no stop, the route being browsed.
+ const mapEmphasis=useMemo(()=>stop&&board?[...board.coming,...board.maybe,...board.nearby].map(row=>row.bus.key)
+  :onRoute.map(b=>b.key),[stop,board,onRoute]);
  // A journey restored from this device or a link is a pin like any other: the same vehicle on the
  // same journey is followed again; otherwise the page says what became of it and chooses nothing
  // in its place. A recording restores nothing.
@@ -886,7 +890,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       <FollowMap buses={mapBuses} selected={shown} follow={follow&&!pausedJourney} roads={roads}
        mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
      </div>
-   : <CityMap paused={paused} buses={mapBuses} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
+   : <CityMap paused={paused} buses={mapBuses} fleet={buses} emphasis={mapEmphasis} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       stops={stops} onSelectStop={id=>{const s=stopById.get(id);if(s)selectStop(s)}}
       onWantMap={()=>{const handle=document.querySelector('.follow > .panel .sheet-handle');

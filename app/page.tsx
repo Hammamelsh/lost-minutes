@@ -501,7 +501,7 @@ export default function Home(){
 
   {/* The passenger's page: laid out even while hidden, never gated on the recording. */}
   <div id="follow" className={`passenger-area${away?' away':''}`} inert={away}>
-   <section className="page-heading compact"><div><p className="eyebrow">MANCHESTER BUSES</p><h1 id="passenger-title" tabIndex={-1}>Follow your bus.</h1><p className="intro">The last position each bus reported, and how long ago it reported it.</p></div></section>
+   <section className="page-heading compact"><div><p className="eyebrow">MANCHESTER BUSES</p><h1 id="passenger-title" tabIndex={-1}>Follow your bus.</h1><p className="intro">Every bus reporting in the area, drawn from its own reports a little behind them, and how long ago it last reported. Tap one to follow it.</p></div></section>
    <FollowView paused={away} mode={followMode} live={live} buses={followBuses} roads={roads} walkingConfig={config.walking}
     clockOffsetMs={!usingArchive&&serverRef&&liveFetchedAt?serverRef-liveFetchedAt:0}
     onRefresh={()=>loadLive(config.liveUrl)} refreshing={refreshing}

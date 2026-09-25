@@ -201,6 +201,10 @@ test('a boarding point is chosen by tapping its sign on the map, without knowing
     at: {x: Math.round(at.x), y: Math.round(at.y)}, sign: lonely.p, near: Math.round(lonely.near),
     camera: await map.getAttribute('data-camera')})});
   await page.mouse.click(at.x, at.y);
+  await page.waitForTimeout(500);
+  console.log(`sign tap at ${Math.round(at.x)},${Math.round(at.y)} (${lonely.p.id}): chooser ${await page.locator('.bus-chooser').count()}, `
+    + `selected '${await map.getAttribute('data-selected-key')}', panel ${await page.locator('.follow').getAttribute('data-panel')}, `
+    + `stop now '${(await page.locator('.your-stop-copy strong').textContent())?.trim()}', buses ${JSON.stringify(buses.map(b => `${b.key.split('|')[1]}@${b.x},${b.y}`))}`);
   await expect(page.locator('.follow')).toHaveAttribute('data-panel', 'stop');
   // It is a different stop, and the panel is about it now.
   await expect.poll(async () => (await page.locator('.your-stop-copy strong').textContent())?.trim())

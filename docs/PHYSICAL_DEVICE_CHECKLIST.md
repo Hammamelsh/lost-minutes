@@ -143,6 +143,11 @@ finger are all absent from Chromium.
       with a checked road — a 142, a 163, a 250); no ribbon on a bus without one. *unchecked*
 - [ ] With reduced motion on (iOS: Settings › Accessibility › Motion): no fade, no glide, the ride
       simply appears on the bus. *unchecked*
+- [ ] **Every bus on the map** (25 September, night): with nothing chosen, zoom out over the city —
+      every bus in the area is drawn and moving; the legend counts them. Watch the frame rate and the
+      phone's warmth over five minutes at a neighbourhood zoom with 100+ buses on screen, then at a
+      street zoom. Tap a small grey bus: it becomes the chosen bus without moving. In the ride, other
+      buses pass as grey 3D buses. *unchecked*
 - [ ] The card reads *as it was about N s ago · report M s old* (since 25 September, late evening;
       it read *drawn about N s behind* before): N is always more than M, typically by about ten
       seconds; N changes by fives and never flickers. Standing at its latest report it reads *Last

@@ -4,12 +4,180 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`a63006b`**, deployed 25 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`7dd79be`**, deployed 25 September 2026, night (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 25 September, night: every bus on the map
+
+**Deployed: `7dd79be`**, with `a63006b` kept for `deploy/rollback.sh`. The owner, riding the served
+site from a bus link with no stop chosen, saw one bus on the whole map and asked for all of them. The
+map had drawn only the chosen bus's route (or, at a stop, that stop's board), each at its newest report,
+stepping to the next at every poll. Every phone already receives the whole publication, so nothing
+more is fetched: **every bus in the publication is now on the map, each drawn from its own reports**
+exactly as the chosen bus is (`lib/fleet.ts`: the same PLAYBACK, one drawing everywhere).
+
+What that is, in the passenger's terms:
+- **The city moving.** Each bus moves between its reports at a bus's pace, a little behind its newest
+  report, and stands there until the next one. Nothing is predicted. Only the buses in view are played
+  back each tick — ten times a second at map zooms, every frame from a street zoom — and the rest
+  stand at their newest report until they come into view.
+- **Your buses lead the eye.** The buses of your stop or your route are drawn a size larger and darker
+  than the rest; the chosen bus is the only lime thing on the map, as before. Route numbers appear
+  from neighbourhood zooms (your own buses a zoom sooner), giving way to each other where they crowd.
+- **Tap any bus.** It becomes the chosen bus, and its drawing is handed over rather than restarted, so
+  the bus does not move when you choose it (and is handed back when you choose another). A mouse
+  over a bus names it: route, destination, report age.
+- **In the ride, the buses passing are buses.** From the model's zoom the nearest twelve other buses
+  are drawn as 3D buses in a muted grey livery, facing the way they are drawn moving. From a street
+  zoom the checked roads of the buses in view are loaded a few at a time (each a few KB), so they are
+  drawn down their roads rather than the chords between reports.
+- **The map says what it is.** The legend counts the buses (*234 buses*; on wide screens — on a phone the
+  chip wrapped into the map's notices, so the count lives in the map's accessible name there), the heading reads *Every bus
+  reporting in the area, drawn from its own reports a little behind them*, and the map's accessible
+  name says the same. Under reduced motion every bus stands at its newest report.
+
+**Measured.** In Node, 200 synthetic buses stepped in under 25 ms a tick; in Chromium, 124 fixture buses
+with 91 in view and 89 moving cost 0.5–0.6 ms a tick at the median (MapLibre's re-tiling of the source
+runs in its worker and is not in that figure); buses in view travelled 42 m in 6 s at 7–11 m/s between
+samples, never faster than a bus; a tapped bus was 2–6 m from where the fleet had drawn it, the bus's own
+movement in the moment between; in the ride, 2 and 1 other buses were modelled beside the ridden one.
+On the served site at 22:52–23:00 UTC (`outputs/probes/incident-43/served-fleet.mjs`, the live
+publication of 156–159 buses, emulation): at a city zoom (12.2) on a desktop **158 buses on the map, 109 in
+view, 79 drawn moving**, the fleet's tick 1.1 ms at the median and 1.6 at most; at a neighbourhood zoom
+(15.2) 29 in view, 16 moving, 0.5 ms; 59 of 80 buses tracked over 20 s moved more than 5 m, the largest
+movement between two samples a quarter of a second apart one or two pixels (28 m at 20 m a pixel), where a
+step to a newest report would be seven. On a phone at the city zoom 156 buses, 46 in view, 29 moving,
+0.6 ms (the probe's zoom presses did not take on the phone, so only the city zoom was measured there). A
+grey bus tapped on the desktop (YN61BFV, a 143) became the chosen bus, its card reading *Off its checked
+road · as it was about 60 s ago · report 44 s old* — the new label, live. The served page chunk was
+identical to the local build's (`fb26e93d…`), `a63006b` kept for rollback. Try Ride-along's three offers at 22:55 UTC (a 143, a 250 and a 192), ridden 60 s each on the served
+site (`served-offers.mjs`): none lost its heading or was repositioned, each moving in 84–100% of samples
+with no step over 4 m between them, the camera turning at most 28° a second, the cards reading *Moving
+between its reports · as it was about 60 s ago · report 55 s old*, *Standing · as it was about 40 s ago ·
+report 39 s old* and, for one drawn within a few seconds of its report, *Moving between its reports ·
+latest 42 s ago*.
+
+**Not done, and why.** The other buses' small eased corrections (a rebuilt path moving a bus a few
+metres) are not said anywhere: the chosen bus's card says its own, and one line per bus for two hundred
+buses is noise. No trails or route lines for the other buses: their roads are loaded for movement, not
+drawn. A real phone's frame rate and battery with a hundred buses moving is the first thing to check in
+hand (`docs/PHYSICAL_DEVICE_CHECKLIST.md`); SwiftShader measures the JavaScript, not the GPU.
+
+**Verified:** 258 Node tests (`tests/fleet.test.mjs` among them); typecheck; lint with no errors; the
+full browser gate on the fleet build **380 passed, 41 skipped by design, 3 failed in 1.2 hours** (Chromium
+with SwiftShader, desktop and phone emulation). The three: my own new movement check judged a step by
+pixels at a wide zoom (one pixel is five metres there; it now measures metres from the drawn position
+over the time the sample took, and reads 7–11 m/s for buses moving at 7); the *N buses* chip wrapped the
+phone's legend into the model notice (hidden on phones now; the map's accessible name keeps the count);
+and a sign tapped on the map once did not change the stop (desktop) — it passed 4 of 4 re-runs with the
+tap logged (chooser closed, a bus not chosen, the new stop shown), so the cause is not known and it is
+left open as intermittent. The three small changes after the gate (the fleet labels restyled on a theme
+switch, the tap diagnostic carrying positions, the phone chip) were covered by a focused run of the specs they touch (map, journey, layout, fleet, chooser, selection, access,
+passenger): **111 passed, 17 skipped by design, none failed, in 14.8 minutes** on the deployed build. Emulation only.
+
+## 25 September, late evening: what the card's delay measures, and what a rewind moves
+
+**Deployed: `7dd79be`**, focused corrections on `a63006b` (kept for `deploy/rollback.sh`); the feature
+scope is unchanged. Both questions were measured on every bus in both reels, ridden as the page rides
+it (`scripts/evaluate-delay-rewind.mjs`): the 22 September evening reel, 335 bus-journeys and 2.8
+million frames; the 24 September incident reel, 810 bus-journeys and 8.8 million frames.
+
+### 1. The card's figure is measured from now, not from the latest report
+
+It is now less the moment the drawn place stands for: the last moment the bus's reports had it at that
+place. So it **includes** the latest report's age. While the bus moves between its reports:
+
+| | evening reel | incident reel |
+|---|---|---|
+| the figure (10th / 50th / 90th percentile) | 53 / 57 / 61 s | 47 / 51 / 54 s |
+| the latest report's age | 36 / 46 / 54 s | 32 / 40 / 48 s |
+| what the playback adds beyond the report | 2.7 / 10.9 / 21.1 s | 2.4 / 10.1 / 19.4 s |
+| frames where the figure was under the report's age | 0 of 1.8 million | 0 of 6.1 million |
+
+**The record said the ride is "30–60 s behind the newest report". That was wrong.** 30–60 s is how far
+the clock is set behind *now*; behind the newest report the drawing is about ten seconds at the median.
+Corrected here, in the milestone record, the motion model and the phone checklist.
+
+- **A defect, fixed.** While the bus waited at its newest report, the clock runs up to 24 s past it (the
+  smoothing window), and the figure followed the clock. It fell under the report's own age in 946,754 of
+  979,609 waiting frames on the evening reel and 2,689,171 of 2,798,496 on the incident reel. The label
+  then gave the report's age, correctly, but the sentence under it could say *drawn where its reports
+  put it about 5 seconds ago* of a report 20 s old. The moment drawn is now never later than the newest
+  report: 0 and 0.
+- **The wording now gives the two ages separately.** The label reads *Moving between its reports · as it
+  was about 45 s ago · report 18 s old* (likewise *Standing · …* and *Off its checked road · …*). The
+  sentence reads *It is drawn where its reports put it about 45 seconds ago: its latest report is 18 s
+  old, and the playback draws it about 30 s behind that report …*. Where the playback adds under 3 s,
+  the label gives only the report's age (*latest 18 s ago*). That way rounding to fives never makes the
+  moment drawn look newer than the report (a Node test over every pairing up to 150 s). At its newest
+  report the label reads *Last reported position · 18 s ago*.
+
+### 2. A rewind moves the clock, never the bus
+
+A report can arrive saying the bus had got further than it is drawn: a late report filed between two
+already drawn, or the next report after a wait. Then the moment the clock shows would be 15 m or more
+ahead of the drawn place. The clock is set back, in one step, to the drawn place's own moment. The drawn
+bus keeps its place and pulls away at its reports' pace; before this, it raced to catch up (a 119,
+135–300 m). **No position is rewound, so none needs a transition.** The only thing that changes at that
+instant is the card's figure, which grows, because the drawn place is older than it was taken to be.
+The time is then made up at no more than 5% of real time, or at a stand. If the clock would have to go
+back further than the 15 s allowance, the bus is instead repositioned forwards, cut, and the card says so.
+
+**Measured:** the clock was set back 307 and 669 times. The drawn bus went back along its own path in
+**0 frames**, in the 5 s after a rewind or anywhere else.
+
+That measurement also looked for anything else that moves the bus against the way it faces, and found
+two faults, both fixed:
+- **A rebuilt path could re-anchor the bus on the wrong pass of a road used twice.** When a publication
+  changed the reports (even only by dropping the oldest one), the drawn place was projected onto the
+  whole road near it. On a route that runs one street twice, the projection took the other pass. The
+  bus then went to its stretch's start and was eased there, with nothing said. A V2 went 36 m back
+  along its road, facing forwards, where no report had moved. A 21 at its terminus was eased 48 m with
+  its nose already turned to the return leg. 19 eased corrections on the two reels moved the bus against
+  the way it faced, the largest 40.3 m (the 21) and 36.8 m (the V2). 9 of them started on the same frame
+  as a rewind, because the same publication triggers both. The bus is now measured against its
+  own stretch of road: 13 remain, none over 6.6 m. `tests/delay-and-rewind.test.mjs` replays the V2's
+  own reports: 35.9 m back on `a63006b`, none now.
+- **Arriving at a standing goal took the bus to it even when a path change had left it just ahead**: a
+  step back of up to 0.44 m with nothing said (9 and 15 frames), with nothing in the code to bound it.
+  It now stands where it is: 0 and 0.
+
+What still moves against the facing after both fixes (frames, metres in all):
+
+| cause | evening | incident | what it is |
+|---|---|---|---|
+| the nose still turning while it moves forward | 38, 25.6 m | 113, 76.3 m | round a tight bend at speed (a 191 at 14 m/s): it goes forwards and its nose lags |
+| an eased correction onto a changed path | 9, 6.9 m | 30, 26.4 m | 4 and 9 corrections with a backward part, largest 3.8 and 6.6 m; not said on the ride card |
+| a hop at a joint between two stretches | 2, 6.5 m | 3, 7.0 m | a straight stretch ending at a report, a road stretch starting on the road beside it (a 23: 6 m) |
+| following reports that step back, no road | 1, 0.3 m | 20, 7.1 m | the reports themselves go back a few metres (a 281: 6.5 m in 10 s) |
+
+None of these comes from the rewind; they are backlog 32. The one-ride milestone's fault breakdown is
+unchanged in group A (0 unsaid steps; the sprints 15 and 10); in B two more stands, and in C what the
+corrected figure now counts (the milestone record's footnote).
+
+**Still open, and not touched here:** the **25 sprints** (15 and 10 events, 3–4 s after a stand); the
+heading lags pulling out of a stand (6 and 18) and the one spin; the four kinds of movement in the table
+above; backlog 30 (*off its checked road* at termini); the round token until a bus with no road and no
+bearing has moved; and everything a phone in hand would show.
+
+**The clips**, git-ignored on this machine. Both are the same 230 s of the 250 inbound (MF74NNW,
+22 September 21:15 UTC), replayed through the page from the served publications, before (`a82abfb`) and
+after (`a63006b`) side by side: **at normal speed**,
+`outputs/probes/incident-43/ride-250-before-after-1x.webm` (3 min 53 s), and accelerated,
+`ride-250-before-after-2x.webm` (1 min 58 s). Both are the page drawing in real time, recorded at 25 frames a
+second and played side by side by one browser. The after side predates these corrections: its
+card reads *drawn about 55 s behind*, and its drawing differs from the deployed one only in the two
+fixes above.
+
+**Verified:** 252 Node tests at the time (258 with the fleet's); typecheck; lint with no errors; the
+46 browser checks that read the label and the drawing's 82 (ride, ride-offer, ride-quality, replay,
+head-turn, recorded-ride, try-ride, the motion and front-view checks), 45 + 79 passed and 1 + 3 skipped
+by design, on the build with these corrections; then the full gate on the night's build (the next
+section). Emulation only.
 
 ## 25 September, evening: one Ride-along everywhere
 

@@ -1818,3 +1818,23 @@ novelty is claimed: this is property-based checking applied to replayed data.
 
 **Next cheap step.** Fold the two invariants into `scripts/evaluate-ride-faults.mjs` so every fault run
 reports them. Status: separate script, run by hand.
+
+## 58. Movement measured from rounded pixels reads as teleports at wide zooms
+
+**Problem and evidence.** Two checks written on 25 September 2026 judged how far a drawn bus moved
+between samples by the pixel positions the page writes in `data-bus-points` (rounded to whole pixels)
+times the metres a pixel covers at the map's zoom. At zoom 14.4 one pixel is 4.5 m and at 12.2 it is
+20 m, so a bus that moved one more pixel in one sample than in the last read as 36 m/s in
+`tests/browser/fleet.spec.mjs` (it failed the full gate on the phone profile) and as a 44 m step in the
+served-site probe, while the bus moved at 7 m/s throughout. The check now reads the drawn position
+itself (`lat`, `lon` were added to the diagnostic) over the time each sample really took; the probe
+still reads pixels and says so.
+
+**Who hits it, workaround.** Whoever writes a browser check or probe of drawn movement; the workaround
+was a wide bound.
+
+**Small fix, script, tool or product.** A small fix in this repository, done for the check: every
+per-bus diagnostic carries positions as well as pixels, and movement is measured from positions over
+measured time. Worth a line in the browser-suite notes so the next check starts there.
+
+**Next cheap step.** Make the served probe read positions too. Status: the check fixed, the probe not.

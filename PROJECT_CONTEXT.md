@@ -4,10 +4,42 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 25 September 2026, evening (one Ride-along everywhere: every ride drawn from the bus's
-own reports, with the owner's approval; uncertainty handled without invented motion; the faults of every
-bus in two reels told apart by cause; TEST_BUS traced upstream; the drag-during-entrance fault classified
-and fixed: deployed as `a63006b`).
+Last updated: 25 September 2026, night (every bus on the map, each moving between its own reports and
+tappable; and the ride card's delay and the playback's rewind clarified and measured, with three focused
+corrections: `7dd79be`). Before that the same evening: one Ride-along everywhere, deployed as `a63006b`.
+
+- **25 September, night — every bus on the map** (`docs/RELEASE.md`, top; backlog 33). The owner,
+  riding the served site from a bus link, saw one bus on the whole map: the map drew only the chosen
+  route's buses (or the stop's board), each stepping to its newest report at every poll. Now every bus in
+  the publication is on the map, each drawn from its own reports exactly as the chosen bus is
+  (`lib/fleet.ts` over PLAYBACK: one drawing everywhere; only the buses in view are stepped, ten times a
+  second at map zooms and every frame from zoom 17; nothing more is fetched, nothing predicted); the
+  stop's or route's own buses a size stronger than the rest; route numbers from neighbourhood zooms; a
+  tap on any bus chooses it and its drawing is handed over, so it does not move when chosen (2–6 m between the fleet's last drawn place and the chosen drawing's first, the
+  bus's own movement in the moment between);
+  from zoom 15 the checked roads of the buses in view are loaded a few at a time; from zoom 18 the nearest
+  twelve other buses are 3D buses in a muted grey livery, so in the ride the buses passing are buses; a
+  mouse over a bus names it; the legend counts them; reduced motion stands every bus at its report. The
+  tick with 91 fixture buses in view cost 0.6 ms at the median in Chromium. **Verified:** 258 Node; the full browser gate 380 passed, 41 skipped, 3 failed (two premises of the night's own
+  checks corrected, one intermittent sign-tap left open), then a focused 111 passed / 17 skipped / none failed on the deployed build; **deployed as `7dd79be`**; the served site
+  at a city zoom drew 158 buses, 109 in view and 79 moving at a 1.1 ms tick, and a tapped grey bus became the chosen
+  bus with the new label. Emulation only.
+
+- **25 September, late evening — what the delay measures, what a rewind moves** (`docs/RELEASE.md`,
+  top). The card's figure is *now* less the moment the drawn place stands for, so it includes the latest
+  report's age: while moving it reads 47–61 s (10th–90th percentile), the report 40–46 s old at the
+  median and the playback adding about 10 s. The record's "30–60 s behind the newest report" was wrong
+  (30–60 s is the clock behind now) and is corrected. While a bus waited at its newest report the figure
+  ran under the report's own age (96–97% of waiting frames on both reels); it now never does. The label
+  says the two apart: *as it was about 45 s ago · report 18 s old*. A late report sets the playback's
+  clock back to the drawn place's moment and never moves the bus: 0 frames back along its path, near
+  any of 976 rewinds or anywhere. Measuring that found silent backward slides from another cause: a
+  rebuilt path re-anchored the bus on the wrong pass of a road used twice and eased it back up to 40 m
+  (19 eased corrections with a backward part; now 13, none over 6.6 m); fixed, with a V2 regression
+  from its own reports. A standing-goal rule that could step a bus back (≤ 0.44 m) is fixed. What still
+  moves against the facing — the nose lagging round tight bends, a 6 m hop at a path joint, reports that
+  step back, eased corrections under a bus length — is open with the 25 sprints. Clips at 1× and 2×.
+  `scripts/evaluate-delay-rewind.mjs`, `tests/delay-and-rewind.test.mjs`. Emulation only.
 
 - **25 September, evening — one Ride-along everywhere** (`docs/MILESTONE_2026-09-25_ONE_RIDE.md`). The
   owner approved report-based playback for every ride. However a ride is entered — Try Ride-along, a

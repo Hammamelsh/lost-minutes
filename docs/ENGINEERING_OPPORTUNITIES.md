@@ -1674,6 +1674,16 @@ half exists as `scripts/evaluate-fleet-playback.mjs` (24 September 2026 — ever
 through the drawing with its own road, judged bus by bus); the pull and the rebuild are still by
 hand.
 
+**24 September 2026, night — the third time, and it is now worth writing.** The route-43 incident
+took the whole chain by hand again, about two hours of it tooling rather than diagnosis: the
+browser's release and polls from the server's request log; the captures and the warehouse
+snapshot copied to a scratch folder on the server and rebuilt there (the live warehouse is the
+collector's); the reel pulled back; `movement-replay.mjs` run on the deployed build and on the fix,
+ride-along and top-down; the four recordings cut with Playwright's own ffmpeg (no seek index, no
+side-by-side filter) and composed into one clip in a browser. One wait lost an hour because a
+`pgrep -f` check matched its own command. The glue: `scripts/incident-replay.sh --link <bus link>
+--from 17:49:30 --until 17:56:30` doing all of it and writing the clip, the traces and the table.
+
 ## 52. A fault on one bus in 334 is invisible in an average, and visible in a per-bus listing
 
 **Problem and evidence.** The playback's second version looked right on the two buses in the
@@ -1721,3 +1731,47 @@ screenshots, not the map's own calls.
 **Next cheap step.** Promote the camera logger into `tests/browser/fixtures.mjs` the next time a
 camera check is intermittent. Status: both one-off diagnostics exist; the fix to the sheet check's
 wait is in (`tests/browser/sheet.spec.mjs`).
+
+## 54. A replay that always starts at a bus's first report misses what a passenger meets mid-run
+
+**Problem and evidence.** After `5c00509` the fleet check reported no bus losing its heading, and a
+ride on the served site found a 216 standing at Piccadilly Gardens with no heading and the card calling
+it off its road (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §10, "The served check"). The
+check met every bus from its first report, when the one report with a bearing was still in its trail,
+and counted a lost heading only after one had been known. Met halfway through each run
+(`--meet 0.5`), and counting buses on their road with no heading at all, the same build had 12–49
+such buses. Its first measure of turning while standing also misled twice: turning within 3 m of
+travel counted corners, and turning summed over a run of still frames counted 255 s of creep as a
+180° turn. Only a measure over a short window of genuinely still frames matched what a passenger sees.
+
+**Who hits it, workaround.** Whoever changes the drawing. The workaround was riding live buses on the
+served site by hand, which found it by luck: one of the two buses sampled happened to be standing.
+
+**Small fix, script, tool or product.** Done as a script option in this repository: `--meet` on
+`scripts/evaluate-fleet-playback.mjs`, with three measures (no heading on the road, called off a road
+it is drawn on, most turned within 5 s while still). The reusable idea is replaying from several entry
+points, not only the start; no novelty is claimed.
+
+**Next cheap step.** Run the fleet check at `--meet 0` and `--meet 0.5` on a fixed reel in the gate,
+with the per-bus bounds of entry 52. Status: option and measures exist, not in the gate.
+
+## 55. A suggestion judged by replaying what it would have given
+
+**Problem and evidence.** Try Ride-along's list was reasoned from what the latest publication says of
+each bus, and never checked against the rides it led to. Replaying every offer on two recorded reels
+(`scripts/evaluate-ride-offers.mjs`, 25 September 2026) found 2% of the offered rides clean over three
+minutes, because the tier it ranked first was the one that jumps (backlog 31). Nothing in the existing
+checks could have seen it: each check rides one fixture bus, and the fleet check rides every bus but
+not the ones a suggestion picks, nor from the moment it picks them.
+
+**Who hits it, workaround.** Whoever changes a suggestion or the drawing. The workaround was riding
+live buses on the served site by hand, which samples a handful of moments.
+
+**Small fix, script, tool or product.** Done as a script in this repository: offer rule in, clean-ride
+share and faults by kind out, two rules side by side on the same moments, and a features mode that
+rides every candidate so a rule's bounds can be chosen from outcomes. The reusable idea (judge a
+recommender by replaying what it would have recommended against what then happened) is ordinary offline
+evaluation; no novelty is claimed.
+
+**Next cheap step.** Keep one reel of each kind (evening peak, a weekday morning) and run the offer
+audit before any change to Try Ride-along or the drawing. Status: script exists, run by hand.

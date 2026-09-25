@@ -357,3 +357,86 @@ of arrival jitter, against the glide read from `b9cbe88`) and `scripts/evaluate-
 checked road, each replayed with its own road and judged bus by bus): see
 `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §2b for the numbers. Nothing here changes the
 estimator, its parameters, its release gate or its scores above.
+
+### After the route-43 incident (24 September 2026, evening)
+
+A passenger-acceptance failure on the served site — a route-43 ride that appeared to teleport and sat
+across its road — was reproduced from the server's own captures and request log
+(`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §10). What changed, rule by rule:
+
+- **Which way the drawn bus faces.** Until then a played-back bus faced the *reported* bearing of the
+  next report the clock was heading for — another moment — and a report with no bearing made it a
+  round token; the ride camera takes the drawn heading every frame, so it spun 77–140° in one frame
+  at each new report. The drawn bus now faces the way it is drawn travelling: the road's direction
+  a bus's length ahead on a road stretch, the stretch's own direction on a straight one, held while
+  it stands; turned into at no more than 90° a second, eased over 0.45 s (`HEADING`), and taken at
+  once only across a stated repositioning. A report's own bearing is untouched: it stays what the
+  report said, in the evidence.
+- **Which road place a report stands for.** Within 20 m of its road a report is on it whatever its
+  bearing says (a bearing can be stale or noisy; a first version let a disagreeing bearing refuse a
+  report lying on the road, which turned a bus's road into chords that cut its corners). Further off,
+  a report with a bearing is placed at the nearest point of its road facing the same way (within 45°),
+  up to 50 m off (`BEARING_AGREED_METRES`); otherwise within `offTrack` as before. The incident bus's reports ran 18–44 m to one side of its
+  road for two minutes in the city centre, every bearing agreeing with the road, while two other 43s
+  crossed the same stretch within 20 m of it: GPS pushed aside, not another street. The road joins two
+  reports round a corner when it is up to three times the line between them at no more than 15 m/s —
+  reports to the inside of a turn make the road look long — and not when it is far longer at an
+  impossible pace (a 250's road looping 1,353 m where it drove 302 m in 27 s).
+- **The clock's bounds.** Behind the delay by more than 15 s (`resyncMs`, from 45 s) with newer reports
+  to go to, it is repositioned and says so rather than crawling back; while the reports say the bus
+  stood, the clock makes up time four times faster, which nothing on screen shows. A pause in drawing
+  (a tab put away) goes to the delay's moment on return, once fresh reports are there, and a move
+  worth mentioning is said ("the page was in the background"); a small one is eased. The frame loop's
+  own rest at the end of the reports is not a pause. The delay the card states is measured from the
+  last moment the reports had the bus at the drawn place, not from the clock.
+- **Four older faults found by the fleet check on the way**, each on one bus: a guard meant for two
+  reports a metre apart pinned every later report of a 250 to one place (a 1,181 m jump); a rebuilt
+  path re-anchored a bus that had stood at its terminus to its first pass; a re-anchor measured a road
+  stretch along its chord; and two reports from one spot were drawn as different kinds of place.
+
+The checks: `tests/incident-43.test.mjs` (the incident's own publications, four arrival timings, six
+assertions that each failed on `2c00759`) and `scripts/evaluate-fleet-playback.mjs`, which now also
+judges heading against movement, one-frame turns, a lost heading and the delay, bus by bus.
+
+### A standing bus (25 September 2026, the served site after `5c00509`)
+
+Ridden on the served site after the incident fix, a 216 standing at Piccadilly Gardens read "Off its
+checked road" 3.4 m from it, was shown from above, and the camera swung 69° when a heading appeared.
+The fleet check, which had met every bus from its first report, was taught to meet them halfway and
+to measure turning while standing still; it found the same fault family across the fleet. Rules:
+
+- **Two reports on the road within a bus's length (12 m) are one place on it**, where both the reports
+  and their places on the road are that close. The stretch between them is drawn on the road, facing
+  along it. It had been a straight line off the road with no direction, so a standing bus was "off its
+  checked road" except at its newest report. (The first version asked only that the road places be
+  close: a 263 leaving its road at a terminus had two reports 20 m apart measure onto it 9 m apart,
+  and was drawn backing along the road facing forwards for 2.6 s. Found riding it on the served site.)
+- **A line between reports shorter than a bus's length gives no heading.** Scatter round a stand is
+  3–5 m in any direction; taken as a direction, it turned standing buses round.
+- **A bus turns only as it is drawn moving**: at most 15° a metre while it creeps under 0.5 m/s,
+  rising to 60° a metre from 1 m/s, and never over 90° a second (`HEADING`). One figure could not do
+  both jobs: 9.5° a metre (a bus's own ~6 m radius) left buses on straight lines between reports
+  facing sideways past a corner for up to 3 s; 15° lagged a terminus U-turn driven at 1–2 m/s by a
+  second; 30° let a creeping bus swing 69° in 5 s. With the rate tied to the drawn speed, corners and
+  U-turns are as they were before any limit, and the worst turn within 5 s while standing still is
+  37°, where it was 180°.
+- **The ride camera turns at most 120° a second** (`RIDE_TURN` in `components/city-map.tsx`), more
+  than a drawn bus does, so it keeps up; it cuts only at a stated repositioning, and under reduced
+  motion takes the heading at once.
+- **"Shown from above" reads the drawing**, not the report: a bus with no reported bearing that is
+  drawn facing along its road is not shown from above and is not said to be.
+
+- **The body faces along the road it covers, not a bus's length ahead.** On a checked road the drawn
+  heading is the direction from half a bus behind to half a bus ahead (`bodyHeading`), its rear to its
+  front; it had been towards the road a whole bus's length ahead (`headingAhead`), which turned a slow
+  bus's nose into a corner seconds before it reached it — a route 85 at 2 m/s faced up to 114° off its
+  movement for 3.6 s. Replaying every ride Try Ride-along could have offered on two reels, rides the
+  clean-ride rule accepts were clean over three minutes 61.5% of the time with the look-ahead and
+  77.8% with the body; the fleet's buses facing over 30° off their movement for over 1.5 s went 10, 3,
+  5, 1 → 9, 3, 2, 0. The estimate's own heading and the front view's aim are unchanged.
+
+Checks: `tests/standing-on-road.test.mjs` (the 216's own reports met at four moments, scatter back
+along a road, and scatter with no road, all three failing on `5c00509`; and the 263's terminus loop,
+failing on `cd711a3`), two browser checks in
+`tests/browser/ride-quality.spec.mjs` (both fail on `5c00509`, on both profiles), and the fleet check's
+`--meet` option with its turning-while-still, heading-on-road and off-road-label measures.

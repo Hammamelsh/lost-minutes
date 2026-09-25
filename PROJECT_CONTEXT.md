@@ -4,9 +4,10 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 24 September 2026, afternoon (backlog 23 found and fixed: a publication landing as
-the ride is left no longer stops the map's return to flat; the beta release recorded in
-`docs/RELEASE.md` with the steps to demonstrate it).
+Last updated: 25 September 2026, morning (the route-43 incident fixed and deployed as `5c00509`; a
+standing 216 called off its road, standing buses turning on the spot and a terminus loop drawn backwards,
+each found by riding the served site and fixed; and Try Ride-along made to offer only clean rides, after
+a replay of every offer found 2% of them clean: deployed as `a82abfb`).
 
 **23 September, late evening — the sheet, the pacing, and a way in to Ride-along.** Detail and
 evidence: `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. Three reports from the owner's own
@@ -86,6 +87,53 @@ phone, each reproduced before it was changed.
   §6 has the account, including a first gate thrown away by a second run of my own). Emulation
   only; the physical-device checklist has the sheet, the keyboard, Try Ride-along and the recording.
 
+- **24 September, night — the route-43 incident** (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
+  §10). A route-43 ride on the served site appeared to teleport and sat across its road. Reproduced
+  from what that browser had (the request log: the deployed build, the 43's road, four polls) and the
+  collector's captures rebuilt on the server with its own catalogue. Separated: the reports were sound
+  but four ran 26–44 m to one side for two minutes (GPS pushed aside — two other 43s crossed the
+  stretch within 20 m of the road, every bearing agreed with it); the drawn bus faced the *next*
+  report's bearing, 90–100° across its road, or none (a token); the ride camera took that heading every
+  frame and turned 77–140° in single frames — the "teleport"; a tab shown again moved the bus 125 m
+  unsaid; the delay crept to 75–90 s. Fixed in `lib/motion.ts`: the drawn bus faces its path and turns
+  at a bus's rate, a report is placed on the road its bearing agrees with, a pause is said and the
+  camera cuts, the clock is bounded, the card's delay is measured from the drawn place — and four older
+  faults the fleet check found with it. `tests/incident-43.test.mjs`: six assertions on the incident's
+  own publications, all failing on `2c00759`. Fleet, two reels: misaligned buses 550 → 10 and 226 → 5,
+  one-frame spins 716 → 0 and 278 → 0, unsaid moves 1 → 0. A first reading (another street) was wrong
+  and is withdrawn in the record. **Verified:** 231 Node, 131 Python, the full browser gate 362 passed,
+  38 skipped, none failed; **deployed as `5c00509`**.
+- **25 September, early morning — a standing bus** (same record, §10, "The served check"). Riding two
+  live buses on the served site after that deploy: a 192 was right; a 216 standing at Piccadilly
+  Gardens 3.4 m from its road read "Off its checked road", faced nowhere (shown from above) and the
+  camera swung 69° when a heading appeared. Cause: two reports at one spot on the road were drawn as a
+  line off it with no direction. The fleet check, now meeting buses halfway and measuring turning while
+  standing still, found scatter at stands turning buses round on the spot, up to 180° in 5 s, and 33–49
+  buses on their road with no heading. Fixed: two reports a bus's length apart on the road are one
+  place on it; a shorter line gives no heading; a bus turns only as it moves (15° a metre while
+  creeping, up to 60° from 1 m/s); the ride camera turns at most 120° a second; the from-above note
+  reads what is drawn. Fleet: buses on their road with no heading 33 → 0 and 49 → 0; turning over 20°
+  while still 110 → 20 and 378 → 67, worst 180° → 37°; corners, positions, delays and repositionings
+  unchanged. **Deployed as `cd711a3`**, then ridden on the served site: the incident's own 216,
+  standing again, faced along its road; a V1 that had been a token called off its road was right; a
+  263 on its terminus loop faced over 100° off its movement — my own one-place rule drew two reports
+  leaving the road as backing along it, and 15° a metre lagged its U-turn. Both fixed and replayed
+  from its captures. Four Node and two browser regressions, each failing on the build before.
+  **Deployed as `1a53e48`** (365 passed; the one failure an estimated front-view check that fails 2 in 6
+  on `5c00509` too).
+- **25 September, morning — suggested rides made clean** (same record, §10). The owner asked that any
+  suggested ride be clean. `scripts/evaluate-ride-offers.mjs` rides every offer Try Ride-along would have
+  made, at every publication of two reels, for three minutes: **3 of 159 and 4 of 219 were clean**. The
+  list led with estimated movement, which jumps (a 250: 230 m after 20 s, 181 m after 40 s), and offered
+  standing buses, near-finished journeys and a vehicle called TEST_BUS. Now it offers only a bus drawn
+  between its own reports on a checked road, whose last two minutes of reports lie within 12 m of it, go
+  forward 80 m or more, come at most 40 s apart and leave 1.5 km: **125 of 159 and 182 of 213 clean**, an
+  offer at 124 of 126 moments. The drawn heading now lies along the bus's own length rather than a bus's
+  length ahead (a slow bus had faced 114° off its movement into a corner). Estimated movement in the ride
+  is backlog 31, the owner's decision. **Verified:** 238 Node, 131 Python, the full browser gate 367
+  passed, 38 skipped, 1 failed (backlog 29's race, then 6 of 6); **deployed as `a82abfb`** and three offered
+  rides ridden 90 s each on the served site with no repositioning, no lost heading and at most 0.5 s
+  facing off their movement. Emulation only.
 - **24 September, afternoon — backlog 23 found and fixed** (`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`
   §9). The failing check itself, with every camera call and publication after Exit logged under the
   runner, showed the cause: a publication fetched within 400 ms of Exit in every failing run, and
@@ -887,7 +935,14 @@ the age of the observation.
 status: `reported` (a number from 0 to 360, where **0 is north, not missing**), `absent`,
 `invalid` (unreadable or out of range, kept verbatim in `bearing_raw` and never repaired), or
 `not_captured` (stored before bearings were recorded, which is unknown rather than absent).
-A bearing is never derived from movement, and a bad one never costs the position.
+A bearing is never derived from movement, and a bad one never costs the position. (Which way the
+*drawn* bus faces is not a bearing and is not stored or published: since 24 September 2026 it faces
+the way it is drawn travelling — its road's direction, or the straight stretch's — because a report's
+own bearing belongs to that report's moment, and drawing another moment's put a route-43 bus across
+its road. Since 25 September it turns only as it is drawn moving (15° a metre while creeping, up to
+60° from 1 m/s), and a line
+shorter than a bus's length gives it no direction, because scatter round a stand turned standing
+buses round on the spot. `HEADING` in `lib/motion.ts`.)
 
 **Stop identity** — a stop is a physical boarding point with an ATCO code. Two stops can
 share a name and face opposite ways; NaPTAN's indicator ("Stop A", "opp") and bearing (the
@@ -940,8 +995,8 @@ the stop, and whether it counted) is under "How we know this".
 service the motion evaluation has not scored) is drawn at its reports, and since 21 September 2026
 it *travels* from the report it was drawn at to the report that has arrived, taking the time the bus
 itself took between them, then waits there (`GLIDE` in `lib/motion.ts`). Both ends are observed
-positions. The straight line between them is not claimed to be the road, no bearing is taken from
-the direction of travel, and the drawn bus is never carried past the newest report: what is shown is
+positions. The straight line between them is not claimed to be the road, the drawn bus faces along
+the line it travels (no bearing is recorded from it), and the drawn bus is never carried past the newest report: what is shown is
 always between two positions the bus really reported, and always older than the newest of them.
 Measured over 27 recorded journeys, it is behind the newest report in 65% of frames, by a median
 54 m while it is — that is the cost, and it is stated on the card, which reads "Moving between its
@@ -1268,8 +1323,9 @@ Executed, with the check in the repository. Numbers from earlier milestones are 
   coverage: more patterns mean more paths that fit a position equally well, and those stay
   unresolved — 139 of 587 vehicles in one publication.
 - **The ride-along bus is a stylised generic model** at true scale (12 m); it identifies
-  nothing about the real vehicle. The camera frames the drawn heading; a bus without one is
-  shown from above as a round token.
+  nothing about the real vehicle. The camera frames the drawn heading; a bus without one (no
+  checked road, no reported bearing, not yet drawn moving a bus's length) is shown from above as a
+  round token, and the ride says so.
 - **Estimated movement still covers 6 patterns on 3 routes** (15, 250 and 256), unchanged. Road
   geometry now covers 114 accepted patterns on 77 lines, which releases the **front view** and
   nothing else: prediction is gated separately on the published evaluation having scored the frozen

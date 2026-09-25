@@ -145,6 +145,22 @@ finger are all absent from Chromium.
 - [ ] The card reads *drawn about N s behind* and N is 30 to 60; it changes by fives, never
       flickers. *unchecked*
 
+- [ ] The route-43 incident's ride, on a phone: a 43 outbound from Piccadilly Gardens along Portland
+      Street, Princess Street, Whitworth Street and Oxford Street. The bus faces along its road
+      through each turn; the view never swings round in one jump; it stays on the road on the
+      Whitworth Street–Oxford Street corner. Put the browser away for a minute and come back: the
+      card says the bus was moved while the page was in the background. The card's "drawn about N s
+      behind" stays between 30 and 60. *unchecked*
+
+- [ ] A bus standing at Piccadilly Gardens (a 216, 143 or 142 at its stand), ridden for a minute:
+      it faces along its road and does not turn while it stands, and the card does not call it off
+      its road. If it is shown from above, the ride says it reported no direction; when it moves
+      off, the view turns round to it over about a second, not in one jump. *unchecked*
+
+- [ ] Try Ride-along's rows, each ridden for three minutes: the bus moves along its road, faces the way
+      it goes through corners, and does not jump. If the list is empty, it says why and offers the
+      recording. *unchecked*
+
 ## When something looks wrong
 
 Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report

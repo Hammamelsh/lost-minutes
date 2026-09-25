@@ -261,6 +261,52 @@ rather than travelled. Honest, but such a bus is a poor ride. Whether to travel 
 say, 90 s along a *checked* road (the road between two on-road reports is known, only the timing
 is not) is a question for the drawing's rules, with the fleet check as the judge.
 
+## 29. A quick drag during the ride's entrance glide can be read as a tap
+Seen twice in focused browser runs on 24 September 2026 (`ride.spec.mjs`, "a drag as the camera goes
+to the bus ends the glide"), passing in isolation and in the full gates either side. The ride learns
+that a pointer gesture was a drag from MapLibre's `dragstart`, which MapLibre fires on its next drawn
+frame; during the entrance glide at street level a software-rendered frame can take longer than a
+quick drag (the check's is 240 ms), the release arrives first, and the gesture is taken for a tap —
+the ride finishes its glide to the bus instead of letting the passenger look around. Reading the drag
+from the pointer's own movement fixed that and exposed a second race: MapLibre then processed the late
+drag after the ride had gone to *exploring*, and Return to bus ended at zoom 14.9 rather than 20. The
+change was withdrawn so the incident fix shipped alone. On a real phone the symptom is mild — a
+glance-around at the very start of a ride is ignored — and a fix needs the late drag cancelled too.
+
+## 30. "Off its checked road" said where a bus is drawn along it, at termini and on loops
+
+Where two reports on a bus's road go backwards along it — a stand at a terminus, a loop route whose
+start and end share a street — the road does not join them, so the stretch between them is drawn as
+a straight line and the card says the bus is off its checked road, even where that line lies within a
+few metres of the road. Measured on 25 September 2026 (`scripts/evaluate-fleet-playback.mjs`, the
+off-road-label measure): 47 of 334 buses at some moment on the 22 September evening reel and 122 of
+767 on the incident reel, down from 90 and 193 before the standing-bus fix. Traced on a 325 at its
+terminus (reports 12–21 m off the road going back 20 m along it) and a loop whose road runs 3,730 m
+from the same spot. Candidate: say "at its stand" or "moving between its reports" there rather than
+"off its road", when both ends are on the road and the line keeps within the road's own tolerance.
+Not started; it is wording and a rule, not a position fault.
+
+## 31. Estimated movement in the ride jumps — a decision for the owner
+
+Found on 25 September 2026 by `scripts/evaluate-ride-offers.mjs`, which rides every bus Try Ride-along
+would have offered, at every publication of two recorded reels, for three minutes at the site's 20 s
+poll. The list put estimated-movement buses (routes 15, 250, 256) first, and their rides were clean
+over those three minutes **3 of 159 and 4 of 219 times**: a stated repositioning in 119 and 120 of
+them, a step over a bus length in one frame with nothing said in 40 and 58, no heading in 55 and 93.
+Traced on a 250 inbound (MF74NNW, 22 September, 21:15): repositioned 230 m after 20 s and 181 m after
+40 s, then eased 90–134 m corrections every 20 s. The estimate predicts from reports that reach a
+phone 32–45 s old; every publication pulls it back hard. The same buses drawn between their own
+reports, as every other bus on a checked road is, were clean 76 of 159 times, with 15 jumps. And the
+front view's check that a 60 m correction to an estimate is absorbed smoothly fails 2 runs in 6 on
+`5c00509`, `cd711a3` and `1a53e48` alike (the eye at 28–29 m/s): intermittent, and older than this work.
+
+Try Ride-along no longer offers these buses. A passenger who chooses one at its stop and rides it still
+gets the estimate. **Recommended:** in the ride, draw every bus between its own reports, and keep the
+estimate for the map at a stop, where it stands nearer to now. The card would say "drawn about N s
+behind" rather than "Estimated position". It restates the ride's estimated-movement checks
+(`ride-offer.spec`, `motion.spec` and several in `ride.spec`). Not done without the owner's word,
+because estimated movement was approved as a feature on 13 September 2026.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

@@ -4,12 +4,72 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`2c00759`**, deployed 24 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`a82abfb`**, deployed 25 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 25 September: a standing bus, a terminus loop, and suggested rides made clean
+
+**Deployed: `a82abfb`**, with the previous release kept for `deploy/rollback.sh`. Three deploys in
+one night, each found wanting by riding the served site or by a replay, and the account of each is
+`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §10, "The served check":
+- **`cd711a3`**: a 216 standing at Piccadilly Gardens, 3.4 m from its road, had been called "Off its
+  checked road", shown from above, and the ride camera swung 69° when its heading appeared; standing
+  buses turned round on the spot as their reports scattered. Fixed in the drawing and the ride camera.
+- **`1a53e48`**: riding `cd711a3` on the served site found a 263 on its terminus loop drawn backing
+  along its road facing forwards, a fault of that change. Fixed, and a moving bus turns at its pace.
+- **This release**: Try Ride-along offers only clean rides. A replay of every offer the list would have
+  made, at every publication of two reels, found 2% of the offered rides clean over three minutes; the
+  list led with estimated movement, which jumps. It now offers a bus drawn between its own reports,
+  moving along its checked road, reporting steadily, with road left, and never a test vehicle: 79% and
+  85% clean on the same moments, with an offer at 124 of 126. The drawn bus now faces along its own
+  length through a corner rather than a bus's length ahead.
+
+**Verified on the final candidate:** 238 Node tests; 131 Python tests; typecheck; lint with no errors; CI's built-site and deployment-syntax checks; the full browser suite **367 passed, 38 skipped, 1 failed in 60 minutes**, the failure backlog 29's drag-during-entrance race, which then passed 6 of 6 on the same build (desktop and phone emulation in Chromium with SwiftShader). The served page chunk was identical to the local build's, `1a53e48` kept for rollback, collector, web server and timers active. On the served site at 05:23–05:30 UTC, Try Ride-along offered three rides (a 50, a 142 and a 248, all on checked roads), and the three rides offered at the moments they were tapped were ridden for 90 s each: a 30 to Piccadilly Gardens, a 163 to Bury and a 197 to Chorlton Street. None lost its heading or was repositioned; the longest spell facing over 30° off its movement was 0.5 s; the camera turned at most 10.9° between samples; each said "drawn about 45–60 s behind". The frames show each bus on its road and facing along it. Emulation only; nothing on a phone in hand.
+
+**Still so:** an offered ride is clean over its first three minutes about four times in five, not
+always: a bus may stand at a timing point for over 45 s, its reports may reach us late (the card says
+how far behind it is drawn), or a later report may leave its road. A 15, 250 or 256 chosen at its stop
+and ridden is still drawn at an estimate, which jumps (backlog 31, a decision for the owner). At termini
+and on loop routes the card can call a bus off its road where it is drawn along it (backlog 30). A
+creeping bus can still turn up to about 37° in 5 s.
+
+**Also check:** a bus standing at Piccadilly Gardens (a 216, 143 or 142 at its stand, from the map or
+a stop there), ridden for a minute. It should face along its road and not turn while it stands, and
+the card should not call it off its road. A bus with no checked road that reported no direction and
+has not moved is shown from above, and the ride says so; when it moves off, the view turns round to
+it over about a second rather than in one jump. And Try Ride-along's rows, each ridden for three
+minutes: the bus moves along its road, faces the way it goes through corners, and does not jump.
+
+## 24 September, night: the route-43 incident fixed
+
+**Deployed: `5c00509`**, with the previous release (`2c00759`) kept for `deploy/rollback.sh`. A
+passenger-acceptance failure — a route-43 ride that appeared to teleport and sat across its road — was
+reproduced from the server's own captures and request log and fixed in the drawing; the account is
+`docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md` §10. **Verified on the final candidate:** 231 Node tests; 131 Python tests; typecheck; lint with no
+errors; CI's built-site checks; the full browser suite, **362 passed, 38 skipped by design, none
+failed, in 59.8 minutes**, desktop and phone emulation in Chromium with SwiftShader. The served page
+chunk was identical to the local build's. Ridden on the served site, it was right for a moving 192
+and wrong for a standing 216 (above).
+
+**What still limits a ride.** Every bus not on routes 15, 250 or 256 is drawn between its own reports
+30–60 s behind them, and says so. Where a bus's reports arrive 40–60 s late the drawing waits at the
+newest one and the card can read over 75 s for a while. A report more than 40 m off its road (50 m where its bearing
+agrees with the road) is drawn where it was made, on a straight line said on the card. No
+lane-level position anywhere. *Follow on the map* in 2D re-centres by its own rule, unchanged. None of
+it has been seen on a phone in hand yet.
+
+**The ride to check:** a 43 outbound to Manchester Airport from Piccadilly Gardens, ridden along
+Portland Street, Princess Street, Whitworth Street and Oxford Street (Try Ride-along, or a 43 chosen
+at Piccadilly Gardens (Stop H) or Charlotte Street (Stop CU)). The bus should face along its road
+through every turn, the view should never swing round in one jump, and on the Whitworth Street–Oxford
+Street corner it should stay on the road. Switch away for a minute and come back: the card says the
+bus was moved while the page was in the background. The recorded before-and-after of the incident's
+own publications is `outputs/probes/incident-43/incident-43-ride-before-after.webm` (and the top-down
+one beside it), git-ignored on this machine.
 
 ## 24 September: the beta release
 
@@ -21,21 +81,23 @@ is left even if a publication lands at that moment. **Verified on the final cand
 (desktop and phone, with and without reduced motion). **Nothing has been checked on a phone in
 hand**; `docs/PHYSICAL_DEVICE_CHECKLIST.md` is that check.
 
-**Demonstrating the best supported experience** — on a phone in its ordinary browser, by day, when
-the 250 and 15 are running (the only routes with estimated movement; 332 journeys a day each way
-on the 250):
+**Demonstrating the best supported experience** — on a phone in its ordinary browser, by day (steps
+1, 2 and 5 corrected on 25 September 2026: Try Ride-along no longer offers estimated movement, whose
+rides jump; see the release section above):
 1. Open **https://lost-minutes.duckdns.org**. Under **Buses near me**, tap **Or try Ride-along**:
-   the sheet opens on three rides, each saying what it will be.
-2. Tap a row reading **Estimated movement · Front view**. The camera settles behind the bus, the
-   road ahead is lit under it with its next stops named, and the card gives the report's age.
+   the sheet opens on up to three rides, each a bus moving along its checked road now.
+2. Tap a row (**Reported positions · may pause · Front view**). The camera settles behind the bus,
+   the road ahead is lit under it with its next stops named, and the card says how far behind its
+   reports it is drawn.
 3. Tap **Front view** for the street ahead, then **Outside view**. Drag the map to look around;
    **Return to bus**. Tap **?** for what this is and is not.
 4. Tap **Exit**: the map comes back flat and north up, with the bus.
 5. The stop journey: search **Trafford Bar** and choose **Trafford Bar (by)**, on Chester Road,
    westbound (ATCO 1800SJ00311; eight stops share the name) — the 250 towards The Trafford Centre
    boards there 17 stops into its route, so several are usually coming. The board lists the tracked buses coming, "N stops before yours" by each
-   one's last report, and the scheduled departures, labelled *Scheduled · not live*. Tap a 250, then
-   **Ride along**, then **Exit** and **Back** to the board.
+   one's last report, and the scheduled departures, labelled *Scheduled · not live*. Tap a 250 to show
+   its card and progress. Do not ride it for a demonstration: a 250 is drawn at an estimate, which
+   the arriving reports correct by up to hundreds of metres (backlog 31). Ride from step 2 instead.
 6. When nothing live suits (late at night): **Recorded ride · to Bury Interchange** in the same
    section, or the link `https://lost-minutes.duckdns.org/?ride=2026-09-23-bngn-3426-163`, badged
    RECORDED RIDE throughout.

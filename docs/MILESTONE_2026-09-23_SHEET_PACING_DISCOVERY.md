@@ -554,7 +554,265 @@ hand. One thing seen and not changed: on the phone, after the big zoom of the ha
 *The detailed map is slow to arrive* offer can show over a map already drawn while the live tile
 host is slow to send the rest — the slow-tile allowance working as designed, on this network.
 
-## 10. Limitations
+## 10. The route-43 incident: a ride that appeared to teleport and sat across its road
+
+**Reported** (24 September, evening, from the served site): an ordinary route-43 ride —
+`?bus=BNML|LV74KNG|43|outbound|1147`, Portland Street, Nicholas Street and New York Street —
+appeared to teleport and to be misplaced and misaligned; the owner's screenshots show the bus facing
+across its road, the bus as a round token, and the card reading *drawn about 55 s* and *75 s behind*.
+Treated as a failed passenger acceptance check: presentation work and readiness claims paused.
+
+**What the browser had.** The server's own request log (Caddy, read on the server for times and paths
+only): the owner's browser had loaded the page at 16:52:52 UTC with `page-3b4e38cab8b5c5a5.js` — the
+deployed `2c00759`, the same file served and built here, not a stale cache. The tab holding the 43
+link fetched `BNML_43_outbound_c4a0b4208e.json` at 17:51:03 and polled the live publication at
+17:52:07, 17:52:38, 17:52:40 and 17:53:03, then stopped (hidden or closed).
+
+**The data.** The collector's 83 retained captures for 17:30–17:58 were rebuilt on the server into the
+publications it served (`pipeline/replay_publications.py`) against its own catalogue — the nightly
+warehouse snapshot of 03:15, since the collector holds the live warehouse — none corrupt or undated.
+LV74KNG is on journey 1147 in every one, placed on `BNML:43:outbound:c4a0b4208e`, an accepted road
+(15,151 reports, 95% within 18.2 m). Its publications for 17:48–17:57 are the committed fixture
+`tests/recorded/incident-43-lv74kng.json`.
+
+**The four questions, separately.**
+- *A — the reports:* in order, no duplicates or conflicts, 12–33 s apart, 4–26 s old on arrival; two
+  with no bearing (17:50:51, 17:51:03); from 17:52:30 to 17:53:32 four in a row 26–44 m to one side
+  of the road, easing to 4 m by 17:55.
+- *B — the road:* the accepted road is the 43's road there. Two other 43s crossed the same stretch in
+  the same half hour — MJ74JPY (17:44–17:47) and YN61BGV (17:33–17:37) — 0.2–20 m from it, bearings
+  matching Whitworth Street (241°) and Oxford Street (151°), in the same order; LV74KNG's own bearings
+  matched the road at every report. So its offset is GPS pushed to one side, not another street.
+  The report on the corner of Whitworth Street and Oxford Street, facing 150°, was 43.5 m from the
+  Whitworth Street arm — just past the 40 m tolerance, and 92° from its bearing — and was drawn where
+  it was made. What this cannot establish: the lane, or that the bus used no service road; "0 m from
+  our road" is a statement about the drawing, not proof of where the bus was.
+- *C — the drawing:* the model is sound (centred on the drawn point, 12 m, rotated by the bearing it is
+  given). The bearing it was given was the *next report's* reported bearing, not the direction of the
+  path where the bus is drawn: on the Portland Street–Princess Street corner the bus faced Princess
+  Street while drawn on Portland Street, 90–100° across its road; a report with no bearing made it the
+  token for a quarter of the ride. Shown again after a hidden minute, the bus was put 125 m on in one
+  frame, unsaid. With publications irregular, the clock waited at the end of its reports and made the
+  time up at 5%, so the drawing sat 50–90 s behind for minutes (a 90 s gap: 87 s behind a minute
+  after publications resumed); the card measured the clock, not the drawn place.
+- *D — the camera:* the ride camera takes the drawn heading every frame. Through the page, on the
+  incident's own publications, it turned **140°, 92°, 81°, 80° and 77° in single frames** as the
+  heading jumped at each report — the whole map swinging round, which reads as the bus jumping —
+  and on a repositioning frame it glided across the gap rather than cutting.
+
+**Which of them it was.** The misalignment is C; the "teleport" in a visible ride is D driven by C —
+the drawn bus itself never exceeded 7.6 m/s in that replay; the 125 m jump is C on a tab shown again;
+the bus crossing the block is B's 43.5 m report handled by C.
+
+**What changed** (`lib/motion.ts`, `components/city-map.tsx`; `docs/MOTION_MODEL.md` has the rules):
+the drawn bus faces the way it is drawn travelling, turning at a bus's rate; a report within 20 m of its
+road is on it whatever its bearing, and one further off is placed where its own bearing agrees with the
+road, up to 50 m off; the road joins two reports round a corner at a bus's pace; a pause in drawing is said as one and the camera cuts; the clock
+repositions (said) beyond 15 s behind and makes up time only where the bus stood; the frame loop's
+own rest is not a pause; the card's delay is measured from the drawn place. Four older faults the fleet
+check found on the way are fixed with it (§ below). **Withdrawn on the way:** a first version read the
+four offset reports as another street and drew them where they were made; the renderer's stills
+showed the bus inside a building block, and the other 43s' reports showed the reading wrong. A second
+let a report's bearing refuse a report lying on its road; the gate's new facing check caught it (a
+stale bearing turned the road into straight chords and the heading lagged each kink by up to 100°).
+
+**Before and after, identical inputs.**
+- *The regression* (`tests/incident-43.test.mjs`, the incident's publications in four arrival timings —
+  polled every 20 s, the owner's logged timing, a 90 s gap, and the frame loop resting): six assertions,
+  **all six failing on `2c00759`** (a 14 m unsaid frame; no heading; heading 103° off its movement at
+  the 95th percentile; 43.8 m off its road through the run; the return from the background unsaid; a
+  203 m unsaid jump after the loop rested) and all six passing now.
+- *Through the page* (`scripts/probes/movement-replay.mjs`, the same publications served at the site's
+  20 s poll against the server's own catalogue, 17:49:30–17:56:30, every drawn frame traced; ride-along
+  and a top-down view, deployed build against the fix):
+
+| | before, `2c00759` | after |
+|---|---|---|
+| heading off its movement, p95 | 97° | 8° |
+| frames facing more than 45° off its movement | 491 | 9 |
+| frames drawn as the round token | 579 | 0 |
+| largest mid-ride camera turn in one 0.2 s frame | 92° (also 81°, 80°, 77°) | 15° |
+| furthest from the checked road | 44 m | 0 m |
+| drawn speed, greatest | 7.6 m/s | 8 m/s |
+| delay drawn at | 32–35 s | 32–34 s |
+
+  The ride's entrance still turns the camera 133° from north-up to the bus's heading over its 1.1 s
+  glide, as designed. Side by side, the same 190 s at three times speed:
+  `outputs/probes/incident-43/incident-43-ride-before-after.webm` and `…-topdown-before-after.webm`
+  (git-ignored; recorded on the candidate before a gesture change that was then withdrawn, so the
+  drawing is the final one). At 137 s the deployed build draws the bus across Portland Street, as in
+  the owner's screenshot, and the fix along it; at 249 s the deployed build has the bus inside the
+  block on the Whitworth Street–Oxford Street corner and the fix has it on the corner, turning.
+- *Every bus* (`scripts/evaluate-fleet-playback.mjs`, polled every 20 s, bus by bus), before → after:
+
+| | incident reel, 767 journeys (220 on a checked road) | 22 Sep evening reel, 334 (118) |
+|---|---|---|
+| heading off its movement, p95, median bus | 39.6° → 0.6° | 42.3° → 0.7° |
+| buses misaligned over 30° for more than 1.5 s | 550 → 10 | 226 → 5 |
+| buses turning more than 10° in one frame | 716 → 0 | 278 → 0 |
+| buses shown as a token after having a heading | 663 → 0 | 235 → 0 |
+| furthest a bus said to be on its road is drawn from it | 51 m → 37 m (one eased correction) | 50 m → 7 m |
+| moves over a bus length unsaid | 1 → 0 | 0 → 0 |
+| repositionings, all said | 117 → 117 | 66 → 52 |
+| drawn delay, median bus | 48 s → 48 s | 56 s → 55 s |
+| buses ever drawn over 75 s behind with reports in reach | 15 → 0 | 12 → 9 |
+| moving share, median bus | 0.69 → 0.70 | 0.68 → 0.70 |
+
+**Remaining.** On the evening reel nine buses still read over 75 s behind at some moment: their
+reports reached the page 40–60 s late, and the drawing waits at the newest report until the next
+arrives; one (BNSM 11912, route 197, no checked road) reads up to 146 s for a few seconds early in its
+ride, after a stated correction re-anchored it at the start of its trail; the 163 on the incident reel
+is eased up to 37 m off its road for about four seconds at its first stop, a stated correction when a
+report near the stand moved its path. *Follow on the map* in 2D
+re-centres on each report by its own effect and was not changed. A bus whose reports sit well off its road
+is still drawn where it reported and travels a straight
+line, said on the card, once it lies more than 40 m off (50 m with a bearing that agrees with the road).
+Lane-level position is not known anywhere. All of it is Chromium with
+SwiftShader against the real publications; not a phone.
+
+**Verified on the final candidate.** 231 Node tests; 131 Python tests; typecheck; lint with no
+errors; CI's built-site checks; and the full browser suite, **362 passed, 38 skipped by design, none
+failed, in 59.8 minutes** (Chromium, SwiftShader, desktop and phone emulation). **Deployed as
+`5c00509`** on 24 September, the served page chunk identical to the local build's, `2c00759` kept for
+`deploy/rollback.sh`, collector and timers active.
+
+**The served check found one more, and it was not the last word.** Two live buses were ridden on the
+served site for a minute each, sampled five times a second, just after midnight on 25 September. A
+192 on its road was right: facing within 3.5° of its movement at the 95th percentile, the camera
+turning at most 3.4° between samples, "drawn about 60 s behind". A **216 standing at Piccadilly
+Gardens** (BNML BU25YVP, journey 1191) was not: no heading in 138 of 300 samples, so shown from above
+with the note "did not report a direction", the camera swinging **69°** between two samples when a
+heading appeared, and the card reading **"Off its checked road"**.
+
+- *Its reports*, read from the server's raw captures: one at 00:02:51 with a bearing (109°), then
+  every report from 00:03:29 to 00:09:44 from one spot, **3.4 m from its checked road**, with no
+  bearing; it moved off at 00:10:11. The page met it after the report with a bearing had left its
+  75 s trail.
+- *The cause*, reproduced offline from those reports: two reports at one spot make a stretch of no
+  length. The road only drew a stretch that went forward along it, so this one was drawn as a
+  straight line off the road with no direction. The bus was "off its checked road" everywhere except
+  at its newest report, and faced nowhere until a heading turned up; the camera then took it in one
+  frame. The note about being shown from above read the *report's* bearing, not the drawing's.
+- *The same family across the fleet*, once the fleet check met buses halfway through their runs as a
+  passenger can, and measured turning while standing still: the short lines between scattered reports
+  at a stand (3–5 m, any direction) were taken as directions, and standing buses turned round on the
+  spot, up to 180° within 5 s. Traced on a 143 and a 142 at Piccadilly Gardens.
+- *What changed* (`lib/motion.ts`, `components/city-map.tsx`; the rules are in `docs/MOTION_MODEL.md`,
+  "A standing bus"): two reports on the road within a bus's length are one place on it, drawn on the
+  road facing along it (only where the reports themselves are that close, see below); a line shorter
+  than a bus's length gives no heading; a bus turns only as it is drawn moving — at most 15° a metre
+  while creeping under 0.5 m/s, up to 60° a metre from 1 m/s, never over 90° a second; the ride camera
+  turns at most 120° a second except at a stated repositioning or under reduced motion; the
+  from-above note reads what is drawn.
+- *Before and after* (`scripts/evaluate-fleet-playback.mjs --poll 20`, `5c00509` against the fix, the
+  same reels; "met halfway" starts each bus at the middle of its publications):
+
+| | evening reel, 334 buses | met halfway | incident reel, 767 buses | met halfway |
+|---|---|---|---|---|
+| buses drawn on their road with no heading | 33 → 0 | 12 → 0 | 49 → 0 | 16 → 1 |
+| buses turning over 20° within 5 s while standing still | 110 → 20 | 62 → 6 | 378 → 67 | 199 → 29 |
+| the most any bus turned so | 180° → 37° | 180° → 28° | 180° → 36° | 180° → 35° |
+| buses called off their road while drawn within 10 m of it | 90 → 47 | 57 → 23 | 193 → 122 | 147 → 81 |
+| buses facing over 30° off their movement for over 1.5 s | 5 → 5 | 1 → 1 | 10 → 10 | 3 → 3 |
+| moves over a bus length unsaid; repositionings | 0 → 0; 52 → 52 | 0 → 0; 24 → 24 | 0 → 0; 117 → 117 | 0 → 0; 66 → 66 |
+
+  Position, delay and moving share are identical in every run: the change is to which way the bus
+  faces and what the card calls it.
+- *Regressions that fail on `5c00509`*: `tests/standing-on-road.test.mjs` — the 216's own reports met
+  at four moments (800 of 901 frames called off its road), scatter a few metres back along a road
+  (turned 180° from it), and scatter with no road (turned 161° within 5 s); a fourth, the 263 below,
+  fails on `cd711a3` (3.2 s facing the wrong way) and passes on `5c00509` and the fix — and two browser checks
+  in `tests/browser/ride-quality.spec.mjs`: a bus met standing on its road with no bearing (no heading
+  in the samples, on both profiles) and a heading first appearing in the ride (the camera turned 145°
+  in 239–300 ms). All pass on the fix.
+- *Still so:* a bus called "off its checked road" while drawn along it, where two reports on the road
+  go backwards along it, at termini and on loop routes, where the stretch between them is drawn
+  straight (42 of 334 and 115 of 767 buses at some moment). A bus with no checked road and no
+  reported bearing that has not moved a bus's length is shown from above, and says so. A creeping bus
+  can still turn up to about 37° in 5 s.
+
+**Deployed as `cd711a3`, and the served ride found a fault of my own in it.** Verified first: 233
+Node tests; 131 Python tests; typecheck; lint with no errors; CI's built-site checks; the full browser
+suite **363 passed, 38 skipped, 3 failed in 60 minutes** — three consecutive phone checks in one
+40-second window in which no map tile arrived from the tile host, so each page drew its simple map
+before the check began; the same three passed 6 of 6 on both profiles on the same build. The served
+page chunk was identical to the local build's, `5c00509` kept for rollback. Ridden on the served site
+at 02:06 UTC, a minute each:
+
+| live bus | on `5c00509` (01:05 UTC) | on `cd711a3` |
+|---|---|---|
+| 216 BU25YVP, the incident's own vehicle, standing again at Piccadilly Gardens | — | faces 106.5° throughout; no "off its road"; no from-above note |
+| V1 at Manchester Royal Infirmary, standing on The Boulevard | no heading in 300 of 300 samples, "Off its checked road", shown from above (vehicle 2336) | faces 322.4° throughout; neither said (vehicle 2314) |
+| 263 at its stand | faced 130.5° while the note said it was shown from above (MF74NSJ) | **faced over 100° off its movement** at the 95th percentile (MJ74JMX) |
+| 142 with no checked road, standing | — | faces a held 214–225°, no token |
+| 192 moving | heading p95 3.5° | heading p95 4°, camera at most 8.7° a sample |
+
+The 263 was not standing: from its server captures, it drove 60 m north-west off its route round the
+terminus loop and back through a U-turn. Two faults, both from this change: its first two moving
+reports, 20 m apart and leaving the road, measured onto the road 9 m apart, so the new one-place rule
+drew them on the road, backing along it facing forwards, for 2.6 s; and at 15° a metre the U-turn
+lagged its path by a second. Fixed: the one-place rule needs the reports themselves within a bus's
+length, and the per-metre limit is strict only while creeping (15° a metre under 0.5 m/s, 60° from
+1 m/s). Replayed offline from its captures: 0 samples over 30° off its movement, where `cd711a3` had
+18 and `5c00509` 0. The fleet figures above are for this final rule; the fourth Node regression is
+the 263's own reports.
+
+**Deployed as `1a53e48`.** 235 Node tests; typecheck; lint with no errors; the full browser suite
+**365 passed, 38 skipped, 1 failed**: the front view's check that a 60 m correction to an *estimate*
+is absorbed without a jump. Run six times on each build, it fails 2 of 6 on this one, on `cd711a3` and
+on `5c00509` alike, with the eye at 28–29 m/s: an intermittent fault in the estimated front view, older
+than this work, and part of backlog 31 below. The served page chunk was identical to the local build's,
+`cd711a3` kept for rollback.
+
+**Suggested rides, made clean (the owner's request: "make sure any suggested ride along is 100% clean
+and working cleanly and smoothly").** A new replay, `scripts/evaluate-ride-offers.mjs`, takes every
+publication of a recorded reel, asks which buses Try Ride-along would have offered at that moment, and
+rides each for the next three minutes through the drawing at the site's 20 s poll. It calls a ride clean
+only with no repositioning, no step unsaid, no spell over 1 s facing more than 30° off its movement,
+never off its road or without a heading, no turning while standing, no stand over 45 s, never over
+75 s behind, and its reports not ending.
+
+- *The list as it was* offered estimated-movement buses first, and on both reels every offer was one.
+  **3 of 159 and 4 of 219 of those rides were clean.** Traced on a 250: a 230 m repositioning after
+  20 s, 181 m after 40 s, then 90–134 m eased corrections every 20 s, because the estimate predicts from
+  reports that reach a phone 32–45 s old. It also offered buses standing at a terminus, buses with under
+  a kilometre of journey left, and a vehicle called **TEST_BUS**.
+- *The body heading.* Riding every bus the list could offer (5,066 rides over the two reels) showed slow
+  buses turning their nose into a corner seconds before reaching it: the drawn heading pointed a bus's
+  length ahead. It now lies along the road from half a bus behind to half a bus ahead
+  (`docs/MOTION_MODEL.md`). Rides passing the new rule, clean: 61.5% → 77.8%.
+- *The new rule* (`lib/explore.ts`, `rideSuitability` and `cleanRideCandidates`): a bus is offered only
+  if it is on a checked road the model was not scored on (so it is drawn between its own reports), is
+  not an operator's test vehicle, and its reports over the last two minutes lie within 12 m of that
+  road, go forward along it by at least 80 m, come no more than 40 s apart, and leave at least 1.5 km of
+  road. Each bound was chosen from the replay, not by eye. Try Ride-along loads the candidates' roads
+  to judge them; with nothing that qualifies it says so and offers the recording.
+
+| | before | after |
+|---|---|---|
+| offered rides clean over three minutes, 22 Sep evening reel | 3 of 159 (2%) | **125 of 159 (79%)** |
+| the same, 24 Sep incident reel | 4 of 219 (2%) | **182 of 213 (85%)** |
+| moments with at least one ride offered | 53 of 53; 73 of 73 | 53 of 53; 71 of 73 |
+| rides with a repositioning | 119; 120 | 2; 2 |
+| rides with a step over a bus length unsaid | 40; 58 | 0; 0 |
+| rides with no heading at some moment | 55; 93 | 0; 0 |
+
+  What is left in the offered rides: on the evening reel 12 drawn over 75 s behind (their reports
+  reached the collector late; the card says how far behind) and 8 standing over 45 s at a stop, both the
+  bus's own behaviour, and 9 facing off their movement for over a second, 6 briefly off their road and
+  2 said repositionings; on the incident reel 15, 10, 6 and 2 of the same. **Not 100%**, and on a live
+  feed it cannot be promised: what a bus does in the next three minutes is not in its last two.
+- *Checks.* `tests/ride-offers.test.mjs` (each refusal, the offer list, the test vehicle); the Try
+  Ride-along checks restated for the rule (an estimated bus, a standing bus and a bus with no checked
+  road are not offered, each said), the recording's order with a live ride, and three ride-quality
+  checks that reached a no-road bus through the list now reach it through its link, their assertions
+  unchanged. Focused run on the candidate: 53 passed, 1 skipped by design.
+- *Not changed, and the owner's decision* (backlog 31): a passenger who chooses a 15, 250 or 256 at its
+  stop and rides it still gets estimated movement, and its jumps.
+
+**Deployed as `a82abfb`, verified on the final candidate.** 238 Node tests; 131 Python tests; typecheck; lint with no errors; CI's built-site and deployment-syntax checks; the full browser suite **367 passed, 38 skipped, 1 failed in 60 minutes**, the failure backlog 29's drag-during-entrance race, which then passed 6 of 6 on the same build (desktop and phone emulation in Chromium with SwiftShader). The served page chunk was identical to the local build's, `1a53e48` kept for rollback, collector, web server and timers active. On the served site at 05:23–05:30 UTC, Try Ride-along offered three rides (a 50, a 142 and a 248, all on checked roads), and the three rides offered at the moments they were tapped were ridden for 90 s each: a 30 to Piccadilly Gardens, a 163 to Bury and a 197 to Chorlton Street. None lost its heading or was repositioned; the longest spell facing over 30° off its movement was 0.5 s; the camera turned at most 10.9° between samples; each said "drawn about 45–60 s behind". The frames show each bus on its road and facing along it. Emulation only; nothing on a phone in hand.
+
+## 11. Limitations
 
 - Emulation only. The sheet's fix is reasoned from Safari's geometry and verified at Safari's
   viewport size in Chromium; Safari itself, and iOS's keyboard, are on the physical checklist.

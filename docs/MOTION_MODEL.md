@@ -440,3 +440,33 @@ along a road, and scatter with no road, all three failing on `5c00509`; and the 
 failing on `cd711a3`), two browser checks in
 `tests/browser/ride-quality.spec.mjs` (both fail on `5c00509`, on both profiles), and the fleet check's
 `--meet` option with its turning-while-still, heading-on-road and off-road-label measures.
+
+### One ride everywhere, and uncertainty without invented motion (25 September 2026)
+
+The owner approved report-based playback for every ride (backlog 31). What changed in the drawing,
+each found by `scripts/evaluate-ride-faults.mjs` (every bus in a reel, ridden, its faults told apart by
+cause) and traced to a frame before it was changed:
+
+- **Ride-along draws every bus by playback**; the estimate is drawn only on the map. Entering or leaving
+  the ride restarts the drawing (a change of what is shown, not a movement); the bus is not drawn during
+  the entrance glide after such a restart. An estimate falling back to its reports on the map is still a
+  said correction.
+- **Contradicted reports are held** (`supportedReports`): on a checked road, a report off the road or
+  back along it, between two reports the road joins at a bus's pace, is not travelled to; the newest such
+  report waits for the next. Two off the road together are drawn where they were made.
+- **Late reports rewind the clock, not chase** (`PLAYBACK.rewindMetres`): after a rebuild that puts the
+  moment shown over 15 m ahead of the drawn bus, the clock goes back to the moment the drawn place stands
+  for, within the resync allowance; beyond it, a said repositioning. `PACE.closingMps` 4 → 2.
+- **The delay shortens no faster than the clock makes time up** (5% of real time), so a smaller target
+  never resyncs and steps the bus.
+- **Repositionings are cuts** (a running ease is dropped), and a resync under a repositioning's worth
+  is eased.
+- **Playback starts without a step**: a lone report measured onto its road is eased across; a start well
+  behind the delay's moment is one eased correction, not a chase.
+- **A bus near its road faces along it** where nothing else gives a direction (`roadHeadingNear`).
+- **A drawing begun afresh starts at the pace its reports show** for the moment shown; only a bus that
+  waited at a lone report pulls away from rest.
+
+Measured on two reels (the 22 September evening reel, 335 bus-journeys, 79 hours ridden; the 24
+September incident reel, 810, 257 hours), met from their first publication, the deployed `a82abfb` with
+its estimate in the ride against this: the milestone record has the table.

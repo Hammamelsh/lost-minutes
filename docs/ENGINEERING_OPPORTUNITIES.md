@@ -1775,3 +1775,22 @@ evaluation; no novelty is claimed.
 
 **Next cheap step.** Keep one reel of each kind (evening peak, a weekday morning) and run the offer
 audit before any change to Try Ride-along or the drawing. Status: script exists, run by hand.
+
+## 56. One "clean ride" figure hides which faults are the drawing's
+
+**Problem and evidence.** A clean-ride share mixed three different things: faults of the drawing or the
+camera, a bus's own stops, and missing or late data handled by a fallback. On 25 September 2026 the
+owner asked for them apart. `scripts/evaluate-ride-faults.mjs` rides every bus in a reel as the page
+does and files each event by cause; splitting them showed that most "faults" in the earlier figure were
+stops and data gaps, and that the real drawing faults (unsaid steps, spins, sprints after late reports,
+tokens on a road) had causes a single figure could not point to. Three of its own first measures were
+wrong and were corrected against traced frames (a straight-line speed on a curving road, a stand
+judged by reports 10 s after it, turning while creeping counted as turning on the spot).
+
+**Who hits it, workaround.** Whoever changes the drawing; the workaround was the clean-ride share.
+
+**Small fix, script, tool or product.** A script in this repository, with the classification written
+down beside its code. A visual interface would help: a per-bus timeline of events against the map.
+No novelty is claimed.
+
+**Next cheap step.** Run it in CI on one fixed reel with bounds on group A. Status: run by hand.

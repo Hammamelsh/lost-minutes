@@ -4,10 +4,29 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 25 September 2026, morning (the route-43 incident fixed and deployed as `5c00509`; a
-standing 216 called off its road, standing buses turning on the spot and a terminus loop drawn backwards,
-each found by riding the served site and fixed; and Try Ride-along made to offer only clean rides, after
-a replay of every offer found 2% of them clean: deployed as `a82abfb`).
+Last updated: 25 September 2026, evening (one Ride-along everywhere: every ride drawn from the bus's
+own reports, with the owner's approval; uncertainty handled without invented motion; the faults of every
+bus in two reels told apart by cause; TEST_BUS traced upstream; the drag-during-entrance fault classified
+and fixed: deployed as `a63006b`).
+
+- **25 September, evening — one Ride-along everywhere** (`docs/MILESTONE_2026-09-25_ONE_RIDE.md`). The
+  owner approved report-based playback for every ride. However a ride is entered — Try Ride-along, a
+  stop, search, a marker, a link — the bus is drawn from its own reports; the estimate stays on the map,
+  labelled, where the evaluation allows it; arrivals unchanged. Entering or leaving the ride restarts the
+  drawing and keeps the bus out of the entrance glide, so the estimate's place never hops back on screen.
+  In the drawing: a report the reports either side contradict is held, not followed (one 70 m off the
+  road had drawn the bus into a block); a late report sets the clock back rather than the bus chasing (a
+  119 had raced 135–300 m); a repositioning is a cut; playback starts without a step; the checked road
+  joins two reports at a bus's pace however far apart (a 250 was repositioned 428 m where it had driven);
+  a bus near its road faces along it; *Standing* is said while it stands. Every bus in two reels,
+  ridden, faults told apart: drawing or camera faults 60 → 17 of 335 rides and 135 → 24 of 810; unsaid
+  steps 34 → 0 and 57 → 0; repositionings (all said) 159 → 57 and 270 → 142. Through the page from a
+  stop: a 250 that jumped 213, 188 and 153 m now drives the same stretches; a 15 that spun at 299°/s
+  turns at 8°/s. TEST_BUS was BNML's own feed (raw capture, SHA-256 checked), not our fixtures; the
+  publication boundary is now tested. Backlog 29 was a product fault on slow frames (3 of 3 failing with
+  the CPU slowed six times), fixed. **Verified:** 247 Node, 131 Python, the full browser gate
+  371 passed, 39 skipped, none failed; **deployed as `a63006b`**; a 250 and a 15 ridden from their stops on
+  the served site, and Try Ride-along's three rides, continuous. Emulation only.
 
 **23 September, late evening — the sheet, the pacing, and a way in to Ride-along.** Detail and
 evidence: `docs/MILESTONE_2026-09-23_SHEET_PACING_DISCOVERY.md`. Three reports from the owner's own

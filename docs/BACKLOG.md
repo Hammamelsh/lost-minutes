@@ -261,7 +261,18 @@ rather than travelled. Honest, but such a bus is a poor ride. Whether to travel 
 say, 90 s along a *checked* road (the road between two on-road reports is known, only the timing
 is not) is a question for the drawing's rules, with the fleet check as the judge.
 
-## 29. A quick drag during the ride's entrance glide can be read as a tap
+## 29. A quick drag during the ride's entrance glide can be read as a tap — classified and fixed, 25 September 2026
+
+**Classified on evidence, not by re-runs.** Six passing re-runs said nothing about why it failed. With
+the browser's CPU slowed six times (Chrome's own throttling) the check failed 3 of 3 on the deployed
+build and passed 3 of 3 at normal speed: a product fault on a slow device, not a test race. The drag is
+now known from the pointer itself (more than 6 px with one pointer down, outside the front view, where a
+finger turns the head), and MapLibre's late report of the same drag is ignored by its event time, so it
+can no longer cancel a Return to bus that follows — the second race the first attempt exposed. A pinch
+still zooms and keeps following (a first version counted the pinch's moving finger as a drag; the phone's
+pinch check caught it). `ride.spec`: the drag with the CPU slowed six times, then Return to bus to the
+zoom-20 framing, both profiles; 12 of 12 in the reproduction. What follows is the original entry.
+
 Seen twice in focused browser runs on 24 September 2026 (`ride.spec.mjs`, "a drag as the camera goes
 to the bus ends the glide"), passing in isolation and in the full gates either side. The ride learns
 that a pointer gesture was a drag from MapLibre's `dragstart`, which MapLibre fires on its next drawn
@@ -286,7 +297,13 @@ from the same spot. Candidate: say "at its stand" or "moving between its reports
 "off its road", when both ends are on the road and the line keeps within the road's own tolerance.
 Not started; it is wording and a rule, not a position fault.
 
-## 31. Estimated movement in the ride jumps — a decision for the owner
+## 31. Estimated movement in the ride jumps — done, with the owner's approval, 25 September 2026
+
+The owner approved report-based playback for every ride on 25 September 2026. Every ride is drawn from
+the bus's own reports however it is entered; the estimate stays on the map, labelled, where the
+evaluation allows it; arrivals and their criteria are unchanged. `docs/MILESTONE_2026-09-25_ONE_RIDE.md`
+has the account and the measurements. What follows is the original entry.
+
 
 Found on 25 September 2026 by `scripts/evaluate-ride-offers.mjs`, which rides every bus Try Ride-along
 would have offered, at every publication of two recorded reels, for three minutes at the site's 20 s

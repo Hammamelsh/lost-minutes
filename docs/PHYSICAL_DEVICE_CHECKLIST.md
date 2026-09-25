@@ -161,6 +161,11 @@ finger are all absent from Chromium.
       it goes through corners, and does not jump. If the list is empty, it says why and offers the
       recording. *unchecked*
 
+- [ ] A 250 or a 15 ridden from its stop's board: on the map it is *Estimated*; in the ride *Moving
+      between its reports* or *Standing*, with how far behind; the board's "N stops before yours" does
+      not wait for the drawing. Entering and leaving, the bus does not hop backwards on screen. A quick
+      drag at the very start of the ride pauses following on a slow phone too. *unchecked*
+
 ## When something looks wrong
 
 Open **Send feedback** at the foot of the page and press **Copy this report**: it copies a report

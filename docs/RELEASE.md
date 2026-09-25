@@ -4,12 +4,39 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`a82abfb`**, deployed 25 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`a63006b`**, deployed 25 September 2026 (the release section below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 25 September, evening: one Ride-along everywhere
+
+**Deployed: `a63006b`**, with the previous release kept for `deploy/rollback.sh`. With the owner's
+approval (backlog 31), every ride is drawn from the bus's own reports, however it is entered; the map
+keeps the labelled estimate where the evaluation allows it; arrivals are unchanged. The drawing now holds
+reports the evidence contradicts, sets its clock back for a late report instead of chasing, cuts at a
+repositioning, and starts without a step. The account and the measurements are
+`docs/MILESTONE_2026-09-25_ONE_RIDE.md`.
+**Verified on the final candidate:** 247 Node tests; 131 Python tests; typecheck; lint with no errors; CI's built-site and deployment-syntax checks; the full browser suite **371 passed, 39 skipped by design, none failed, in 1.1 hours** on the final build (Chromium with SwiftShader, desktop and phone emulation). The first full run on the candidate before it failed 6 (three checks on both profiles): two were premises restated (the head turn waited for an estimate's correction inside the ride; Try Ride-along asserted a scored-road bus was not offered), and one was a fault of this milestone — a drawing begun afresh started from rest — fixed, not restated. On the served site a 250 and a 15 ridden from their stops, and Try Ride-along's three rides, were continuous: none repositioned, none without a heading, no step unsaid.
+
+**The demonstration**, one continuous ride, on a phone in its ordinary browser, by day:
+1. Open **https://lost-minutes.duckdns.org**, search **Trafford Bar** and choose **Trafford Bar (by)**
+   (westbound, Chester Road). The board lists the 250s coming, *N stops before yours* by each one's last
+   report, and the scheduled departures.
+2. Tap a 250 that is a few stops away, then **Ride along**. The camera goes to the bus; the card says
+   *Moving between its reports · drawn about N s behind* (or *Standing* at a stop), and the board's
+   answer — how many stops away — comes from its newest report, not from the drawing.
+3. Ride it for three minutes: it follows its road, faces the way it goes through corners, stops where
+   its reports stopped, and pulls away; a said repositioning, if one comes, is a cut with one line on
+   the card. Try **Front view** and back to **Outside view**.
+4. **Exit**: the map comes back with the bus estimated again, the same bus and journey.
+
+**What still limits a ride:** it is 30–60 s behind the newest report and says so; a bus with no checked
+road and no reported bearing is shown from above until it has moved a bus's length; a turn round on a
+terminus loop with no road under it is drawn as it moves off; short heading lags remain pulling out of
+a stand. Checked in emulation only.
 
 ## 25 September: a standing bus, a terminus loop, and suggested rides made clean
 
@@ -96,8 +123,8 @@ rides jump; see the release section above):
    westbound (ATCO 1800SJ00311; eight stops share the name) — the 250 towards The Trafford Centre
    boards there 17 stops into its route, so several are usually coming. The board lists the tracked buses coming, "N stops before yours" by each
    one's last report, and the scheduled departures, labelled *Scheduled · not live*. Tap a 250 to show
-   its card and progress. Do not ride it for a demonstration: a 250 is drawn at an estimate, which
-   the arriving reports correct by up to hundreds of metres (backlog 31). Ride from step 2 instead.
+   its card and progress, then **Ride along** (since the evening of 25 September every ride is drawn
+   from its reports, backlog 31: the demonstration at the top of this record).
 6. When nothing live suits (late at night): **Recorded ride · to Bury Interchange** in the same
    section, or the link `https://lost-minutes.duckdns.org/?ride=2026-09-23-bngn-3426-163`, badged
    RECORDED RIDE throughout.

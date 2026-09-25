@@ -3,7 +3,7 @@
 // for other buses, and the front view says what it can do before it is pressed. FIXTURE data on
 // real NaPTAN stops; SwiftShader, so the frame times are a software renderer's, not a phone's.
 import {test, expect} from '@playwright/test';
-import {FIXTURE_STOP_OFFSETS, fixtureOffsetOf, journeyLive, mapBand, metresOffFixtureRoad, movingLive, serveLive, serveMotion,
+import {FIXTURE_STOP_OFFSETS, alongFixture, fixtureOffsetOf, journeyLive, mapBand, metresOffFixtureRoad, movingLive, serveLive, serveMotion,
   servePatterns, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
@@ -325,6 +325,80 @@ test('in the ride the bus and the camera face along its road, whatever bearing i
   const cams = samples.map(s => Number((s.camera || '').split(',')[4])).filter(Number.isFinite);
   const swings = cams.slice(1).map((b, i) => Math.abs(turn(cams[i], b)));
   expect(Math.max(...swings), 'the camera never swings further in 0.2 s than a bus turns').toBeLessThan(25);
+});
+
+// 25 September 2026, the served site: a 216 standing at Piccadilly Gardens 3.4 m from its checked
+// road, reporting no bearing, read "Off its checked road" with the bus shown from above, and the
+// ride camera swung 69° between two samples when a heading appeared.
+const noBearings = live => {
+  const bus = live.vehicles.find(v => v.vehicle === 'FX-MOVING');
+  bus.bearing = null; bus.bearingStatus = 'absent';
+  bus.trail = bus.trail.map(t => [t[0], t[1], t[2], null, t[4]]);
+  return live;
+};
+const turnOf = (a, b) => ((b - a) % 360 + 540) % 360 - 180;
+
+test('a bus met standing on its road, reporting no bearing, faces along its road and is not called off it', async ({page}) => {
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  await serveLive(page, Array.from({length: 40}, () => () => noBearings(movingLive({standing: true, startS: 250, cadence: 20, delay: 4}))));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  const samples = [];
+  for (let i = 0; i < 40; i++) {
+    samples.push(await map(page).evaluate(el => el.getAttribute('data-heading')));
+    await page.waitForTimeout(200);
+  }
+  expect(samples.filter(h => !h).length, 'it faces a way in every sample').toBe(0);
+  const road = alongFixture(250).bearing;
+  expect(Math.max(...samples.map(h => Math.abs(turnOf(+h, road)))), `along its road (${road}°)`).toBeLessThan(20);
+  await expect(page.locator('.ride-card .ride-motion')).not.toContainText('Off its checked road');
+  await expect(page.locator('.ride-note', {hasText: 'did not report a direction'})).toHaveCount(0);
+});
+
+test('a heading that first becomes known turns the ride camera round to it, not in one swing', async ({page}) => {
+  test.setTimeout(180_000);
+  await servePatterns(page);
+  await serveMotion(page, {evaluation: null});
+  // No checked road: drawn at its reports, so it faces no way until it is drawn moving.
+  await page.route('**/data/shapes/index.json*', route => route.fulfill({json: {schemaVersion: 1,
+    patterns: {'FX:256:main': {status: 'rejected', reason: 'FIXTURE: not checked against reports'}}}}));
+  // It stands until the ride has begun, however long the page took to load, and then moves off.
+  let moveAt = null;
+  await serveLive(page, Array.from({length: 80}, () => () =>
+    noBearings(movingLive({startMs: moveAt ?? Date.now() + 3_600_000, startS: 250, speed: 9, cadence: 20, delay: 4}))));
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
+  await waitForPaint(page);
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
+  await page.locator('.ride-launch').click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
+  await expect(page.locator('.ride-note', {hasText: 'did not report a direction'}), 'standing with no direction, it says so').toBeVisible();
+  moveAt = Date.now() + 5_000;
+  const samples = [];
+  for (let i = 0, after = 0; i < 600 && after < 30; i++) {
+    samples.push(await map(page).evaluate(el => ({heading: el.getAttribute('data-heading'), camera: el.getAttribute('data-camera'),
+      t: performance.now()})));
+    if (samples.at(-1).heading) after++;
+    await page.waitForTimeout(200);
+  }
+  expect(samples.some(s => !s.heading), 'met with no heading').toBe(true);
+  const first = samples.findIndex(s => s.heading);
+  expect(first, 'then it is drawn moving, and faces').toBeGreaterThan(0);
+  // Between two samples the camera may turn 120° a second over the page time between them, plus
+  // one frame's worth (a frame turns it for up to 250 ms): a swing straight to the heading is 146°.
+  const cams = samples.map(s => Number((s.camera || '').split(',')[4]));
+  const over = cams.slice(1).map((b, i) => Number.isFinite(b) && Number.isFinite(cams[i])
+    ? Math.abs(turnOf(cams[i], b)) - (120 * (samples[i + 1].t - samples[i].t + 300) / 1000 + 2) : -1);
+  const worst = over.indexOf(Math.max(...over));
+  expect(Math.max(...over), `the camera turns to the new heading (${samples[first].heading}°) at a bus's rate: `
+    + `${Math.abs(turnOf(cams[worst], cams[worst + 1])).toFixed(0)}° in ${(samples[worst + 1].t - samples[worst].t).toFixed(0)} ms`).toBeLessThanOrEqual(0);
+  const end = cams.at(-1), aim = +samples.at(-1).heading;
+  expect(Math.abs(turnOf(end, aim)), 'and gets there').toBeLessThan(10);
+  await expect(page.locator('.ride-note', {hasText: 'did not report a direction'}), 'the note goes with the token').toHaveCount(0);
 });
 
 test('a pause in drawing: the bus goes to its place, that is said, and nothing moves unsaid', async ({page}) => {

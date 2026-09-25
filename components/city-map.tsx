@@ -93,6 +93,8 @@ const VIEW_CAMERA={'2d':{pitch:0,bearing:0},city:{pitch:58,bearing:-17}};
 // While following, the camera is re-centred on the drawn bus every frame; after a gesture or
 // an animated zoom has moved it further than this (px), it glides back rather than jumping.
 const SETTLE_PX=40;
+// The fastest the ride-along camera turns, in degrees a second: over the 90 a drawn bus turns at.
+const RIDE_TURN=120;
 // The front view: a stylised preview of the street ahead, from a raised point above the drawn
 // position on the bus's own checked road shape (never the raw GPS heading, which jitters). It is
 // not a seat on board and not the bus's lane: it is the map's street, seen from above the road.
@@ -556,6 +558,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // can be drawn honestly (frontReason below), and never changes which bus is followed.
  const [cameraWish,setCameraWish]=useState<'outside'|'front'>('outside');
  const [frontNote,setFrontNote]=useState<string|null>(null);
+ // Whether the drawn bus faces a way: its reports' bearing is not what is drawn (the path's is).
+ const [facing,setFacing]=useState(true);
  const leaveFront=useRef<((note:string)=>void)|null>(null);
  // The map's own road widths, kept while the front view draws roads at real widths.
  const savedWidths=useRef(new Map<string,unknown>());
@@ -580,7 +584,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // The last repositioning, traced on the map while it is recent.
   snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean;
    why:RepositionReason|null}|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
-  frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,
+  frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,lastCamT:0,facing:true,
   // How long the last few frames took, so a view that has become a slideshow can say so rather
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
   gaps:[] as number[],lastTick:0,
@@ -1248,6 +1252,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile),
    input.replay?input.history:null,input.replay?input.track:null);
   visualRef.current=v;estimateRef.current=e;
+  if((v.bearing!==null)!==state.facing){state.facing=v.bearing!==null;setFacing(state.facing)}
   // A snap is a repositioning, and it is shown as one: a trace from where the bus was drawn to
   // where its latest report put it, for a few seconds, rather than a teleport with no account.
   if(v.lastCorrection?.kind==='snap'&&v.lastCorrection.at!==state.snap?.at&&before)
@@ -1355,11 +1360,21 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     // React effect, so for a frame or two after the ride is left it still says 'ride'; the ref is
     // written as the ride ends. Turning the map to the bus's heading in that window put a camera
     // move in front of the fit that returns the map to flat, and the tilt was left part-way.
-    const bearing=input.view==='ride'&&r.state!=='off'&&v.bearing!==null?{bearing:v.bearing}:{};
-    const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
     // A repositioning is a cut, not a sweep: gliding the camera across it drew the ground between as
     // if the bus had travelled it (24 September 2026, a route-43 ride shown again after a minute).
     const cut=v.lastCorrection?.kind==='snap'&&v.lastCorrection.at===now;
+    // The camera turns with the bus, never faster than RIDE_TURN: where a heading first becomes
+    // known it swung straight to it, 69° between two samples on a served 216 (25 September 2026).
+    // The bus itself turns at most 90° a second, so while it is known the camera keeps up with
+    // it. A repositioning is still a cut, and under reduced motion the heading is taken at once.
+    let bearing:{bearing?:number}={};
+    if(input.view==='ride'&&r.state!=='off'&&v.bearing!==null){
+     const from=instance.getBearing(),turn=((v.bearing-from)%360+540)%360-180;
+     const most=RIDE_TURN*Math.min(250,Math.max(16,t-state.lastCamT))/1000;
+     bearing={bearing:cut||prefersReducedMotion()||Math.abs(turn)<=most?v.bearing:from+Math.sign(turn)*most};
+    }
+    state.lastCamT=t;
+    const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
     if(!cut&&Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
      instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
     else instance.jumpTo({center:[v.lon,v.lat],...bearing});
@@ -1915,8 +1930,8 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    </div>
    <div className="ride-notes">
     {(frontNote??frontFallback)&&<p className="ride-note" role="status">{frontNote??frontFallback}</p>}
-    {selected&&selected.bearing===null&&blocked!==null&&<p className="ride-note">This bus did not report
-     a direction, so it is shown from above, not from behind.</p>}
+    {selected&&!facing&&<p className="ride-note">This bus did not report a direction and has not
+     been drawn moving yet, so it is shown from above, not from behind.</p>}
     {modelFailed&&<p className="ride-note" role="status">The 3D bus could not be loaded, so the map
      symbol is shown instead.</p>}
    </div>

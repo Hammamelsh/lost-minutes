@@ -39,6 +39,10 @@ const turnOf = (a, b) => ((b - a) % 360 + 540) % 360 - 180;
 // How the page's publications reach a phone: every `--poll` seconds (the site's configuration is 20 s),
 // the newest publication written by then. 0 serves each at its own receipt time, as before.
 const pollMs = Number(arg('poll', 0)) * 1000;
+// Where in each bus's run the page first meets it, as a share of its publications: 0 from its first,
+// 0.5 halfway. A passenger opens a ride at any moment, and a bus met mid-stand has none of the
+// reports that gave it a heading (25 September 2026, a served 216 at Piccadilly Gardens).
+const meet = Number(arg('meet', 0));
 
 // Publications per vehicle, keeping the journey the vehicle is on (a new journey is a new run).
 const byVehicle = new Map();
@@ -61,6 +65,10 @@ for (const [key, pubs] of runs) {
   // What 24 September's route-43 incident exposed, judged on every bus: which way it faces against
   // the way it is drawn moving, one-frame turns, a lost heading, and the delay it is drawn at.
   const headingOff = [], spins = [], delays = []; let nullAfterKnown = 0, knownYet = false, misRun = 0, misLongest = 0;
+  // And what the served 216 exposed: a bus drawn on its road but called off it, one with no heading
+  // there, and the most a bus turned within 5 s while drawn standing still (under 5 cm a frame) —
+  // scatter round a stand turned buses round on the spot.
+  let offLabelOnRoad = 0, nullOnRoad = 0, standTurnMax = 0, still = [];
   // How far the reports themselves moved over the window: a bus drawn standing while its reports
   // moved is a drawing fault; one drawn standing because its reports stood is not.
   const reportPoints = pubs.map(p => ({lat: p.v.lat, lon: p.v.lon}));
@@ -69,7 +77,7 @@ for (const [key, pubs] of runs) {
   for (let wall = start; wall <= end; wall += 100) {
     const visibleAt = pollMs ? start + Math.floor((wall - start) / pollMs) * pollMs : wall;
     while (i + 1 < pubs.length && pubs[i + 1].receivedAtMs + shift + (pollMs ? 2500 : 0) <= visibleAt) i++;
-    if (i < 0) continue;
+    if (i < 0 || i < Math.floor(meet * pubs.length)) continue;
     const fixes = fixesOf(pubs[i].v); distinct.add(pubs[i].v.observedAtMs);
     if (fixes.length < 2) continue;
     const h = historyFrom(fixes), e = observedAt(h, wall, 'fleet');
@@ -86,6 +94,13 @@ for (const [key, pubs] of runs) {
     if (vis.lastCorrection?.kind === 'snap' && (!snaps.length || snaps.at(-1).at !== vis.lastCorrection.at))
       snaps.push({at: vis.lastCorrection.at, metres: Math.round(vis.lastCorrection.metres), why: vis.lastCorrection.why ?? 'unsaid'});
     if (road && vis.buffer?.onRoad) { onRoadFrames++; off.push(project(road, vis).offset); }
+    if (road && project(road, vis).offset <= 10) { if (vis.buffer?.onRoad === false) offLabelOnRoad++; if (vis.bearing === null) nullOnRoad++; }
+    if (prev && !said && metres(prev, vis) < 0.05 && prev.bearing !== null && vis.bearing !== null) {
+      if (!still.length) still.push({wall: wall - 100, bearing: prev.bearing});
+      still.push({wall, bearing: vis.bearing});
+      while (still[0].wall < wall - 5000) still.shift();
+      for (const b of still) standTurnMax = Math.max(standTurnMax, Math.abs(turnOf(b.bearing, vis.bearing)));
+    } else still = [];
     speeds.push(vis.velocity ?? 0);
     if (speeds.length > 200) swings.push(Math.abs((vis.velocity ?? 0) - speeds[speeds.length - 201]));
     if (prevV !== null) accels.push(Math.abs((vis.velocity ?? 0) - prevV) / 0.1);
@@ -99,7 +114,8 @@ for (const [key, pubs] of runs) {
     onRoadShare: road ? onRoadFrames / frames : null, offRoadP95: off.length ? q(off, .95) : null, offRoadMax: off.length ? Math.max(...off) : null,
     snaps: snaps.length, unsaid: unsaid + unsaidSteps.length, unsaidSteps: unsaidSteps.slice(0, 3), snapList: snaps.slice(0, 4),
     headingOffP95: q(headingOff, .95), misalignedLongestS: misLongest / 10, spinMax: Math.max(0, ...spins), nullHeadingFrames: nullAfterKnown,
-    delayP50: q(delays, .5), delayMax: delays.length ? Math.max(...delays) : null});
+    delayP50: q(delays, .5), delayMax: delays.length ? Math.max(...delays) : null,
+    offLabelOnRoad, nullOnRoad, standTurnMax});
 }
 const fleet = {
   vehicles: results.length, withRoad: results.filter(r => r.road).length,
@@ -115,6 +131,8 @@ const fleet = {
   headingOffP95Median: q(results.map(r => r.headingOffP95 ?? 0), .5), headingOffP95P90: q(results.map(r => r.headingOffP95 ?? 0), .9),
   misalignedOver1_5s: results.filter(r => r.misalignedLongestS > 1.5).length, spinOver10: results.filter(r => r.spinMax > 10).length,
   nullHeadingBuses: results.filter(r => r.nullHeadingFrames > 0).length,
+  offLabelOnRoadBuses: results.filter(r => r.offLabelOnRoad > 0).length, nullOnRoadBuses: results.filter(r => r.nullOnRoad > 0).length,
+  standTurnOver20: results.filter(r => r.standTurnMax > 20).length,
   delayP50Median: q(results.map(r => r.delayP50 ?? 0).filter(Boolean), .5), delayMaxMax: Math.max(0, ...results.map(r => r.delayMax ?? 0)),
   delayOver75: results.filter(r => (r.delayMax ?? 0) > 75).length,
   drawnStandingWhileReportsMoved: results.filter(r => r.movingShare < 0.2 && r.reportsMoved > 150).length,
@@ -125,7 +143,12 @@ const outliers = results.filter(r => r.unsaid > 0 || r.misalignedLongestS > 1.5 
   .sort((a, b) => b.stepMax - a.stepMax);
 // The buses drawn furthest from the road they are said to be on, whatever their 95th percentile:
 // a single moment off the road is a moment a passenger can see.
+// The buses that turned most while drawn standing, and those called off a road they were drawn on.
+const standTurners = results.filter(r => r.standTurnMax > 20).sort((a, b) => b.standTurnMax - a.standTurnMax).slice(0, 12)
+  .map(r => ({key: r.key, road: r.road, standTurnMax: Math.round(r.standTurnMax), movingShare: +r.movingShare.toFixed(2)}));
+const offLabelled = results.filter(r => r.offLabelOnRoad > 0).sort((a, b) => b.offLabelOnRoad - a.offLabelOnRoad).slice(0, 12)
+  .map(r => ({key: r.key, frames: r.offLabelOnRoad, of: r.frames, onRoadShare: +(r.onRoadShare ?? 0).toFixed(2)}));
 const furthestOffRoad = results.filter(r => r.offRoadMax !== null).sort((a, b) => b.offRoadMax - a.offRoadMax).slice(0, 5)
   .map(r => ({key: r.key, offRoadMax: +r.offRoadMax.toFixed(1), offRoadP95: +(r.offRoadP95 ?? 0).toFixed(1), snaps: r.snapList}));
-console.log(JSON.stringify({reel: reelPath, publications: reel.publications.length, minPubs, fleet, furthestOffRoad,
+console.log(JSON.stringify({reel: reelPath, publications: reel.publications.length, minPubs, fleet, standTurners, offLabelled, furthestOffRoad,
   outliers: outliers.slice(0, top), slowest: results.filter(r => r.reportsMoved > 150).sort((a, b) => a.movingShare - b.movingShare).slice(0, top).map(r => ({key: r.key, movingShare: +r.movingShare.toFixed(2), reports: r.reports, reportsMoved: r.reportsMoved, road: r.road, snaps: r.snaps}))}, null, 1));

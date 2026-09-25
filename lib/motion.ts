@@ -606,7 +606,13 @@ export const PLAYBACK = {
  * bearing turned the bus into a round token. The reported bearing is still what the report says,
  * in "How we know this"; this is only which way the drawn bus is pointed.
  */
-export const HEADING = {settleMs: 450, maxDegPerSecond: 90};
+// A bus turns only as it moves: at a stand the drawn bus turned 170° on the spot in two seconds as its
+// target swung between scatter and its road (25 September 2026, a 142 and a 143 at Piccadilly
+// Gardens; 110 of 334 buses in the fleet check turned over 20° within 5 s while drawn standing
+// still). 15° a metre is a turn of about a 4 m radius, tighter than a bus can, because the path it
+// is drawn along turns at a corner of straight lines; a bus's own ~6 m (9.5° a metre) left buses on
+// such lines facing sideways past a corner for up to 3 s, and 30° a metre let a creeping bus swing 69°.
+export const HEADING = {settleMs: 450, maxDegPerSecond: 90, maxDegPerMetre: 15};
 
 const median = (xs: number[]) => {
  if (!xs.length) return 0;
@@ -849,25 +855,37 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
   const rs = a.roadS + (s - a.S);
   return {...pointAt(path.road, rs), heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
  }
+ const pa = nodePoint(path, a), pb = nodePoint(path, b);
+ // Two reports on the road within a bus's length of each other are one place on it — a bus
+ // standing, its reports scattered round the spot — not a line leaving the road: it is drawn on
+ // the road between them, facing along it. As a chord it read "off its checked road" with no
+ // heading for a 216 standing 3 m from its road at Piccadilly Gardens, and scatter a few metres
+ // back along the road would have turned it round (25 September 2026, the served site).
+ if (a.onRoad && b.onRoad && path.road && !b.jump && metres(pa, pb) <= HEADING_AHEAD) {
+  const rs = a.roadS + (b.roadS - a.roadS) * f;
+  return {lat: pa.lat + (pb.lat - pa.lat) * f, lon: pa.lon + (pb.lon - pa.lon) * f,
+   heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
+ }
  // The chord: two positions the bus reported and the straight line between them, which is not
  // claimed to be the road. The drawn bus faces along the line it is drawn travelling — a report's
  // own bearing is another moment's, and pointed it across the line (24 September 2026). A
- // stretch too short to have a direction leaves the heading as it was.
- const pa = nodePoint(path, a), pb = nodePoint(path, b);
+ // stretch shorter than a bus has no direction a report's scatter could not give it (a standing 143's
+ // reports 3–5 m apart turned it round, 25 September 2026), and leaves the heading as it was.
  return {lat: pa.lat + (pb.lat - pa.lat) * f, lon: pa.lon + (pb.lon - pa.lon) * f,
-  heading: metres(pa, pb) >= 2 ? bearingBetween(pa, pb) : null, onRoad: false, roadS: null, k};
+  heading: metres(pa, pb) >= HEADING_AHEAD ? bearingBetween(pa, pb) : null, onRoad: false, roadS: null, k};
 }
 
 const bearingBetween = (a: {lat: number; lon: number}, b: {lat: number; lon: number}) =>
  (Math.atan2((b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD), b.lat - a.lat) / RAD + 360) % 360;
 
-/** The drawn heading one frame on: towards `target` at a bus's rate of turn, eased in; held where
- *  there is no target, and taken at once across a repositioning (nothing is shown turning there). */
-function steer(from: number | null, target: number | null, dtMs: number, cut: boolean): number | null {
+/** The drawn heading one frame on: towards `target` at a bus's rate of turn, eased in, and only as
+ *  far as the metres it was drawn moving allow; held where there is no target, and taken at once
+ *  across a repositioning (nothing is shown turning there). */
+function steer(from: number | null, target: number | null, dtMs: number, cut: boolean, travelled: number): number | null {
  if (target === null) return from;
  if (from === null || cut) return target;
  const turnBy = shortestTurn(from, target), eased = turnBy * (1 - Math.exp(-dtMs / HEADING.settleMs));
- const limit = HEADING.maxDegPerSecond * dtMs / 1000;
+ const limit = Math.min(HEADING.maxDegPerSecond * dtMs / 1000, HEADING.maxDegPerMetre * travelled);
  return (from + Math.max(-limit, Math.min(limit, eased)) + 360) % 360;
 }
 
@@ -1121,7 +1139,8 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  // ever moved, its road's direction or, with no road, the newest report's own bearing.
  const cut = correction === 'snap' && last?.at === now;
  const start = previous?.bearing ?? at.heading ?? fixes[fixes.length - 1].bearing ?? null;
- const bearing = steer(previous ? previous.bearing ?? start : start, at.heading, previous ? Math.min(1000, Math.max(0, now - previous.frame)) : 0, cut);
+ const bearing = steer(previous ? previous.bearing ?? start : start, at.heading, previous ? Math.min(1000, Math.max(0, now - previous.frame)) : 0, cut,
+  previous ? metres(previous, drawn) : 0);
  // The moment the drawn place stands for: the delay the card states is measured from this, not
  // from the clock, which the drawn bus may trail by a few seconds while it pulls away. At its goal
  // it stands for the clock's own moment. Behind it, it stands for the *last* moment the reports

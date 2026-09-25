@@ -21,6 +21,12 @@ repositioning, and starts without a step. The account and the measurements are
 `docs/MILESTONE_2026-09-25_ONE_RIDE.md`.
 **Verified on the final candidate:** 247 Node tests; 131 Python tests; typecheck; lint with no errors; CI's built-site and deployment-syntax checks; the full browser suite **371 passed, 39 skipped by design, none failed, in 1.1 hours** on the final build (Chromium with SwiftShader, desktop and phone emulation). The first full run on the candidate before it failed 6 (three checks on both profiles): two were premises restated (the head turn waited for an estimate's correction inside the ride; Try Ride-along asserted a scored-road bus was not offered), and one was a fault of this milestone — a drawing begun afresh started from rest — fixed, not restated. On the served site a 250 and a 15 ridden from their stops, and Try Ride-along's three rides, were continuous: none repositioned, none without a heading, no step unsaid.
 
+**Pushed to GitHub** with the owner's approval, without force: 22 commits, `0f2c719..2a61428`, each
+reviewed for credentials, runtime data and recordings first. GitHub CI (`checks`, run 36175741336) passed
+on `2a61428`: types, lint, Node tests and the static build; the Python pipeline tests; the deployment
+configuration. It warns that the workflow's actions target Node 20, which GitHub is retiring (they ran on
+Node 24). The served site runs `a63006b`; `2a61428` adds only this record.
+
 **The demonstration**, one continuous ride, on a phone in its ordinary browser, by day:
 1. Open **https://lost-minutes.duckdns.org**, search **Trafford Bar** and choose **Trafford Bar (by)**
    (westbound, Chester Road). The board lists the 250s coming, *N stops before yours* by each one's last

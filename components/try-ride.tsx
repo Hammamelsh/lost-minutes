@@ -1,15 +1,20 @@
 'use client';
 // Try Ride-along: the way in for someone who has heard there is a ride and has no stop in mind.
-// It offers what the latest publication supports — a bus whose ride is certain now, with what kind
-// of ride it will be said on its face — and, when nothing live suits, a dated recording. Choosing
-// a live bus starts the ride at once; the bus becomes theirs, and the page says nothing about any
-// stop. Nothing here is a showcase, and a recording is never dressed as live.
+// It offers only a bus whose own recent reports promise a clean ride now — on its checked road,
+// moving along it, reporting steadily, with road left to ride (`cleanRideCandidates`) — and, when
+// nothing live suits, a dated recording. Since 25 September 2026 it offers neither a bus on a road
+// the model was scored on (drawn at an estimate, corrected by up to hundreds of metres as reports
+// arrive: 119 of 159 offered rides jumped within three minutes, scripts/evaluate-ride-offers.mjs)
+// nor one with no checked road (drawn on straight lines between reports). Choosing a live bus
+// starts the ride at once; the bus becomes theirs, and the page says nothing about any stop. A
+// recording is never dressed as live.
 import {useEffect,useState} from 'react';
 import {Armchair,Film} from 'lucide-react';
 import type {FollowBus} from '@/lib/follow';
 import {destinationLabel,directionLabel} from '@/lib/follow';
-import {loadAcceptedPatterns,loadMotionModel,type MotionModel} from '@/lib/motion-view';
-import {onAcceptedRoad,rideCandidates,TIER_WORDS} from '@/lib/explore';
+import {loadAcceptedPatterns,loadMotionModel,loadTrack,type MotionModel} from '@/lib/motion-view';
+import {cleanRideCandidates,onAcceptedRoad,roadsToJudge,TIER_WORDS} from '@/lib/explore';
+import type {Track} from '@/lib/motion';
 import {rideWords,type RecordedRideSummary} from '@/lib/recorded-ride';
 
 export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
@@ -18,14 +23,28 @@ export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
 }){
  const [accepted,setAccepted]=useState<Set<string>|null|undefined>(undefined);
  const [model,setModel]=useState<MotionModel|null|undefined>(undefined);
+ // The checked roads of the buses that might be offered: a bus is judged against its own road.
+ const [roads,setRoads]=useState<ReadonlyMap<string,Track|null>>(new Map());
  useEffect(()=>{
   let alive=true;
   loadAcceptedPatterns().then(value=>{if(alive)setAccepted(value)});
   loadMotionModel().then(value=>{if(alive)setModel(value)});
   return ()=>{alive=false};
  },[]);
- const checking=live&&(accepted===undefined||model===undefined);
- const candidates=!live||checking?[]:rideCandidates(buses,accepted??new Set(),model??null);
+ const needed=!live||accepted===undefined||model===undefined?[]:roadsToJudge(buses,accepted??new Set(),model??null);
+ const missing=needed.filter(id=>!roads.has(id));
+ const missingKey=missing.join(',');
+ useEffect(()=>{
+  if(!missingKey)return;
+  let alive=true;
+  Promise.all(missingKey.split(',').map(id=>loadTrack(id).then(result=>[id,result.track] as const)))
+   .then(loaded=>{if(alive)setRoads(previous=>{const next=new Map(previous);for(const [id,track] of loaded)next.set(id,track);return next})});
+  return ()=>{alive=false};
+ },[missingKey]);
+ // Checking until the first roads are in; after that a newly needed road is judged when it arrives,
+ // and the list meanwhile shows what is already known to be clean.
+ const checking=live&&(accepted===undefined||model===undefined||(needed.length>0&&roads.size===0));
+ const candidates=!live||checking?[]:cleanRideCandidates(buses,accepted??new Set(),model??null,id=>roads.get(id));
  const onRoad=!live||checking||!accepted?0:onAcceptedRoad(buses,accepted);
  const state=!live?'offline':checking?'checking':candidates.length?'ready':'none';
  // With nothing live to ride, the recording leads; otherwise it follows the live buses.
@@ -50,9 +69,10 @@ export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
   {state==='checking'&&<p className="follow-hint">Checking which buses suit a ride right now…</p>}
   {state==='offline'&&<p className="follow-hint" data-ride-none>Live positions are not arriving, so no live ride
    can be offered{recordings.length?'; the recording above is':''}.</p>}
-  {state==='none'&&<p className="follow-hint" data-ride-none>None of the {buses.length} buses reporting suits a
-   ride right now{onRoad?` (${onRoad} ${onRoad===1?'is':'are'} on a checked road, with older reports)`:''}: a ride
-   needs a recent report from a bus placed on its timetable.</p>}
+  {state==='none'&&<p className="follow-hint" data-ride-none>None of the {buses.length} buses reporting would give a
+   smooth ride right now{onRoad?` (${onRoad} ${onRoad===1?'is':'are'} on a checked road)`:''}: a ride is offered only
+   for a bus moving along its checked road, reporting steadily, with road left to ride. This is checked again
+   with every update.</p>}
   {state==='ready'&&<div className="follow-list">
    {candidates.map(({bus,tier})=><button key={bus.key} className="follow-row" onClick={()=>onRide(bus)}
      data-ride-bus={bus.key} data-ride-tier={tier}

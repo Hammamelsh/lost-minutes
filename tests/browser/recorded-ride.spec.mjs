@@ -4,7 +4,7 @@
 // journey stores, and left by one action that brings the live feed back. FIXTURE data: a ride file
 // cut the way scripts/make-recorded-ride.mjs cuts one, from the fixture's moving bus.
 import {test, expect} from '@playwright/test';
-import {journeyLive, movingLive, servePatterns, serveLive, serveMotion, unavailableState, waitForPaint} from './fixtures.mjs';
+import {FIXTURE_MOTION, journeyLive, movingLive, servePatterns, serveLive, serveMotion, unavailableState, waitForPaint} from './fixtures.mjs';
 
 const RIDE_ID = 'fx-ride';
 const summary = {id: RIDE_ID, title: '256 to Piccadilly Gardens', operator: 'BNML', vehicle: 'FX-MOVING', route: '256',
@@ -125,10 +125,13 @@ test('the recorded vehicle live right now on another journey does not stop the r
 
 test('with live buses the recording follows the live rides, and a link to a recording that is not there says so', async ({page}) => {
   await servePatterns(page);
-  await serveMotion(page);
+  // Restated 25 September 2026: Try Ride-along offers only a clean ride — a bus moving along a checked
+  // road the model was not scored on — so the live ride here is FX-MOVING, a minute into its journey,
+  // where it was two of journeyLive's single reports on the scored road before.
+  await serveMotion(page, {evaluation: {...FIXTURE_MOTION, corridor: {lines: [], patterns: []}}});
   await serveRecording(page);
   await page.route('**/data/rides/no-such-ride.json*', route => route.fulfill({status: 404, body: 'no'}));
-  await serveLive(page, [() => journeyLive()]);
+  await serveLive(page, [() => movingLive({startMs: Date.now() - 60_000, startS: 200})]);
   await page.goto('/?ride=no-such-ride');
   await waitForPaint(page);
   await expect(badge(page)).toContainText('LIVE');
@@ -137,6 +140,6 @@ test('with live buses the recording follows the live rides, and a link to a reco
   await expect(section.locator('.follow-hint.warn')).toContainText('could not be loaded');
   // Order: the live rides first, the recording after them.
   const rows = section.locator('button[data-ride-bus], button[data-ride-recording]');
-  await expect(rows).toHaveCount(3);
+  await expect(rows).toHaveCount(2);
   await expect(rows.last()).toHaveAttribute('data-ride-recording', RIDE_ID);
 });

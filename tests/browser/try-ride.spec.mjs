@@ -8,25 +8,32 @@ import {FIXTURE_MOTION, journeyLive, movingLive, servePatterns, serveLive, serve
 const section = page => page.locator('.try-ride');
 const card = page => page.locator('#lm-bus-card');
 const noRecordings = page => page.route('**/data/rides/index.json*', route => route.fulfill({json: {schemaVersion: 1, rides: []}}));
+// Since 25 September 2026 the list offers only a clean ride (lib/explore.ts `cleanRideCandidates`): a bus on a
+// checked road the model was *not* scored on (so it is drawn between its own reports, not at an estimate),
+// moving along it, reporting steadily, with road left. The checks below that offered journeyLive's single
+// reports, an estimated bus or a bus with no checked road were written for the list before that rule; they
+// are restated with the reason beside each. FX-MOVING has moved for a minute when the page first sees it.
+const roadOnly = page => serveMotion(page, {evaluation: {...FIXTURE_MOTION, corridor: {lines: [], patterns: []}}});
+const movingRide = () => movingLive({startMs: Date.now() - 60_000, startS: 200});
 
-test('lists the buses whose ride is certain now, and choosing one starts the ride with no stop', async ({page}) => {
+test('lists the buses whose ride is clean now, and choosing one starts the ride with no stop', async ({page}) => {
   await servePatterns(page);
-  await serveMotion(page);
+  await roadOnly(page);
   await noRecordings(page);
-  await serveLive(page, [() => journeyLive()]);
+  await serveLive(page, [() => movingRide()]);
   await page.goto('/');
   await waitForPaint(page);
   await expect(section(page)).toHaveAttribute('data-rides', 'ready', {timeout: 15_000});
-  // FX-COMING and FX-PASSED are on the accepted, evaluated road and lead; FX-ATSTOP and FX-NEARBY
-  // are placed on no pattern at all, and FX-SHARED is unsettled: neither is offered.
+  // FX-MOVING is moving along its checked road and is offered; the others have one report each (no
+  // movement to judge), are placed on no pattern, or are unsettled: none of them is offered.
   const rows = section(page).locator('button[data-ride-bus]');
-  await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toHaveAttribute('data-ride-tier', 'estimated');
-  await expect(rows.first()).toContainText('Estimated movement · Front view');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute('data-ride-tier', 'road');
+  await expect(rows.first()).toContainText('Reported positions · may pause · Front view');
   await expect(section(page)).not.toContainText('FX-SHARED');
   await expect(section(page)).toContainText('not a film');
   await rows.first().click();
-  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(card(page)).toContainText('to Piccadilly Gardens');
   // The ride began, on the bus chosen, and no stop was chosen by it.
@@ -35,39 +42,40 @@ test('lists the buses whose ride is certain now, and choosing one starts the rid
   // Exit is one tap, and the bus stays chosen afterwards.
   await page.getByRole('button', {name: 'Exit ride-along'}).click();
   await expect(page.locator('.vector-map')).toHaveAttribute('data-ride', 'off');
-  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
 });
 
-test('a checked road the model was not scored on is offered as reported positions with the front view', async ({page}) => {
-  await servePatterns(page);
-  await serveMotion(page, {evaluation: {...FIXTURE_MOTION, corridor: {lines: [], patterns: []}}});
-  await noRecordings(page);
-  const startMs = Date.now();
-  await serveLive(page, [() => movingLive({startMs})]);
-  await page.goto('/');
-  await waitForPaint(page);
-  await expect(section(page)).toHaveAttribute('data-rides', 'ready', {timeout: 15_000});
-  const first = section(page).locator('button[data-ride-bus]').first();
-  await expect(first).toHaveAttribute('data-ride-tier', 'road');
-  await expect(first).toContainText('Reported positions · may pause · Front view');
-});
-
-test('a bus placed on a pattern with no checked road is offered last, as reported positions only', async ({page}) => {
-  await servePatterns(page);
-  await serveMotion(page);
-  await noRecordings(page);
-  await page.route('**/data/shapes/index.json*', route => route.fulfill({json: {schemaVersion: 1,
-    patterns: {'FX:256:main': {status: 'rejected', reason: 'FIXTURE: rejected', file: 'FX_256_main.json'}}}}));
-  await serveLive(page, [() => journeyLive()]);
-  await page.goto('/');
-  await waitForPaint(page);
-  await expect(section(page)).toHaveAttribute('data-rides', 'ready', {timeout: 15_000});
-  const rows = section(page).locator('button[data-ride-bus]');
-  await expect(rows).toHaveCount(2);
-  for (const i of [0, 1]) await expect(rows.nth(i)).toHaveAttribute('data-ride-tier', 'placed');
-  await expect(rows.first()).toContainText('Reported positions · may pause');
-  await expect(rows.first()).not.toContainText('Front view');
-});
+// Restated 25 September 2026: these three were offered before. A bus on a scored road is drawn at an
+// estimate that each report corrects by up to hundreds of metres (on the recorded reels 119 of 159 such
+// rides jumped within three minutes); a bus standing at its stop gives no ride; a bus with no checked road
+// is drawn on straight lines between its reports, which cut corners. None is a clean ride to offer.
+for (const [name, setup] of [
+  ['on a road the model was scored on, drawn at an estimate', async page => {
+    await serveMotion(page);
+    await serveLive(page, [() => movingRide()]);
+  }],
+  ['standing on its checked road', async page => {
+    await roadOnly(page);
+    await serveLive(page, [() => movingLive({startMs: Date.now() + 3_600_000, startS: 200})]);
+  }],
+  ['with no checked road', async page => {
+    await serveMotion(page);
+    await page.route('**/data/shapes/index.json*', route => route.fulfill({json: {schemaVersion: 1,
+      patterns: {'FX:256:main': {status: 'rejected', reason: 'FIXTURE: rejected', file: 'FX_256_main.json'}}}}));
+    await serveLive(page, [() => movingRide()]);
+  }],
+]) {
+  test(`a bus ${name} is not offered, and the list says why nothing is`, async ({page}) => {
+    await servePatterns(page);
+    await noRecordings(page);
+    await setup(page);
+    await page.goto('/');
+    await waitForPaint(page);
+    await expect(section(page)).toHaveAttribute('data-rides', 'none', {timeout: 15_000});
+    await expect(section(page).locator('button[data-ride-bus]')).toHaveCount(0);
+    await expect(section(page).locator('[data-ride-none]')).toContainText('moving along its checked road');
+  });
+}
 
 test('nothing qualifies: said with the count, never a stand-in bus', async ({page}) => {
   await servePatterns(page);
@@ -80,7 +88,7 @@ test('nothing qualifies: said with the count, never a stand-in bus', async ({pag
   await page.goto('/');
   await waitForPaint(page);
   await expect(section(page)).toHaveAttribute('data-rides', 'none', {timeout: 15_000});
-  await expect(section(page).locator('[data-ride-none]')).toContainText(/None of the \d+ buses reporting suits a ride/);
+  await expect(section(page).locator('[data-ride-none]')).toContainText(/None of the \d+ buses reporting would give a\s+smooth ride/);
   await expect(section(page).locator('button[data-ride-bus]')).toHaveCount(0);
   await expect(card(page)).toHaveCount(0);
 });
@@ -98,18 +106,17 @@ test('with no live feed and no recording the section is not shown at all', async
 
 test('three different services come first, and a row keeps its destination whole', async ({page}) => {
   await servePatterns(page);
-  await serveMotion(page);
+  await roadOnly(page);
   await noRecordings(page);
-  const startMs = Date.now() - 60_000;
   await serveLive(page, [() => {
-    // FX-MOVING and FX-PASSED are both the 256 to Piccadilly Gardens on the evaluated road; a third
-    // of the same service, and one 256 the other way on the branch (a checked road it is not on,
-    // so "placed"): four candidates for three places.
-    const live = movingLive({startMs});
-    const passed = live.vehicles.find(v => v.vehicle === 'FX-PASSED');
-    live.vehicles.push({...passed, vehicle: 'FX-THIRD', journeyRef: 'FX-THIRD'});
-    live.vehicles.push({...passed, vehicle: 'FX-OTHER', journeyRef: 'FX-OTHER', destination: 'Chester_Road',
-      match: {...passed.match, patternId: 'FX:256:branch', patternDestination: 'Chester Road (fixture branch)'}});
+    // Restated 25 September 2026: only buses whose own reports show a clean ride are offered, so the
+    // four candidates are all moving copies of FX-MOVING (FX-PASSED, copied before, has one report).
+    // Two more of the 256 to Piccadilly Gardens and one to another destination: four for three places.
+    const live = movingRide();
+    const moving = live.vehicles.find(v => v.vehicle === 'FX-MOVING');
+    live.vehicles.push({...moving, vehicle: 'FX-SECOND', journeyRef: 'FX-SECOND'});
+    live.vehicles.push({...moving, vehicle: 'FX-THIRD', journeyRef: 'FX-THIRD'});
+    live.vehicles.push({...moving, vehicle: 'FX-OTHER', journeyRef: 'FX-OTHER', destination: 'Chester_Road'});
     return live;
   }]);
   await page.goto('/');
@@ -121,7 +128,7 @@ test('three different services come first, and a row keeps its destination whole
   // second, and the second Piccadilly bus takes the last place.
   await expect(rows.nth(0)).toContainText('to Piccadilly Gardens');
   await expect(rows.nth(1)).toContainText('to Chester Road');
-  await expect(rows.nth(1)).toHaveAttribute('data-ride-tier', 'placed');
+  await expect(rows.nth(1)).toHaveAttribute('data-ride-tier', 'road');
   await expect(rows.nth(2)).toContainText('to Piccadilly Gardens');
   // The destination is not cut short on a phone: the title wraps instead.
   for (const i of [0, 1, 2]) {
@@ -133,9 +140,9 @@ test('three different services come first, and a row keeps its destination whole
 
 test('the way in from the first screen: a quiet line under Buses near me opens the section', async ({page}, testInfo) => {
   await servePatterns(page);
-  await serveMotion(page);
+  await roadOnly(page);
   await noRecordings(page);
-  await serveLive(page, [() => journeyLive()]);
+  await serveLive(page, [() => movingRide()]);
   await page.goto('/');
   await waitForPaint(page);
   const link = page.locator('[data-try-ride-link]');
@@ -155,9 +162,9 @@ test('the way in from the first screen: a quiet line under Buses near me opens t
 test('a ride started from the full list hands back to the map, not to the list', async ({page}, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile', 'the sheet exists on phones only');
   await servePatterns(page);
-  await serveMotion(page);
+  await roadOnly(page);
   await noRecordings(page);
-  await serveLive(page, [() => journeyLive()]);
+  await serveLive(page, [() => movingRide()]);
   await page.goto('/');
   await waitForPaint(page);
   // The way in opens the sheet to full, and the ride starts from a row in it.
@@ -170,5 +177,5 @@ test('a ride started from the full list hands back to the map, not to the list',
   // Found on the served site: Exit came back to the full list, over the map just returned to flat.
   await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'half');
   await expect(page.locator('.ride-launch')).toBeInViewport();
-  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
 });

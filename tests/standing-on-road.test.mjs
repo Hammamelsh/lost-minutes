@@ -6,7 +6,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {historyFrom, observedAt, stepVisual, makeTrack, decodePolyline, drawingFor, pointAt, headingAhead} from '../lib/motion.ts';
+import {historyFrom, observedAt, stepVisual, makeTrack, decodePolyline, drawingFor, pointAt, bodyHeading} from '../lib/motion.ts';
 
 const shape = JSON.parse(readFileSync(new URL('../public/data/shapes/BNML_216_outbound_26b006bf73.json', import.meta.url), 'utf8'));
 const road = makeTrack('BNML:216:outbound:26b006bf73', decodePolyline(shape.polyline6, 6), shape.stopOffsets ?? []);
@@ -36,7 +36,7 @@ function ride(reports, start, seconds = 90) {
 }
 
 test('a bus standing on its road is drawn on it and faces along it, however late the page meets it', () => {
- const along = headingAhead(road, 20);
+ const along = bodyHeading(road, 20);
  for (const start of ['00:04:40', '00:05:10', '00:05:40', '00:06:20']) {
   const frames = ride(served, T(start));
   const off = frames.filter(f => f.onRoad !== true).length, blind = frames.filter(f => f.bearing === null).length;
@@ -53,7 +53,7 @@ test('reports scattered a few metres back along the road do not turn a standing 
  const at = s => { const p = pointAt(road, s); return {lat: p.lat + 0.00002, lon: p.lon}; };
  const reports = [300, 296, 301, 294, 298, 297, 300].map((s, i) => ({at: T('00:20:00') + i * 20_000, ...at(s), bearing: null}));
  const frames = ride(reports, T('00:21:00'), 100);
- const along = headingAhead(road, 300);
+ const along = bodyHeading(road, 300);
  const worst = Math.max(...frames.filter(f => f.bearing !== null).map(f => Math.abs(turn(f.bearing, along))));
  assert.ok(worst <= 25, `the standing bus turned ${worst.toFixed(0)}° from its road`);
  assert.equal(frames.filter(f => f.onRoad !== true).length, 0, 'called off its road');

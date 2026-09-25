@@ -137,6 +137,20 @@ export function headingAhead(track: Track, s: number): number {
  return (Math.atan2(x, y) / RAD + 360) % 360;
 }
 
+/**
+ * Which way a bus's body lies at `s`: along the road from half a bus behind to half a bus ahead, its
+ * rear to its front, so it turns through a corner as it passes it. Pointing a bus's length ahead
+ * (`headingAhead`) turned the nose into a corner long before a slow bus reached it: a route 85 at
+ * 2 m/s faced up to 114° off the way it was going for 3.6 s (25 September 2026, the offer audit).
+ */
+export function bodyHeading(track: Track, s: number): number {
+ const from = Math.max(0, s - HEADING_AHEAD / 2), to = Math.min(track.length, s + HEADING_AHEAD / 2);
+ if (to - from < 2) return headingAt(track, s);
+ const a = pointAt(track, from), b = pointAt(track, to);
+ const x = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD), y = b.lat - a.lat;
+ return (Math.atan2(x, y) / RAD + 360) % 360;
+}
+
 /** The part of the track between two distances, for drawing an estimate or its uncertainty. */
 export function slice(track: Track, s0: number, s1: number): LonLat[] {
  const lo = Math.max(0, Math.min(s0, s1)), hi = Math.min(track.length, Math.max(s0, s1));
@@ -847,14 +861,14 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
  while (k + 1 < nodes.length && s > nodes[k + 1].S + eps) k++;
  if (k + 1 >= nodes.length) {
   const n = nodes[k];
-  return n.onRoad && path.road ? {...nodePoint(path, n), heading: headingAhead(path.road, n.roadS), onRoad: true, roadS: n.roadS, k}
+  return n.onRoad && path.road ? {...nodePoint(path, n), heading: bodyHeading(path.road, n.roadS), onRoad: true, roadS: n.roadS, k}
    : {...nodePoint(path, n), heading: null, onRoad: false, roadS: null, k};
  }
  const a = nodes[k], b = nodes[k + 1], len = b.S - a.S;
  const f = len > 0 ? Math.max(0, Math.min(1, (s - a.S) / len)) : 0;
  if (b.road && path.road) {
   const rs = a.roadS + (s - a.S);
-  return {...pointAt(path.road, rs), heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
+  return {...pointAt(path.road, rs), heading: bodyHeading(path.road, rs), onRoad: true, roadS: rs, k};
  }
  const pa = nodePoint(path, a), pb = nodePoint(path, b);
  // Two reports on the road within a bus's length of each other are one place on it — a bus
@@ -867,7 +881,7 @@ function pointOnPath(path: Path, s: number, hint: number): {lat: number; lon: nu
  if (a.onRoad && b.onRoad && path.road && !b.jump && metres(a.fix, b.fix) <= HEADING_AHEAD && metres(pa, pb) <= HEADING_AHEAD) {
   const rs = a.roadS + (b.roadS - a.roadS) * f;
   return {lat: pa.lat + (pb.lat - pa.lat) * f, lon: pa.lon + (pb.lon - pa.lon) * f,
-   heading: headingAhead(path.road, rs), onRoad: true, roadS: rs, k};
+   heading: bodyHeading(path.road, rs), onRoad: true, roadS: rs, k};
  }
  // The chord: two positions the bus reported and the straight line between them, which is not
  // claimed to be the road. The drawn bus faces along the line it is drawn travelling — a report's

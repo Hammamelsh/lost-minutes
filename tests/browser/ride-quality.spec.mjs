@@ -31,11 +31,12 @@ test('a bus with no accepted road geometry travels to each report instead of jum
   // from its first frame, which is what this checks.
   const start = Date.now() - 90_000;
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: start, speed: 9, cadence: 10})]);
-  await page.goto('/');
+  // Try Ride-along no longer offers a bus with no checked road (25 September 2026: it is drawn on
+  // straight lines between its reports), so this ride starts from the bus's own link instead; what
+  // is checked of the ride is unchanged.
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
   await waitForPaint(page);
-  // Try Ride-along's first row is this bus (fresh, placed on its pattern, no checked road) and
-  // choosing it starts the ride at once (23 September 2026).
-  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await page.locator('.ride-launch').click({timeout: 20_000});
   await expect(map(page)).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
 
@@ -78,11 +79,12 @@ test('the front view says what it can do before it is pressed, and never becomes
   await serveMotion(page);
   await noGeometry(page);
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: Date.now()})]);
-  await page.goto('/');
+  // Try Ride-along no longer offers a bus with no checked road (25 September 2026: it is drawn on
+  // straight lines between its reports), so this ride starts from the bus's own link instead; what
+  // is checked of the ride is unchanged.
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
   await waitForPaint(page);
-  // Try Ride-along's first row is this bus (fresh, placed on its pattern, no checked road) and
-  // choosing it starts the ride at once (23 September 2026).
-  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await page.locator('.ride-launch').click({timeout: 20_000});
   await expect(map(page)).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
   const button = page.locator('.ride-camera');
   await expect(button).toBeVisible();
@@ -274,9 +276,10 @@ test('a bus with no checked road gets no road ahead: nothing is lit that is not 
   await noGeometry(page);
   const start = Date.now() - 90_000;
   await serveLive(page, [() => movingLive({nowMs: Date.now(), startMs: start, speed: 9, cadence: 10})]);
-  await page.goto('/');
+  // Started from the bus's own link: Try Ride-along no longer offers a bus with no checked road.
+  await page.goto('/?bus=BNML%7CFX-MOVING%7C256%7Cinbound%7CFX-MOVING-J');
   await waitForPaint(page);
-  await page.locator('.try-ride button[data-ride-bus]').first().click();
+  await page.locator('.ride-launch').click({timeout: 20_000});
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 20_000});
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
   await page.waitForTimeout(1500);

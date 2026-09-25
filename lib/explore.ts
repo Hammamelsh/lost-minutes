@@ -16,7 +16,7 @@ const TIER_ORDER:Record<RideTier,number>={estimated:0,road:1,placed:2};
 
 /** What the ride will be, in the app's own words; "Front view" is what the button in the ride is called. */
 export const TIER_WORDS:Record<RideTier,string>={
- estimated:'Estimated movement · Front view',
+ estimated:'Reported positions · may pause · Front view',
  road:'Reported positions · may pause · Front view',
  placed:'Reported positions · may pause',
 };
@@ -36,8 +36,11 @@ function eligible(buses:FollowBus[],accepted:Set<string>,model:MotionModel|null)
   if(/test/i.test(bus.vehicle))continue;
   if(accepted.has(id)){
    if(bus.freshness!=='fresh'&&bus.freshness!=='ageing')continue;
+   // Since 25 September 2026 every ride is drawn from the bus's own reports (backlog 31), so a bus
+   // on a road the model was scored on rides as any other on a checked road; `estimated` says only
+   // that the map, outside the ride, shows it estimated.
    const estimated=model?.patterns.has(id)??false;
-   out.push({bus,tier:estimated?'estimated':'road',estimated});
+   out.push({bus,tier:'road',estimated});
   }else if(bus.freshness==='fresh'){
    // A bus with no checked road still rides, between its own reports and from outside only; it is
    // offered after those with one, and only on a fresh report, because that is all it has.

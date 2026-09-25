@@ -749,6 +749,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  </div>:null;
 
  const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus)}
+   data-bus={item.bus.key}
    className={`follow-row standing-${item.standing}${item.bus.key===activeKey?' on':''}`}
    aria-pressed={item.bus.key===activeKey}>
   <span className="route-pill">{item.bus.route}</span>

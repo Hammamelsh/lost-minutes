@@ -45,15 +45,11 @@ test('lists the buses whose ride is clean now, and choosing one starts the ride 
   await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
 });
 
-// Restated 25 September 2026: these three were offered before. A bus on a scored road is drawn at an
-// estimate that each report corrects by up to hundreds of metres (on the recorded reels 119 of 159 such
-// rides jumped within three minutes); a bus standing at its stop gives no ride; a bus with no checked road
-// is drawn on straight lines between its reports, which cut corners. None is a clean ride to offer.
+// Restated 25 September 2026: these two were offered before. A bus standing at its stop gives no ride;
+// a bus with no checked road is drawn on straight lines between its reports, which cut corners. (A bus on
+// a road the model was scored on was not offered on the morning of 25 September, when its ride was still
+// drawn at an estimate; since the evening every ride is drawn from its reports, and it is offered below.)
 for (const [name, setup] of [
-  ['on a road the model was scored on, drawn at an estimate', async page => {
-    await serveMotion(page);
-    await serveLive(page, [() => movingRide()]);
-  }],
   ['standing on its checked road', async page => {
     await roadOnly(page);
     await serveLive(page, [() => movingLive({startMs: Date.now() + 3_600_000, startS: 200})]);
@@ -102,6 +98,21 @@ test('with no live feed and no recording the section is not shown at all', async
   await waitForPaint(page);
   await expect(page.locator('.follow-badge')).toContainText('NOT COLLECTING');
   await expect(section(page)).toHaveCount(0);
+});
+
+test('a bus moving on a road the model was scored on is offered like any other: its ride is drawn from its reports', async ({page}) => {
+  await servePatterns(page);
+  await serveMotion(page);
+  await noRecordings(page);
+  await serveLive(page, [() => movingRide()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  await expect(section(page)).toHaveAttribute('data-rides', 'ready', {timeout: 15_000});
+  const row = section(page).locator('button[data-ride-bus]').first();
+  await expect(row).toContainText('Reported positions · may pause · Front view');
+  await row.click();
+  await expect(page.locator('.vector-map')).toHaveAttribute('data-ride', /entering|following/, {timeout: 15_000});
+  await expect(page.locator('.vector-map')).toHaveAttribute('data-motion', 'observed');
 });
 
 test('three different services come first, and a row keeps its destination whole', async ({page}) => {

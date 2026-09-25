@@ -64,7 +64,13 @@ test('a report that corrects the bus mid-turn: the turn survives the correction,
   // Bring the correcting publication in while the finger is down, the way a phone does: by the
   // page's own poll. On a phone the ride-along is the screen and the header's refresh button is
   // behind it by design, so it cannot be clicked there, and the poll is what a passenger gets.
-  await expect(map(page)).toHaveAttribute('data-correction', /^smooth:/, {timeout: 30_000});
+  // Restated 25 September 2026 (backlog 31): in the ride the bus is drawn from its reports, so a report
+  // 60 m further on is not an estimate's correction to absorb but a stretch the drawing travels a bounded
+  // time later. What this checks is unchanged: the head-turn survives the publication that moves the bus,
+  // following holds, and nothing snaps. The publication is known by its newer report.
+  const ageBefore = Number(await map(page).getAttribute('data-report-age'));
+  await expect.poll(async () => Number(await map(page).getAttribute('data-report-age')),
+    {timeout: 30_000, message: 'the publication that moves the bus arrives'}).toBeLessThan(ageBefore);
   await page.waitForTimeout(1500);
   const after = (await cam(page))[4];
   expect(Math.abs(turn(ahead0, after)), 'still turned after the correction').toBeGreaterThan(15);

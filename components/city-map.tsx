@@ -95,6 +95,8 @@ const VIEW_CAMERA={'2d':{pitch:0,bearing:0},city:{pitch:58,bearing:-17}};
 const SETTLE_PX=40;
 // The fastest the ride-along camera turns, in degrees a second: over the 90 a drawn bus turns at.
 const RIDE_TURN=120;
+// Why a bus on a road the model was scored on is not estimated in the ride (backlog 31).
+const RIDE_FROM_REPORTS='in the ride-along every bus is drawn from its own reports, so that a report correcting an estimate never makes it jump; on the map it is estimated';
 // The front view: a stylised preview of the street ahead, from a raised point above the drawn
 // position on the bus's own checked road shape (never the raw GPS heading, which jitters). It is
 // not a seat on board and not the bus's lane: it is the map's street, seen from above the road.
@@ -479,6 +481,7 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   // is never captioned as moving, and the flip between the two labels is explained once.
   between:e.mode==='observed'&&((v.glide!==null&&now<v.glide.at+v.glide.ms)||(v.buffer!==null&&v.buffer.shown<e.basis.at)),
   travels:e.mode==='observed'&&travelling,
+  standing:e.mode==='observed'&&v.buffer!=null&&v.buffer.vd<0.2&&v.buffer.goalS-v.buffer.sd<1,
   onRoad:e.mode==='observed'&&travelling&&onRoad&&v.buffer?.onRoad!==false,
   // A bus with a checked road that its reports have left for another street: drawn straight
   // between them, and said, never presented as driving its road.
@@ -504,7 +507,7 @@ type Inputs={ready:boolean;paused:boolean;selected?:FollowBus;selectionKind?:Sel
 
 /** The ride-along's camera state, kept in a ref for the frame loop and mirrored to React. */
 type Ride={state:RideState;camera:'outside'|'front';transition:number;
- pointer:{down:boolean;moved:boolean};settling:boolean;
+ pointer:{down:boolean;moved:boolean;x:number;y:number;upAt:number};settling:boolean;
  /** Fingers on the map now, and when a finger last moved or lifted (performance.now()); while there
   *  are any, and not for longer than a still finger could mean a lift the page never heard, the
   *  frame loop leaves the camera to them. */
@@ -574,7 +577,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  const viewRef=useRef(view);
  const visualRef=useRef<Visual|null>(null);
  const estimateRef=useRef<Estimate|null>(null);
- const ride=useRef<Ride>({state:'off',camera:'outside',transition:0,pointer:{down:false,moved:false},settling:false,touches:0,touchAt:0});
+ const ride=useRef<Ride>({state:'off',camera:'outside',transition:0,pointer:{down:false,moved:false,x:0,y:0,upAt:-1},settling:false,touches:0,touchAt:0});
  const wasRiding=useRef(false);
  // The bus being ridden, so a change of bus mid-ride re-frames rather than being mistaken for a move.
  const rideKey=useRef('');
@@ -585,6 +588,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean;
    why:RepositionReason|null}|null,lastDraw:0,lastDiag:0,lastFront:0,lastFrontT:0,
   frontBearing:null as number|null,infoKey:'',drawn:false,frames:0,lastCamT:0,facing:true,
+  drawKind:null as 'estimate'|'reports'|null,handoffIntoRide:false,wasRiding:false,
   // How long the last few frames took, so a view that has become a slideshow can say so rather
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
   gaps:[] as number[],lastTick:0,
@@ -813,6 +817,11 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
     if(!event.originalEvent)return;
     lastGesture.current=kind;
     const r=ride.current;
+    // A drag MapLibre reports only after its pointer was already lifted — a slow frame — was
+    // handled from the pointer itself (below); taken again here it cancelled whatever came next,
+    // a Return to bus included (backlog 29).
+    const stamp=(event.originalEvent as {timeStamp?:number}).timeStamp;
+    if(viewRef.current==='ride'&&kind==='drag'&&typeof stamp==='number'&&stamp<=r.pointer.upAt)return;
     if(viewRef.current==='ride'){
      r.pointer.moved=true;
      // Paused for a new journey, the ride waits for the passenger's choice, not for "Return to bus".
@@ -850,19 +859,42 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    const lookHost=container.current;
    lookHost.addEventListener('pointerdown',lookDown,true);lookHost.addEventListener('pointermove',lookMove,true);
    lookHost.addEventListener('pointerup',lookUp,true);lookHost.addEventListener('pointercancel',lookCancel,true);
-   const pointerDown=()=>{
+   // Every pointer down on the map: a drag is one pointer moving; two are a pinch, which zooms and
+   // keeps following (a phone's pinch was read as a drag when only the first finger was counted).
+   const pointersDown=new Set<number>();
+   const pointerDown=(e:PointerEvent)=>{
     const r=ride.current;
+    pointersDown.add(e.pointerId);
     if(viewRef.current!=='ride')return;
-    r.pointer={down:true,moved:false};
+    if(pointersDown.size>1){r.pointer.moved=true;return}
+    r.pointer={down:true,moved:false,x:e.clientX,y:e.clientY,upAt:r.pointer.upAt};
     if(r.state==='entering'||r.state==='returning'){r.transition+=1;instance.stop()}
    };
-   const pointerUp=()=>{
+   // A drag is known from the pointer itself, not from MapLibre's "dragstart", which comes on its
+   // next drawn frame: with the CPU slowed six times a quick drag during the entrance glide was
+   // lifted before that frame, taken for a tap, and the ride went on to the bus instead of letting
+   // the passenger look around (3 of 3 runs; 0 of 3 at normal speed). Backlog 29, 25 September 2026.
+   // In the front view a single pointer turns the head instead, so it is left to that.
+   const pointerMove=(e:PointerEvent)=>{
     const r=ride.current;
-    if(viewRef.current!=='ride'||!r.pointer.down)return;
+    if(viewRef.current!=='ride'||!r.pointer.down||r.pointer.moved||!e.isPrimary||r.camera==='front'||pointersDown.size>1)return;
+    if(Math.hypot(e.clientX-r.pointer.x,e.clientY-r.pointer.y)<6)return;
+    r.pointer.moved=true;
+    lastGesture.current='drag';
+    if(r.state==='paused')return;
+    // The glide was already stopped when the pointer went down; MapLibre's own drag carries on.
+    if(r.state==='entering'||r.state==='returning'||r.state==='following'){r.transition+=1;setRide('exploring')}
+   };
+   const pointerUp=(e:PointerEvent)=>{
+    const r=ride.current;
+    pointersDown.delete(e.pointerId);
+    if(viewRef.current!=='ride'||!r.pointer.down||pointersDown.size>0)return;
     r.pointer.down=false;
+    r.pointer.upAt=e.timeStamp;
     if(!r.pointer.moved&&(r.state==='entering'||r.state==='returning'))returnRef.current(true);
    };
    canvasBox.addEventListener('pointerdown',pointerDown);
+   canvasBox.addEventListener('pointermove',pointerMove);
    canvasBox.addEventListener('pointerup',pointerUp);
    canvasBox.addEventListener('pointercancel',pointerUp);
    // A wheel or a pinch in the front view is the passenger taking over, as a drag is. It must pause
@@ -1203,7 +1235,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
  // mode, and "Front view" is what the button in the ride is called.
  const rideOffer=!selected?null
   :selected.freshness==='stale'?{motion:'Last report is old · may pause',front:false}
-  :!blocked?{motion:'Estimated movement',front:frontState==='ready'}
+  // Since 25 September 2026 every ride is drawn from the bus's own reports (backlog 31).
   :{motion:'Reported positions · may pause',front:frontState==='ready'};
  const offerWords=rideOffer?`${rideOffer.motion}${rideOffer.front?' · Front view':''}`:'';
  const camera=view==='ride'&&cameraWish==='front'&&!frontReason?'front':'outside';
@@ -1235,12 +1267,30 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   // Another bus, or the same vehicle on another journey, is a new drawing, never a correction of
   // the last one: the other journey's reports say nothing about where this one is going.
   const drawKey=`${input.selected.key}|${input.selected.route}|${input.selected.direction}|${input.selected.journeyRef}`;
-  if(state.key!==drawKey){state.key=drawKey;visualRef.current=null}
+  if(state.key!==drawKey){state.key=drawKey;visualRef.current=null;state.handoffIntoRide=false}
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
   const now=state.clock.now;
-  const e=input.blocked||!input.track?observedAt(input.history,now,input.blocked??'no road geometry',input.provisional)
+  // In the ride-along every bus is drawn from its own reports, whichever way the ride was entered:
+  // an estimate is corrected by up to hundreds of metres as reports reach a phone 30–45 s old, and a
+  // ride shows that as a jump (backlog 31: 3 of 159 offered rides on routes 15, 250 and 256 were
+  // clean over three minutes, 25 September 2026). The estimate stays on the map, where it is
+  // labelled and stands nearer to now. The passenger's "reported positions only" still wins.
+  const riding=input.view==='ride';
+  const e=input.blocked||!input.track||riding
+   ?observedAt(input.history,now,input.blocked??(input.track?RIDE_FROM_REPORTS:'no road geometry'),input.provisional)
    :estimate(input.history,input.track,now,input.params);
+  // Changing between an estimate and the reports is a change of what is shown, not a movement of
+  // the bus: the drawing starts afresh (no repositioning is said, and no trace is drawn from the
+  // estimate's place), and on entering the ride the bus is not drawn until the camera has arrived,
+  // so the estimate's place never hops back 300–700 m on screen.
+  // Only a change made by entering or leaving the ride: an estimate that falls back to its reports on
+  // the map (a report that jumped further than a bus travels) is a correction, and is said as one.
+  const kind=e.mode==='estimated'?'estimate':'reports';
+  if(state.drawKind!==null&&state.drawKind!==kind&&visualRef.current&&riding!==state.wasRiding){
+   visualRef.current=null;state.snap=null;state.handoffIntoRide=riding;
+  }
+  state.drawKind=kind;state.wasRiding=riding;
   // With no accepted road geometry the bus travels between its own reports rather than jumping
   // (GLIDE): movement without prediction. "Reported positions only" means exactly that — the
   // newest report and nothing between — so the history is withheld and the travel does not start.
@@ -1268,9 +1318,16 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   if(state.gaps.length>FRAME_SAMPLES)state.gaps.splice(0,state.gaps.length-FRAME_SAMPLES);
   // In the ride-along the camera moves every frame, so the bus is drawn every frame too: drawn
   // at half the camera's rate it shimmied against the street. Elsewhere 30 a second is plenty.
+  // After a handoff into the ride the bus appears where the camera arrives, not before.
+  // The ride's state becomes "entering" a frame or two after the view does (the glide waits for the
+  // ride's layout), so the wait covers that moment too, and ends once the camera has arrived.
+  const arriving=ride.current.state==='entering'||ride.current.state==='off';
+  if(state.handoffIntoRide&&(!riding||!arriving))state.handoffIntoRide=false;
+  const waitingForCamera=state.handoffIntoRide&&riding&&arriving;
   if(!state.drawn||t-state.lastDraw>=(input.view==='ride'?0:32)){
    state.lastDraw=t;state.drawn=true;
-   selectedSource?.setData({type:'FeatureCollection',features:[{type:'Feature',
+   if(waitingForCamera)selectedSource?.setData(EMPTY);
+   else selectedSource?.setData({type:'FeatureCollection',features:[{type:'Feature',
     geometry:{type:'Point',coordinates:[v.lon,v.lat]},
     properties:{key:input.selected.key,route:input.selected.route,
      icon:`lm-sel-${input.selectionKind==='absent'?'lost-':''}${v.bearing!==null?'arrow':'dot'}`,
@@ -1305,7 +1362,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
    }
    root.current?.setAttribute('data-road-ahead',ahead?String(ahead):'');
    trailSource?.setData({type:'FeatureCollection',features} as never);
-   modelSource?.setData(input.modelShown&&input.model
+   modelSource?.setData(input.modelShown&&input.model&&!waitingForCamera
     ?{type:'FeatureCollection',features:v.bearing!==null?orientedBus(input.model,v,v.bearing,input.selected.key)
       :unorientedToken(input.model,v,input.selected.key)}
     :EMPTY);
@@ -1392,7 +1449,7 @@ export default function CityMap({paused=false,buses,selected,selectionKind,stop,
   const info=motionInfo(e,v,input.profile,input.params,now,
    Boolean(input.replay&&input.history&&input.history.fixes.length>1),
    Boolean(input.replay&&input.track&&e.mode==='observed'));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${info.offRoad}|${delaySeconds(info.displayDelaySeconds)??''}`;
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${info.offRoad}|${info.standing}|${delaySeconds(info.displayDelaySeconds)??''}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that

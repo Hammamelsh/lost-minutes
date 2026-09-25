@@ -100,7 +100,9 @@ const placed = id => ({patternId: id, patternIndex: 1, nearestStop: 'S', metresA
   patternDirection: 'inbound', patternDestination: 'P', evidence: {}});
 const model = {patterns: new Set(['P:eval'])};
 
-test('candidates: estimated first, then a checked road, then merely placed; unplaced and old ones never', () => {
+// Restated 25 September 2026: every ride is drawn from its reports (backlog 31), so a bus on a scored
+// road is no longer a tier of its own ranked first; it is a checked road like any other, ranked by age.
+test('candidates: a checked road first, freshest first, then merely placed; unplaced and old ones never', () => {
   const accepted = new Set(['P:eval', 'P:road']);
   const buses = [
     bus('placed', {match: placed('P:none'), ageSeconds: 5}),
@@ -112,7 +114,7 @@ test('candidates: estimated first, then a checked road, then merely placed; unpl
   ];
   const out = rideCandidates(buses, accepted, model);
   assert.deepEqual(out.map(c => [c.bus.vehicle, c.tier, c.estimated]),
-    [['eval', 'estimated', true], ['road', 'road', false], ['placed', 'placed', false]]);
+    [['road', 'road', false], ['eval', 'road', true], ['placed', 'placed', false]]);
   assert.equal(rideCandidates(buses, accepted, model, 2).length, 2);
   assert.equal(onAcceptedRoad(buses, accepted), 3, 'the denominator counts the old one too');
 });

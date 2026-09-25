@@ -269,7 +269,9 @@ test('a ridden bus that starts another journey while moving: kept, drawn at its 
   await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
   await page.getByRole('button', {name: 'Ride along with route 256'}).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
-  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  // Restated 25 September 2026 (backlog 31): in the ride every bus is drawn from its own reports, so
+  // it is not "estimated" here even on a scored road; what this check is about is unchanged.
+  await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
   feed.journey = 'J2';
   await refresh(page);
   await expect(card(page)).toHaveAttribute('data-selection', 'new_journey');
@@ -293,7 +295,8 @@ test('a ridden bus that starts another journey while moving: kept, drawn at its 
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-MOVING');
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
-  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
+  await expect(map(page), 'ridden from its reports again').toHaveAttribute('data-motion', 'observed', {timeout: 15_000});
+  await expect(map(page)).not.toHaveAttribute('data-motion-reason', /another journey/, {timeout: 15_000});
   await expect.poll(async () => metres(await camera(page), await drawn(page)), {timeout: 8000,
     message: 'following it again'}).toBeLessThan(40);
 });

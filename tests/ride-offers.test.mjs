@@ -42,11 +42,11 @@ test('each thing that spoils a ride refuses it, with its reason', () => {
     'under 1.5 km of its road left: the ride would end almost at once');
 });
 
-test('the offer list: clean rides on a checked road only, never an estimate, never a test vehicle', () => {
+test('the offer list: clean rides on a checked road only, a scored road included, never a test vehicle', () => {
   const accepted = new Set(['P:road', 'P:eval']);
   const model = {patterns: new Set(['P:eval'])};
   const buses = [
-    bus('eval', moving, {pattern: 'P:eval'}),                 // scored road: drawn at an estimate
+    bus('eval', moving, {pattern: 'P:eval', age: 40}),       // scored road: ridden from its reports too
     bus('TEST_BUS', moving),                                   // an operator's test unit
     bus('stands', [[500], [505], [502], [506], [503]]),
     bus('good', moving, {age: 20}),
@@ -55,8 +55,8 @@ test('the offer list: clean rides on a checked road only, never an estimate, nev
   ];
   const roads = id => (id === 'P:road' || id === 'P:eval' ? road : null);
   const offered = cleanRideCandidates(buses, accepted, model, roads);
-  assert.deepEqual(offered.map(c => [c.bus.vehicle, c.tier]), [['good', 'road'], ['other', 'road']]);
+  assert.deepEqual(offered.map(c => [c.bus.vehicle, c.tier]), [['good', 'road'], ['other', 'road'], ['eval', 'road']]);
   assert.ok(!rideCandidates(buses, accepted, model).some(c => c.bus.vehicle === 'TEST_BUS'), 'nor in the old list');
-  assert.deepEqual(roadsToJudge(buses, accepted, model), ['P:road'], 'only the roads it would judge are loaded');
+  assert.deepEqual(roadsToJudge(buses, accepted, model).sort(), ['P:eval', 'P:road'], 'only the roads it would judge are loaded');
   assert.deepEqual(cleanRideCandidates(buses, accepted, model, () => undefined), [], 'a road not loaded yet is not a pass');
 });

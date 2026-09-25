@@ -2,10 +2,9 @@
 // Try Ride-along: the way in for someone who has heard there is a ride and has no stop in mind.
 // It offers only a bus whose own recent reports promise a clean ride now — on its checked road,
 // moving along it, reporting steadily, with road left to ride (`cleanRideCandidates`) — and, when
-// nothing live suits, a dated recording. Since 25 September 2026 it offers neither a bus on a road
-// the model was scored on (drawn at an estimate, corrected by up to hundreds of metres as reports
-// arrive: 119 of 159 offered rides jumped within three minutes, scripts/evaluate-ride-offers.mjs)
-// nor one with no checked road (drawn on straight lines between reports). Choosing a live bus
+// nothing live suits, a dated recording. It does not offer a bus with no checked road (drawn on
+// straight lines between reports). Every ride is drawn from the bus's own reports (backlog 31), so a
+// bus on a road the model was scored on is offered like any other. Choosing a live bus
 // starts the ride at once; the bus becomes theirs, and the page says nothing about any stop. A
 // recording is never dressed as live.
 import {useEffect,useState} from 'react';

@@ -102,9 +102,18 @@ const first = publications[0].live.vehicles.find(v => !wanted || v.vehicle === w
 // link or a restored journey does: operator|vehicle|route|direction|journeyRef.
 const pin = arg('pin', `${first.operator}|${first.vehicle}|${first.route}|${first.direction}|${first.journeyRef}`);
 const stopId = arg('stop', null);
-const link = `${base}?${stopId ? `stop=${stopId}&` : ''}bus=${encodeURIComponent(pin)}`;
+// How the passenger reaches the bus: a shared link (the default), or `--entry stop`, which opens the
+// stop alone and taps the bus on its board, as someone at the stop does (25 September 2026).
+const entry = arg('entry', 'link');
+const link = entry === 'stop' ? `${base}?stop=${stopId}` : `${base}?${stopId ? `stop=${stopId}&` : ''}bus=${encodeURIComponent(pin)}`;
 await page.goto(link, {waitUntil: 'load'});
 await page.waitForTimeout(4000);
+if (entry === 'stop') {
+  const row = page.locator(`.follow-row[data-bus="${first.operator}|${first.vehicle}"]`).first();
+  await row.scrollIntoViewIfNeeded({timeout: 30_000}).catch(() => {});
+  await row.click({timeout: 30_000});
+  await page.waitForTimeout(1500);
+}
 
 // Every frame the map draws, recorded inside the page: nothing is sampled across the wire.
 await page.evaluate(() => {

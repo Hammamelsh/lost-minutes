@@ -223,6 +223,30 @@ test('a drag as the camera goes to the bus ends the glide, exploring; Return to 
   await expectIdentifiable(page, 'after Return to bus');
 });
 
+// Backlog 29, classified 25 September 2026: the check above failed now and then, and passed 6 of 6
+// on a re-run, which says nothing about why. With the CPU slowed six times it failed 3 of 3 on the
+// deployed build (0 of 3 at normal speed): MapLibre reports a drag on its next drawn frame, a quick
+// drag was lifted first, and it was taken for a tap. A product fault on a slow device, not a test
+// race. The drag is now known from the pointer itself, and MapLibre's late report of it is ignored,
+// so it can no longer cancel a Return to bus that follows.
+test('a drag as the camera goes to the bus is a drag even when frames are slow, and Return to bus still restores the framing', async ({page}) => {
+  test.setTimeout(120_000);
+  await openAtStopA(page, {wobble: 5});
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
+  await page.waitForTimeout(200);
+  await dragMap(page, -180, 90);
+  await expect(map(page)).toHaveAttribute('data-ride', 'exploring', {timeout: 10_000});
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', {name: 'Return to bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
+  await page.waitForTimeout(2000);
+  expect((await camera(page)).zoom, 'the ride framing, not a glide cut short').toBeCloseTo(20, 0);
+  await cdp.send('Emulation.setCPUThrottlingRate', {rate: 1});
+});
+
 test('a tap as the camera goes to the bus finishes the glide quickly, not stranded mid-way', async ({page}) => {
   test.setTimeout(60_000);
   await openAtStopA(page);
@@ -331,7 +355,7 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   // that it is neither estimated nor followed continuously. Since 23 September it is played back
   // on a clock and the label says how far behind its reports it is drawn — to the nearest five
   // seconds, as "about", since 24 September ("drawn about 30 s behind").
-  await expect(page.locator('.ride-motion')).toContainText(/Moving between its reports · drawn about \d+ s behind|Last reported position/);
+  await expect(page.locator('.ride-motion')).toContainText(/(Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position/);
   await expect(page.locator('.ride-motion')).not.toContainText('Estimated position');
   const before = await camera(page);
   await page.waitForTimeout(12_000);           // a new report: the camera goes to it
@@ -491,7 +515,9 @@ test('front view: a raised preview along the checked road, the bus’s outside h
   // What stays: route, destination, report age, whether it is estimated, and the way back out.
   await expect(page.locator('.ride-card')).toContainText('256');
   await expect(page.locator('.ride-card')).toContainText('Piccadilly Gardens');
-  await expect(page.locator('.ride-card .ride-motion')).toContainText(/Estimated position · last report \d+ s ago/);
+  // Since 25 September 2026 the ride draws every bus from its own reports (backlog 31): the card says
+  // how far behind them it is drawn rather than "estimated".
+  await expect(page.locator('.ride-card .ride-motion')).toContainText(/(Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position · \d+ s ago/);
   await expect(page.locator('.ride-mode')).toContainText('street preview');
   await expect(page.getByRole('button', {name: 'Zoom in'})).toBeDisabled();
   await shot(page, 'front-view');
@@ -499,7 +525,9 @@ test('front view: a raised preview along the checked road, the bus’s outside h
   const first = {c: await camera(page), d: await drawn(page)};
   await page.waitForTimeout(3000);
   const last = {c: await camera(page), d: await drawn(page)};
-  const eyeMoved = metresApart(first.c, last.c), busMoved = last.d.s - first.d.s;
+  // Measured on the map: in the ride the bus is drawn from its reports (backlog 31), whose place is
+  // given as a position, not as a distance along the estimate's road.
+  const eyeMoved = metresApart(first.c, last.c), busMoved = metresApart(first.d, last.d);
   expect(busMoved, 'the bus moved').toBeGreaterThan(5);
   expect(Math.abs(eyeMoved - busMoved), `the eye moved as the bus did (${eyeMoved.toFixed(1)} m against ${busMoved.toFixed(1)} m)`).toBeLessThan(6);
   await page.getByRole('button', {name: 'Outside view'}).click();
@@ -713,29 +741,34 @@ test('a new report outside the frame waits for a camera move to finish, then bri
   expect(Math.round((await camera(page)).pitch), 'at the tilt City asked for').toBe(58);
 });
 
-test('front view: a report that corrects the estimate by 60 m is absorbed smoothly, never as a jump', async ({page}) => {
-  test.setTimeout(150_000);
-  await openAtStopA(page, underWay({wobble: 0, jump: {atMs: Date.now() + 30_000, metres: 60}}));
+// Restated 25 September 2026. This checked the estimate's 60 m correction in the front view, and failed
+// 2 runs in 6 on 5c00509, cd711a3 and 1a53e48 alike (the eye at 28–29 m/s): part of why the ride no
+// longer draws an estimate (backlog 31). What it guards is unchanged — the eye never jumps — now for a
+// report that puts the bus 60 m further on than the one before, ridden from its reports, sampled until
+// the moment drawn is well past that report.
+test('front view: a report 60 m further on than the last is ridden through smoothly, never as a jump', async ({page}) => {
+  test.setTimeout(180_000);
+  const jumpAt = Date.now() + 30_000;
+  await openAtStopA(page, underWay({wobble: 0, jump: {atMs: jumpAt, metres: 60}}));
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
   await ride(page).click();
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
   await frontView(page);
   const seen = [];
-  const until = Date.now() + 45_000;
+  const until = Date.now() + 120_000;
+  let passed = false;
   while (Date.now() < until) {
-    seen.push({t: Date.now(), c: await camera(page), correction: await map(page).getAttribute('data-correction')});
-    if (/^smooth:(4|5|6|7)\d:/.test(seen.at(-1).correction) && seen.length > 20
-        && Date.now() - Number(seen.at(-1).correction.split(':')[2]) > 8000) break;
+    seen.push({t: Date.now(), c: await camera(page)});
+    const shown = Number(await map(page).getAttribute('data-represented'));
+    if (Number.isFinite(shown) && shown > jumpAt + 15_000) { passed = true; if (seen.length > 50) break; }
     await page.waitForTimeout(200);
   }
-  const corrections = [...new Set(seen.map(s => s.correction).filter(c => c && c !== 'none'))];
-  expect(corrections.some(c => /^smooth:(4|5|6|7)\d:/.test(c)), `the 60 m report was a smooth correction (${corrections})`).toBe(true);
+  expect(passed, 'the moment drawn went past the report 60 m on').toBe(true);
   let fastest = 0;
   for (let i = 1; i < seen.length; i++) {
     const dt = (seen[i].t - seen[i - 1].t) / 1000;
     if (dt > 0) fastest = Math.max(fastest, metresApart(seen[i - 1].c, seen[i].c) / dt);
   }
-  // At most the bus's own speed plus the catch-up limit (15 m/s), with room for sampling.
   expect(fastest, `the eye never jumped (fastest ${fastest.toFixed(1)} m/s)`).toBeLessThan(28);
 });
 

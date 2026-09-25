@@ -36,3 +36,11 @@ test('with no delay to state the label gives the report’s own age instead', ()
   assert.equal(describeMotion({...observed, displayDelaySeconds: 1}).label, 'Moving between its reports · latest 40 s ago');
   assert.equal(describeMotion({...observed, displayDelaySeconds: null}).label, 'Moving between its reports · latest 40 s ago');
 });
+
+test('a bus standing where its reports stood is said to be standing, not moving between its reports', () => {
+  // 25 September 2026: in the ride every bus is played back from its reports, and a bus waiting at a
+  // stop was captioned "Moving between its reports" the whole time it stood.
+  assert.equal(describeMotion({...observed, standing: true}).label, 'Standing · drawn about 35 s behind');
+  assert.equal(describeMotion({...observed, standing: true, displayDelaySeconds: 1}).label, 'Standing · latest 40 s ago');
+  assert.equal(describeMotion({...observed, standing: false}).label, 'Moving between its reports · drawn about 35 s behind');
+});

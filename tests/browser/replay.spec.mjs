@@ -19,9 +19,8 @@ async function display(page) {
     motion: await map(page).getAttribute('data-motion'), ride: await map(page).getAttribute('data-ride')};
 }
 
-test('a real recorded journey is drawn continuously, corrected as its reports arrive, and followed', async ({page}, info) => {
-  test.skip(info.project.name !== 'desktop', 'one real replay is enough');
-  test.setTimeout(420_000);
+async function serveRecorded(page) {
+  const clock = {t0: null};
   const stops = await (await page.request.get('/data/stops.json')).json();
   const patterns = await (await page.request.get('/data/patterns.json')).json();
   const pattern = patterns.patterns.find(p => p.id === RECORDED.pattern);
@@ -38,12 +37,11 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   };
   const reports = RECORDED.reports, lead = RECORDED.leadIn;
   // The test clock: the first live report is fetched at the moment the page first asks.
-  let t0 = null;
   const r0 = reports[lead].retrievedAtMs;
   const publication = () => {
     const now = Date.now();
-    if (t0 === null) t0 = now;
-    const shift = t0 - r0;
+    if (clock.t0 === null) clock.t0 = now;
+    const shift = clock.t0 - r0;
     const known = reports.filter(r => r.retrievedAtMs + shift <= now);
     const latest = known[known.length - 1];
     const observedAtMs = latest.observedAtMs + shift, age = Math.max(0, (now - observedAtMs) / 1000);
@@ -83,6 +81,17 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
   await page.goto('/');
   await waitForPaint(page, {note: `page errors: ${errors.join(' | ') || 'none'}`});
+  return {clock, reports, r0, errors};
+}
+
+// Since 25 September 2026 the ride-along draws every bus from its own reports (backlog 31), so this
+// check — which measures the *estimate's* drawing, its corrections and a camera that follows it —
+// follows the same journey on the map, where the estimate is still drawn. Its assertions are
+// unchanged; only the way the camera follows (the map's Follow rather than the ride) is.
+test('a real recorded journey is drawn continuously, corrected as its reports arrive, and followed', async ({page}, info) => {
+  test.skip(info.project.name !== 'desktop', 'one real replay is enough');
+  test.setTimeout(420_000);
+  const {clock, reports, r0} = await serveRecorded(page);
   // Since 21 September 2026 the home screen suggests nothing of its own accord, so the route to
   // watch is chosen here as a passenger would choose it. What this test is about — the drawing,
   // its corrections and the camera — is unchanged.
@@ -91,11 +100,11 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
   await routeSelect.selectOption('BNML|256');
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 25_000});
-  await page.getByRole('button', {name: 'Ride along with route 256'}).click();
-  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await page.locator('.follow-toggle').click();
+  await expect(page.locator('.follow-toggle')).toHaveAttribute('aria-pressed', 'true', {timeout: 5000});
 
   // Sample every frame until the last recorded report has arrived and settled.
-  const lastArrival = () => t0 + (reports.at(-1).retrievedAtMs - r0) + 25_000;
+  const lastArrival = () => clock.t0 + (reports.at(-1).retrievedAtMs - r0) + 25_000;
   const seen = [];
   while (Date.now() < lastArrival()) { seen.push(await display(page)); await page.waitForTimeout(120); }
   writeFileSync(info.outputPath('replay-frames.json'), JSON.stringify(seen));
@@ -135,6 +144,56 @@ test('a real recorded journey is drawn continuously, corrected as its reports ar
     description: `${valid.length} frames over ${Math.round((valid.at(-1).wall - valid[0].wall) / 1000)} s; corrections seen: ${smooths} eased, ${snaps} snapped; the offline evaluation expected ${expectedSnaps} snap(s) for this slice; the largest non-snap step was ${worst.ds.toFixed(1)} m in ${worst.dt.toFixed(2)} s`});
   expect(snaps, 'snaps are the labelled large corrections, no more than the evaluation expects for this slice').toBeLessThanOrEqual(expectedSnaps + 1);
   expect(smooths, 'reports were reconciled while riding').toBeGreaterThan(4);
-  expect(new Set(valid.map(v => v.ride)), 'following throughout').toEqual(new Set(['following']));
+  await expect(page.locator('.follow-toggle'), 'following throughout').toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({path: info.outputPath('desktop-replay-real-journey.png')});
+});
+
+// The same real journey ridden: in the ride it is drawn from its own reports (backlog 31), a bounded
+// time behind them, and must be continuous — no step a bus could not make unless it is said, never a
+// round token, turning at a bus's rate with the camera no faster, following throughout, and the card
+// saying how far behind it is drawn.
+test('a real recorded journey ridden: drawn from its reports, continuous, turning at a bus rate', async ({page}, info) => {
+  test.skip(info.project.name !== 'desktop', 'one real replay is enough');
+  test.setTimeout(420_000);
+  const {clock, reports, r0} = await serveRecorded(page);
+  const routeSelect = page.locator('#follow-route');
+  await expect(routeSelect).toBeVisible({timeout: 20_000});
+  await routeSelect.selectOption('BNML|256');
+  await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
+  await expect(map(page), 'on the map it is estimated').toHaveAttribute('data-motion', 'estimated', {timeout: 25_000});
+  await page.getByRole('button', {name: 'Ride along with route 256'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 8000});
+  await expect(map(page), 'in the ride it is drawn from its reports').toHaveAttribute('data-motion', 'observed');
+  const lastArrival = () => clock.t0 + (reports.at(-1).retrievedAtMs - r0) + 25_000;
+  const seen = [];
+  while (Date.now() < lastArrival()) {
+    const d = await display(page);
+    d.camera = Number(((await map(page).getAttribute('data-camera')) || '').split(',')[4]);
+    d.t = Date.now();
+    seen.push(d);
+    await page.waitForTimeout(120);
+  }
+  writeFileSync(info.outputPath('ride-frames.json'), JSON.stringify(seen));
+  const valid = seen.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.wall));
+  expect(valid.length, 'frames sampled').toBeGreaterThan(800);
+  const metres = (a, b) => Math.hypot((b.lon - a.lon) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat) * 111195;
+  const turn = (a, b) => ((b - a) % 360 + 540) % 360 - 180;
+  const steps = [], turns = [], swings = [];
+  for (let i = 1; i < valid.length; i++) {
+    const a = valid[i - 1], b = valid[i], dt = (b.wall - a.wall) / 1000;
+    if (!(dt > 0 && dt < 2)) continue;
+    const said = b.correction !== a.correction && /^snap/.test(b.correction || '');
+    if (!said) steps.push({m: metres(a, b) - 25 * dt, at: i});
+    if (a.bearing !== null && b.bearing !== null && !said) turns.push(Math.abs(turn(a.bearing, b.bearing)) - 90 * dt);
+    const ct = (b.t - a.t) / 1000;
+    if (Number.isFinite(a.camera) && Number.isFinite(b.camera) && !said) swings.push(Math.abs(turn(a.camera, b.camera)) - 120 * (ct + 0.25));
+  }
+  expect(Math.max(...steps.map(x => x.m)), 'no step a bus could not make, unless said').toBeLessThan(3);
+  expect(Math.max(...turns), 'the bus turns at no more than a bus rate').toBeLessThan(3);
+  expect(Math.max(...swings), 'the camera turns no faster than it may').toBeLessThan(3);
+  const firstHeading = valid.findIndex(v => v.bearing !== null);
+  expect(valid.slice(Math.max(0, firstHeading)).filter(v => v.bearing === null).length, 'never a round token once it faces a way').toBe(0);
+  expect(new Set(valid.map(v => v.ride)), 'following throughout').toEqual(new Set(['following']));
+  await expect(page.locator('.ride-card .ride-motion')).toContainText(/drawn about (3\d|4\d|5\d|6\d|7[05]) s behind|Last reported position/);
+  await page.screenshot({path: info.outputPath('desktop-ride-real-journey.png')});
 });

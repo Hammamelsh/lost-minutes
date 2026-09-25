@@ -210,6 +210,9 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  /** Observed, with a checked road that its reports have left here for another street: drawn in a
   *  straight line between them. */
  offRoad?:boolean;
+ /** Observed and played back, and at this instant standing where its reports stood (a stop, the
+  *  lights): said as standing, not as "moving between its reports" (25 September 2026). */
+ standing?:boolean;
  /** Observed and played back: how far behind its reports the bus is drawn, in seconds. */
  displayDelaySeconds?:number|null;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
@@ -274,6 +277,9 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
    :'';
   if(info.between&&info.offRoad)return {label:delay!==null?`Off its checked road · drawn about ${delay} s behind`
     :`Off its checked road · latest ${ageWords(info.reportAge)} ago`,
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
+  if(info.between&&info.standing)return {label:delay!==null?`Standing · drawn about ${delay} s behind`
+    :`Standing · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
   if(info.between)return {label:delay!==null?`Moving between its reports · drawn about ${delay} s behind`
     :`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,

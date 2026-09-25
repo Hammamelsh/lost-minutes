@@ -15,6 +15,9 @@ playwright-report/
 # 280 MB here, and the server neither builds nor reads them. Without these the upload is a few MB.
 /.pnpm-store/
 /outputs/
+# The tests and their fixtures never go to the server: nothing there runs them, and a fixture has no
+# business beside what is published (tests/publication-boundary.test.mjs, 25 September 2026).
+/tests/
 *.tsbuildinfo
 /.claude/
 # Written on the server by the collector and the status job: never overwritten by a deploy.

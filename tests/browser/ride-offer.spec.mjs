@@ -36,20 +36,30 @@ async function enterRide(page) {
   await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 15_000});
 }
 
-test('a scored road: Estimated movement · Front view, and the ride says estimated with the report age', async ({page}) => {
+// Restated 25 September 2026 (backlog 31, the owner's decision): every ride is drawn from the bus's
+// own reports, whichever way it is entered, because an estimate corrected by up to hundreds of metres
+// as reports reach a phone jumps in a ride. On a scored road the map still shows the estimate,
+// labelled; the offer says what the ride will be, and the ride says so, with how far behind it is drawn.
+test('a scored road: estimated on the map, but the offer and the ride say reported positions, drawn from its reports', async ({page}) => {
   test.setTimeout(90_000);
-  await openAtStopA(page);
+  await openAtStopA(page, {live: {startMs: Date.now() - 60_000}});
   await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
-  await expect(offer(page)).toHaveText('Estimated movement · Front view');
+  await expect(offer(page)).toHaveText('Reported positions · may pause · Front view');
   // The button's accessible name carries the same promise, so a screen reader hears it too.
-  await expect(launch(page)).toHaveAttribute('aria-label', 'Ride along with route 256: Estimated movement, Front view');
+  await expect(launch(page)).toHaveAttribute('aria-label', 'Ride along with route 256: Reported positions, may pause, Front view');
   await enterRide(page);
-  await expect(rideMotion(page)).toHaveText(/^Estimated position · last report \d+ s ago$/);
+  await expect(map(page), 'in the ride it is drawn from its reports').toHaveAttribute('data-motion', 'observed');
+  await expect(rideMotion(page)).toHaveText(/^((Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
   await expect(page.locator('.ride-mode-state')).toContainText('following the bus');
   await expect(page.getByRole('button', {name: 'Front view', exact: true})).toBeVisible();
   // Nothing about the ride is said twice: one mode label in the ride, one offer line outside it.
   await expect(page.locator('.ride-hud .ride-motion')).toHaveCount(1);
+  // Leaving the ride, the map shows the estimate again: the same bus, the same journey.
+  await page.getByRole('button', {name: 'Exit ride-along'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'off');
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 10_000});
+  await expect(page.locator('.bus-card .route-badge')).toHaveText('256');
 });
 
 test('a checked road the model was never scored on: reported positions, may pause, and still the front view', async ({page}) => {
@@ -65,7 +75,7 @@ test('a checked road the model was never scored on: reported positions, may paus
   // Since 23 September 2026 a bus between its reports is played back on a clock, and the label says how
   // far behind them it is drawn rather than the newest report's age (docs/MOTION_MODEL.md); since
   // 24 September to the nearest five seconds, as "about".
-  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
+  await expect(rideMotion(page)).toHaveText(/^((Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
   await expect(page.getByRole('button', {name: 'Front view', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Front view', exact: true}).click();
   await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
@@ -83,7 +93,7 @@ test('no accepted road: reported positions, may pause, and no front view promise
   await expect(map(page)).toHaveAttribute('data-motion', 'observed', {timeout: 20_000});
   await expect(offer(page)).toHaveText('Reported positions · may pause');
   await enterRide(page);
-  await expect(rideMotion(page)).toHaveText(/^(Moving between its reports · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
+  await expect(rideMotion(page)).toHaveText(/^((Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position · \d+ s ago)$/);
   // The button says on its face what it cannot do, and stays where it is: no exit, no repeat note.
   const front = page.locator('.ride-camera.unavailable');
   await expect(front).toHaveText(/Front view · not on this route/);

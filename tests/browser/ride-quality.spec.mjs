@@ -230,9 +230,12 @@ test('coming or past is judged by the newest report while the drawn bus is still
   expect(drawnS, `the drawn bus (${drawnS.toFixed(0)} m) is still before the stop (${stopS.toFixed(0)} m) as the card says past`)
     .toBeLessThan(stopS);
   // And the delay the card states is the real one: this frame's presentation time less the moment
-  // being shown, said to the nearest five seconds.
+  // being shown, said to the nearest five seconds — since 25 September (evening) as the moment drawn,
+  // "as it was about N s ago", with the report's own age beside it.
   const label = (await page.locator('.ride-card .ride-motion').textContent()) ?? '';
-  const said = Number(/drawn about (\d+) s behind/.exec(label)?.[1]);
+  const said = Number(/as it was about (\d+) s ago/.exec(label)?.[1]);
+  const reportAge = Number(/report (\d+) s old/.exec(label)?.[1]);
+  expect(reportAge, `the card states the report's age apart (${label})`).toBeLessThan(said);
   const frame = Number(display.split(',')[4]), shown = Number(await map(page).getAttribute('data-shown'));
   const actual = (frame - shown) / 1000;
   expect(said, `the card states the delay (${label})`).toBeGreaterThanOrEqual(25);

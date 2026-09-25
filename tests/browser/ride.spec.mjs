@@ -354,8 +354,9 @@ test('a bus with no predictions (as route 142 today) is followed at its reports 
   // between two of its own reports, so the card states the age of what is shown and says plainly
   // that it is neither estimated nor followed continuously. Since 23 September it is played back
   // on a clock and the label says how far behind its reports it is drawn — to the nearest five
-  // seconds, as "about", since 24 September ("drawn about 30 s behind").
-  await expect(page.locator('.ride-motion')).toContainText(/(Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position/);
+  // seconds, as "about", since 24 September ("drawn about 30 s behind"); since 25 September (evening)
+  // as the moment drawn with the report's age beside it ("as it was about 45 s ago · report 18 s old").
+  await expect(page.locator('.ride-motion')).toContainText(/(Moving between its reports|Standing) · as it was about \d+ (s|min) ago · report \d+ (s|min) old|(Moving between its reports|Standing) · latest \d+ s ago|Last reported position/);
   await expect(page.locator('.ride-motion')).not.toContainText('Estimated position');
   const before = await camera(page);
   await page.waitForTimeout(12_000);           // a new report: the camera goes to it
@@ -516,8 +517,9 @@ test('front view: a raised preview along the checked road, the bus’s outside h
   await expect(page.locator('.ride-card')).toContainText('256');
   await expect(page.locator('.ride-card')).toContainText('Piccadilly Gardens');
   // Since 25 September 2026 the ride draws every bus from its own reports (backlog 31): the card says
-  // how far behind them it is drawn rather than "estimated".
-  await expect(page.locator('.ride-card .ride-motion')).toContainText(/(Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position · \d+ s ago/);
+  // how far behind them it is drawn rather than "estimated" (the moment drawn and the report's age, apart,
+  // since that evening).
+  await expect(page.locator('.ride-card .ride-motion')).toContainText(/(Moving between its reports|Standing) · as it was about \d+ (s|min) ago · report \d+ (s|min) old|(Moving between its reports|Standing) · latest \d+ s ago|Last reported position · \d+ s ago/);
   await expect(page.locator('.ride-mode')).toContainText('street preview');
   await expect(page.getByRole('button', {name: 'Zoom in'})).toBeDisabled();
   await shot(page, 'front-view');

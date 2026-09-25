@@ -209,8 +209,9 @@ test.describe('an unsettled bus on road its candidates are measured to share', (
     // Not estimated, and the card says why. Since 23 September 2026 a bus at its reports is played
     // back between them on a clock, so its label reads "Moving between its reports · drawn N s
     // behind" while it has two to move between, and "Last reported position" only at rest.
-    // Since 24 September the delay is said to the nearest five seconds, as "about".
-    await expect(page.locator('.bus-card-motion')).toContainText(/(Moving between its reports|Standing) · drawn about \d+ s behind|Last reported position/);
+    // Since 24 September the delay is said to the nearest five seconds, as "about"; since 25 September
+    // (evening) as the moment drawn with the report's age beside it ("as it was about 45 s ago · report 18 s old").
+    await expect(page.locator('.bus-card-motion')).toContainText(/(Moving between its reports|Standing) · as it was about \d+ (s|min) ago · report \d+ (s|min) old|(Moving between its reports|Standing) · latest \d+ s ago|Last reported position/);
     await expect(page.locator('.bus-card-motion')).toContainText('Not estimated: its branch is not settled');
   });
 });

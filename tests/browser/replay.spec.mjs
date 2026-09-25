@@ -194,6 +194,8 @@ test('a real recorded journey ridden: drawn from its reports, continuous, turnin
   const firstHeading = valid.findIndex(v => v.bearing !== null);
   expect(valid.slice(Math.max(0, firstHeading)).filter(v => v.bearing === null).length, 'never a round token once it faces a way').toBe(0);
   expect(new Set(valid.map(v => v.ride)), 'following throughout').toEqual(new Set(['following']));
-  await expect(page.locator('.ride-card .ride-motion')).toContainText(/drawn about (3\d|4\d|5\d|6\d|7[05]) s behind|Last reported position/);
+  // Since 25 September 2026 (evening) the label names the moment drawn and the report's age apart
+  // ("as it was about 45 s ago · report 18 s old"); the figure and its bounds are unchanged.
+  await expect(page.locator('.ride-card .ride-motion')).toContainText(/as it was about (3\d|4\d|5\d|6\d|7[05]) s ago · report \d+ (s|min) old|· latest \d+ s ago|Last reported position/);
   await page.screenshot({path: info.outputPath('desktop-ride-real-journey.png')});
 });

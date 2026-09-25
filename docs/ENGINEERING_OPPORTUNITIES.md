@@ -1794,3 +1794,27 @@ down beside its code. A visual interface would help: a per-bus timeline of event
 No novelty is claimed.
 
 **Next cheap step.** Run it in CI on one fixed reel with bounds on group A. Status: run by hand.
+
+## 57. A number on screen, checked against its own definition on every frame of a reel
+
+**Problem and evidence.** The ride card's delay was defined in code as now less the moment the drawn
+place stands for, and described in the release record as a delay behind the newest report. Nothing
+compared the two, or the figure with the report age shown beside it. On 25 September 2026 the owner
+asked which it was; `scripts/evaluate-delay-rewind.mjs` measured the figure against the report's age on
+every frame of two reels (11.7 million) and found the record wrong and the figure under the report's own
+age in 96–97% of the frames where a bus waited at its newest report. The same kind of fault had been
+found twice before only by eye or by one incident: a 23 m eased correction read as "165 s behind"
+(24 September) and a delay creeping to 75–90 s on the route-43 ride.
+
+**Who hits it, workaround.** Whoever changes the drawing or the card's words; the workaround was
+reading one trace or one screenshot.
+
+**Small fix, script, tool or product.** A script here (invariants between displayed values — the moment
+drawn never newer than the newest report, the drawn bus never back along its path unless said — held
+over every frame of a reel), and one Node test with a synthetic ride. A reusable capability would be
+declaring such invariants once beside the diagnostics the page already writes (`data-shown`,
+`data-represented`) and checking them in every replay and browser run. No visual interface needed. No
+novelty is claimed: this is property-based checking applied to replayed data.
+
+**Next cheap step.** Fold the two invariants into `scripts/evaluate-ride-faults.mjs` so every fault run
+reports them. Status: separate script, run by hand.

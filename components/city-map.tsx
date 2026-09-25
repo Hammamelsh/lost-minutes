@@ -459,7 +459,7 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
  // A played-back bus: the report-time moment being shown (ms), so the delay the card states can be
  // held against the real one, this frame's presentation time less this.
  el.setAttribute('data-shown',v?.buffer?String(Math.round(v.buffer.shown)):'');
- // The moment the drawn place stands for, which the card's "drawn N s behind" is measured from.
+ // The moment the drawn place stands for, which the card's "as it was about N s ago" is measured from.
  el.setAttribute('data-represented',v?.buffer?.represented!=null?String(Math.round(v.buffer.represented)):'');
  // Which way the drawn bus faces (the model, the marker and the ride camera all take this).
  el.setAttribute('data-heading',v?.bearing!=null?v.bearing.toFixed(1):'');

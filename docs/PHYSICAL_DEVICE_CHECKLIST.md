@@ -129,8 +129,9 @@ finger are all absent from Chromium.
       recorded bus is gone. Share it: the copied link reopens the recording. *unchecked*
 - [ ] Ride a bus on a service with a checked road (a 142 on Wilmslow Road, a 163 on Rochdale Road):
       the bus should sit *on* the road, headed along it, and move at a bus's pace — pulling away,
-      slowing, never surging or teleporting — about 30–60 s behind its newest report (the card says
-      how far). Watch one for three minutes and count anything that looks like a jump. Then a bus
+      slowing, never surging or teleporting — shown as it was a little before its latest report (the
+      card says both: *as it was about N s ago · report M s old*). Watch one for three minutes and
+      count anything that looks like a jump. Then a bus
       with no checked road: the same, along the straight lines between its reports. *unchecked*
 
 - [ ] The way in: on the home screen, under **Buses near me**, the line *Or try Ride-along* opens
@@ -142,15 +143,20 @@ finger are all absent from Chromium.
       with a checked road — a 142, a 163, a 250); no ribbon on a bus without one. *unchecked*
 - [ ] With reduced motion on (iOS: Settings › Accessibility › Motion): no fade, no glide, the ride
       simply appears on the bus. *unchecked*
-- [ ] The card reads *drawn about N s behind* and N is 30 to 60; it changes by fives, never
-      flickers. *unchecked*
+- [ ] The card reads *as it was about N s ago · report M s old* (since 25 September, late evening;
+      it read *drawn about N s behind* before): N is always more than M, typically by about ten
+      seconds; N changes by fives and never flickers. Standing at its latest report it reads *Last
+      reported position · M s ago*. *unchecked*
+- [ ] When N jumps up by ten seconds or more at once, a late report has set the playback's clock
+      back: the bus itself should not move backwards, and should pull away from where it stood at a
+      bus's pace. Note the time and the bus if it slides back instead. *unchecked*
 
 - [ ] The route-43 incident's ride, on a phone: a 43 outbound from Piccadilly Gardens along Portland
       Street, Princess Street, Whitworth Street and Oxford Street. The bus faces along its road
       through each turn; the view never swings round in one jump; it stays on the road on the
       Whitworth Street–Oxford Street corner. Put the browser away for a minute and come back: the
-      card says the bus was moved while the page was in the background. The card's "drawn about N s
-      behind" stays between 30 and 60. *unchecked*
+      card says the bus was moved while the page was in the background. The card's *as it was about
+      N s ago* stays above its *report M s old*. *unchecked*
 
 - [ ] A bus standing at Piccadilly Gardens (a 216, 143 or 142 at its stand), ridden for a minute:
       it faces along its road and does not turn while it stands, and the card does not call it off

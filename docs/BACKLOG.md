@@ -324,6 +324,27 @@ behind" rather than "Estimated position". It restates the ride's estimated-movem
 (`ride-offer.spec`, `motion.spec` and several in `ride.spec`). Not done without the owner's word,
 because estimated movement was approved as a feature on 13 September 2026.
 
+## 32. What still moves a ridden bus against the way it faces
+
+Measured on 25 September 2026, late evening, by `scripts/evaluate-delay-rewind.mjs` over every bus in
+two reels (11.7 million frames), after the re-anchoring and standing-goal fixes (`docs/RELEASE.md`,
+top). None of it comes from the playback's rewind. Frames and metres in all, evening and incident reels:
+- **The nose lagging round a tight bend at speed** (38 and 113 frames, 25.6 and 76.3 m): the bus goes
+  forwards along its path and its facing turns at a bus's rate behind it (a 191 at 14 m/s round a
+  roundabout). A faster turn allowance at speed, bounded by the camera's, would close most of it.
+- **Eased corrections onto a changed path with a backward part** (4 and 9 corrections, the largest 3.8
+  and 6.6 m): under a bus length, eased at about 10 m/s, and not said on the ride card, where only
+  repositionings are said. Either say a correction over 8 m on the ride card, as the estimate's detail
+  does, or hold a bus the new path puts behind until the path catches it up.
+- **A hop at a joint between two stretches** (2 and 3 frames, up to 6.0 m, unsaid): a straight stretch
+  ending at a report and a road stretch starting on the road beside it (a 23 at 15:33, two reports at one
+  spot). The stretch that ends at the report should end where the next one starts.
+- **Following reports that step back, no road** (1 and 20 frames, up to 0.7 m a frame): a 281's reports
+  went back 6.5 m in 10 s and it followed them; the held-report rule applies only on a checked road.
+
+Also still open from the one-ride milestone: the 25 sprints of 3–4 s after a stand (15 and 10 events)
+and the heading lags pulling out of a stand (6 and 18).
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

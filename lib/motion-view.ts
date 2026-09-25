@@ -213,7 +213,9 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  /** Observed and played back, and at this instant standing where its reports stood (a stop, the
   *  lights): said as standing, not as "moving between its reports" (25 September 2026). */
  standing?:boolean;
- /** Observed and played back: how far behind its reports the bus is drawn, in seconds. */
+ /** Observed and played back: how long ago the moment is that the drawn place stands for — the
+  *  presentation clock less that moment, in seconds. It includes the latest report's own age; what
+  *  the playback adds is this less `reportAge`. */
  displayDelaySeconds?:number|null;
  speedKmh:number|null;eased:boolean;uncertaintyMetres:number|null;uncertaintyN:number|null;
  correction:{kind:string;metres:number;at:number;justNow?:boolean;standing?:boolean;
@@ -231,11 +233,11 @@ export const REPOSITION_WORDS:Record<RepositionReason,string>={
 const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds/60)} min`;
 
 /**
- * How far behind its reports the bus is drawn, to the nearest five seconds. The figure is the
- * real one — the presentation clock less the moment being shown, measured on the map each frame,
- * never the setting — and it drifts by a second or two as the clock runs at real time and the
- * reports arrive; said to five seconds with "about", it is honest and does not flicker. Under
- * three seconds it is not a delay worth a number, and the label falls back to the report's age.
+ * A delay in seconds to the nearest five. The drawn moment's age is the real one — the
+ * presentation clock less the moment being shown, measured on the map each frame, never the
+ * setting — and it drifts by a second or two as the clock runs at real time and the reports
+ * arrive; said to five seconds with "about", it is honest and does not flicker. Under three
+ * seconds it is not a delay worth a number.
  */
 export function delaySeconds(actual:number|null|undefined):number|null{
  if(actual==null||!Number.isFinite(actual)||actual<2.5)return null;
@@ -259,11 +261,23 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
   // report three minutes old as "between its reports", which it was not. The reason is the reason:
   // on route 263 the road is checked and what is withheld is the evaluation, and a fixed clause
   // about geometry was false there. Nothing here is a guess about where the bus is now.
-  const delay=delaySeconds(info.displayDelaySeconds);
-  const delayed=delay!==null
-   ?` It is drawn where its reports put it about ${delay} seconds ago, at a bus’s own pace — `
-    +'its speed smoothed over the previous half-minute, pulling away and slowing as a bus does — so that it moves '
-    +'steadily instead of stopping and starting as each report arrives; it is never ahead of a report.':'';
+  // Two ages, never merged: how old the latest report is, and how much further back the playback
+  // draws the bus than that report. The label gives the moment drawn — now less the moment the drawn
+  // place stands for, which is the figure measured — with the report's own age beside it; the
+  // detail gives what the playback adds. A playback within a few seconds of the report adds nothing
+  // worth a number, and then only the report's age is said: rounding the moment drawn to five
+  // seconds could otherwise put it under the report's own age (25 September 2026).
+  const extra=info.displayDelaySeconds!=null&&Number.isFinite(info.displayDelaySeconds)
+   ?delaySeconds(info.displayDelaySeconds-info.reportAge):null;
+  const delay=extra!==null?delaySeconds(info.displayDelaySeconds):null;
+  const pace=', at a bus’s own pace — its speed smoothed over the previous half-minute, pulling away and slowing as '
+   +'a bus does — so that it moves steadily instead of stopping and starting as each report arrives; it is never '
+   +'ahead of a report.';
+  const delayed=delay!==null&&extra!==null
+   ?` It is drawn where its reports put it about ${delay} seconds ago: its latest report is ${ageWords(info.reportAge)}`
+    +` old, and the playback draws it about ${extra} s behind that report${pace}`
+   :info.displayDelaySeconds!=null&&info.travels?` It is drawn at or just behind its latest report, ${ageWords(info.reportAge)} old${pace}`:'';
+  const drawn=delay!==null?`as it was about ${ageWords(delay)} ago · report ${ageWords(info.reportAge)} old`:null;
   const cycle=info.travels
    ?(delayed||' It moves between its own reports at the speed they imply and waits at the newest, so it can run a '
     +'little behind, never ahead, and may pause.')
@@ -275,13 +289,13 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
        +' drawn in a straight line between them: the streets it took are not known.'
       :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
-  if(info.between&&info.offRoad)return {label:delay!==null?`Off its checked road · drawn about ${delay} s behind`
+  if(info.between&&info.offRoad)return {label:drawn!==null?`Off its checked road · ${drawn}`
     :`Off its checked road · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
-  if(info.between&&info.standing)return {label:delay!==null?`Standing · drawn about ${delay} s behind`
+  if(info.between&&info.standing)return {label:drawn!==null?`Standing · ${drawn}`
     :`Standing · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
-  if(info.between)return {label:delay!==null?`Moving between its reports · drawn about ${delay} s behind`
+  if(info.between)return {label:drawn!==null?`Moving between its reports · ${drawn}`
     :`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
    detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
   return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${cycle}${moved}`};

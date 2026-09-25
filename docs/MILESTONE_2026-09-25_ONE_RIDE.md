@@ -98,7 +98,7 @@ publication (22 Sep evening reel: 335 bus-journeys, 79 hours ridden; 24 Sep inci
 | standing while its reports moved on | 15 | 0 | 6 | 0 |
 | a round token on its own road (5 s spans) | 39 | 0 | 666 | 0 |
 | over 22.5 m/s | 7 | 0 | 3 | 0 |
-| **B. the bus's own stops** — stands of 10 s or more where its reports stood | 632 | 552 | 2,734 | 2,585 |
+| **B. the bus's own stops** — stands of 10 s or more where its reports stood | 632 | 552¹ | 2,734 | 2,585 |
 | **C. missing or uncertain data, the intended fallback** | | | | |
 | repositionings, all said (gaps, late path changes) | 159 | 57 | 270 | 142 |
 | waiting at the newest report for a late one | 40 | 41 | 108 | 132 |
@@ -110,6 +110,16 @@ Met halfway through each run (as a passenger opening a ride mid-journey): A 25 �
 59 → 11 (incident). Routes 15, 250 and 256 alone: A 10 → 1 of 15 rides (evening) and 17 → 2 of 28
 (incident); repositionings 92 → 0 and 138 → 2. The remaining A items are short heading lags pulling out
 of a stand (a 30–52° spell), sprints of 3–4 s after a stand, and one spin, each listed by the script.
+¹ Re-measured on the deployed `a63006b` itself: 554 on the evening reel (552 was an earlier candidate)
+and 2,585 on the incident reel. After the late-evening corrections (`docs/RELEASE.md`, top) 555 and
+2,587, where a bus a path change left ahead of a standing goal now stands rather than stepping back.
+Those corrections change one other row, and only in what it counts: *drawn over 75 s behind* is the
+card's figure, which while a bus waited at its newest report had followed the clock and hidden the
+report's own age. It now includes it, so a bus waiting at a report 76–90 s old counts: 6 → 394
+five-second spans on the evening reel (33 minutes of 79 hours) and 0 → 2,217 on the incident reel
+(3 hours of 257). The label in those moments always gave that age (*Last reported position · 80 s
+ago*), and the drawing did not change. *Off its road where its reports are off* 607 → 606 and
+3,134 → 3,135; every other row, groups A and C, is unchanged.
 (The categories' "before" for held reports is blank: the deployed build had no such rule. The "facing
 off" row compares with where the drawing says the bus should face; the deployed build's lower count is
 the look-ahead heading of 24 September, whose own faults showed up as the 32 and 47 spins above.)
@@ -152,9 +162,13 @@ following throughout. New: a drag with the CPU slowed six times, then Return to 
 
 ## 6. Limits
 
-- **The ride is 30–60 s behind the newest report**, and says so to five seconds; a bus whose reports
-  come late waits at the newest one (*Last reported position*) and pulls away when the next arrives, and
-  one that falls further behind than the resync allowance is repositioned, cut, and said.
+- **The ride is shown as it was about 47–61 s ago** while it moves (10th–90th percentile over both
+  reels), its latest report being 40–46 s old at the median and the playback adding about 10 s more (the
+  clock is set 30–60 s behind *now*, not behind the newest report, as this line first said; corrected on
+  25 September, late evening, with the measurements in `docs/RELEASE.md`), and the card says both ages
+  apart; a bus whose reports come late waits at the newest one (*Last reported position*) and pulls away
+  when the next arrives, and one that falls further behind than the resync allowance is repositioned,
+  cut, and said.
 - **A bus with no checked road and no reported bearing** that has not moved a bus's length is shown from
   above, with the sentence saying why; a direction is not guessed from the timetable.
 - **Where a bus turned round between two reports with no road under them** (a terminus loop), which way

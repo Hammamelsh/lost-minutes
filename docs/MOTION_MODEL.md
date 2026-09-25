@@ -466,6 +466,17 @@ cause) and traced to a frame before it was changed:
 - **A bus near its road faces along it** where nothing else gives a direction (`roadHeadingNear`).
 - **A drawing begun afresh starts at the pace its reports show** for the moment shown; only a bus that
   waited at a lone report pulls away from rest.
+- **The moment drawn is never later than the newest report** (25 September, late evening). The card's
+  figure is now less that moment, so it includes the latest report's age; the label gives both apart
+  (*as it was about 45 s ago · report 18 s old*). While a bus waited at its newest report the clock ran
+  a smoothing window past it and the figure followed, under the report’s own age in 96–97% of waiting frames.
+- **A rewind moves the clock, never the bus**: the drawn place is kept and the figure grows. And a bus a
+  path change left just ahead of a standing goal now stands, where it had been taken back to the goal
+  (up to 0.44 m, unsaid, on the two reels). `docs/RELEASE.md` has both answers measured.
+- **A rebuilt path re-anchors the bus on its own stretch of road.** Projected onto the whole road near
+  it, a route running one street twice took the other pass, and the bus went to its stretch's start and
+  was eased back up to 40 m facing forwards, with nothing said (19 eased corrections with a backward
+  part on the two reels, the largest 40.3 and 36.8 m; now 13, none over 6.6 m).
 
 Measured on two reels (the 22 September evening reel, 335 bus-journeys, 79 hours ridden; the 24
 September incident reel, 810, 257 hours), met from their first publication, the deployed `a82abfb` with

@@ -994,7 +994,10 @@ function nearestOnPath(path: Path, p: {lat: number; lon: number}, preferS?: numb
    // A stretch along the road is measured along the road, or at its ends — never along the chord
    // between them, which is another curve with other distances: taken for it, a place on the chord
    // 0.6 m from the drawn bus was a place on the road 13 m on (24 September 2026, the fleet check).
-   const pr = project(path.road, p, a.roadS);
+   // Onto this stretch's own part of the road. Projected onto the whole road near it, a route that
+   // runs one street twice put a V2 on its other pass, outside the stretch; it was re-anchored to the
+   // stretch's start, 46 m behind, and eased back there facing forwards (25 September 2026).
+   const pr = projectSegments(path.road, p, segmentAt(path.road, a.roadS), segmentAt(path.road, b.roadS) + 1);
    if (pr.s >= a.roadS && pr.s <= b.roadS) { const c = {S: a.S + (pr.s - a.roadS), metres: pr.offset, k}; candidates.push(c); if (pr.offset < best.metres) best = c; }
    else for (const [n, at, kk] of [[a, a.S, k], [b, b.S, k + 1]] as const) {
     const c = {S: at, metres: metres(nodePoint(path, n), p), k: kk}; candidates.push(c); if (c.metres < best.metres) best = c;
@@ -1217,8 +1220,10 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
   // Never past the newest report; ahead of the moment shown only by what a path change left it.
   sd = Math.min(end, Math.max(sd, sd + vd * dt), Math.max(sd, goal.S));
   if (sd >= goal.S) vd = Math.min(vd, goal.v);
-  // Within a step of a standing goal it is there: a bus arrives, it does not creep for ever.
-  if (goal.v < 0.05 && goal.S - sd < 0.3) { sd = goal.S; vd = 0; }
+  // Within a step of a standing goal it is there: a bus arrives, it does not creep for ever. Only
+  // from behind: a bus a path change left ahead of a standing goal stands where it is, and taking
+  // it to the goal would draw it backwards, unsaid, by whatever the change left (25 September 2026).
+  if (goal.v < 0.05 && goal.S - sd < 0.3 && goal.S >= sd) { sd = goal.S; vd = 0; }
  }
  sd = Math.min(end, Math.max(0, sd));
  // At a distance two reports share (a refused pair, or two reports at one place) the later of the
@@ -1286,7 +1291,10 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  // While a correction is eased in, the drawn place is between two paths and stands for no moment of
  // either: the clock's moment is said (reading the re-anchored place put a 23 m eased correction at
  // "165 s behind" for four seconds, 24 September 2026).
- const represented = goal.S - sd < 0.5 || ease ? shown : lastMomentAt(path, sd, shown);
+ // Never later than the newest report: the clock runs a smoothing window past it while the bus
+ // stands there, and saying that moment put the card's figure under the report's own age — "drawn
+ // where its reports put it about 5 seconds ago" of a report 20 s old (25 September 2026).
+ const represented = Math.min(fixes[fixes.length - 1].at, goal.S - sd < 0.5 || ease ? shown : lastMomentAt(path, sd, shown));
  return {...settled, lat: drawn.lat, lon: drawn.lon, bearing, heading: at.heading ?? bearing, velocity: vd,
   correction, lastCorrection: last, glide: null,
   buffer: {shown, delay, lags, ease, sd, vd, end, goalS: goal.S, k: at.k, onRoad: at.onRoad, roadS: at.roadS, pathKey: path.key, path,

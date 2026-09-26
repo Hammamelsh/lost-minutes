@@ -121,13 +121,15 @@ tidy-ups (the view's event handler destroyed on leaving, a lint fix, the probe's
 `above.spec` and the sign-tap check passed on it, 24 of 24. **Deployed as `b849bbf`**, the served page
 chunk identical to the local build's (`43ebca86…`), `7dd79be` kept for rollback; the served
 `config.json` carries no `photo3d`, so the view is not offered on the public site; the renderer's files
-are served (`/vendor/cesium/version.json`, `Cesium.js` 6.0 MB). On the served site at 12:50 UTC: the three
+are served (`/vendor/cesium/version.json`, `Cesium.js` 6.0 MB). On the served site at 12:03 UTC (corrected: this said 12:50): the three
 changed screens captured (`outputs/probes/everyday-flows/served-b849bbf/`), and the fleet still drawing
 485 buses, 316 in view and 234 moving at a 1.3 ms tick at a city zoom, a tapped grey bus becoming the
 chosen bus with no hop (*Standing · as it was about 60 s ago · report 43 s old*). Seen on the way and
-left open: at a neighbourhood zoom two other buses stepped 108 and 217 m between two samples a quarter of
-a second apart — a repositioning is said for the chosen bus and silent for the rest (backlog 33), and
-which this was is not known. Emulation only.
+left open: at a neighbourhood zoom two other buses stepped 54 and 108 m between two samples a quarter of
+a second apart (corrected: the probe converted pixels with a 256-pixel tile's scale on a map of
+512-pixel tiles and reported 108 and 217 m). Traced the same day to two route-192 buses starting their
+next journeys at the Piccadilly terminus, which the fleet redrew from scratch; fixed in the release after
+this one (`docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md`). Emulation only.
 
 ## 5. Decision
 

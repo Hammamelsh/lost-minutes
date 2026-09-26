@@ -4,10 +4,63 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 26 September 2026 (the everyday flow simplified at its three most consequential points, and
-the view from above — photographic 3D, built and checked against a sample tileset, offered only once the
-owner has set up the provider's key: `b849bbf`). Before that, 25 September night: every bus on the map,
-`7dd79be`.
+Last updated: 26 September 2026, afternoon (the fleet's two jumps traced to a journey change and fixed,
+with every other bus's repositioning now marked on the map; the view from above kept private behind a
+password until the owner's public switch; the view made ready for real imagery; and the gate's failures fixed: `4d1f586`). Before that
+the same day: the everyday flow simplified and the view from above built, `b849bbf`.
+
+- **26 September, afternoon — the fleet's jumps, a private preview, the view ready for imagery**
+  (`docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md`).
+  - **An incident.** A replay run on the server, with its scratch copy in `/tmp` (RAM there), made the
+    kernel kill the collector twice (12:36 and 12:37 UTC, about four cycles lost). Server-side work now
+    runs under a hard memory cap, and replays run on this machine.
+  - **The jumps.** Two route-192 buses at the Piccadilly terminus stepped 54 m and 108 m in one frame;
+    the probe had doubled them. Both were starting their next journeys, and `reconcileFleet` drew such
+    a vehicle afresh at its new report. The drawing now carries the previous journey's reports into the
+    new one. 11918 (41 s between reports) travels. 11930 (seven minutes unseen) is repositioned once
+    and marked. Every repositioning of another bus is marked with a dashed trace for 6 s.
+  - **Reproduced before and after:** through the fleet code at 20 poll phases
+    (`tests/fleet-journey-change.test.mjs`, the server's own publications); through the served and new
+    pages (`scripts/probes/fleet-replay.mjs`); and every bus in two reels
+    (`scripts/evaluate-fleet-steps.mjs`: 141 and 130 unmarked cuts over 3 m in 100 ms before, 0 and 1
+    after).
+  - **Found on the way:**
+    - the probe's metres per pixel was a 256-pixel tile's, and so is the app's front-view road width
+      (backlog 35, not changed);
+    - the config writer's missing import would have stopped every live publication, caught by the full
+      Python suite before deploy;
+    - `deploy/validate.sh` had checked a stale server on its port, and missed the systemd `cp`, since
+      23 September.
+  - **Configuration, preview, public.** `LM_PHOTO3D_GOOGLE_KEY` alone offers the view only at
+    `/preview/`, behind basic authentication, locked by default (`deploy/set-preview-password.sh`).
+    `LM_PHOTO3D_PUBLIC=1`, off, is the public switch (`docs/PHOTO_3D_PREVIEW.md`). The terms question,
+    verbatim, and the draft question for Google are in `docs/PHOTO_3D_TERMS.md`; nothing was sent.
+    Trial: one root tileset request per opening; a daily quota of 25 is $0.00 a month at most.
+  - **The view.**
+    - Failures are said by cause, and an ended session is said.
+    - *Closer* is offered beside the elevated follow.
+    - The imagery's age is said apart from each report's.
+    - Google's logo (official asset, 18 px, clear of Cesium's), terms and privacy notices are shown.
+    - The chosen bus in the view is within 5 m and 400 ms of the map's own drawing.
+    - Its tick is about 1 ms, down from 10–12 ms, by drawing only buses in reach.
+    - The first-look harness is ready.
+    - **Real imagery: blocked on the key.**
+  - **Everyday.** The bus card's motion explanation folds away; a repositioning stays said. The phone
+    handle's long status is clipped. Usability is unvalidated.
+  - **The gate's failures, fixed** (the owner asked for fixes, not classification):
+    - *Return to bus* could settle at zoom 14.2: a glide stopped by a move the ride did not start was
+      taken for an arrival, and a short glide now ends with a cut to the framing.
+    - The front-view check measured the look-at point, which runs ahead by a speed-dependent distance;
+      it now measures the camera's own position (`data-eye`).
+    - The collector exited 1 when stopped mid-query, and a stop during the matching was swallowed until
+      systemd killed it; both are fixed (`core.stopped_by_signal`), and the last two restarts exited 0.
+  - **Verified:**
+    - 266 Node and 140 Python tests; `deploy/validate.sh`, 43 checks.
+    - The full gate on `d35001d`: 403 passed, 41 skipped, 2 failed, both fixed.
+    - On the final build: `ride.spec` 51 passed; the once-failing checks 40 of 40; the 16 other
+      ride-related specs 221 passed, none failed.
+    - On the served site: byte-identical, the preview locked, and a real ride returning to zoom 20.
+    - Deployed as `d35001d`, then `c7179c8`, then `4d1f586`. Emulation only.
 
 - **26 September — simpler everyday use, and the view from above** (`docs/MILESTONE_2026-09-26_SIMPLER.md`,
   `docs/PHOTO_3D_RESEARCH.md`, backlog 34). The deployed build walked first at phone and desktop sizes.

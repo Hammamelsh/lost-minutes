@@ -1839,6 +1839,14 @@ measured time. Worth a line in the browser-suite notes so the next check starts 
 
 **Next cheap step.** Make the served probe read positions too. Status: the check fixed, the probe not.
 
+**26 September 2026: the probe's scale was wrong as well, and so is the app's.** The served probe turned
+pixels into metres with `156543 × cos(lat) / 2^zoom`, the scale of a 256-pixel tile. MapLibre's world is
+512 pixels at zoom 0, so every distance it reported was doubled: the fleet's "108 and 217 m" jumps were
+54 and 108 m. The app's own `METRES_PER_PIXEL_Z0` has the same error, drawing the front view's roads at
+half their stated width (backlog 35). `scripts/probes/fleet-replay.mjs` measures from positions over
+measured time. The smallest reusable capability is one exported metres-per-pixel function, tested
+against MapLibre's own `transform`, that probes, checks and the style all import. Status: not built.
+
 ## 59. A full-screen overlay boxed in by an ancestor's containment
 
 **Problem and evidence.** The view from above (26 September 2026) was written as `position: fixed;
@@ -1856,3 +1864,47 @@ for the future: an element meant to be the screen (`.view-ride`, `.gods-eye`) wh
 not the viewport's is reported. Status: the probe line not yet added.
 
 **Next cheap step.** Add that audit line. Status: added to `scripts/probes/passenger-layouts.mjs` the same day (`boxed in:`).
+
+## 60. A diagnosis run on the production server took the collector down
+
+**Problem and evidence.** On 26 September 2026 a publication replay was run on the 4 GB Hetzner server
+to reproduce two fleet jumps. A 797 MB warehouse snapshot was copied into `/tmp`, which there is RAM
+(tmpfs), and the replay itself took about 1.2 GB. The kernel's out-of-memory killer took the collector
+twice (12:36:24 and 12:37:15 UTC, `journalctl -k`), about four cycles lost, before it took the replay.
+An earlier attempt had died the same way and was misread as an ssh timeout
+(`docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md` §0).
+
+**Who hits it, workaround.** Whoever investigates from the server's own data: the captures and the
+server's catalogue live there. The workaround was to export three small tables under a hard cap and
+replay on the laptop.
+
+**Recurrence and effort.** Once, twice in one session. Unknown beyond that; every incident
+investigation so far has needed the server's captures.
+
+**Small fix, script, tool or product.** A small script: `deploy/server-job.sh <command>` that runs
+anything on the server inside `systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0`, niced, with its
+scratch on disk under the deploy user's home, refusing `/tmp`, and printing `journalctl -k` OOM lines
+afterwards. systemd already provides the cap; nothing new is needed.
+
+**Next cheap step.** Write the wrapper and use it for the next server-side read. Status: the rule is
+recorded; the wrapper is not written.
+
+## 61. Local servers outlive their purpose and answer for others
+
+**Problem and evidence.** On 26 September 2026 `deploy/validate.sh` reported fourteen failures that were
+not the Caddyfile's. A repro server started on 24 September (`outputs/probes/repro/serve-with-live.py`)
+was still listening on the port the validation uses, and answered every request in Caddy's place. The
+same day a Caddy and a Cloudflare quick tunnel from `scripts/preview.sh`, started on 22 September, were
+still running and still serving this checkout's `out/` publicly at a temporary address.
+
+**Who hits it, workaround.** Whoever runs a probe or a validation on this machine; the workaround is
+`ss -ltnp` and stopping the process by hand.
+
+**Small fix, script, tool or product.** Small fixes, one done: `deploy/validate.sh` now refuses a busy
+port rather than testing whatever answers. The rest is a habit: every probe that starts a server stops
+it, and `scripts/preview.sh status` is checked at the end of a session.
+
+**Next cheap step.** A `scripts/ports.sh` that lists this project's listeners (8098, 8099, 4173, 4198,
+4199) with their start times. Status: not written; the preview tunnel is still up, for the owner to keep
+or stop.
+

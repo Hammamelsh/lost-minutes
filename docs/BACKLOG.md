@@ -273,6 +273,15 @@ still zooms and keeps following (a first version counted the pinch's moving fing
 pinch check caught it). `ride.spec`: the drag with the CPU slowed six times, then Return to bus to the
 zoom-20 framing, both profiles; 12 of 12 in the reproduction. What follows is the original entry.
 
+**26 September 2026: a third way to end short, fixed.** The gate on the phone profile ended "following" at
+zoom 14.2 again. The glide itself had been stopped part way by a camera move the ride did not start,
+MapLibre acting on its own. A stopped glide ends with "moveend" like an arrival, and was taken for one.
+A key's pan during the glide reproduces it 6 of 6. A glide now counts as arrived only at its framing,
+and a short one ends with a cut to the framing (`returnToBus()` in `components/city-map.tsx`). The new
+check in `ride.spec` reproduces it. Still open: on the phone profile MapLibre sometimes holds a ride's
+glide still for 1.1–1.8 s while reporting itself moving (seen on a bearing-less ride's entry and on a
+return after a drag); the cut now ends those, but the cause is not known.
+
 Seen twice in focused browser runs on 24 September 2026 (`ride.spec.mjs`, "a drag as the camera goes
 to the bus ends the glide"), passing in isolation and in the full gates either side. The ride learns
 that a pointer gesture was a drag from MapLibre's `dragstart`, which MapLibre fires on its next drawn
@@ -369,6 +378,14 @@ JavaScript, not the GPU); the other buses' eased corrections are not said anywhe
 card says its own); trails or route lines for the other buses (deliberately not drawn: their roads are
 loaded only for movement); Metrolink is still not here.
 
+**26 September 2026, afternoon: the other buses' repositionings are marked, and a journey change is no
+longer a cut.** Two route-192 buses at the Piccadilly terminus stepped 54 m and 108 m in one frame on the
+served site. The fleet had given each a new drawing when it started its next journey. The drawing is now
+carried across, with the previous journey's reports in front of the new ones. Every repositioning of
+another bus is drawn as a dashed trace for 6 s, and the hover tip says so. On two recorded reels the
+cuts over 3 m in 100 ms went from 141 and 130, all unmarked, to 108 and 88, all but one marked; the one
+left is a 6 m hop at a path joint (backlog 32). `docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md` §1.
+
 ## 34. The view from above: what it needs, and what is open
 
 Built 26 September 2026 (`docs/PHOTO_3D_RESEARCH.md`, `components/gods-eye.tsx`): Manchester as
@@ -376,9 +393,15 @@ photographic 3D (Google Photorealistic 3D Tiles, rendered by CesiumJS from this 
 the map's own buses on it, opened from *Explore Manchester*, offered only where the server's
 `config.json` carries a `photo3d` block. Checked against a sample tileset, never against the imagery.
 
-Needs the owner: a Google Maps Platform key with billing (1,000 openings a month free, then $6 per
-1,000; the daily quota is the bound), and a reading of the terms' *no use with non-Google maps* clause
-before the view goes public. Then, in order:
+Needs the owner: a Google Maps Platform key with billing (1,000 root tileset requests a month free,
+then $6 per 1,000; one request per opening of the view; the daily quota is the bound), and an answer to
+the terms' *no use with non-Google maps* question before the view goes public (`docs/PHOTO_3D_TERMS.md`).
+Since 26 September 2026 the key alone opens only a password-protected preview; the public page needs
+`LM_PHOTO3D_PUBLIC=1` too (`docs/PHOTO_3D_PREVIEW.md`). Built that afternoon and so no longer open:
+failures said by cause (quota, refusal, no answer, failing tiles, an ended session), the closer and
+higher follow, the imagery's age said apart from each report's, Google's logo, terms and privacy
+notices, the frame's identity with the map's, and a harness for the first look
+(`scripts/probes/above-imagery.mjs`). Then, in order:
 - **Look at the imagery** at the two camera heights in the city centre, at Trafford Bar and in
   Stretford, and at the low follow: if the mesh reads poorly from 95 m up, raise the follow, and keep
   the map's street preview as the low view rather than force this one.
@@ -394,6 +417,23 @@ before the view goes public. Then, in order:
   the outside ride has them.
 - The 3D bus is a box; the map's stylised model (`public/models/lm-bus.json`) could be built as one
   Cesium entity of boxes for the chosen bus.
+
+## 35. The front view's roads are half the width they are said to be
+
+Found 26 September 2026 while correcting a probe's metres. `components/city-map.tsx` converts metres to
+pixels with `METRES_PER_PIXEL_Z0 = 156543.03 × cos(lat)`, the scale of a 256-pixel tile. MapLibre's world
+is 512 pixels at zoom 0, so the true figure is half that. Every road class in the front view is drawn at
+half the width `ROAD_METRES` names: a primary road meant as 9 m is 4.5 m. The widths were judged by eye
+at the time, so a fix doubles what was approved. The fix is one constant, but the owner should see the
+before-and-after frames first. Not changed yet.
+
+## 36. Small things seen on the phone, left for now
+
+Seen on 26 September 2026 reviewing the everyday screens at 390 px
+(`outputs/probes/everyday-flows/after-preview/`):
+- the sheet handle truncates "Stretford Mall (Stop A) · 2 coming" to "· 2…";
+- the chosen bus's progress appears both in the card's sticky head and in the answer block below it;
+- departure rows name the operator by its code ("BNML"), which means nothing to a passenger.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

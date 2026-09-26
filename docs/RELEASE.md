@@ -4,12 +4,84 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`b849bbf`**, deployed 26 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`4d1f586`**, deployed 26 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 26 September, afternoon: the fleet's two jumps fixed, a private preview, the view ready for real imagery
+
+**Deployed: `4d1f586`**, after `d35001d` and `c7179c8` the same afternoon; `c7179c8` is kept for
+`deploy/rollback.sh`. The account and the measurements
+are in `docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md`.
+
+**An incident first.** Reproducing the jumps, I ran a replay on the server with a scratch copy in `/tmp`,
+which is RAM there. The kernel's out-of-memory killer took the collector twice, at 12:36 and 12:37 UTC,
+losing about four cycles (two minutes) before systemd restarted it. Nothing was corrupted. The rule for
+server-side work is now a hard memory cap (engineering opportunities, entry 60).
+
+**The two jumps.** Two route-192 buses at the Piccadilly terminus stepped 54 m and 108 m in one frame.
+The earlier record said 108 and 217 m, because the probe doubled every distance. Both were starting
+their next journeys, and the fleet redrew such a bus from scratch at its new report.
+- The drawing now carries across a journey change.
+- 11918, which reported 41 s before its new journey, is drawn travelling between its reports.
+- 11930, silent for seven minutes, is repositioned once and **marked**.
+- Every other bus's repositioning is now marked as the chosen bus's always was: a dashed trace for 6 s,
+  and the hover tip says so.
+- Reproduced before and after on the same publications, through the fleet code at 20 poll phases,
+  through the served and the new page, and for every bus in two reels. Cuts over 3 m in 100 ms went from
+  141 and 130, all unmarked, to 108 and 88, all but one marked; the one left is the open 6 m hop at a
+  path joint.
+
+**Configuration, private preview, public release.**
+- A Google key on the server no longer publishes the view. It opens only a password-protected
+  `/preview/` of the same app, locked until the owner sets a password with
+  `deploy/set-preview-password.sh`.
+- The public page needs `LM_PHOTO3D_PUBLIC=1` as well, which is off.
+- The terms question, the draft question for Google, and the attribution, privacy and video rules are
+  in `docs/PHOTO_3D_TERMS.md`.
+- The trial plan is in `docs/PHOTO_3D_PREVIEW.md`: one root tileset request per opening, a
+  recommended daily quota of 25, and $0.00 a month at most.
+
+**The view, ready for real imagery.**
+- Failures are said by cause: quota, refusal, no answer, failing tiles, an ended session.
+- *Closer* is offered beside the elevated follow.
+- The imagery's age is said apart from each report's.
+- Google's logo, terms and privacy notices are shown.
+- The view draws the map's own bus at the map's own moment.
+- Drawing only the buses in reach cut its tick from 10–12 ms to about 1 ms on the recorded noon fleet.
+- A harness for the first look is ready (`scripts/probes/above-imagery.mjs`). **Real imagery is not yet
+  seen: that needs the key.**
+
+**Everyday.**
+- The bus card's five-sentence motion explanation folds behind *How it is drawn*; a repositioning stays
+  said in view.
+- The phone handle's long status is cut short instead of running under the refresh button.
+- Usability remains unvalidated: no fresh user has tried it, and two short tasks for the first testers
+  are in the record.
+
+**The gate's failures, fixed rather than classified**, as the owner asked:
+- **Return to bus could settle at zoom 14.2.** A glide stopped part way by a camera move the ride did not
+  start was taken for an arrival. A short glide now ends with a cut to the framing.
+- **The front-view check measured the look-at point.** That point runs ahead of the bus by a
+  speed-dependent distance. The check now measures the camera's own position.
+- **The collector could not stop cleanly during a warehouse query.** Stopping mid-query exited 1, and a
+  stop during the timetable matching was even swallowed until systemd killed it. Both paths now stop
+  cleanly, and the server's last two restarts exited 0.
+
+**Verified:**
+- 266 Node and 140 Python tests; typecheck; lint with no errors; `deploy/validate.sh`, 43 checks.
+- The full browser gate on `d35001d`: 403 passed, 41 skipped by design, 2 failed. Both failures are
+  fixed in `c7179c8`.
+- On the final build: `ride.spec` 51 passed with none failed; the four once-failing checks 40 of 40
+  over five runs on both profiles; the 16 other ride-related specs 221 passed, none failed.
+- On the served site: the pages are byte for byte the build's; the preview answers 401; the public
+  configuration has no `photo3d`.
+- The noon publications replay through the served site with one marked cut and no unmarked one.
+- A real ride on both profiles returns to zoom 20 after a drag and *Return to bus*.
+- Emulation only.
 
 ## 26 September: simpler everyday use, and the view from above
 
@@ -69,13 +141,15 @@ tidy-ups (the view's event handler destroyed on leaving, a lint fix, the probe's
 `above.spec` and the sign-tap check passed on it, 24 of 24. **Deployed as `b849bbf`**, the served page
 chunk identical to the local build's (`43ebca86…`), `7dd79be` kept for rollback; the served
 `config.json` carries no `photo3d`, so the view is not offered on the public site; the renderer's files
-are served (`/vendor/cesium/version.json`, `Cesium.js` 6.0 MB). On the served site at 12:50 UTC: the three
+are served (`/vendor/cesium/version.json`, `Cesium.js` 6.0 MB). On the served site at 12:03 UTC (corrected: this said 12:50): the three
 changed screens captured (`outputs/probes/everyday-flows/served-b849bbf/`), and the fleet still drawing
 485 buses, 316 in view and 234 moving at a 1.3 ms tick at a city zoom, a tapped grey bus becoming the
 chosen bus with no hop (*Standing · as it was about 60 s ago · report 43 s old*). Seen on the way and
-left open: at a neighbourhood zoom two other buses stepped 108 and 217 m between two samples a quarter of
-a second apart — a repositioning is said for the chosen bus and silent for the rest (backlog 33), and
-which this was is not known. Emulation only.
+left open: at a neighbourhood zoom two other buses stepped 54 and 108 m between two samples a quarter of
+a second apart (corrected: the probe converted pixels with a 256-pixel tile's scale on a map of
+512-pixel tiles and reported 108 and 217 m). Traced the same day to two route-192 buses starting their
+next journeys at the Piccadilly terminus, which the fleet redrew from scratch; fixed in the release after
+this one (`docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md`). Emulation only.
 
 ## 25 September, night: every bus on the map
 

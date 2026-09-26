@@ -1216,12 +1216,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      {board&&board.coming.length?` (${board.coming.length} coming)`:''}</button>
    </div>}
    {motionWords&&relevant&&<div className={`bus-card-motion ${motionInfo?.mode}`}>
-    {/* The label is the claim; how an estimate is made is one tap away. Why a bus is not
-        estimated stays in view. */}
-    {motionInfo?.mode==='estimated'
-     ? <details><summary><strong>{motionWords.label}</strong><span>How the estimate is made</span></summary>
-        <p>{motionWords.detail}</p></details>
-     : <p><strong>{motionWords.label}</strong><span>{motionWords.detail}</span></p>}
+    {/* The label is the claim, and stays in view; how it is drawn — and why it is not estimated — is
+        one tap away (26 September 2026: the explanation ran to five sentences under every bus). A
+        repositioning is said in view as well. */}
+    <details><summary><strong>{motionWords.label}</strong>
+     <span>{motionInfo?.mode==='estimated'?'How the estimate is made':'How it is drawn'}</span></summary>
+     <p>{motionWords.detail}</p></details>
+    {motionWords.said&&<p className="bus-card-moved" data-moved>{motionWords.said}</p>}
     <button className="text-action" aria-pressed={!estimatedMovement}
      onClick={()=>saveMotionPreference(!estimatedMovement)}>
      {estimatedMovement?'Show reported positions only':'Show estimated movement'}</button>

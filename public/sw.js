@@ -55,6 +55,9 @@ self.addEventListener('fetch', event => {
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // The private preview is the server's business alone: behind a password, never stored here — its
+  // offer carries the provider's key (docs/PHOTO_3D_PREVIEW.md).
+  if (url.pathname === '/preview' || url.pathname.startsWith('/preview/')) return;
 
   if (DATA.test(url.pathname)) {
     event.respondWith(

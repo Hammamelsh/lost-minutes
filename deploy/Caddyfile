@@ -8,6 +8,30 @@
 {$LM_DOMAIN} {
 	encode zstd gzip
 
+	# The private preview of the view from above (docs/PHOTO_3D_PREVIEW.md): the page and the
+	# server's offer of a 3D tileset (with the provider's key) behind a password, never cached, never
+	# indexed. Locked by default: until the owner sets a password with deploy/set-preview-password.sh,
+	# the hash below is of a random password that was never recorded, so nobody can enter. The offer
+	# is one file the collector writes under data/ ({$LM_ROOT}/data/private), which no other route
+	# serves: /data/* is public/data, and only this handler rewrites to that one file.
+	@preview path /preview /preview/*
+	handle @preview {
+		basic_auth bcrypt "Lost Minutes preview" {
+			{$LM_PREVIEW_USER:preview} {$LM_PREVIEW_HASH:$2a$14$0H/8Q8GMbZzHLtbPd4oiceIIY6ns5OduSGNQGGBQSOoBwbmXUvLGG}
+		}
+		header Cache-Control "no-store"
+		header X-Robots-Tag "noindex, nofollow"
+		handle /preview/photo3d.json {
+			root * {$LM_ROOT}/data/private
+			rewrite * /photo3d.json
+			file_server
+		}
+		handle {
+			root * {$LM_ROOT}/out
+			file_server
+		}
+	}
+
 	# Everything under /data is served from where the pipeline publishes, so the collector's
 	# rewrites are live at once. out/data is only the copy taken at build time.
 	handle /data/* {

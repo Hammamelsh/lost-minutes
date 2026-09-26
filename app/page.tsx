@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import Link from 'next/link';
 import {ArrowDown,ArrowLeft,ArrowUpRight,BusFront,Check,Clock3,Database,ExternalLink,Focus,Info,Layers3,LoaderCircle,MapPin,Minus,Pause,Play,Plus,RotateCcw,Route,ShieldCheck,Activity} from 'lucide-react';
 import {Slider} from '@/components/ui/slider';
@@ -17,6 +17,8 @@ import SiteNotes from '@/components/site-notes';
 import CoverageLedger from '@/components/coverage-ledger';
 import {busesFromArchive,busesFromLive,busFromVehicle} from '@/lib/follow';
 import {DEFAULT_CONFIG,elapsedWords,feedMode,LiveState,parseConfig,parseLive,publicationAge,serverReference,SiteConfig} from '@/lib/live';
+import {isPreviewPath,loadPreviewOffer} from '@/lib/preview';
+import type {Photo3d} from '@/lib/gods-eye';
 import type {LiveVehicle} from '@/lib/live';
 
 /** SHA-256 of the live file exactly as this page received it, so the passenger's evidence can
@@ -82,10 +84,25 @@ function RecordingLoading({error}:{error:string}){
  return <section className="loading-card"><LoaderCircle className={error?'':'spin'} size={26}/><h2>{error||'Loading the recording…'}</h2><p>{error?'Reload the page to try again. Nothing live is shown here.':'Opening the original observations and their source record.'}</p>{error&&<button className="action" onClick={()=>location.reload()}>Try again</button>}</section>;
 }
 
+/** The address never changes path within the app (every address write keeps it), so nothing to subscribe to. */
+const noSubscription=()=>()=>{};
+const previewSnapshot=()=>isPreviewPath(window.location.pathname);
+
 export default function Home(){
  const [data,setData]=useState<Replay|null>(null),[roads,setRoads]=useState<RoadMap|null>(null),[error,setError]=useState('');
  const [ops,setOps]=useState<Operations|null>(null),[opsError,setOpsError]=useState('');
  const [config,setConfig]=useState<SiteConfig>(DEFAULT_CONFIG);
+ // The private preview (lib/preview.ts): this same page at /preview/, which the server serves only
+ // behind a password; there, and only there, the server's private offer of the view from above is
+ // read. The public page never asks for it.
+ const preview=useSyncExternalStore(noSubscription,previewSnapshot,()=>false);
+ const [previewPhoto3d,setPreviewPhoto3d]=useState<Photo3d|null>(null);
+ useEffect(()=>{
+  if(!preview)return;
+  let current=true;
+  loadPreviewOffer().then(offer=>{if(current)setPreviewPhoto3d(offer)});
+  return()=>{current=false};
+ },[preview]);
  const [live,setLive]=useState<LiveState|null>(null),[liveFetchedAt,setLiveFetchedAt]=useState(0);
  // Every vehicle this visit has seen, so a chosen bus that drops out of the feed can still be
  // described by its last report instead of silently vanishing.
@@ -493,10 +510,16 @@ export default function Home(){
   <span>Recorded {archiveDate}, {clock(data.start)}–{clock(data.end)} BST</span><small>Historical observations · not live</small></p>:null;
  return <main className="app-shell">
   <a className="skip-link" href="#content-start">{away?'Skip to the content':'Skip to your stop and buses'}</a>
-  <header className="masthead"><Link className="brand" href="/" aria-label="Lost Minutes home" onClick={event=>{if(away){event.preventDefault();show('follow')}}}><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span>
+  <header className="masthead"><Link className="brand" href={preview?'/preview/':'/'} aria-label="Lost Minutes home" onClick={event=>{if(away){event.preventDefault();show('follow')}}}><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span>
    {away
     ?<a href="#follow" onClick={event=>{event.preventDefault();show('follow')}} className="header-link back"><ArrowLeft size={16}/>Back to buses</a>
     :<a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}} className="header-link">Behind the data <ArrowUpRight size={16}/></a>}</header>
+  {preview&&<p className="preview-banner" role="note" data-preview={previewPhoto3d?previewPhoto3d.provider:'none'}>
+   <strong>Private preview</strong>
+   <span className="preview-banner-long">{previewPhoto3d?'The view from above is on under Explore Manchester. It is not public.'
+    :'No 3D imagery is configured on this server yet, so the view from above is not offered.'}</span>
+   <span className="preview-banner-short">{previewPhoto3d?'Not public':'No 3D imagery configured'}</span>
+   <Link href="/">Leave the preview</Link></p>}
   <div id="content-start" tabIndex={-1}/>
 
   {/* The passenger's page: laid out even while hidden, never gated on the recording. */}
@@ -520,7 +543,8 @@ export default function Home(){
     initialJourney={journey} journeyEpoch={journeyEpoch} onNewJourney={newJourney} onAddress={noteAddress}
     recording={ride?{id:ride.data.id,title:ride.data.title,date:ride.data.recordedOn,when:ride.data.fromLocal,
      busKey:rideBusKey(ride.data),started:ride.index>=0,ended:ride.ended,onLeave:leaveRecording,onReplay:replayRecording}:null}
-    recordings={recordings} onWatchRecording={startRecording} recordingError={rideError} photo3d={config.photo3d??null}/>
+    recordings={recordings} onWatchRecording={startRecording} recordingError={rideError}
+    photo3d={preview?(previewPhoto3d??config.photo3d??null):(config.photo3d??null)}/>
    {usingArchive&&<button className="text-action follow-leave-archive"
     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
   </div>
@@ -562,7 +586,8 @@ export default function Home(){
    </Tabs>
    </SectionBoundary>
   </section>}
-  <SiteNotes feed={liveMode} publishedAgo={publishedAge===null?'':`${elapsedWords(publishedAge)} ago`} stop={null}/>
+  <SiteNotes feed={liveMode} publishedAgo={publishedAge===null?'':`${elapsedWords(publishedAge)} ago`} stop={null}
+   photo3d={(preview?(previewPhoto3d??config.photo3d):config.photo3d)?.provider??null}/>
   <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a>{!away&&<> · <a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}}>Behind the data: how it is built</a></>}</p></footer>
  </main>
 }

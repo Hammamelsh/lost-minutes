@@ -8,7 +8,8 @@ import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,PALETTES,type M
 import {FLEET_LIVERY,MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
 import {ALL_STOPS_SOURCE,BUS_SOURCE,FLEET_MODEL_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_MIN_ZOOM,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
-        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE} from '@/lib/map-overlay';
+        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE,
+        FLEET_MOVED_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,type RepositionReason,slice,stepVisual,tickClock,turnToward,
         type PresentationClock,uncertaintyAt,
@@ -644,7 +645,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const fleetBuses=fleet??buses;
  const fleetRef=useRef<Fleet>(new Map());
  const fleetDrawn=useRef<FleetStep|null>(null);
- const fleetLoop=useRef({raf:null as number|null,lastDraw:0,lastPoints:0,ms:[] as number[],modelsDrawn:false,
+ const fleetLoop=useRef({raf:null as number|null,lastDraw:0,lastPoints:0,ms:[] as number[],modelsDrawn:false,movedKey:'',
   roadsInFlight:0,clock:null as PresentationClock|null});
  const fleetInputs=useRef({selectedKey:null as string|null,relevant:new Set<string>(),view:'2d' as MapView,
   model:null as BusModel|null,clockOffsetMs:0,mirror:null as {lat:number;lon:number;radiusM:number}|null,
@@ -714,7 +715,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     // The frame another renderer draws from: every bus stepped this tick, and the chosen bus where
     // its own drawing has it, at the same presentation time.
     const sel=inp.selected,v=visualRef.current;
-    const buses:DrawnFrame['buses']=step.features.map(f=>{const e=fleetRef.current.get(f.properties.key);return {key:f.properties.key,route:f.properties.route,
+    // Only what that renderer can reach: a city of standing buses far outside its view cost it 10–12 ms
+    // a tick to redraw for nothing (the imagery harness, 26 September 2026, 480 buses).
+    const reach=m?step.features.filter(f=>inView(f.geometry.coordinates[1],f.geometry.coordinates[0])):step.features;
+    const buses:DrawnFrame['buses']=reach.map(f=>{const e=fleetRef.current.get(f.properties.key);return {key:f.properties.key,route:f.properties.route,
      destination:e?.bus.destination??'',lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],
      bearing:f.properties.icon.endsWith('arrow')?f.properties.rotate:null,chosen:false,ageSeconds:e?Math.max(0,(now-e.bus.observedAtMs)/1000):0}});
     if(sel&&v)buses.push({key:sel.key,route:sel.route,destination:sel.destination,lat:v.lat,lon:v.lon,bearing:v.bearing,
@@ -722,6 +726,16 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     inp.onDrawn({at:now,buses});
    }
    if(!m)(instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:step.features});
+   // Buses repositioned rather than followed, each traced for a few seconds; redrawn only as the set
+   // changes. Diagnostic: how many are traced now.
+   const movedKey=m?'':step.moved.map(x=>`${x.key}@${x.at}`).join(',');
+   if(movedKey!==fl.movedKey){
+    fl.movedKey=movedKey;
+    (instance.getSource(FLEET_MOVED_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',
+     features:m?[]:step.moved.map(x=>({type:'Feature',geometry:{type:'LineString',coordinates:[[x.from.lon,x.from.lat],[x.to.lon,x.to.lat]]},
+      properties:{key:x.key,metres:Math.round(x.metres)}}))} as never);
+    el.setAttribute('data-fleet-moved',m?'':step.moved.map(x=>`${x.key}:${Math.round(x.metres)}`).join(','));
+   }
    const modelSource=instance.getSource(FLEET_MODEL_SOURCE) as GeoJSONSource|undefined;
    if(models&&inp.model){
     const m=inp.model;
@@ -2107,8 +2121,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    if(!b)return null;
    const w=root.current?.clientWidth??400,left=Math.max(8,Math.min(hover.x-92,w-196)),top=Math.max(8,hover.y-48);
    const age=Math.max(0,Math.round((Date.now()+clockOffsetMs-b.observedAtMs)/1000));
+   const moved=fleetRef.current.get(hover.key)?.moved;
    return <div className="map-hover" role="tooltip" style={{left,top}} data-hover={b.key}>
-    <span className="route-pill">{b.route}</span><strong>to {destinationLabel(b.destination)}</strong><small>{elapsedWords(age)} ago</small></div>;
+    <span className="route-pill">{b.route}</span><strong>to {destinationLabel(b.destination)}</strong><small>{elapsedWords(age)} ago</small>
+    {moved&&<small className="map-hover-moved">Moved {Math.round(moved.metres)} m to its latest report · not followed</small>}</div>;
   })()}
   {!painted&&<div className="map-loading" role="status">
    <p>Drawing the map…</p>

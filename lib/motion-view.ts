@@ -245,7 +245,7 @@ export function delaySeconds(actual:number|null|undefined):number|null{
 }
 
 /** "Estimated position" with the real report age, or "Last reported position" with why. */
-export function describeMotion(info:MotionInfo):{label:string;detail:string}{
+export function describeMotion(info:MotionInfo):{label:string;detail:string;said?:string}{
  if(info.mode==='observed'){
   // When an estimate is withdrawn the drawn bus goes back to the report, and says how far.
   // A bus drawn at its reports that could not travel to the new one is *repositioned*, and that
@@ -289,16 +289,19 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string}{
        +' drawn in a straight line between them: the streets it took are not known.'
       :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
+  // A repositioning is said where it is seen, not only in the explanation: `said` repeats it for the
+  // card to keep in view while the rest of the detail folds away (26 September 2026).
+  const said=moved.trim()||undefined;
   if(info.between&&info.offRoad)return {label:drawn!==null?`Off its checked road · ${drawn}`
     :`Off its checked road · latest ${ageWords(info.reportAge)} ago`,
-   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`,said};
   if(info.between&&info.standing)return {label:drawn!==null?`Standing · ${drawn}`
     :`Standing · latest ${ageWords(info.reportAge)} ago`,
-   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`,said};
   if(info.between)return {label:drawn!==null?`Moving between its reports · ${drawn}`
     :`Moving between its reports · latest ${ageWords(info.reportAge)} ago`,
-   detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
-  return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${cycle}${moved}`};
+   detail:`Not estimated: ${info.reason}.${cycle}${moved}`,said};
+  return {label:`Last reported position · ${ageWords(info.reportAge)} ago`,detail:`Not estimated: ${info.reason}.${cycle}${moved}`,said};
  }
  const parts=[info.speedKmh?`moving about ${info.speedKmh} km/h by its recent reports${info.eased?', eased off as the report ages':''}`
   :'standing at its last reports'];

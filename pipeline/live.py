@@ -28,6 +28,11 @@ from .warehouse import DEFAULT_DB, connect
 
 LIVE_TARGET = Path('public/data/live.json')
 CONFIG_TARGET = Path('public/data/config.json')
+# The private preview's offer of the view from above (docs/PHOTO_3D_PREVIEW.md): under data/, which
+# no public route serves (/data/* is public/data) and which the collector's sandbox may write, served
+# by Caddy only as /preview/photo3d.json behind the password. Written whenever a tileset is configured;
+# removed when none is, so withdrawing the key withdraws the preview.
+PRIVATE_PHOTO3D_TARGET = Path('data/private/photo3d.json')
 LIVE_KIND = 'live_positions'
 SCHEMA_VERSION = 1
 
@@ -156,12 +161,13 @@ def walking_config(environ=None):
             'attribution': f'Walking route: OSRM foot profile on {host}, OpenStreetMap data'}
 
 
-# The photographic view from above (docs/PHOTO_3D_RESEARCH.md) is offered only where this server is
-# configured for it. LM_PHOTO3D_GOOGLE_KEY in .env is a Google Maps Platform browser key, restricted
-# by the owner to this site's address and to the Map Tiles API — a key the provider designs to be
-# public, which is why it may be written into config.json; it is never in Git or in a log.
-# LM_PHOTO3D_TILESET names any other 3D Tiles tileset (a public sample, for a check of the viewer),
-# labelled as a sample. Neither set: the block is absent and the page offers no such view.
+# The photographic view from above (docs/PHOTO_3D_RESEARCH.md, docs/PHOTO_3D_PREVIEW.md).
+# LM_PHOTO3D_GOOGLE_KEY in .env is a Google Maps Platform browser key, restricted by the owner to this
+# site's address and to the Map Tiles API; LM_PHOTO3D_TILESET names any other 3D Tiles tileset (a
+# sample, for a check of the viewer), labelled as one. Either one makes the view available to the
+# private preview only (PRIVATE_PHOTO3D_TARGET, behind the password). The public page offers it only
+# when LM_PHOTO3D_PUBLIC is also set — an explicit decision, off by default, because a key alone must
+# never publish a paid feature whose terms have not been settled. The key is never in Git or a log.
 GOOGLE_3D_TILES = 'https://tile.googleapis.com/v1/3dtiles/root.json'
 
 
@@ -185,6 +191,12 @@ def photo3d_config(environ=None):
     return None
 
 
+def photo3d_public(environ=None):
+    """Whether the public page may offer the view from above: only on an explicit yes."""
+    env = environ if environ is not None else os.environ
+    return env.get('LM_PHOTO3D_PUBLIC', '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 def _config(poll_seconds):
     """Runtime pointers, so the served data object can move host without a rebuild."""
     config = {'schemaVersion': SCHEMA_VERSION,
@@ -197,9 +209,28 @@ def _config(poll_seconds):
                       'to use another OSRM foot server, or "none" to switch walking directions '
                       'off. The frontend reads this at runtime; changing it needs no rebuild.'}
     photo3d = photo3d_config()
-    if photo3d:
+    if photo3d and photo3d_public():
         config['photo3d'] = photo3d
     return config
+
+
+def write_runtime_config(root, poll_seconds, environ=None):
+    """config.json for every visitor, and the private preview's offer beside it (or its removal)."""
+    from .freshness import POLL_DEFAULT
+    atomic_json(Path(root) / CONFIG_TARGET, _config(poll_seconds or POLL_DEFAULT))
+    private = Path(root) / PRIVATE_PHOTO3D_TARGET
+    # The preview never costs the publication: a failure here is reported and passed over.
+    try:
+        photo3d = photo3d_config(environ)
+        if photo3d:
+            atomic_json(private, {'schemaVersion': SCHEMA_VERSION, 'photo3d': photo3d,
+                                  'public': photo3d_public(environ),
+                                  'note': 'The private preview of the view from above: served only as /preview/photo3d.json, '
+                                          'behind the password (deploy/Caddyfile). Not public unless LM_PHOTO3D_PUBLIC is set.'})
+        elif private.exists():
+            private.unlink()
+    except (OSError, ValueError) as error:
+        print(f'  the private preview offer was not written: {error}', file=sys.stderr)
 
 
 def build_live(con, published_at=None):
@@ -412,7 +443,7 @@ def publish_live(con, run_id=None, root=Path('.'), target=LIVE_TARGET, published
 
     if not failed:
         atomic_json(target, payload)
-        atomic_json(Path(root) / CONFIG_TARGET, _config(poll_seconds or POLL_DEFAULT))
+        write_runtime_config(root, poll_seconds)
 
     _record(con, run_id, payload, digest, len(body), target, failed, checks, root)
     return {'state': payload['state'], 'vehicles': len(payload['vehicles']),
@@ -508,7 +539,7 @@ def write_unavailable(root=Path('.'), reason=None, poll_seconds=None, con=None):
         'notes': NOTES,
     }
     atomic_json(Path(root) / LIVE_TARGET, payload)
-    atomic_json(Path(root) / CONFIG_TARGET, _config(poll_seconds or POLL_DEFAULT))
+    write_runtime_config(root, poll_seconds)
     return payload
 
 

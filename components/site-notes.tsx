@@ -1,7 +1,7 @@
 'use client';
 
 import {useState} from 'react';
-import {ClipboardCheck, Copy, MapPin, MessageSquare} from 'lucide-react';
+import {ClipboardCheck, Copy, Globe, MapPin, MessageSquare} from 'lucide-react';
 import {BUILD} from '@/lib/build';
 
 /** Where a beta report goes. The repository is public and issues are the record; nothing is
@@ -18,7 +18,9 @@ const ISSUES='https://github.com/Hammamelsh/lost-minutes/issues/new?labels=beta-
  * themselves. Nothing leaves the page: there is no endpoint here to send it to, and adding one
  * would mean collecting from people who came to look at buses.
  */
-export default function SiteNotes({feed,publishedAgo,stop}:{feed:string;publishedAgo:string;stop:string|null}){
+export default function SiteNotes({feed,publishedAgo,stop,photo3d=null}:{feed:string;publishedAgo:string;stop:string|null;
+ /** Who provides the view from above where it is offered: Google's content needs its own notice. */
+ photo3d?:'google'|'sample'|null}){
  const [copied,setCopied]=useState(false);
  const [report,setReport]=useState('');
  // Written when the note is opened, not on every render, so it carries what was true at the
@@ -85,5 +87,25 @@ export default function SiteNotes({feed,publishedAgo,stop}:{feed:string;publishe
      in this browser, for this address, and go nowhere else. Clearing site data removes them.</p>
    </div>
   </details>
+  {/* The notice Google's terms ask of an application that includes Google Maps content (3.2.2) and
+      what it receives (4.4): only where that content is offered. */}
+  {photo3d==='google'&&<details className="site-note" data-note="google-maps">
+   <summary><Globe size={15}/>The view from above</summary>
+   <div className="site-note-body">
+    <p>The view from above includes Google Maps features and content: Google&rsquo;s Photorealistic
+     3D Tiles, imagery captured at an earlier date. Their use is subject to the
+     {' '}<a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noopener noreferrer">Google Maps
+     End User Additional Terms of Service</a> and the
+     {' '}<a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy
+     Policy</a>.</p>
+    <p>Nothing is asked of Google until you open the view. Opening it makes one request for the imagery
+     and then asks for the tiles on screen; your browser sends those requests to Google, which receives
+     your IP address and the parts of Manchester shown, as it does from any page with Google Maps on it.
+     Your location is not sent: the view opens on the city, or on the bus you chose.</p>
+    <p className="microcopy">The buses on it are this site&rsquo;s own: positions from the Bus Open Data
+     Service (Open Government Licence), each drawn where its own reports put it; road shapes from
+     OpenStreetMap (ODbL). Nothing about them comes from Google.</p>
+   </div>
+  </details>}
  </div>;
 }

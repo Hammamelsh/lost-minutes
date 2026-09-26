@@ -66,6 +66,31 @@ export function offsetAlong(lat:number,lon:number,bearing:number,metres:number):
 /** The camera for following a bus from above and behind: `range` metres back along its heading and
  *  `height` metres up, looking at it. Shared by the descent and the follow, so they meet. */
 export const ABOVE_FOLLOW={range:150,height:95,pitchDegrees:-32};
+/** The closer follow, offered beside the elevated one rather than forced: whether the imagery holds up
+ *  this low over Manchester's streets is not known until it has been seen (docs/PHOTO_3D_PREVIEW.md). */
+export const ABOVE_CLOSE={range:55,height:26,pitchDegrees:-25};
+/** Past this long open, failing tiles are read as the provider's session having ended (a root request
+ *  allows at least three hours of tile requests), and the view says so rather than asking again. */
+export const ABOVE_SESSION_MS=2.5*3600_000;
+
+/** Why the imagery could not be opened, from the answer to the one request that opens it. */
+export type AboveFailure='renderer'|'webgl'|'quota'|'refused'|'unreachable'|'imagery';
+export function failureOf(error:unknown):AboveFailure{
+ const code=(error as {statusCode?:number}|null)?.statusCode;
+ if(code===429)return 'quota';
+ if(code===401||code===403)return 'refused';
+ if(code===undefined||code===0)return 'unreachable';
+ return 'imagery';
+}
+/** What the passenger is told, once, for each: the map is untouched in every case. */
+export const FAILURE_WORDS:Record<AboveFailure,string>={
+ renderer:'The 3D renderer could not be loaded from this site.',
+ webgl:'This device cannot draw the 3D view (WebGL is not available).',
+ quota:'Today’s allowance of 3D imagery for this site has been used up, so the view cannot open until it resets.',
+ refused:'The 3D imagery provider refused this site’s request.',
+ unreachable:'The 3D imagery could not be reached: no connection, or no answer.',
+ imagery:'The 3D imagery could not be loaded.',
+};
 /** The elevated view a passenger opens on: the city from `height` metres, tilted `pitchDegrees`. */
 export const ABOVE_CITY={height:1400,pitchDegrees:-58};
 /** Ellipsoidal height assumed for a bus before the ground under it has been measured: Manchester's

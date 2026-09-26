@@ -1,7 +1,7 @@
 // The three everyday screens the simplification of 26 September 2026 changed, captured the same way
 // on any build so they can be put side by side: a search for a stop with several sides of the road;
-// the stop's head and its departure board with a tracked bus; the home with the route panel and the
-// Explore block. FIXTURE data on the built site (the served one or a local one), phone and desktop.
+// the stop's head and its departure board with a tracked bus; a bus chosen from it; the home with the
+// route panel and the Explore block. FIXTURE data on the built site (the served one or a local one), phone and desktop.
 //
 //   node scripts/probes/everyday-flows.mjs --base http://127.0.0.1:8098/ --label after
 import {mkdirSync} from 'node:fs';
@@ -15,7 +15,10 @@ const {servePatterns, serveLive, serveMotion, movingLive, journeyLive, waitForPa
 const browser = await launch();
 for (const size of [{name: 'phone-390', viewport: {width: 390, height: 844}, phone: true}, {name: 'desktop', viewport: {width: 1280, height: 900}, phone: false}]) {
   const context = await browser.newContext({viewport: size.viewport, deviceScaleFactor: size.phone ? 2 : 1, isMobile: size.phone, hasTouch: size.phone,
-    timezoneId: 'Europe/London', baseURL: base});
+    timezoneId: 'Europe/London', baseURL: base,
+    // The fixtures answer the page's own requests; a service worker would answer them first with the
+    // build's stale data (26 September 2026: a frame of "not collecting · 13 days ago").
+    serviceWorkers: 'block'});
   const page = await context.newPage();
   await servePatterns(page);
   await serveMotion(page, {evaluation: null});
@@ -36,6 +39,14 @@ for (const size of [{name: 'phone-390', viewport: {width: 390, height: 844}, pho
   await page.waitForTimeout(2500);
   if (size.phone) { const open = page.getByRole('button', {name: /Open full list/}); if (await open.isVisible()) await open.click(); await page.waitForTimeout(600); }
   await page.screenshot({path: join(out, `${size.name}-2-stop.png`)});
+  // 2b. A bus chosen from the stop's board: its card, as a passenger first reads it.
+  const row = page.locator('.follow-row[data-bus]').first();
+  if (await row.count()) {
+    await row.scrollIntoViewIfNeeded().catch(() => {});
+    await row.click().catch(() => {});
+    await page.waitForTimeout(1500);
+    await page.screenshot({path: join(out, `${size.name}-2b-bus.png`)});
+  }
   // 3. The home with a route chosen: the route panel and the Explore block.
   await page.goto('/');
   await waitForPaint(page).catch(() => {});

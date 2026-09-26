@@ -122,31 +122,25 @@ a reading of the "no use with non-Google maps" clause** (§5). Everything else i
 
 ## 4. Cost, with the provider's own units
 
-One root tileset request per opening of the view (and one more every three hours it stays open).
-At $6.00 per 1,000 after 1,000 free a month:
+Superseded on 26 September 2026 by `docs/PHOTO_3D_PREVIEW.md` §3, which states the unit exactly: **one
+root tileset request** each time the view is opened (a reload or a second tab is another), none for
+the tiles after it, and a new one only if the view is reopened after its session of about three hours.
+It recommends a daily quota of 25 for a private trial, which bounds a 31-day month at 775 requests,
+inside the free 1,000, so $0.00 at most. This section's earlier example of 500 a day would allow up to
+$87.00 a month and is not recommended.
 
-| use | openings a month | cost a month |
-|---|---|---|
-| low: the owner and a few testers | 300 | **$0** (within the free 1,000) |
-| expected: a public beta that a few hundred people try | 3,000 | **$12** |
-| high: a busy week of sharing | 30,000 | **$174** |
+## 5. The steps only the owner can take
 
-The daily root-request quota is the control that limits spending: set to, say, 500 a day it bounds the
-month at 15,000 openings, about $84 at most, and the view says "not available today" beyond it rather
-than the bill growing. A budget alert in the console warns but does not stop anything.
+Superseded on 26 September 2026 by two documents.
+- **`docs/PHOTO_3D_TERMS.md`** has the terms clause verbatim, what this app does, and the question to
+  send Google. The earlier suggestion here, to host the view at its own address, is withdrawn: a second
+  address the owner controls is still a "Customer Application", and no evidence was found that it
+  changes the reading.
+- **`docs/PHOTO_3D_PREVIEW.md`** has the key's setup, now private by default.
 
-## 5. The two steps only the owner can take
+Putting the key on the server no longer offers the view to the public. It offers it only at the
+password-protected `/preview/`. The public page needs `LM_PHOTO3D_PUBLIC=1` as well, and that is the
+owner's decision once the terms question is settled.
 
-1. **Decide the terms question** (§1): either read the clause as allowing a view that contains only
-   Google's content and our own overlays, ask Google (the Maps Platform support channel comes with a
-   billing account), or host the view as its own application at its own address. Nothing here should
-   go public before that.
-2. **Create the key**: a Google Cloud project with billing; enable the *Map Tiles API*; create a
-   browser key restricted to the site's address (`https://lost-minutes.duckdns.org/*`) and to the Map
-   Tiles API; set the Photorealistic 3D Tiles daily quota (the console's *Quotas* page) to the bound
-   chosen, and a budget alert; put `LM_PHOTO3D_GOOGLE_KEY=<the key>` in the server's `.env` and restart
-   the collector. No rebuild: the next publication carries the block, and the view appears under
-   *Explore Manchester*.
-
-Until then the viewer can be exercised with a sample tileset (`LM_PHOTO3D_TILESET`), which is how it was
-checked here, and is labelled as a sample wherever it shows.
+Until a key exists, the viewer is exercised with a sample tileset (`LM_PHOTO3D_TILESET`), and is
+labelled as a sample wherever it shows.

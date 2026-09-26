@@ -11,7 +11,9 @@ export const BUS_SOURCE='lm-buses',STOP_SOURCE='lm-stop',HERE_SOURCE='lm-here',M
 export const ALL_STOPS_SOURCE='lm-all-stops';
 /** The other buses' 3D models, from the ride's zoom: their own source, redrawn at the fleet's pace. */
 export const FLEET_MODEL_SOURCE='lm-fleet-model';
-export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,FLEET_MODEL_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
+/** Other buses moved to a report they could not be followed to: each move, for a few seconds. */
+export const FLEET_MOVED_SOURCE='lm-fleet-moved';
+export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,FLEET_MODEL_SOURCE,FLEET_MOVED_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
  TRAIL_SOURCE,STOPS_AHEAD_SOURCE] as const;
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
@@ -104,6 +106,13 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
   // stop or route a little stronger, the rest muted and smaller at wide zooms, so a city of buses
   // reads as a city rather than a swarm. A bus with a 3D model gives up its flat marker where the
   // model is drawn.
+  // Another bus repositioned rather than followed (lib/fleet.ts, 26 September 2026): from where it was
+  // drawn to where its reports now put it, dashed in the fleet's own grey for a few seconds, under the
+  // markers — as the chosen bus's repositioning is traced in ink — so a cut is never read as driving.
+  {id:'lm-fleet-moved',type:'line',source:FLEET_MOVED_SOURCE,
+   layout:{'line-cap':'round'},
+   paint:{'line-color':o.fleet,'line-opacity':0.85,'line-width':['interpolate',['linear'],['zoom'],11,1.4,18,3.4],
+          'line-dasharray':[0.6,1.4]}},
   {id:'lm-bus-marker',type:'symbol',source:BUS_SOURCE,
    layout:{'icon-image':['get','icon'],'icon-rotate':['get','rotate'],
            'icon-size':['interpolate',['linear'],['zoom'],10,0.62,13.5,1],

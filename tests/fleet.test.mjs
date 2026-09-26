@@ -63,17 +63,28 @@ test('the passenger’s own buses are drawn stronger, stale ones muted, and a bu
  assert.equal(step.moving, 0, 'nothing is played back at the reports');
 });
 
-test('a publication keeps each drawing, rebuilds a changed history, and starts a new journey afresh', () => {
+test('a publication keeps each drawing, rebuilds a changed history, and carries a drawn bus into its next journey', () => {
  const now = T0 + 90_000;
  let fleet = reconcileFleet(new Map(), [bus('a', {now}), bus('b', {now})]);
  stepFleet(fleet, now, options());
  const before = fleet.get('OP|a');
  assert.notEqual(before.vis, null);
  // The next publication: a has a new report, b is on another journey, c is new, and nothing of d.
- fleet = reconcileFleet(fleet, [bus('a', {now: now + 20_000}), bus('b', {now: now + 20_000, journeyRef: 'j2'}), bus('c', {now: now + 20_000})]);
+ // A new journey's first publication carries its first report and no trail, as the feed's do.
+ const next = {...bus('b', {now: now + 20_000, journeyRef: 'j2'}), trail: []};
+ fleet = reconcileFleet(fleet, [bus('a', {now: now + 20_000}), next, bus('c', {now: now + 20_000})]);
  assert.equal(fleet.get('OP|a'), before, 'the same entry, its drawing kept');
  assert.equal(fleet.get('OP|a').history.fixes.length, before.history.fixes.length, 'history rebuilt from the new reports');
- assert.equal(fleet.get('OP|b').vis, null, 'another journey is another drawing');
+ // Restated 26 September 2026: a new journey was a new drawing, which began at the new report and
+ // stepped the bus there unsaid (two 192s at Piccadilly, 54 m and 108 m; tests/fleet-journey-change).
+ // The drawing now goes on, with the previous journey's newest report in front of the new reports.
+ const b = fleet.get('OP|b');
+ assert.notEqual(b.vis, null, 'another journey keeps the drawing it had');
+ assert.equal(b.journey, '42|inbound|j2');
+ assert.equal(b.road, undefined, 'the new journey’s road is asked for afresh');
+ assert.ok(b.carried.length > 0, 'the previous journey’s reports are carried');
+ assert.equal(b.history.fixes[0].at, b.carried[0].at, 'in front of the new journey’s reports');
+ assert.equal(b.history.fixes.at(-1).at, next.observedAtMs, 'up to the new journey’s newest');
  assert.equal(fleet.get('OP|c').vis, null);
  assert.equal(fleet.size, 3);
 });

@@ -114,6 +114,18 @@ const liveSchema = z.object({
  notes:z.array(z.string()),
 });
 
+/** A 3D Tiles tileset the server offers for the view from above (docs/PHOTO_3D_RESEARCH.md): in the
+ *  public config.json only when the owner has made the view public, otherwise only in the private
+ *  preview's offer (lib/preview.ts). */
+export const photo3dSchema = z.object({
+ provider:z.enum(['google','sample']),
+ tilesetUrl:z.string().url(),
+ /** What the imagery is, for the passenger: shown in the view. */
+ attribution:z.string(),
+ /** When the provider's imagery was captured is not published; the view says so. */
+ note:z.string().optional(),
+});
+
 export const configSchema = z.object({
  schemaVersion:z.literal(1),
  liveUrl:z.string(), replayUrl:z.string(), operationsUrl:z.string(),
@@ -126,14 +138,7 @@ export const configSchema = z.object({
  // restricted to this site's address, which is the provider's own architecture for a public page).
  // Absent, the view is not offered at all. A malformed block is ignored rather than discarding the
  // whole config.
- photo3d:z.object({
-  provider:z.enum(['google','sample']),
-  tilesetUrl:z.string().url(),
-  /** What the imagery is, for the passenger: shown in the view. */
-  attribution:z.string(),
-  /** When the provider's imagery was captured is not published; the view says so. */
-  note:z.string().optional(),
- }).optional().catch(undefined),
+ photo3d:photo3dSchema.optional().catch(undefined),
  note:z.string().optional(),
 });
 

@@ -16,9 +16,10 @@
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import type * as CesiumTypes from 'cesium';
-import {Bus,Crosshair,X} from 'lucide-react';
+import {Bus,Crosshair,Minimize2,Maximize2,X} from 'lucide-react';
 import {prefersReducedMotion} from '@/lib/basemap';
-import {ABOVE_CITY,ABOVE_DEFAULT_GROUND,ABOVE_FOLLOW,loadCesium,offsetAlong,type DrawnFrame,type Photo3d} from '@/lib/gods-eye';
+import {ABOVE_CITY,ABOVE_CLOSE,ABOVE_DEFAULT_GROUND,ABOVE_FOLLOW,ABOVE_SESSION_MS,FAILURE_WORDS,failureOf,loadCesium,offsetAlong,
+ type AboveFailure,type DrawnFrame,type Photo3d} from '@/lib/gods-eye';
 import {destinationLabel} from '@/lib/follow';
 
 type Status='loading'|'ready'|'failed';
@@ -37,13 +38,27 @@ type Props={
 };
 
 const LIME='#c6f36a',GREY='#8fa3ae';
+type Follow={range:number;height:number;pitchDegrees:number};
+/** The follow's distance now: the one chosen, or on the way to it (a second, eased). */
+function followAt(s:{blend:{from:Follow;to:Follow;start:number}|null},now:number):Follow{
+ const b=s.blend;
+ if(!b)return ABOVE_FOLLOW;
+ const f=Math.min(1,Math.max(0,(now-b.start)/1000)),w=f*f*(3-2*f);
+ const mix=(x:number,y:number)=>x+(y-x)*w;
+ return {range:mix(b.from.range,b.to.range),height:mix(b.from.height,b.to.height),pitchDegrees:mix(b.from.pitchDegrees,b.to.pitchDegrees)};
+}
 const BUS_LENGTH=12,BUS_WIDTH=2.55,BUS_HEIGHT=3.3;
 
 export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeave,onFocus}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
  const [status,setStatus]=useState<Status>('loading');
- const [why,setWhy]=useState<string|null>(null);
+ const [failure,setFailure]=useState<AboveFailure|null>(null);
+ // Tiles failing after the view opened: a patch of imagery missing, or the provider's session over.
+ const [trouble,setTrouble]=useState<'tiles'|'session'|null>(null);
+ // How close the follow is: the elevated view by default, the closer one when asked for.
+ const [distance,setDistance]=useState<'elevated'|'close'>('elevated');
+ const distanceRef=useRef(distance);
  const [mode,setMode]=useState<'city'|'following'|'exploring'>('city');
  const [tiles,setTiles]=useState<{loaded:boolean;credits:string}>({loaded:false,credits:''});
  const [named,setNamed]=useState<{route:string;destination:string;age:number}|null>(null);
@@ -51,10 +66,20 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
   following:false,selected:null as string|null,heights:new Map<string,number>(),lastClamp:0,clamping:false,
   ticks:[] as number[],frames:0,openedAt:0,usableAt:0,descending:false,timer:null as ReturnType<typeof setInterval>|null,
   tileset:null as CesiumTypes.Cesium3DTileset|null,imagery:false,release:null as (()=>void)|null,
-  handler:null as CesiumTypes.ScreenSpaceEventHandler|null});
+  handler:null as CesiumTypes.ScreenSpaceEventHandler|null,failures:[] as number[],lastFailure:0,
+  blend:null as {from:Follow;to:Follow;start:number}|null,
+  drawn:new Map<string,{lat:number;lon:number;bearing:number|null;height:number;chosen:boolean}>()});
  // Read by the tick and the handlers, which are registered once; written outside render.
  const selectedRef=useRef(selectedKey),onSelectRef=useRef(onSelect),onFocusRef=useRef(onFocus);
  useEffect(()=>{selectedRef.current=selectedKey;onSelectRef.current=onSelect;onFocusRef.current=onFocus},[selectedKey,onSelect,onFocus]);
+ // A change of distance eases the follow to the new one over a second, and the follow goes on: a drag
+ // still takes the camera, and nothing re-runs the descent.
+ useEffect(()=>{
+  if(distanceRef.current===distance)return;
+  const s=state.current,from=followAt(s,performance.now());
+  distanceRef.current=distance;
+  s.blend={from,to:distance==='close'?ABOVE_CLOSE:ABOVE_FOLLOW,start:performance.now()};
+ },[distance]);
 
  // --- the viewer, created once ------------------------------------------------------------
  useEffect(()=>{
@@ -63,7 +88,7 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
   s.openedAt=performance.now();
   (async()=>{
    let Cesium:typeof CesiumTypes;
-   try{Cesium=await loadCesium()}catch(error){if(live){setWhy(error instanceof Error?error.message:'the renderer could not be loaded');setStatus('failed')}return}
+   try{Cesium=await loadCesium()}catch{if(live){setFailure('renderer');setStatus('failed')}return}
    if(!live||!container.current)return;
    let viewer:CesiumTypes.Viewer;
    try{
@@ -76,7 +101,7 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
      globe:photo3d.provider==='sample'?undefined:false,baseLayer:false,skyBox:false,skyAtmosphere:false,
      contextOptions:{webgl:{powerPreference:'high-performance'}},
     });
-   }catch(error){if(live){setWhy(error instanceof Error?error.message:'WebGL is not available');setStatus('failed')}return}
+   }catch{if(live){setFailure('webgl');setStatus('failed')}return}
    s.viewer=viewer;s.cesium=Cesium;
    viewer.scene.backgroundColor=Cesium.Color.fromCssColorString('#0b1720');
    if(viewer.scene.sun)viewer.scene.sun.show=false;
@@ -98,11 +123,25 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
     tileset.loadProgress.addEventListener((pending:number,processing:number)=>{
      root.current?.setAttribute('data-above-tiles',`${pending},${processing}`);
     });
+    // Tiles that fail after the opening request succeeded: five in half a minute is said. Past the
+    // provider's session (a root request covers at least three hours of tiles) it is read as the
+    // session having ended, and the view says to reopen it; it never asks for a new session by
+    // itself, because each one is a billed request.
+    tileset.tileFailed.addEventListener(()=>{
+     if(!live)return;
+     const now=performance.now();
+     s.failures=[...s.failures.filter(t=>now-t<30_000),now];s.lastFailure=now;
+     root.current?.setAttribute('data-above-tile-failures',String(s.failures.length));
+     if(s.failures.length>=5)setTrouble(now-s.openedAt>ABOVE_SESSION_MS?'session':'tiles');
+    });
    }catch(error){
     if(!live)return;
-    setWhy(`the imagery could not be loaded (${error instanceof Error?error.message:'unknown error'})`);
-    setStatus('failed');
+    // The one request that opens the imagery, answered or not: its answer says which failure it is
+    // (429, the day's quota; 401 or 403, the key or the account; no answer at all).
+    const kind=failureOf(error);
+    setFailure(kind);setStatus('failed');
     root.current?.setAttribute('data-above-imagery','failed');
+    root.current?.setAttribute('data-above-failure',kind);
     return;
    }
    if(!live)return;
@@ -153,6 +192,8 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
    const s=state.current,viewer=s.viewer,Cesium=s.cesium,f=frame.current;
    if(!viewer||!Cesium||viewer.isDestroyed()||!f)return;
    if(s.tileset&&!s.imagery&&s.tileset.tilesLoaded)imageryLoaded();
+   // A patch of failing tiles that has stopped failing is no longer said; an ended session stays said.
+   if(s.lastFailure&&performance.now()-s.lastFailure>30_000){s.lastFailure=0;s.failures=[];setTrouble(t=>t==='tiles'?null:t)}
    const t0=performance.now();
    const seen=new Set<string>();
    let chosen:{lat:number;lon:number;bearing:number|null;height:number}|null=null;
@@ -162,6 +203,12 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
     const position=Cesium.Cartesian3.fromDegrees(bus.lon,bus.lat,height);
     const heading=Cesium.Math.toRadians(bus.bearing??0);
     let entity=viewer.entities.getById(id);
+    // Only what changed is written: every write makes the renderer rebuild that bus's box, and most
+    // buses stand still between two ticks.
+    const last=s.drawn.get(bus.key);
+    const moved=!last||last.lat!==bus.lat||last.lon!==bus.lon||last.bearing!==bus.bearing||last.height!==height;
+    const recoloured=!last||last.chosen!==bus.chosen;
+    s.drawn.set(bus.key,{lat:bus.lat,lon:bus.lon,bearing:bus.bearing,height,chosen:bus.chosen});
     if(!entity){
      entity=viewer.entities.add({id,position,
       box:{dimensions:new Cesium.Cartesian3(BUS_WIDTH,BUS_LENGTH,BUS_HEIGHT),
@@ -171,16 +218,23 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
        backgroundPadding:new Cesium.Cartesian2(5,3),pixelOffset:new Cesium.Cartesian2(0,-22),
        verticalOrigin:Cesium.VerticalOrigin.BOTTOM,disableDepthTestDistance:Number.POSITIVE_INFINITY,
        scaleByDistance:new Cesium.NearFarScalar(200,1,2500,0.5)}});
+     entity.orientation=new Cesium.ConstantProperty(Cesium.Transforms.headingPitchRollQuaternion(position,new Cesium.HeadingPitchRoll(heading,0,0)));
     }else{
-     entity.position=new Cesium.ConstantPositionProperty(position);
-     const box=entity.box;
-     if(box)box.material=new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString(bus.chosen?LIME:GREY));
-     if(entity.label)entity.label.backgroundColor=new Cesium.ConstantProperty(Cesium.Color.fromCssColorString(bus.chosen?LIME:'#e6eff3'));
+     if(moved){
+      entity.position=new Cesium.ConstantPositionProperty(position);
+      entity.orientation=new Cesium.ConstantProperty(Cesium.Transforms.headingPitchRollQuaternion(position,new Cesium.HeadingPitchRoll(heading,0,0)));
+     }
+     if(recoloured){
+      const box=entity.box;
+      if(box)box.material=new Cesium.ColorMaterialProperty(Cesium.Color.fromCssColorString(bus.chosen?LIME:GREY));
+      if(entity.label)entity.label.backgroundColor=new Cesium.ConstantProperty(Cesium.Color.fromCssColorString(bus.chosen?LIME:'#e6eff3'));
+     }
     }
-    entity.orientation=new Cesium.ConstantProperty(Cesium.Transforms.headingPitchRollQuaternion(position,new Cesium.HeadingPitchRoll(heading,0,0)));
-    if(bus.chosen){chosen={lat:bus.lat,lon:bus.lon,bearing:bus.bearing,height};setNamed(n=>n&&n.route===bus.route&&n.destination===bus.destination&&Math.abs(n.age-bus.ageSeconds)<1?n:{route:bus.route,destination:destinationLabel(bus.destination),age:Math.round(bus.ageSeconds)})}
+    if(bus.chosen){chosen={lat:bus.lat,lon:bus.lon,bearing:bus.bearing,height};
+     // The same bus at the same drawn place and moment as the map: what a check compares.
+     root.current?.setAttribute('data-above-chosen',`${bus.key},${bus.lat.toFixed(7)},${bus.lon.toFixed(7)},${Math.round(f.at)}`);setNamed(n=>n&&n.route===bus.route&&n.destination===bus.destination&&Math.abs(n.age-bus.ageSeconds)<1?n:{route:bus.route,destination:destinationLabel(bus.destination),age:Math.round(bus.ageSeconds)})}
    }
-   for(const entity of [...viewer.entities.values])if(!seen.has(entity.id))viewer.entities.remove(entity);
+   for(const entity of [...viewer.entities.values])if(!seen.has(entity.id)){viewer.entities.remove(entity);s.drawn.delete(entity.id.slice(4))}
    // The ground under each bus, measured against the imagery once a second: the mesh carries the
    // real terrain, and a bus drawn at an assumed height would float or sink.
    if(!s.clamping&&t0-s.lastClamp>1000&&f.buses.length){
@@ -191,12 +245,14 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
      clamped.forEach((p,i)=>{if(p){const c=Cesium.Cartographic.fromCartesian(p);if(c)s.heights.set(keys[i],c.height)}});
     }).catch(()=>{}).finally(()=>{s.clamping=false});
    }
-   // A newly chosen bus: descend to it; then follow from above and behind.
+   root.current?.setAttribute('data-above-frame',String(Math.round(f.at)));
+   // A newly chosen bus: descend to it; then follow from above and behind, at the distance chosen.
+   const follow=followAt(s,t0);
    if(chosen&&s.selected!==selectedRef.current){
     s.selected=selectedRef.current;s.descending=true;s.following=false;
-    const back=offsetAlong(chosen.lat,chosen.lon,(chosen.bearing??0)+180,ABOVE_FOLLOW.range);
-    const destination=Cesium.Cartesian3.fromDegrees(back.lon,back.lat,chosen.height+ABOVE_FOLLOW.height);
-    const orientation={heading:Cesium.Math.toRadians(chosen.bearing??0),pitch:Cesium.Math.toRadians(ABOVE_FOLLOW.pitchDegrees),roll:0};
+    const back=offsetAlong(chosen.lat,chosen.lon,(chosen.bearing??0)+180,follow.range);
+    const destination=Cesium.Cartesian3.fromDegrees(back.lon,back.lat,chosen.height+follow.height);
+    const orientation={heading:Cesium.Math.toRadians(chosen.bearing??0),pitch:Cesium.Math.toRadians(follow.pitchDegrees),roll:0};
     const done=()=>{s.descending=false;s.following=true;setMode('following')};
     if(prefersReducedMotion()){viewer.camera.setView({destination,orientation});done()}
     else viewer.camera.flyTo({destination,orientation,duration:2.6,complete:done,cancel:()=>{s.descending=false}});
@@ -204,7 +260,7 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
    if(chosen&&s.following&&!s.descending){
     const target=Cesium.Cartesian3.fromDegrees(chosen.lon,chosen.lat,chosen.height);
     viewer.camera.lookAt(target,new Cesium.HeadingPitchRange(Cesium.Math.toRadians(chosen.bearing??0),
-     Cesium.Math.toRadians(ABOVE_FOLLOW.pitchDegrees),Math.hypot(ABOVE_FOLLOW.range,ABOVE_FOLLOW.height)));
+     Cesium.Math.toRadians(follow.pitchDegrees),Math.hypot(follow.range,follow.height)));
    }
    if(!chosen&&s.selected){s.selected=null;s.following=false;setMode('city');viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY)}
    viewer.scene.requestRender();
@@ -234,22 +290,41 @@ export default function GodsEye({photo3d,frame,selectedKey,start,onSelect,onLeav
  useEffect(()=>{document.body.classList.add('above');return()=>document.body.classList.remove('above')},[]);
  if(typeof document==='undefined')return null;
 
- const words=status==='failed'?`Not shown: ${why}.`
+ // Two ages, never one: the imagery's (captured at an earlier date the provider does not publish) and
+ // each bus's report (on its card). Our own data is credited apart from the provider's.
+ const words=status==='failed'?`${FAILURE_WORDS[failure??'imagery']} The map works as before.`
   :photo3d.provider==='sample'?'A sample tileset, not Manchester: a check of the viewer, not the imagery.'
-  :'Imagery captured earlier by the provider, not a live camera; buses where their own reports put them, a little behind.';
- return createPortal(<div ref={root} className={`gods-eye mode-${mode}`} role="region" aria-label="Manchester from above"
+  :'Photographic imagery captured at an earlier date, which the provider does not publish: not a live view.';
+ const ours='Buses: Bus Open Data Service (OGL), each where its own reports put it a little behind · roads: © OpenStreetMap contributors';
+ return createPortal(<div ref={root} className={`gods-eye mode-${mode} provider-${photo3d.provider}`} role="region" aria-label="Manchester from above"
    data-above={status} data-above-mode={mode} data-above-provider={photo3d.provider} data-above-imagery={tiles.loaded?'loaded':'waiting'}>
   <div ref={container} className="gods-eye-canvas"/>
   <div className="gods-eye-bar">
    <button className="ride-exit" onClick={onLeave} aria-label="Exit the view from above"><X size={16}/> Exit</button>
    <span className="gods-eye-mode">{status==='loading'?'Loading the view from above…':mode==='following'?'Following your bus':mode==='exploring'?'Looking around':'Manchester from above'}</span>
    {mode==='exploring'&&<button className="ride-return" onClick={returnToBus}><Crosshair size={15}/> Return to bus</button>}
+   {mode!=='city'&&status==='ready'&&<button className="ride-return" data-above-distance={distance}
+     onClick={()=>setDistance(d=>d==='close'?'elevated':'close')}>
+    {distance==='close'?<><Maximize2 size={15}/> Higher</>:<><Minimize2 size={15}/> Closer</>}</button>}
   </div>
+  <div className="gods-eye-foot">
+  {trouble&&status==='ready'&&<p className="gods-eye-trouble" role="status" data-above-trouble={trouble}>
+   {trouble==='session'?'The imagery session has ended after about three hours. Exit and open the view again to continue.'
+    :'Some of the imagery could not be loaded; what is missing is shown empty.'}</p>}
   {named&&mode!=='city'&&<div className="gods-eye-card" data-above-bus>
-   <span className="route-pill">{named.route}</span><strong>to {named.destination}</strong><small>report {named.age} s ago</small>
+   <span className="route-pill">{named.route}</span><strong>to {named.destination}</strong><small>report {named.age} s old · drawn a little behind it</small>
   </div>}
   {status==='ready'&&mode==='city'&&<p className="gods-eye-hint"><Bus size={13} aria-hidden="true"/> Tap a bus to descend to it.</p>}
-  <p className="gods-eye-note" data-above-note>{words}{tiles.credits?` · ${tiles.credits}`:''}</p>
-  {status==='failed'&&<div className="gods-eye-failed" role="alert"><p>{words}</p><button className="text-action strong" onClick={onLeave}>Back to the map</button></div>}
+  <p className="gods-eye-note" data-above-note>{words}{photo3d.provider==='sample'&&tiles.credits?` · ${tiles.credits}`:''}
+   <span className="gods-eye-ours" data-above-ours>{ours}</span>
+   {photo3d.provider==='google'&&<span className="gods-eye-terms">Google Maps content: <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noreferrer">terms</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">privacy</a></span>}</p>
+  </div>
+  {/* The provider's logo, as its policy asks: the official asset, 18 px high, clear of every other logo,
+      beside the provider's own data attributions (the renderer's credit line, placed after it). */}
+  {/* A plain image: the official asset unaltered, which an image optimiser must not re-encode. */}
+  {/* eslint-disable-next-line @next/next/no-img-element */}
+  {photo3d.provider==='google'&&status!=='failed'&&<img className="gods-eye-google" src="/attribution/google-maps-logo-light-outline.svg"
+   alt="Google Maps" width={86} height={18}/>}
+  {status==='failed'&&<div className="gods-eye-failed" role="alert" data-above-failure={failure??'imagery'}><p>{words}</p><button className="text-action strong" onClick={onLeave}>Back to the map</button></div>}
  </div>,document.body);
 }

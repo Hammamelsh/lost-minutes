@@ -84,6 +84,22 @@ def redact_url(url):
     return urlunsplit((p.scheme, host, p.path, query, ''))
 
 
+def stopped_by_signal(error):
+    """True where an error only stands for a stop. A stop raised from a signal handler while DuckDB is
+    running a query does not arrive as itself: DuckDB interrupts the query and raises its own
+    RuntimeError("Query interrupted"), with the stop as its cause. A handler that catches Exception
+    around a query must re-raise that, or the stop is swallowed: on 26 September 2026 a restart landed
+    in the timetable matching, which read it as "patterns not built yet", published every bus
+    unmatched, carried on collecting, and was killed by systemd 30 s later."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if not isinstance(error, Exception):
+            return True
+        seen.add(id(error))
+        error = error.__cause__ or error.__context__
+    return False
+
+
 def atomic_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

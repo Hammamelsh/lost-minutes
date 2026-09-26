@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .core import SERVICE_AREA, atomic_json, utc_now
+from .core import SERVICE_AREA, atomic_json, stopped_by_signal, utc_now
 from .freshness import EXPIRY, label, measure, policy
 from .match import match_all
 from .warehouse import DEFAULT_DB, connect
@@ -274,6 +274,8 @@ def build_live(con, published_at=None):
     try:
         matching = match_all(con, vehicles)
     except Exception as error:                      # patterns not built yet
+        if stopped_by_signal(error):                # a stop, not a missing table (core.stopped_by_signal)
+            raise
         matching = {'matched': 0, 'unmatched': len(vehicles),
                     'reasons': {'patterns_unavailable': type(error).__name__}}
     trail_sources = _trails(con, now_ms, vehicles) if vehicles else []
@@ -491,8 +493,9 @@ def diagnose_unavailable(con=None, environ=None):
             last_published = con.execute(
                 "SELECT max(published_at) FROM publication WHERE kind = 'live'"
                 " AND status = 'published'").fetchone()[0]
-        except Exception:                                   # schema not built yet
-            pass
+        except Exception as error:                          # schema not built yet
+            if stopped_by_signal(error):
+                raise
     if not has_key:
         return {'reason': 'no_credentials_configured',
                 'technical': 'BODS_API_KEY is not set in the environment or in a local .env, '

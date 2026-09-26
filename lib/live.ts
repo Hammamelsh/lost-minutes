@@ -121,6 +121,19 @@ export const configSchema = z.object({
  // Which pedestrian router walking directions come from; absent means the built-in default.
  // A malformed block falls back to the default router rather than discarding the whole config.
  walking:walkingConfigSchema.optional().catch(undefined),
+ // The photographic 3D view from above (docs/PHOTO_3D_RESEARCH.md): a 3D Tiles tileset the server
+ // is configured to offer, its key already in the URL where the provider wants one (a browser key
+ // restricted to this site's address, which is the provider's own architecture for a public page).
+ // Absent, the view is not offered at all. A malformed block is ignored rather than discarding the
+ // whole config.
+ photo3d:z.object({
+  provider:z.enum(['google','sample']),
+  tilesetUrl:z.string().url(),
+  /** What the imagery is, for the passenger: shown in the view. */
+  attribution:z.string(),
+  /** When the provider's imagery was captured is not published; the view says so. */
+  note:z.string().optional(),
+ }).optional().catch(undefined),
  note:z.string().optional(),
 });
 

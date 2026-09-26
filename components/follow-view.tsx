@@ -17,9 +17,13 @@ import BusEvidence from '@/components/bus-evidence';
 import WalkGuide from '@/components/walk-guide';
 import {DepartureBoard} from '@/components/departure-board';
 import TryRide from '@/components/try-ride';
+import dynamic from 'next/dynamic';
+import type {DrawnFrame,Photo3d} from '@/lib/gods-eye';
+// The view from above is loaded only when a passenger opens it: its renderer is 6 MB.
+const GodsEye=dynamic(()=>import('@/components/gods-eye'),{ssr:false});
 import type {RecordedRideSummary} from '@/lib/recorded-ride';
 import InstallHint from '@/components/install-hint';
-import {relateToStop,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
+import {relateToStop,servicesAt,towardsWords,type PatternCatalogue,type ServicePattern,type StopRelation} from '@/lib/patterns';
 import {association,busOnService,distanceLines,progress,schematic,servicesAtStop,standing,standingWords,
         stopBoard,type BoardRow} from '@/lib/journey';
 import {londonDate} from '@/lib/service-days';
@@ -84,7 +88,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
                                     here,origin=null,device=null,originEpoch=0,outsideArea,onClearHere,nowMs,liveFingerprint,recall,walkingConfig,
                                     pickingOrigin=false,onStartPicking,onCancelPicking,onChooseOrigin,
                                     clockOffsetMs=0,initialJourney,journeyEpoch=0,onNewJourney,onAddress,
-                                    recording=null,recordings=[],onWatchRecording,recordingError=null}:{
+                                    recording=null,recordings=[],onWatchRecording,recordingError=null,photo3d=null}:{
  /** True while the engineering area is open in front of this page. It stays mounted, so the map
   *  must be told to stop drawing rather than paint a canvas nobody can see. */
  paused?:boolean;
@@ -115,6 +119,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  recording?:Recording|null;
  /** The recordings on offer for Try Ride-along, and the way to start one. */
  recordings?:RecordedRideSummary[];onWatchRecording?:(ride:RecordedRideSummary)=>void;recordingError?:string|null;
+ /** The photographic 3D tileset this server offers for the view from above, or null: not offered. */
+ photo3d?:Photo3d|null;
  walkingConfig?:WalkingConfig|null;clockOffsetMs?:number}){
  const favourites=useSyncExternalStore(subscribeFavourites,favouritesSnapshot,favouritesServerSnapshot);
  const savedStopIds=useSyncExternalStore(subscribeSavedStops,savedStopsSnapshot,savedStopsServerSnapshot);
@@ -145,6 +151,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [shareState,setShareState]=useState<'idle'|'copied'|'failed'>('idle');
  const [follow,setFollow]=useState(false);
  const [view,setView]=useState<MapView>('2d');
+ // The view from above (components/gods-eye.tsx): open or not, what the map last drew for it, and
+ // which buses it asked the map to step. The map keeps drawing underneath; nothing else changes.
+ const [above,setAbove]=useState(false);
+ const drawnFrame=useRef<DrawnFrame|null>(null);
+ const onDrawn=useCallback((frame:DrawnFrame)=>{drawnFrame.current=frame},[]);
+ const [aboveFocus,setAboveFocus]=useState<{lat:number;lon:number;radiusM:number}|null>(null);
+ // Where the view opens: taken once, when it is opened (the chosen bus moves on; the view must not
+ // be rebuilt around each of its reports).
+ const [aboveStart,setAboveStart]=useState<{lat:number;lon:number}|null>(null);
  const [fitRequest,setFitRequest]=useState(0);
  const [walkAttempt,setWalkAttempt]=useState(0);
  // Which directions the arrival criteria have released on unseen journeys, if any: fetched once.
@@ -298,7 +313,6 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  if(!choice&&route&&route!==keptRoute)setKeptRoute(route);
  const onRoute=useMemo(()=>buses.filter(b=>routeId(b)===route&&(direction==='all'||b.direction===direction))
   .sort((a,b)=>b.observedAtMs-a.observedAtMs),[buses,route,direction]);
- const directions=useMemo(()=>Array.from(new Set(buses.filter(b=>routeId(b)===route).map(b=>b.direction).filter(Boolean))),[buses,route]);
  const routeChoices=useMemo(()=>{
   const ids=new Set(availableIds);
   if(route)ids.add(route);
@@ -867,7 +881,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     aria-label="Check for newer positions"><RefreshCw size={15} className={refreshing?'spin':''}/></button>
   </div>
   {stops.length>0&&mode!=='archive'&&<div className="follow-search">
-   <StopSearch stops={stops} patterns={patterns} onSelect={selectStop} onSelectRoute={onSelectRoute} compact
+   <StopSearch stops={stops} patterns={patterns} day={day} onSelect={selectStop} onSelectRoute={onSelectRoute} compact
     placeholder="Bus number, stop or area"
     onFocusField={()=>{if(sheet!=='peek')sheetBeforeSearch.current=sheet;sheetTo('peek')}}
     onLeaveField={chose=>{const before=sheetBeforeSearch.current;sheetBeforeSearch.current=null;
@@ -890,7 +904,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       <FollowMap buses={mapBuses} selected={shown} follow={follow&&!pausedJourney} roads={roads}
        mode={mode} stop={stop} here={here} onSelect={selectFromMap} onManualMove={stopFollowing}/>
      </div>
-   : <CityMap paused={paused} buses={mapBuses} fleet={buses} emphasis={mapEmphasis} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
+   : <CityMap paused={paused} buses={mapBuses} fleet={buses} emphasis={mapEmphasis} onDrawn={onDrawn} mirror={above?aboveFocus:null} selected={shown} selectionKind={selectionKind} stop={stop} here={here} follow={follow&&!pausedJourney}
       onSelect={selectFromMap} onManualMove={stopFollowing} onUnavailable={showMapFallback}
       stops={stops} onSelectStop={id=>{const s=stopById.get(id);if(s)selectStop(s)}}
       onWantMap={()=>{const handle=document.querySelector('.follow > .panel .sheet-handle');
@@ -941,7 +955,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        <span className="your-stop-copy">
         <small className="your-stop-eyebrow">Your stop</small>
         <strong>{stopLabel}</strong>
-        <small>{[bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')||'No side-of-road detail supplied'}</small>
+        {/* Where its buses go first: "to Piccadilly Gardens (15, 255, 256)" is how a passenger knows
+            this is the side of the road they want; the compass word and the street follow. */}
+        <small data-stop-towards>{[towardsWords(servicesAt(patterns,stop.id,day)),bearingWords(stop.bearing),stop.street].filter(Boolean).join(' · ')||'No side-of-road detail supplied'}</small>
         {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
        </span>
       </div>
@@ -955,7 +971,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
         <Star size={15} fill={savedStopIds.includes(stop.id)?'currentColor':'none'}/>
         <span>{savedStopIds.includes(stop.id)?'Saved':'Save'}</span></button>
        <button onClick={share} aria-label="Share this stop" data-compact><Share2 size={15}/><span>Share</span></button>
-       <button onClick={()=>selectStop(null)}>Change</button>
+       <button onClick={()=>selectStop(null)}>Change stop</button>
        <button onClick={newJourney} aria-label="New journey: clear the stop, filter and chosen bus" data-new-journey>
         <RotateCcw size={15}/><span>New journey</span></button>
       </div>
@@ -1037,7 +1053,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       no row here borrows a time from a bus, and no bus below is given a departure time it did
       not report. */}
   {inStop&&stop&&mode!=='archive'&&<DepartureBoard stop={stop} buses={buses} nowMs={nowMs}
-    filterLine={activeService?.line??null} onChooseBus={chooseBus}/>}
+    filterLine={activeService?.line??null} onChooseBus={chooseBus}
+    trackedWords={bus=>{const item=board?[...board.coming,...board.maybe].find(i=>i.bus.key===bus.key):undefined;return item?standingWords(item):null}}/>}
   {inStop&&services.length>0&&<section className="services" aria-label="Services from your stop">
    <h3 className="section-head">Services from this stop<small>{activeService?'filtered · tap it again to clear':'timetabled · tap to filter'}</small></h3>
    <div className="service-chips">{services.map(service=>
@@ -1281,10 +1298,6 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
     onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
     link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}/>}
-  {/* For someone with no stop in mind: Try Ride-along, from the latest publication's own
-      eligibility, and a dated recording when nothing live suits. Choosing starts the ride. */}
-  {panelMode==='home'&&!recording&&(mode==='live'||recordings.length>0)&&<TryRide buses={mode==='live'?buses:[]}
-    live={mode==='live'} recordings={recordings} onRide={startRide} onWatch={ride=>onWatchRecording?.(ride)} error={recordingError}/>}
   {panelMode==='home'&&(buses.length>0||choice)&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">{choice?`Route ${routeNumber(route)}`:'Or follow a route'}<small>{choice?'directions, stops and buses':'without choosing a stop'}</small>
     {choice&&<button className="text-action filter-clear" onClick={()=>{setChoice(null);setDirKey(null)}} data-clear-route>Clear route</button>}</h3>
@@ -1320,12 +1333,6 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      <select id="follow-route" value={route} onChange={e=>pick({route:e.target.value,direction:'all'})}>
       {routeChoices.map(id=><option key={id} value={id}>{routeNumber(id)}</option>)}
      </select></div>
-    <label className="sr-only" htmlFor="follow-direction">Direction</label>
-    <div className="picker"><span>Direction</span>
-     <select id="follow-direction" value={direction} onChange={e=>pick({route,direction:e.target.value})}>
-      <option value="all">Both ways</option>
-      {directions.map(d=><option key={d} value={d}>{directionLabel(d)}</option>)}
-     </select></div>
     <button className={`follow-save ${savedRoute?'on':''}`} aria-pressed={savedRoute}
      aria-label={savedRoute?'Saved on this device':'Save this route on this device'}
      onClick={()=>{if(current)setBlocked(!saveFavourites(toggleFavourite(favourites,current)))}}>
@@ -1343,6 +1350,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     </button>)}
    </div>}
   </section>}
+  {/* The app's other purpose, after the everyday one: exploring Manchester by riding along with a
+      bus, from the latest publication's own eligibility, and a dated recording when nothing live
+      suits. Choosing starts the ride. */}
+  {panelMode==='home'&&!recording&&(mode==='live'||recordings.length>0)&&<TryRide buses={mode==='live'?buses:[]}
+    live={mode==='live'} recordings={recordings} onRide={startRide} onWatch={ride=>onWatchRecording?.(ride)} error={recordingError}
+    above={photo3d?()=>{setBusOpen(true);setAboveStart(stop?{lat:stop.lat,lon:stop.lon}:shown?{lat:shown.lat,lon:shown.lon}:{lat:53.4794,lon:-2.2453});setAbove(true)}:undefined}/>}
+  {above&&photo3d&&aboveStart&&<GodsEye photo3d={photo3d} frame={drawnFrame} selectedKey={shown?.key??null} start={aboveStart}
+    onSelect={selectFromMap} onLeave={()=>setAbove(false)} onFocus={setAboveFocus}/>}
 
   {panelMode!=='plan'&&<p className="follow-notes panel-notes">{mode==='archive'
    ?'A recording: times are when each bus reported on the day, not how long ago. '

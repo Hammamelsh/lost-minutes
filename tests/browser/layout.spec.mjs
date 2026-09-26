@@ -173,7 +173,16 @@ test('a boarding point is chosen by tapping its sign on the map, without knowing
   }, {timeout: 15_000, message: 'the camera comes to rest before the signs are read'}).toBe(true);
   const canvas = await box(page.locator('.vector-map-canvas'));
   const band = await mapBand(page);
-  const points = JSON.parse(await map.getAttribute('data-stop-points'));
+  // The signs' points are refreshed as the camera rests and again at idle; read them once they
+  // have held still for a moment, so the tap goes where a sign is, not where it was.
+  let points = [];
+  await expect.poll(async () => {
+    const first = await map.getAttribute('data-stop-points');
+    await page.waitForTimeout(600);
+    const again = await map.getAttribute('data-stop-points');
+    if (again === first) { points = JSON.parse(again || '[]'); return true; }
+    return false;
+  }, {timeout: 15_000, message: 'the signs’ points settle'}).toBe(true);
   expect(points.length).toBeGreaterThan(1);
   // A sign the passenger could actually put a finger on: inside the band the sheet leaves, with
   // nothing of the map's own over it, and clear of its neighbours so this is a tap on one stop
@@ -184,6 +193,11 @@ test('a boarding point is chosen by tapping its sign on the map, without knowing
     return el?.classList.contains('maplibregl-canvas') ? null : (el?.className?.toString() || el?.tagName || 'nothing');
   }, [canvas.x + aim(p).x, canvas.y + aim(p).y]);
   const buses = JSON.parse(await map.getAttribute('data-bus-points') || '[]');
+  // The suggested bus is drawn from its own source and is not among the other buses' points: a sign
+  // within reach of its marker takes the bus, as a tap should (26 September 2026: the one run in
+  // six that failed had tapped 1800SJ32291 beside FX-COMING and chosen the bus).
+  const [sx, sy] = (await map.getAttribute('data-bus-screen') || '-999,-999').split(',').map(Number);
+  buses.push({key: 'suggested', x: sx, y: sy});
   const [cx, cy] = (await map.getAttribute('data-stop-screen') || '-999,-999').split(',').map(Number);
   const ranked = points
     .filter(p => canvas.y + p.y > band.y + 60 && canvas.y + p.y < band.y + band.height - 40)
@@ -234,7 +248,7 @@ for (const {zoom, width, height} of [{zoom: '150%', width: 911, height: 512},
       // Whichever of the two carries the stop's name at this width: the sheet's handle on a phone
       // layout, the block in the panel on a wide one. Both are in the DOM; one of them is shown.
       {name: 'the stop', locator: page.locator('.your-stop-copy strong:visible, .sheet-words:visible').first()},
-      {name: 'Change', locator: page.getByRole('button', {name: 'Change', exact: true}).first()},
+      {name: 'Change stop', locator: page.getByRole('button', {name: 'Change stop', exact: true}).first()},
       {name: 'the search', locator: page.getByRole('combobox', {name: /Bus number, stop or area/i}).first()},
       {name: 'the departures', locator: page.locator('.departures .section-head').first()},
     ]) {

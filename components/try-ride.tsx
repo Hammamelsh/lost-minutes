@@ -8,7 +8,7 @@
 // starts the ride at once; the bus becomes theirs, and the page says nothing about any stop. A
 // recording is never dressed as live.
 import {useEffect,useState} from 'react';
-import {Armchair,Film} from 'lucide-react';
+import {Armchair,Film,Globe} from 'lucide-react';
 import type {FollowBus} from '@/lib/follow';
 import {destinationLabel,directionLabel} from '@/lib/follow';
 import {loadAcceptedPatterns,loadMotionModel,loadTrack,type MotionModel} from '@/lib/motion-view';
@@ -16,9 +16,11 @@ import {cleanRideCandidates,onAcceptedRoad,roadsToJudge,TIER_WORDS} from '@/lib/
 import type {Track} from '@/lib/motion';
 import {rideWords,type RecordedRideSummary} from '@/lib/recorded-ride';
 
-export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
+export default function TryRide({buses,live,recordings,onRide,onWatch,error,above}:{
  buses:FollowBus[];live:boolean;recordings:RecordedRideSummary[];
  onRide:(bus:FollowBus)=>void;onWatch:(ride:RecordedRideSummary)=>void;error?:string|null;
+ /** Opens the view from above, where this server offers one (docs/PHOTO_3D_RESEARCH.md). */
+ above?:()=>void;
 }){
  const [accepted,setAccepted]=useState<Set<string>|null|undefined>(undefined);
  const [model,setModel]=useState<MotionModel|null|undefined>(undefined);
@@ -60,10 +62,19 @@ export default function TryRide({buses,live,recordings,onRide,onWatch,error}:{
   {error&&<p className="follow-hint warn" role="alert">{error}</p>}
  </div>;
  return <section className="try-ride" id="try-ride" aria-label="Try Ride-along" data-rides={state} data-ride-live={candidates.length}>
-  <h3 className="section-head"><Armchair size={15} aria-hidden="true"/> Try Ride-along
-   <small>the map follows one bus · not a film</small></h3>
-  <p className="try-ride-lead">Choose a bus and the map rides with it through the streets, at the pace its own
-   reports allow. It is not for any stop; Exit is one tap.</p>
+  {/* The app's other purpose, kept apart from the everyday flow above it: exploring Manchester by
+      riding along with a bus. One heading names it; the rows are the rides on offer now. */}
+  <h3 className="section-head"><Armchair size={15} aria-hidden="true"/> Explore Manchester
+   <small>ride along with a bus · the map follows it · not a film</small></h3>
+  <p className="try-ride-lead">Pick a bus and the map rides with it through the streets, at the pace its own reports
+   allow. Not for any stop; Exit is one tap.</p>
+  {/* The photographic view from above, only where this server is set up for it: the city as
+      previously captured 3D imagery, the same buses on it, a tap descending to one. */}
+  {above&&<button className="follow-row above-row" onClick={above} data-above-entry>
+   <span className="route-pill"><Globe size={13} aria-hidden="true"/></span>
+   <span className="follow-row-copy"><strong>See Manchester from above</strong>
+    <small>previously captured 3D imagery · the same buses, tap one to descend to it</small></span>
+  </button>}
   {recordedFirst&&recorded}
   {state==='checking'&&<p className="follow-hint">Checking which buses suit a ride right now…</p>}
   {state==='offline'&&<p className="follow-hint" data-ride-none>Live positions are not arriving, so no live ride

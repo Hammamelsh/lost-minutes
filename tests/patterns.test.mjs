@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {parsePatterns,patternIndex,relateToStop,relationWords,alongRouteWords,
-        patternsCallingAt,boardableAt} from '../lib/patterns.ts';
+        patternsCallingAt,boardableAt,servicesAt,towardsWords} from '../lib/patterns.ts';
 
 const published=parsePatterns(JSON.parse(readFileSync(new URL('../public/data/patterns.json',import.meta.url),'utf8')));
 
@@ -154,4 +154,29 @@ test('a bus is related to a stop by its published match alone: its coordinates a
  assert.deepEqual(relateToStop(elsewhere,'S1',index),relateToStop(past,'S1',index));
  const coming={...at('p1',1),lat:0,lon:0};
  assert.equal(relateToStop(coming,'S4',index).kind,'approaching');
+});
+
+// Where a stop's buses go, in the words every offer of a stop uses (26 September 2026): the
+// destinations, grouped, the one with most lines first — how a passenger tells one side of the road
+// from the other, where "eastbound" told them nothing.
+test('towardsWords groups a stop’s services by destination and counts the rest',()=>{
+ const services=[{line:'15',destination:'Piccadilly Gardens'},{line:'255',destination:'Piccadilly Gardens'},
+  {line:'256',destination:'Piccadilly Gardens'},{line:'250',destination:'The Trafford Centre'},{line:'53',destination:'Cheetham Hill'}];
+ assert.equal(towardsWords(services),'to Piccadilly Gardens (15, 255, 256) · to Cheetham Hill (53) · +1 more');
+ assert.equal(towardsWords(services,3),'to Piccadilly Gardens (15, 255, 256) · to Cheetham Hill (53) · to The Trafford Centre (250)');
+ assert.equal(towardsWords([]),'','no services, no words');
+ assert.equal(towardsWords([{line:'7',destination:null}]),'to an unnamed destination (7)');
+});
+
+test('servicesAt lists each line and destination once, in line order, for the day asked',()=>{
+ const published=parsePatterns(JSON.parse(readFileSync(new URL('../public/data/patterns.json',import.meta.url),'utf8')));
+ const stop=published.patterns.find(p=>p.stops.length>3)?.stops[1];
+ assert.ok(stop,'a stop from the catalogue');
+ const services=servicesAt(published,stop);
+ assert.ok(services.length>0);
+ const keys=services.map(s=>`${s.line}|${s.destination}`);
+ assert.equal(new Set(keys).size,keys.length,'no line and destination twice');
+ const sorted=[...services].sort((a,b)=>a.line.localeCompare(b.line,undefined,{numeric:true}));
+ assert.deepEqual(services,sorted,'in line order');
+ assert.equal(servicesAt(null,stop).length,0,'no catalogue, no services');
 });

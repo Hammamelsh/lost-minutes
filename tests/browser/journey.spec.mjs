@@ -44,7 +44,11 @@ test.describe('with location', () => {
     const stopD = page.locator('.nearby-stop', {hasText: 'Stop D'});
     await expect(stopA).toContainText('eastbound');
     await expect(stopD).toContainText('westbound');
-    await expect(stopA).toContainText('256 to Piccadilly Gardens');
+    // Restated 26 September 2026: a stop's services are grouped by where they go ("to Piccadilly
+    // Gardens (255, 256)"), the same words search results and the stop's head use, so the side of the
+    // road is told by its destinations rather than a compass word alone.
+    await expect(stopA).toContainText('to Piccadilly Gardens (');
+    await expect(stopA).toContainText('256');
     await expect(stopD).toContainText('No timetable coverage for this stop yet');
     await expect(page.locator('.nearby-stop', {hasText: 'Moss Road'}).first()).toContainText('No timetable coverage');
     await shot(page, 'nearby');

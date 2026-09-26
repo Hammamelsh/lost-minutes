@@ -1838,3 +1838,21 @@ per-bus diagnostic carries positions as well as pixels, and movement is measured
 measured time. Worth a line in the browser-suite notes so the next check starts there.
 
 **Next cheap step.** Make the served probe read positions too. Status: the check fixed, the probe not.
+
+## 59. A full-screen overlay boxed in by an ancestor's containment
+
+**Problem and evidence.** The view from above (26 September 2026) was written as `position: fixed;
+inset: 0` and rendered inside the passenger panel. The first frame from its browser check showed it
+inside the panel's column, 420 px wide: an ancestor with CSS containment (or a transform) makes a
+fixed element's containing block that ancestor, not the viewport. The ride's map avoids this only
+because it is a direct child of the section. Fixed by rendering through a portal onto the body. The
+check's assertions all passed on the boxed-in version; only the frame showed it (memory: inspect real
+frames).
+
+**Who hits it, workaround.** Whoever adds a full-screen mode; the workaround is reading the frame.
+
+**Small fix, script, tool or product.** A small fix, done; and one line in the layouts probe's audit
+for the future: an element meant to be the screen (`.view-ride`, `.gods-eye`) whose bounding box is
+not the viewport's is reported. Status: the probe line not yet added.
+
+**Next cheap step.** Add that audit line. Status: added to `scripts/probes/passenger-layouts.mjs` the same day (`boxed in:`).

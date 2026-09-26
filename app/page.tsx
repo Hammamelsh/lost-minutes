@@ -520,7 +520,7 @@ export default function Home(){
     initialJourney={journey} journeyEpoch={journeyEpoch} onNewJourney={newJourney} onAddress={noteAddress}
     recording={ride?{id:ride.data.id,title:ride.data.title,date:ride.data.recordedOn,when:ride.data.fromLocal,
      busKey:rideBusKey(ride.data),started:ride.index>=0,ended:ride.ended,onLeave:leaveRecording,onReplay:replayRecording}:null}
-    recordings={recordings} onWatchRecording={startRecording} recordingError={rideError}/>
+    recordings={recordings} onWatchRecording={startRecording} recordingError={rideError} photo3d={config.photo3d??null}/>
    {usingArchive&&<button className="text-action follow-leave-archive"
     onClick={()=>setUsingArchive(false)}>Leave the recording and show live state</button>}
   </div>

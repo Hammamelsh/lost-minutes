@@ -29,8 +29,11 @@ test('the stop leads with what is timetabled to leave it, each row a scheduled c
   await expect(first.locator('.departure-copy strong')).toContainText('Piccadilly Gardens');
   await expect(first.locator('.departure-when strong')).toHaveText(/^\d{2}:\d{2}$/);
   await expect(first.locator('.departure-when small')).toHaveText(/in \d+ min|due/);
-  // And what kind of claim it is, on every row, not once at the top.
-  for (const row of await rows(page).all()) await expect(row.locator('.departure-kind')).toHaveText('Scheduled');
+  // And what kind of claim it is, on every row, not once at the top. Restated 26 September 2026:
+  // the row's claim is a word beside its time ("timetabled · in 7 min") rather than a boxed badge,
+  // which wrapped every row onto three lines on a phone; the board's heading keeps the badge.
+  for (const row of await rows(page).all()) await expect(row.locator('.departure-kind')).toContainText('timetabled');
+  await expect(board(page).locator('[data-board-kind]')).toHaveText('Scheduled · not live');
   // Never a prediction, and never adjusted for a bus.
   await expect(board(page)).toContainText('not predictions');
   await expect(board(page)).toContainText('registered timetable');

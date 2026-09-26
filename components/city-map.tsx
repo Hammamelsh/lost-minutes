@@ -16,6 +16,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type Visual} from '@/lib/motion';
 import {daylightAt} from '@/lib/daylight';
 import {fleetAtReports,reconcileFleet,stepFleet,type Fleet,type FleetStep} from '@/lib/fleet';
+import type {DrawnFrame} from '@/lib/gods-eye';
 import {elapsedWords} from '@/lib/live';
 import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
 import type * as MapLibreGL from 'maplibre-gl';
@@ -40,6 +41,12 @@ type Props = {
  /** The keys of the buses drawn a size stronger than the rest: the ones coming to the passenger's
   *  stop, or on their route. Every bus in `buses` when absent. */
  emphasis?:string[];
+ /** Every tick of the fleet, what was drawn and where: the chosen bus and every bus stepped. A
+  *  second renderer (the view from above) draws from this, so a change of renderer never moves a bus. */
+ onDrawn?:(frame:DrawnFrame)=>void;
+ /** While another renderer shows the buses: which of them to step (its centre and reach) instead of
+  *  this map's own bounds, and the map's own drawing of them is left alone. */
+ mirror?:{lat:number;lon:number;radiusM:number}|null;
  selected?:FollowBus;selectionKind?:SelectionKind;stop?:Stop|null;here?:Here|null;
  /** True while the passenger's page is behind the engineering area. The page stays mounted so the
   *  stop, the bus, the ride and this very map come back unchanged — but a map nobody can see must
@@ -557,7 +564,7 @@ type Ride={state:RideState;camera:'outside'|'front';transition:number;
  * clearly labelled estimate between reports, which moves only along accepted road geometry,
  * is corrected smoothly as each report arrives, and is never stored or treated as a report.
  */
-export default function CityMap({paused=false,buses,fleet,emphasis,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
+export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirror=null,selected,selectionKind,stop,here,follow,onSelect,onManualMove,
                                  stops=NO_STOP_CATALOGUE,onSelectStop,onWantMap,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
@@ -640,7 +647,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,selected,sele
  const fleetLoop=useRef({raf:null as number|null,lastDraw:0,lastPoints:0,ms:[] as number[],modelsDrawn:false,
   roadsInFlight:0,clock:null as PresentationClock|null});
  const fleetInputs=useRef({selectedKey:null as string|null,relevant:new Set<string>(),view:'2d' as MapView,
-  model:null as BusModel|null,clockOffsetMs:0});
+  model:null as BusModel|null,clockOffsetMs:0,mirror:null as {lat:number;lon:number;radiusM:number}|null,
+  onDrawn:undefined as ((frame:DrawnFrame)=>void)|undefined,selected:undefined as FollowBus|undefined});
  const relevantKeys=useMemo(()=>new Set(emphasis??buses.map(b=>b.key)),[emphasis,buses]);
  // The bus under the mouse, for the tip: set only when the bus changes, never per pixel.
  const [hover,setHover]=useState<{key:string;x:number;y:number}|null>(null);
@@ -692,13 +700,28 @@ export default function CityMap({paused=false,buses,fleet,emphasis,selected,sele
    const now=fl.clock.now;
    const b=instance.getBounds(),w=b.getEast()-b.getWest(),h=b.getNorth()-b.getSouth();
    const west=b.getWest()-w*0.25,east=b.getEast()+w*0.25,south=b.getSouth()-h*0.25,north=b.getNorth()+h*0.25;
-   const inView=(lat:number,lon:number)=>lat>=south&&lat<=north&&lon>=west&&lon<=east;
+   // Another renderer showing the buses steps what it can see, not what this map can.
+   const m=inp.mirror;
+   const inView=m
+    ?(lat:number,lon:number)=>Math.hypot((lat-m.lat)*111195,(lon-m.lon)*111195*Math.cos(m.lat*Math.PI/180))<=m.radiusM
+    :(lat:number,lon:number)=>lat>=south&&lat<=north&&lon>=west&&lon<=east;
    const zoom=instance.getZoom(),centre=instance.getCenter();
    const models=inp.model&&inp.view!=='2d'&&zoom>=MODEL_MIN_ZOOM?{centre:{lat:centre.lat,lon:centre.lng},limit:FLEET_MODEL_LIMIT}:null;
    const step=animate?stepFleet(fleetRef.current,now,{selectedKey:inp.selectedKey,relevant:inp.relevant,inView,animate:true,models})
     :fleetAtReports(fleetRef.current,{selectedKey:inp.selectedKey,relevant:inp.relevant});
    fleetDrawn.current=step;
-   (instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:step.features});
+   if(inp.onDrawn){
+    // The frame another renderer draws from: every bus stepped this tick, and the chosen bus where
+    // its own drawing has it, at the same presentation time.
+    const sel=inp.selected,v=visualRef.current;
+    const buses:DrawnFrame['buses']=step.features.map(f=>{const e=fleetRef.current.get(f.properties.key);return {key:f.properties.key,route:f.properties.route,
+     destination:e?.bus.destination??'',lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],
+     bearing:f.properties.icon.endsWith('arrow')?f.properties.rotate:null,chosen:false,ageSeconds:e?Math.max(0,(now-e.bus.observedAtMs)/1000):0}});
+    if(sel&&v)buses.push({key:sel.key,route:sel.route,destination:sel.destination,lat:v.lat,lon:v.lon,bearing:v.bearing,
+     chosen:true,ageSeconds:Math.max(0,(now-sel.observedAtMs)/1000)});
+    inp.onDrawn({at:now,buses});
+   }
+   if(!m)(instance.getSource(BUS_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',features:step.features});
    const modelSource=instance.getSource(FLEET_MODEL_SOURCE) as GeoJSONSource|undefined;
    if(models&&inp.model){
     const m=inp.model;
@@ -752,8 +775,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,selected,sele
   return()=>{live=false;if(fl.raf!==null)cancelAnimationFrame(fl.raf);fl.raf=null;document.removeEventListener('visibilitychange',restart)};
  },[ready,paused]);
  useEffect(()=>{
-  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs};
- },[selected,relevantKeys,view,model,clockOffsetMs]);
+  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs,mirror,onDrawn,selected};
+ },[selected,relevantKeys,view,model,clockOffsetMs,mirror,onDrawn]);
  // The other buses' models are shown wherever the City view or the ride shows buildings.
  useEffect(()=>{
   const instance=map.current;
@@ -954,6 +977,9 @@ export default function CityMap({paused=false,buses,fleet,emphasis,selected,sele
     root.current?.setAttribute('data-moves',trail.slice(-6).join(';'));
    });
    instance.on('idle',()=>{busPoints.current();stopPoints.current()});
+   // And as soon as the camera rests: under load, idle can lag the rest by seconds (tiles still
+   // arriving), and a check that tapped where a sign had been found nothing (26 September 2026).
+   instance.on('moveend',()=>stopPoints.current());
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
    // does; a standing bus draws no frames, so it is projected here too, and so is the stop.
    instance.on('move',()=>{
@@ -1095,9 +1121,9 @@ export default function CityMap({paused=false,buses,fleet,emphasis,selected,sele
  useEffect(()=>{
   if(!ready||!map.current)return;
   fleetRef.current=reconcileFleet(fleetRef.current,fleetBuses);
-  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs};
+  fleetInputs.current={selectedKey:selected?.key??null,relevant:relevantKeys,view,model,clockOffsetMs,mirror,onDrawn,selected};
   fleetDraw.current('publication');
- },[ready,fleetBuses,relevantKeys,selected,view,model,clockOffsetMs]);
+ },[ready,fleetBuses,relevantKeys,selected,view,model,clockOffsetMs,mirror,onDrawn]);
  useEffect(()=>{
   if(!ready||!map.current)return;
   const instance=map.current;

@@ -369,6 +369,32 @@ JavaScript, not the GPU); the other buses' eased corrections are not said anywhe
 card says its own); trails or route lines for the other buses (deliberately not drawn: their roads are
 loaded only for movement); Metrolink is still not here.
 
+## 34. The view from above: what it needs, and what is open
+
+Built 26 September 2026 (`docs/PHOTO_3D_RESEARCH.md`, `components/gods-eye.tsx`): Manchester as
+photographic 3D (Google Photorealistic 3D Tiles, rendered by CesiumJS from this site's own copy) with
+the map's own buses on it, opened from *Explore Manchester*, offered only where the server's
+`config.json` carries a `photo3d` block. Checked against a sample tileset, never against the imagery.
+
+Needs the owner: a Google Maps Platform key with billing (1,000 openings a month free, then $6 per
+1,000; the daily quota is the bound), and a reading of the terms' *no use with non-Google maps* clause
+before the view goes public. Then, in order:
+- **Look at the imagery** at the two camera heights in the city centre, at Trafford Bar and in
+  Stretford, and at the low follow: if the mesh reads poorly from 95 m up, raise the follow, and keep
+  the map's street preview as the low view rather than force this one.
+- **Buses on the roads, not in them**: the ground under each bus is measured against the mesh once a
+  second; check the clamp on real tiles (bridges, the Mancunian Way, tunnels), and the box's heading
+  against the road (the box is 12 m along its y axis, turned by the drawn heading).
+- **A phone's frame rate and battery** with the tiles streaming: nothing here was measured on a GPU.
+- **Network transfer** of the tiles per minute of following; and the renderer's 6 MB (1.5 MB gzipped)
+  on first opening, which the service worker should cache by version.
+- **From the ride**: a *From above* button in the ride's bar, so a ride can be switched to the view
+  and back without leaving the bus; the map already hands the drawn frame over.
+- **Stops and the road ahead** on the imagery: the chosen stop as a marker, the next stops named, as
+  the outside ride has them.
+- The 3D bus is a box; the map's stylised model (`public/models/lm-bus.json`) could be built as one
+  Cesium entity of boxes for the chosen bus.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

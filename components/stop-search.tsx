@@ -3,7 +3,7 @@
 import {Fragment,useId,useMemo,useRef,useState} from 'react';
 import {Bus,LocateFixed,Search,X} from 'lucide-react';
 import {bearingWords,searchStops,stopPlace,type Stop} from '@/lib/stops';
-import type {PatternCatalogue} from '@/lib/patterns';
+import {servicesAt,towardsWords,type PatternCatalogue} from '@/lib/patterns';
 import {looksLikeRoute,routeIndex,searchRoutes,type RouteHit} from '@/lib/route-search';
 
 type Match={kind:'route';hit:RouteHit}|{kind:'stop';stop:Stop};
@@ -16,9 +16,13 @@ type Match={kind:'route';hit:RouteHit}|{kind:'stop';stop:Stop};
  * that merely begin with it. A native select cannot do this over 1,700 stops, and scrolling bare
  * numbers was the discovery problem in the first place.
  */
-export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,onLocate,locating,locationError,
+export default function StopSearch({stops,patterns=null,day,onSelect,onSelectRoute,onLocate,locating,locationError,
                                     placeholder='Bus number, stop or area',compact=false,onFocusField,onLeaveField}:{
- stops:Stop[];patterns?:PatternCatalogue|null;onSelect:(stop:Stop)=>void;onSelectRoute?:(hit:RouteHit)=>void;
+ stops:Stop[];patterns?:PatternCatalogue|null;
+ /** The service day: with it, each stop says where its buses go today, which is how a passenger
+  *  tells one side of the road from the other. */
+ day?:string;
+ onSelect:(stop:Stop)=>void;onSelectRoute?:(hit:RouteHit)=>void;
  onLocate?:()=>void;locating?:boolean;locationError?:string;placeholder?:string;compact?:boolean;onFocusField?:()=>void;
  /** Focus has left the field. `chose` says whether a match was taken on the way out, so a caller
   *  that folded something away for the keyboard knows whether the task has moved on or not. */
@@ -119,6 +123,8 @@ export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,o
     }
     const {stop}=match;
     const towards=bearingWords(stop.bearing);
+    // Where this stop's buses go today: the side of the road, in the passenger's own terms.
+    const goes=patterns&&day?towardsWords(servicesAt(patterns,stop.id,day)):'';
     return <Fragment key={stop.id}>{header}<li id={`${listId}-${index}`} role="option"
       aria-selected={index===active}
       className={`stop-search-option ${index===active?'active':''}`}
@@ -126,6 +132,7 @@ export default function StopSearch({stops,patterns=null,onSelect,onSelectRoute,o
       onMouseDown={event=>{event.preventDefault();choose(index)}}>
      <strong>{stop.name}</strong>
      <small>{[stop.indicator,towards,stop.street].filter(Boolean).join(' · ')}</small>
+     {goes&&<small className="search-towards" data-towards>{goes}</small>}
      {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
     </li></Fragment>;
    })}

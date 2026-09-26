@@ -278,6 +278,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .stop-search-option strong{font-size:15px;font-weight:650;color:#eaf4f8}
 .stop-search-option small{font-size:12px;color:#a7bcc8}
 .stop-search-option em{font-style:normal;font-size:11px;color:#8298a6}
+/* Where a stop's buses go, under its side of the road: the line a passenger chooses a side by. */
+.stop-search-option .search-towards{display:block;color:#bfdd9b;font-size:12px}
 .stop-search-empty{padding:14px 11px;font-size:13px;color:#a7bcc8;line-height:1.6}
 
 /* ---- Your stop: the persistent reference point everything else is measured from. */
@@ -970,7 +972,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .departures{display:grid;gap:8px}
 .departure-rows{list-style:none;margin:0;padding:0;display:grid;gap:1px;background:#2a3f4c;
  border-radius:12px;overflow:hidden;border:1px solid #2a3f4c}
-.departure-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
+.departure-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;
  gap:10px;padding:9px 11px;background:#15262f}
 .departure-copy{min-width:0}
 .departure-copy strong{display:block;font-size:14px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
@@ -980,6 +982,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .departure-when small{display:block;font-size:11.5px;color:#a9bcc7;font-variant-numeric:tabular-nums}
 /* The label is the claim, so it is never decoration: a scheduled time and a live one do not look
    the same, and today every row here is scheduled. */
+/* The heading's badge is boxed; a row's claim is the small word beside its time. */
+.departure-when small.departure-kind{font-size:11.5px;font-weight:600;letter-spacing:0;text-transform:none;border:0;background:none;padding:0;color:#a9bcc7}
 .departure-kind{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
  padding:4px 7px;border-radius:7px;border:1px solid #3d5260;background:#1b2c38;color:#cfe0ea;white-space:nowrap}
 .departure-kind[data-kind="live"]{border-color:#4c6b39;background:#233021;color:#c2e39a}
@@ -1660,3 +1664,27 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .page-heading.compact{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;gap:0}
 }
+
+/* ---- The view from above (components/gods-eye.tsx): a second renderer over the whole screen,
+   the map untouched beneath it. Loaded only when opened. */
+body.above{overflow:hidden}
+.gods-eye{position:fixed;inset:0;z-index:70;background:#0b1720;color:#e6eff3}
+.gods-eye-canvas{position:absolute;inset:0}
+.gods-eye-canvas .cesium-viewer,.gods-eye-canvas .cesium-widget,.gods-eye-canvas canvas{width:100%;height:100%}
+.gods-eye-bar{position:absolute;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;right:10px;z-index:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;pointer-events:none}
+.gods-eye-bar>*{pointer-events:auto}
+.gods-eye-mode{font-size:13px;font-weight:700;padding:8px 12px;border-radius:999px;background:#0f1b24e0;border:1px solid #3f5462}
+.gods-eye-card{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 74px);z-index:3;display:flex;align-items:center;gap:8px;
+ padding:8px 12px;border-radius:12px;background:#0f1b24ee;border:1px solid #3f5462;font-size:13px}
+.gods-eye-card small{color:#a9bcc7}
+.gods-eye-hint{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 80px);z-index:3;margin:0;
+ display:flex;align-items:center;gap:6px;font-size:13px;font-weight:650;padding:8px 12px;border-radius:999px;background:#0f1b24e0;border:1px solid #3f5462}
+.gods-eye-note{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 36px);z-index:3;margin:0;font-size:11.5px;line-height:1.4;color:#c3d1d9;
+ max-width:640px;pointer-events:none}
+.gods-eye-failed{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:4;max-width:min(420px,calc(100% - 32px));
+ padding:16px 18px;border-radius:14px;background:#182530;border:1px solid #3f5462;text-align:center}
+.gods-eye-failed p{margin:0 0 10px;font-size:14px}
+/* The renderer's own credit line (the provider's logo and data attributions, required) stays visible at the foot. */
+.gods-eye .cesium-widget-credits{position:absolute;left:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:3;font-size:11px;color:#e6eff3}
+.gods-eye .cesium-viewer-bottom{position:absolute;left:0;right:0;bottom:0}
+.above-row .route-pill{display:inline-flex;align-items:center;justify-content:center;background:#2b4a5c;color:#dff5bd}

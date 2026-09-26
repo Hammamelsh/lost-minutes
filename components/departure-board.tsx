@@ -36,9 +36,13 @@ function vehicleFor(departure:ScheduledDeparture,buses:FollowBus[]):FollowBus|nu
  })??null;
 }
 
-export function DepartureBoard({stop,buses,nowMs,filterLine,onChooseBus}:{
+export function DepartureBoard({stop,buses,nowMs,filterLine,onChooseBus,trackedWords}:{
  stop:Stop;buses:FollowBus[];nowMs:number;filterLine?:string|null;
  onChooseBus?:(bus:FollowBus)=>void;
+ /** Where the tracked bus on a row has got to, in the stop board's own words ("3 stops before
+  *  yours"), so the timetabled time and the bus's real progress are read together on one row rather
+  *  than as two answers in two lists. Null where the board has no place for it. */
+ trackedWords?:(bus:FollowBus)=>string|null;
 }){
  // The board is keyed by the stop it is for, so a board still in flight for the previous stop can
  // never be read against this one: the state carries the id it belongs to rather than being reset.
@@ -105,16 +109,19 @@ export function DepartureBoard({stop,buses,nowMs,filterLine,onChooseBus}:{
      </span>
      <span className="departure-when">
       <strong>{clockWords(row)}</strong>
-      {/* A countdown in minutes stops meaning anything after an hour or two, so beyond that the
+      {/* The claim sits with the time, in words rather than a box (the boxed badge on every row
+          wrapped each row onto three lines on a phone; the board's heading keeps the badge). A
+          countdown in minutes stops meaning anything after an hour or two, so beyond that the
           board says which day instead: "tomorrow" is what a passenger reads at eleven at night. */}
-      <small>{minutes<=0?'due':minutes<120?`in ${countdownWords(row,nowMs)}`
+      <small className="departure-kind" data-kind="scheduled">timetabled · {minutes<=0?'due':minutes<120?`in ${countdownWords(row,nowMs)}`
        :row.serviceDay===serviceDayOf(nowMs)?'later today':'tomorrow'}</small>
      </span>
-     <span className="departure-kind" data-kind="scheduled">Scheduled</span>
-     {/* Named only where the vehicle reports this journey's own departure time, which is why the
-         claim is made here, on the one row it is true of, and not over the board. */}
+     {/* The tracked bus on this very journey, where it has got to: named only where the vehicle
+         reports this journey's own departure time, which is why the claim is made here, on the one
+         row it is true of, and not over the board. Its progress comes from the stop board, so the
+         timetabled time and the bus's real place are one answer, not two lists. */}
      {bus&&onChooseBus&&<button className="text-action departure-bus" onClick={()=>onChooseBus(bus)}
-       data-vehicle={bus.vehicle}>Follow {bus.vehicle}, which reports this journey’s departure time</button>}
+       data-vehicle={bus.vehicle}>Tracked · {trackedWords?.(bus)??'reporting this journey’s departure time'} · {bus.ageWords}</button>}
     </li>;
    })}
   </ol>}

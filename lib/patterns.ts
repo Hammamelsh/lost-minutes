@@ -205,3 +205,30 @@ export function patternsCallingAt(catalogue:PatternCatalogue|null,stopId:string,
   &&(!day||validOn(pattern,day))
   &&(!day||runsOn(pattern.operatingRules as OperatingRule[]|null|undefined,day)!==false));
 }
+
+// --------------------------------------------------------------------- where a stop's buses go
+
+/** One timetabled service leaving a stop: its line and where it is going. */
+export type StopService={line:string;destination:string|null};
+
+/** The services timetabled to leave a stop on `day` (any day when not given), one per line and
+ *  destination, in line order. Where a stop's buses go is what tells its side of the road apart from
+ *  the other side's: "eastbound" means little to a passenger, "to Piccadilly Gardens" does. */
+export function servicesAt(catalogue:PatternCatalogue|null,stopId:string,day?:string):StopService[]{
+ const today=patternsCallingAt(catalogue,stopId,day);
+ return [...new Map(today.map(p=>[`${p.line}|${p.destination??''}`,{line:p.line,destination:p.destination??null}])).values()]
+  .sort((a,b)=>a.line.localeCompare(b.line,undefined,{numeric:true}));
+}
+
+/** "to Piccadilly Gardens (15, 255, 256) · to The Trafford Centre (250)": the stop's destinations,
+ *  the one with most lines first, at most `max` named, the rest counted. Empty with no services. */
+export function towardsWords(services:StopService[],max=2):string{
+ const groups=new Map<string,string[]>();
+ for(const s of services){
+  const to=s.destination??'an unnamed destination';
+  groups.set(to,[...(groups.get(to)??[]),s.line]);
+ }
+ const named=[...groups.entries()].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0]));
+ return named.slice(0,max).map(([to,lines])=>`to ${to} (${lines.join(', ')})`).join(' · ')
+  +(named.length>max?` · +${named.length-max} more`:'');
+}

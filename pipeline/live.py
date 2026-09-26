@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -155,17 +156,50 @@ def walking_config(environ=None):
             'attribution': f'Walking route: OSRM foot profile on {host}, OpenStreetMap data'}
 
 
+# The photographic view from above (docs/PHOTO_3D_RESEARCH.md) is offered only where this server is
+# configured for it. LM_PHOTO3D_GOOGLE_KEY in .env is a Google Maps Platform browser key, restricted
+# by the owner to this site's address and to the Map Tiles API — a key the provider designs to be
+# public, which is why it may be written into config.json; it is never in Git or in a log.
+# LM_PHOTO3D_TILESET names any other 3D Tiles tileset (a public sample, for a check of the viewer),
+# labelled as a sample. Neither set: the block is absent and the page offers no such view.
+GOOGLE_3D_TILES = 'https://tile.googleapis.com/v1/3dtiles/root.json'
+
+
+def photo3d_config(environ=None):
+    """The photographic 3D tileset the page may offer, or None."""
+    env = environ if environ is not None else os.environ
+    key = env.get('LM_PHOTO3D_GOOGLE_KEY', '').strip()
+    sample = env.get('LM_PHOTO3D_TILESET', '').strip()
+    if key:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{20,}', key):
+            raise ValueError('LM_PHOTO3D_GOOGLE_KEY does not look like a Google Maps Platform key')
+        return {'provider': 'google', 'tilesetUrl': f'{GOOGLE_3D_TILES}?key={key}',
+                'attribution': 'Photorealistic 3D Tiles: Google, and the data providers named on screen',
+                'note': 'Previously captured aerial imagery, not a live camera; the date of capture is not published.'}
+    if sample:
+        if not sample.startswith('https://'):
+            raise ValueError('LM_PHOTO3D_TILESET must be an https URL')
+        return {'provider': 'sample', 'tilesetUrl': sample,
+                'attribution': 'A sample 3D Tiles tileset, not Manchester: a check of the viewer only',
+                'note': 'Not photographic imagery of Manchester.'}
+    return None
+
+
 def _config(poll_seconds):
     """Runtime pointers, so the served data object can move host without a rebuild."""
-    return {'schemaVersion': SCHEMA_VERSION,
-            'liveUrl': '/data/live.json',
-            'replayUrl': '/data/replay.json',
-            'operationsUrl': '/data/operations.json',
-            'pollSeconds': poll_seconds,
-            'walking': walking_config(),
-            'note': 'Written by the collector at each publication. Set LM_WALKING_ROUTER in .env '
-                    'to use another OSRM foot server, or "none" to switch walking directions '
-                    'off. The frontend reads this at runtime; changing it needs no rebuild.'}
+    config = {'schemaVersion': SCHEMA_VERSION,
+              'liveUrl': '/data/live.json',
+              'replayUrl': '/data/replay.json',
+              'operationsUrl': '/data/operations.json',
+              'pollSeconds': poll_seconds,
+              'walking': walking_config(),
+              'note': 'Written by the collector at each publication. Set LM_WALKING_ROUTER in .env '
+                      'to use another OSRM foot server, or "none" to switch walking directions '
+                      'off. The frontend reads this at runtime; changing it needs no rebuild.'}
+    photo3d = photo3d_config()
+    if photo3d:
+        config['photo3d'] = photo3d
+    return config
 
 
 def build_live(con, published_at=None):

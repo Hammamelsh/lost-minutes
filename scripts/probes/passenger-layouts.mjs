@@ -48,6 +48,14 @@ function audit(page) {
       if (r.width < 24 || r.height < 24) tiny.push(`${name(el)} ${size}`);
       else if (r.width < 44 || r.height < 44) small.push(`${name(el)} ${size}`);
     }
+    // An element meant to be the screen that is not: an ancestor's containment boxes a fixed element
+    // in (26 September 2026: the view from above drawn 420 px wide inside the panel, every check green).
+    for (const el of document.querySelectorAll('.vector-map.view-ride, .gods-eye')) {
+      if (!shown(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (Math.abs(r.width - innerWidth) > 2 || Math.abs(r.height - innerHeight) > 2)
+        overlaps.push(`boxed in: ${el.className.split(' ')[0]} ${Math.round(r.width)}×${Math.round(r.height)} of ${innerWidth}×${innerHeight}`);
+    }
     const root = document.querySelector('.vector-map');
     if (root && shown(root) && !root.closest('[inert]')) {
       const box = root.getBoundingClientRect();

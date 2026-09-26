@@ -2,7 +2,7 @@
 
 import {LocateFixed,MapPin,Navigation} from 'lucide-react';
 import type {PatternCatalogue} from '@/lib/patterns';
-import {patternsCallingAt} from '@/lib/patterns';
+import {patternsCallingAt,servicesAt,towardsWords} from '@/lib/patterns';
 import {bearingWords,distanceWords,nearestStops,stopPlace,type Stop} from '@/lib/stops';
 
 const COMPASS_DEGREES:Record<string,number>={N:0,NE:45,E:90,SE:135,S:180,SW:225,W:270,NW:315};
@@ -58,10 +58,8 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
      : here?.accuracyMetres?<small>your position is accurate to about {Math.round(here.accuracyMetres)} m</small>:null}
    </div>
    {nearby.map(({stop,metres})=>{
-    const today=patternsCallingAt(patterns,stop.id,day);
-    const ever=today.length?today:patternsCallingAt(patterns,stop.id);
-    const services=[...new Map(today.map(p=>[`${p.line}|${p.destination}`,p])).values()]
-     .sort((a,b)=>a.line.localeCompare(b.line,undefined,{numeric:true}));
+    const services=servicesAt(patterns,stop.id,day);
+    const ever=services.length?services:patternsCallingAt(patterns,stop.id);
     const towards=bearingWords(stop.bearing);
     const degrees=stop.bearing?COMPASS_DEGREES[stop.bearing.toUpperCase()]:undefined;
     return <button key={stop.id} className="nearby-stop" onClick={()=>onSelect(stop)}>
@@ -73,8 +71,7 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
       <small>{towards&&<b>{towards}</b>}{towards&&stop.street?' · ':''}{stop.street}</small>
       {stopPlace(stop)&&<em>{stopPlace(stop)}</em>}
       <span className={`nearby-stop-lines${services.length?'':' none'}`}>{services.length
-       ? services.slice(0,4).map(p=>`${p.line} to ${p.destination??'?'}`).join(' · ')
-         +(services.length>4?` · +${services.length-4} more`:'')
+       ? towardsWords(services)
        : ever.length?'Timetabled here, but nothing runs today'
        : 'No timetable coverage for this stop yet'}</span>
      </span>

@@ -4,9 +4,28 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 25 September 2026, night (every bus on the map, each moving between its own reports and
-tappable; and the ride card's delay and the playback's rewind clarified and measured, with three focused
-corrections: `7dd79be`). Before that the same evening: one Ride-along everywhere, deployed as `a63006b`.
+Last updated: 26 September 2026 (the everyday flow simplified at its three most consequential points, and
+the view from above — photographic 3D, built and checked against a sample tileset, offered only once the
+owner has set up the provider's key: `b849bbf`). Before that, 25 September night: every bus on the map,
+`7dd79be`.
+
+- **26 September — simpler everyday use, and the view from above** (`docs/MILESTONE_2026-09-26_SIMPLER.md`,
+  `docs/PHOTO_3D_RESEARCH.md`, backlog 34). The deployed build walked first at phone and desktop sizes.
+  Three changes: every offer of a stop says where its buses go (*to Piccadilly Gardens (15, 255, 256)*,
+  `servicesAt`/`towardsWords`) before the compass word; a departure row whose vehicle is tracked on that
+  very journey carries the bus's real place (*Tracked · 8 stops before yours · reported 38 s ago*), and
+  the per-row *SCHEDULED* box is the word *timetabled* beside the time; the home keeps the everyday
+  sections first, the Explore block (*Explore Manchester · ride along with a bus*) after them, the
+  duplicate Direction dropdown gone, *Change* now *Change stop*. Photographic 3D: Google Photorealistic 3D
+  Tiles are the only photographic mesh with a public API (Enterprise SKU, 1,000 root requests a month
+  free, then $6 per 1,000; no caching; attribution by the renderer; the terms' *no use with non-Google
+  maps* clause to be read before shipping); CesiumJS renders them, served from this site and loaded only
+  on request; the view draws the map's own drawn frame (`onDrawn`/`mirror`), descends to a tapped bus and
+  follows, and is offered only where `config.json` carries `photo3d` (from `LM_PHOTO3D_GOOGLE_KEY` on the
+  server). Checked against a sample tileset: ready in 0.8 s, nine buses at a 0.7 ms tick, no hop on
+  entering or leaving; the imagery itself unseen until a key exists. **Decision: revise.**
+  **Verified:** 261 Node, 134 Python; the full gate 387 passed / 41 skipped / 2 failed (the ride's known race, and a sign-tap check
+  traced to a stale diagnostic, fixed), then 24 of 24 focused on the final candidate; **deployed as `b849bbf`**. Emulation only.
 
 - **25 September, night — every bus on the map** (`docs/RELEASE.md`, top; backlog 33). The owner,
   riding the served site from a bus link, saw one bus on the whole map: the map drew only the chosen

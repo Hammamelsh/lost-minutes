@@ -4,12 +4,78 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`7dd79be`**, deployed 25 September 2026, night (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`b849bbf`**, deployed 26 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 26 September: simpler everyday use, and the view from above
+
+**Deployed: `b849bbf`**, with `7dd79be` kept for `deploy/rollback.sh`. Two purposes in one app, kept
+apart on the page: everyday travel first (find the stop, see what is coming, follow a bus), and
+exploring Manchester after it (ride along with a bus; and, where the server is set up for it, the city
+from above as photographic 3D). The account and the measurements are `docs/MILESTONE_2026-09-26_SIMPLER.md`;
+the research and the decision on photographic 3D are `docs/PHOTO_3D_RESEARCH.md`.
+
+**The three points of confusion, and what changed** (walked on the deployed `7dd79be` at phone and
+desktop sizes first; frames before and after in `outputs/probes/passenger-layouts/`):
+1. **Which side of the road.** A stop said *eastbound · Kingsway*, and a search for "Stretford Mall"
+   offered Stops A, B and C with only a compass word to tell them apart. Every offer of a stop — the
+   search results, *Stops near you*, and the chosen stop's head — now says where its buses go today:
+   *to Piccadilly Gardens (15, 255, 256) · to The Trafford Centre (250)*, the busiest destination first,
+   the compass word and the street after it. One helper (`servicesAt`, `towardsWords` in
+   `lib/patterns.ts`) gives all three the same words.
+2. **Two answers to "when?".** The stop page gave a scheduled board (*11:10 · in 7 min · SCHEDULED*) and,
+   further down, a tracked bus (*8 stops before yours · 38 s ago*), with nothing joining them. Where the
+   tracked bus is on that very timetabled journey — the one case the board can tie a vehicle to — the
+   row now carries it: *Tracked · 8 stops before yours · reported 38 s ago*, in the stop board's own
+   words, so the time and the bus's real place are read together. The boxed *SCHEDULED* badge on every
+   row, which wrapped each row onto three lines on a phone, is the word *timetabled* beside the time;
+   the board's heading keeps its badge, and the basis line is unchanged.
+3. **What the home is for.** *Or follow a route* offered a Route dropdown *and* a Direction dropdown
+   under a route panel that already had direction chips: two direction controls for one choice. The
+   Direction dropdown is gone (the chips choose the direction; the Route dropdown stays for browsing
+   every route). The exploration block — *Explore Manchester · ride along with a bus* — now comes
+   after the everyday sections rather than between them, and holds the view from above where it is
+   offered. *Change* under a stop reads *Change stop*.
+
+**The view from above** (`components/gods-eye.tsx`, loaded only when opened): Manchester as previously
+captured photographic 3D imagery — Google's Photorealistic 3D Tiles, rendered by CesiumJS from this
+site's own copy — with the same buses on it that the map draws, at the same drawn places. Open on the
+city from 1,400 m; tap a bus and the camera descends behind it and follows; look around, *Return to
+bus*, *Exit* to the map with the same bus, stop and journey. The bar says what it is in one line:
+imagery captured earlier, not a live camera; buses where their reports put them, a little behind.
+**It is offered only where the server is configured for it, and this server is not yet**: the tiles need
+a Google Maps Platform key with billing, which is the owner's to create, and the terms' *no use with
+non-Google maps* clause has to be read before the view goes public. Both are laid out in
+`docs/PHOTO_3D_RESEARCH.md` §5, with the cost at the provider's own units (1,000 openings a month free,
+then $6 per 1,000; the daily quota is the control that bounds it). Until then the viewer was checked
+against a sample tileset, labelled as one, and it passed its checks on both profiles: the renderer ready 0.8 s after the tap on this machine, the
+tileset usable at 0.9 s, nine buses drawn at a 0.6–0.9 ms tick, the descent to the chosen bus, the
+follow released by a drag and restored by *Return to bus*, and the map as it was on leaving. **Decision:
+revise** — sound and cheap, but not judged on the imagery and not to go public before the terms are
+read; `docs/MILESTONE_2026-09-26_SIMPLER.md` §5.
+
+**Verified:** 261 Node tests and 134 Python tests; typecheck; lint with no errors; the full browser gate on the
+candidate **387 passed, 41 skipped by design, 2 failed in 1.2 hours** (Chromium with SwiftShader, desktop
+and phone emulation). The two: the ride's drag-during-glide race (backlog 29's known intermittent; passed
+on re-run) and the sign-tap check, whose logging this time showed the cause — the tap chose nothing,
+because the signs' on-screen points are refreshed at the map's *idle*, which under load lags the
+camera's rest by seconds; the points are now refreshed at `moveend` too, the check waits for them to
+settle, and it passed 3 of 3 on both profiles with the view's checks. After that a build with three small
+tidy-ups (the view's event handler destroyed on leaving, a lint fix, the probe's audit) was the candidate:
+`above.spec` and the sign-tap check passed on it, 24 of 24. **Deployed as `b849bbf`**, the served page
+chunk identical to the local build's (`43ebca86…`), `7dd79be` kept for rollback; the served
+`config.json` carries no `photo3d`, so the view is not offered on the public site; the renderer's files
+are served (`/vendor/cesium/version.json`, `Cesium.js` 6.0 MB). On the served site at 12:50 UTC: the three
+changed screens captured (`outputs/probes/everyday-flows/served-b849bbf/`), and the fleet still drawing
+485 buses, 316 in view and 234 moving at a 1.3 ms tick at a city zoom, a tapped grey bus becoming the
+chosen bus with no hop (*Standing · as it was about 60 s ago · report 43 s old*). Seen on the way and
+left open: at a neighbourhood zoom two other buses stepped 108 and 217 m between two samples a quarter of
+a second apart — a repositioning is said for the chosen bus and silent for the rest (backlog 33), and
+which this was is not known. Emulation only.
 
 ## 25 September, night: every bus on the map
 

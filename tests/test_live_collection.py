@@ -325,6 +325,36 @@ class LiveCollectionTests(unittest.TestCase):
         self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
         self.assertIs(signal.getsignal(signal.SIGTERM), before, 'the previous handler is restored')
 
+    def test_a_stop_during_a_warehouse_query_is_still_a_polite_stop(self):
+        """26 September 2026: a deploy's restart landed during a publication; DuckDB turned the stop
+        into "Query interrupted", and the collector recorded a failure and exited 1."""
+        import os
+        import signal
+        from unittest import mock
+        from pipeline.collect import CollectorStopped, collect
+
+        def publish_during_a_stop(con, run_id, root):
+            # A query long enough to be interrupted, on the collector's own connection, with the
+            # stop arriving while it runs, as a service manager's does.
+            import threading
+            threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGTERM)).start()
+            con.execute('SELECT count(*) FROM range(20000000000) t(x) WHERE x % 7 = 3').fetchall()
+            raise AssertionError('the stop should have interrupted the query')
+
+        # The feed fails (a transport error is recorded and the cycle goes on to publish), so the
+        # stop arrives in the publication's query, where it arrived on the server.
+        feed = FakeFeed([OSError('no network in this test')])
+        with mock.patch('pipeline.collect.publish_live', side_effect=publish_during_a_stop):
+            with self.assertRaises(CollectorStopped) as raised:
+                collect(minutes=1, interval=20, root=self.root, db_path=self.db,
+                        fetch_fn=feed, clock=self.clock, sleep=self.sleep,
+                        log=lambda *_: None, api_key='test-key-never-real')
+        self.assertEqual(raised.exception.signal_name, 'SIGTERM')
+        con = self.connect()
+        run = con.execute('SELECT status, exit_reason, error_class FROM pipeline_run').fetchone()
+        con.close()
+        self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
+
     def test_a_service_manager_stop_exits_zero_and_a_ctrl_c_exits_130(self):
         """A recorded, graceful stop is a success; systemd must not call it a failure.
 

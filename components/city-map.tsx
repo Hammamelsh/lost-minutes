@@ -421,17 +421,34 @@ function glide(instance:MapLibreMap,options:Parameters<MapLibreMap['easeTo']>[0]
  * it. False if something else took the camera in between.
  */
 async function approach(instance:MapLibreMap,target:()=>CameraOptions&{center:LngLatLike},
- duration:number,still:()=>boolean){
+ duration:number,still:()=>boolean):Promise<Arrival>{
  const middle=instance.project(instance.getCenter()),bus=instance.project(target().center);
  const off=Math.hypot(bus.x-middle.x,bus.y-middle.y);
  if(off>24){
   await glide(instance,{center:target().center,duration:Math.round(Math.min(600,Math.max(250,off*0.8)))});
-  if(!still())return false;
+  if(!still())return 'stale';
  }
  // The last leg settles: fast away from the flat map, slowing into the framing behind the bus, as
  // a camera lowered onto a road does, rather than MapLibre's symmetrical ease.
- await glide(instance,{...target(),duration,easing:settle});
- return still();
+ return arrive(instance,()=>({...target(),duration,easing:settle}),still);
+}
+
+/** The camera is at the framing a glide asked for. A glide that was cut short ends with "moveend"
+ *  just as one that arrived does. */
+function reached(instance:MapLibreMap,framing:CameraOptions):boolean{
+ return (framing.zoom===undefined||Math.abs(instance.getZoom()-framing.zoom)<0.15)
+  &&(framing.pitch===undefined||Math.abs(instance.getPitch()-framing.pitch)<3);
+}
+
+/** One glide to a framing, and how it ended: no longer wanted (something else took the camera),
+ *  arrived, or short of the framing. A glide stopped part way ends with "moveend" just as one that
+ *  arrived, so which it was is read from the camera. */
+type Arrival='stale'|'arrived'|'short';
+async function arrive(instance:MapLibreMap,framing:()=>CameraOptions&{duration:number},still:()=>boolean):Promise<Arrival>{
+ const options=framing();
+ await glide(instance,options);
+ if(!still())return 'stale';
+ return reached(instance,options)?'arrived':'short';
 }
 
 /** Ease-out (cubic): all of the speed at the start, none at the end. */
@@ -980,6 +997,19 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     // Centimetres and tenths of a degree: fine enough to measure how smoothly it moves per frame.
     root.current?.setAttribute('data-camera',`${instance.getZoom().toFixed(3)},${centre.lat.toFixed(7)},`
      +`${centre.lng.toFixed(7)},${instance.getPitch().toFixed(1)},${instance.getBearing().toFixed(1)}`);
+    // Where the camera itself is, not what it looks at: in the front view the look-at point runs a
+    // speed-dependent distance ahead of the bus, so only the eye says whether the camera rides with it.
+    // From MapLibre's own geometry, by its public values (the transform is not exposed at run time):
+    // the camera stands 0.5/tan(fov/2) canvas heights from the centre, along the view, so its ground
+    // point is that distance × sin(pitch) behind the centre, against the bearing.
+    {
+     const fov=(instance.getVerticalFieldOfView?.()??36.87)*Math.PI/180,pitch=instance.getPitch()*Math.PI/180;
+     const bearing=instance.getBearing()*Math.PI/180,height=instance.getCanvas().clientHeight;
+     const metresPerPx=40075016.686*Math.cos(centre.lat*Math.PI/180)/(512*2**instance.getZoom());
+     const back=0.5/Math.tan(fov/2)*height*Math.sin(pitch)*metresPerPx;
+     const lat=centre.lat-back*Math.cos(bearing)/111195,lon=centre.lng-back*Math.sin(bearing)/(111195*Math.cos(centre.lat*Math.PI/180));
+     root.current?.setAttribute('data-eye',`${lat.toFixed(7)},${lon.toFixed(7)}`);
+    }
     // The map's own padding, as MapLibre holds it: a fit that lands wrong with the right bounds
     // is a padding that was not what the fit assumed, and this is the only way to see it.
     const p=instance.getPadding();
@@ -1924,9 +1954,18 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   const still=()=>r.transition===token&&r.state===as;
   // The front view glides straight to the eye: its look-at point is already ahead of the bus.
   const arrived=r.camera==='front'
-   ?glide(instance,{...rideFraming(instance,duration/1000),duration}).then(still)
+   ?arrive(instance,()=>({...rideFraming(instance,duration/1000),duration}),still)
    :approach(instance,()=>rideFraming(instance),duration,still);
-  arrived.then(ok=>{if(ok)settle()});
+  // A glide that did not arrive — stopped part way by a move the passenger did not make (MapLibre acting
+  // on a late drag, its inertia, a key's pan), or held still because MapLibre was busy with one — used to
+  // be taken as an arrival: the ride said "following" at zoom 14.2 rather than 20 (the gate of 26
+  // September 2026; reproduced 6 of 6 with a key's pan during the glide). The passenger's own gestures
+  // change the ride's state first, so what is left is finished by a cut to the framing.
+  arrived.then(result=>{
+   if(result==='stale')return;
+   if(result==='short'){instance.stop();instance.jumpTo(rideFraming(instance))}
+   settle();
+  });
  },[rideFraming,setRide,kick]);
  useEffect(()=>{returnRef.current=returnToBus},[returnToBus]);
 

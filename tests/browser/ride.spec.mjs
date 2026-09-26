@@ -223,6 +223,33 @@ test('a drag as the camera goes to the bus ends the glide, exploring; Return to 
   await expectIdentifiable(page, 'after Return to bus');
 });
 
+// The check above failed once in the gate of 26 September 2026 on the phone profile: "following" at
+// zoom 14.2 after Return to bus. The return glide had been stopped part way by a move the ride did
+// not start (MapLibre acting on a late drag), which ends with "moveend" as an arrival does, and the
+// ride took it for one. A key's pan during the glide stands in for that move here, on demand: before
+// the fix this ended "following" at zoom 14.7–17.4 in 6 of 6 runs.
+test('Return to bus arrives at its framing even when a move the ride did not start cuts the glide short', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, {wobble: 5});
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', /entering|following/);
+  await page.waitForTimeout(200);
+  await dragMap(page, -180, 90);
+  await expect(map(page)).toHaveAttribute('data-ride', 'exploring');
+  await page.waitForTimeout(1500);
+  await page.getByRole('button', {name: 'Return to bus'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'returning');
+  await page.waitForTimeout(250);
+  await page.locator('.maplibregl-canvas').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 8000});
+  await page.waitForTimeout(600);
+  expect((await camera(page)).zoom, 'following, and at the framing').toBeCloseTo(20, 0);
+  expect((await camera(page)).pitch).toBeGreaterThan(50);
+  await expectIdentifiable(page, 'after a cut-short return');
+});
+
 // Backlog 29, classified 25 September 2026: the check above failed now and then, and passed 6 of 6
 // on a re-run, which says nothing about why. With the CPU slowed six times it failed 3 of 3 on the
 // deployed build (0 of 3 at normal speed): MapLibre reports a drag on its next drawn frame, a quick
@@ -524,9 +551,14 @@ test('front view: a raised preview along the checked road, the bus’s outside h
   await expect(page.getByRole('button', {name: 'Zoom in'})).toBeDisabled();
   await shot(page, 'front-view');
   // Over time the eye moves with the drawn bus, and only as far as it does.
-  const first = {c: await camera(page), d: await drawn(page)};
+  // Restated 26 September 2026: this compared the point the camera looks at, which runs 32 m ahead of
+  // the bus plus 2.5 m for every m/s it is drawn going (963633a), so a change of speed over the 3 s
+  // moved it more or less than the bus by design; under the full gate's load that read 26.5 m against
+  // 20.3 m. The camera's own position, the eye, is what rides with the bus, and is measured now.
+  const eyeAt = async () => { const [lat, lon] = ((await map(page).getAttribute('data-eye')) || ',').split(',').map(Number); return {lat, lon}; };
+  const first = {c: await eyeAt(), d: await drawn(page)};
   await page.waitForTimeout(3000);
-  const last = {c: await camera(page), d: await drawn(page)};
+  const last = {c: await eyeAt(), d: await drawn(page)};
   // Measured on the map: in the ride the bus is drawn from its reports (backlog 31), whose place is
   // given as a position, not as a distance along the estimate's road.
   const eyeMoved = metresApart(first.c, last.c), busMoved = metresApart(first.d, last.d);

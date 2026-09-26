@@ -92,6 +92,21 @@ def _raise_stop(signum, _frame):
     raise CollectorStopped(signal.Signals(signum).name)
 
 
+def _stop_behind(error):
+    """The polite stop an error stands for, if it stands for one. A stop that arrives while DuckDB is
+    running a query does not come back as itself: DuckDB interrupts the query and raises its own
+    RuntimeError("Query interrupted"), with the stop as its cause. On 26 September 2026 a deploy's
+    restart landed in the middle of a publication, and the collector recorded a failure and exited 1
+    for what was a routine stop."""
+    seen = set()
+    while error is not None and id(error) not in seen:
+        if isinstance(error, CollectorStopped):
+            return error
+        seen.add(id(error))
+        error = error.__cause__ or error.__context__
+    return None
+
+
 def _install_stop_handlers():
     previous = {}
     if threading.current_thread() is not threading.main_thread():
@@ -389,6 +404,21 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                    exit_reason=f'signal:{stop.signal_name}')
         raise
     except BaseException as error:
+        stop = _stop_behind(error)
+        if stop is not None:
+            # The same stop as above, delivered through an interrupted query: recorded as the stop it
+            # was. If the interrupted connection cannot record it, the next collector closes the run
+            # as abandoned, which is what it would do after a kill.
+            # DuckDB hands control back at once but lets the interrupted query run on, and the next
+            # statement waited for it (60 s in the test's long query): it is cancelled first.
+            try:
+                con.interrupt()
+                finish_run(con, run_id, 'interrupted', 'CollectorStopped',
+                           f'Stopped by {stop.signal_name} during a warehouse query.',
+                           exit_reason=f'signal:{stop.signal_name}')
+            except Exception:  # noqa: BLE001
+                pass
+            raise stop from error
         finish_run(con, run_id, 'failed', type(error).__name__, str(error),
                    exit_reason=f'exception:{type(error).__name__}')
         raise

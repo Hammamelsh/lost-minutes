@@ -88,8 +88,26 @@ class CollectorStopped(BaseException):
 STOP_SIGNALS = ('SIGTERM', 'SIGHUP', 'SIGINT')
 
 
+# The stop a signal asked for, kept as well as raised. DuckDB's executemany can finish its statement
+# as if nothing had happened when the handler raises during it: on 27 September 2026 a deploy's SIGTERM
+# landed in the batch insert of a cycle's positions, the stop vanished, and the collector went on
+# collecting until systemd killed it 30 s later. Reproduced against a copy of the warehouse: in two sweeps
+# of 19 stops landing in that load, 8 and 9 were lost. The loop acts on this record once the warehouse
+# has handed control back (_check_stop), so no stop depends on DuckDB returning it.
+_stop_requested = None
+
+
 def _raise_stop(signum, _frame):
-    raise CollectorStopped(signal.Signals(signum).name)
+    global _stop_requested
+    _stop_requested = signal.Signals(signum).name
+    raise CollectorStopped(_stop_requested)
+
+
+def _check_stop():
+    """A stop that was asked for but did not arrive as an exception, raised where the collector can act
+    on it."""
+    if _stop_requested is not None:
+        raise CollectorStopped(_stop_requested)
 
 
 def _stop_behind(error):
@@ -108,6 +126,8 @@ def _stop_behind(error):
 
 
 def _install_stop_handlers():
+    global _stop_requested
+    _stop_requested = None
     previous = {}
     if threading.current_thread() is not threading.main_thread():
         return previous
@@ -380,8 +400,12 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                              'repeats': counts['repeats'], 'conflicts': counts['conflicts'],
                              'quarantined': counts['rejected']})
             summary['failures'] = failures
+            # A stop the warehouse swallowed during this cycle is acted on here, with the cycle recorded
+            # whole; and again after the publication, before the collector sleeps.
+            _check_stop()
             if publish:
                 publish_live(con, run_id, root=root)
+            _check_stop()
             # Bounded exponential backoff on consecutive failures, then back to normal.
             wait = min(interval * 2 ** min(failures, 4), MAX_BACKOFF)
             remaining = deadline - clock()

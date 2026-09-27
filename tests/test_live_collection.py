@@ -381,6 +381,48 @@ class LiveCollectionTests(unittest.TestCase):
         con.close()
         self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
 
+    def test_a_stop_the_warehouse_swallows_is_still_acted_on(self):
+        """27 September 2026: a deploy's SIGTERM landed in the batch insert of a cycle's positions,
+        DuckDB's executemany finished the insert as if nothing had happened, and the collector went
+        on collecting until systemd killed it 30 s later. Reproduced with the real collector against a
+        copy of the warehouse: in two sweeps of 19 stops landing in that load, 8 and 9 were lost, and
+        with this fix none of 19. The handler now records the stop as well as raising it, and the
+        collector acts on the record once the warehouse has handed control back."""
+        import os
+        import signal
+        import time as real_time
+        from unittest import mock
+        from pipeline import collect as collect_module
+        from pipeline.collect import CollectorStopped, collect
+        real_load = collect_module.load_observations
+
+        def load_that_swallows_a_stop(*args, **kwargs):
+            # As executemany did: the signal's handler runs during the load, and what it raises goes
+            # no further.
+            try:
+                os.kill(os.getpid(), signal.SIGTERM)
+                for _ in range(100):
+                    real_time.sleep(0.01)
+            except CollectorStopped:
+                pass
+            return real_load(*args, **kwargs)
+
+        feed = FakeFeed([siri_document([bus(at(-5))]), siri_document([bus(at(-3))]),
+                         siri_document([bus(at(-1))])])
+        with mock.patch('pipeline.collect.load_observations', side_effect=load_that_swallows_a_stop):
+            with self.assertRaises(CollectorStopped) as raised:
+                collect(minutes=1, interval=20, root=self.root, db_path=self.db,
+                        fetch_fn=feed, clock=self.clock, sleep=self.sleep,
+                        log=lambda *_: None, api_key='test-key-never-real')
+        self.assertEqual(raised.exception.signal_name, 'SIGTERM')
+        self.assertEqual(feed.calls, 1, 'no further request after the stop')
+        con = self.connect()
+        run = con.execute('SELECT status, exit_reason, error_class FROM pipeline_run').fetchone()
+        cycles = con.execute('SELECT count(*), min(outcome) FROM collection_cycle').fetchone()
+        con.close()
+        self.assertEqual(run, ('interrupted', 'signal:SIGTERM', 'CollectorStopped'))
+        self.assertEqual(cycles, (1, 'succeeded'), 'the cycle the stop landed in is recorded whole, and it is the last')
+
     def test_a_service_manager_stop_exits_zero_and_a_ctrl_c_exits_130(self):
         """A recorded, graceful stop is a success; systemd must not call it a failure.
 

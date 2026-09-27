@@ -53,7 +53,10 @@ jobs:
             echo "a credential value is in out/"; exit 1
           fi
           test ! -e out/.env
-          if grep -rIn -e '/home/' -e '/Users/' --include='*.js' --include='*.mjs' out/_next out/vendor ; then
+          # The machine that built it is this one: its checkout and its home. Any "/home/" was too wide
+          # once Cesium was vendored (26 September 2026): its bundle carries ArcGIS URLs
+          # (arcgis.com/home/item.html) and an emulated HOME of "/home/web_user", and every push failed.
+          if grep -rIn -F -e "$PWD" -e "$HOME/" --include='*.js' --include='*.mjs' out/_next out/vendor ; then
             echo "a build-machine path is in the shipped JavaScript"; exit 1
           fi
           test -s out/fonts/inter-variable.woff2

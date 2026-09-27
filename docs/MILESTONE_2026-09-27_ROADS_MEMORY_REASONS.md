@@ -349,6 +349,12 @@ both stopped cleanly ("Deactivated successfully", in 2.1 s and 3.8 s).
 - **Changed since the gate:** only that check, a script's comment, the collector's stop (Python, with its
   tests), the login drop-in and the wrapper with their README section, and the new stop-sweep probe. Each
   is verified by its own checks above. None of it is in the built site.
+- **The repository's CI had been red since the push of 26 September at 17:59 UTC**, and the last
+  record did not say so. Every step passed except "no secret reached the built site". Its test for a
+  build-machine path matched any `/home/` in the shipped JavaScript, and the vendored Cesium bundle
+  carries ArcGIS URLs (`arcgis.com/home/item.html`) and an emulated `HOME` of `/home/web_user`. The check
+  now looks for the building machine's own checkout and home paths. Locally, the clean build passes it,
+  and a planted path is caught. The run for the push carrying the fix is the confirmation.
 - Emulation only; nothing on a phone in hand.
 
 ## 7. Deploy and served checks

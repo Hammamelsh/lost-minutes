@@ -71,6 +71,9 @@ sweep: none of 19 lost. Two restarts on the server then stopped cleanly.
   - the noon publications move BNSM 11930 once by 108.3 m, marked, and never cut 11918;
   - the front view's roads are at their width;
   - the trace-tap and scale checks pass on both profiles.
+- **CI had been failing since 26 September, 17:59 UTC, unrecorded.** The cause was a false positive:
+  the build-path test matched ArcGIS URLs and an emulated home inside the vendored Cesium bundle. It
+  now looks for the building machine's own paths. Every other CI step passed throughout.
 - Emulation only.
 
 ## 26 September, afternoon: the fleet's two jumps fixed, a private preview, the view ready for real imagery

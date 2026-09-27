@@ -85,7 +85,7 @@ The kernel killed the collector twice before it killed the replay.
 | The nightly refresh | `lost-minutes-refresh.service` | MemoryMax 1500M; it runs while the collector is stopped |
 | The arrival evaluation | `lost-minutes-arrival-eval.service` | MemoryMax 1500M; `OOMScoreAdjust=300`, the first to go |
 | Health, retention, Caddy | their units | none; each uses a few megabytes |
-| Anything run from a login, sudo included | that user's slice | MemoryHigh 700M, MemoryMax 900M for each user, across all of that user's sessions (`systemd/user-.slice.d/`) |
+| Anything run from a login, sudo included | that user's slice | MemoryMax 900M for each user, across all of that user's sessions (`systemd/user-.slice.d/`); a runaway is killed at it |
 | A deliberate diagnostic job | `deploy/server-job.sh` | its own ceiling, 400M by default and 800M at most |
 
 **Before 26 September**, a login session had no ceiling at all. That was the gap.
@@ -115,9 +115,9 @@ it back afterwards:
 
 ```bash
 sudo systemctl stop lost-minutes-collector
-sudo systemctl set-property --runtime user-$(id -u).slice MemoryHigh=infinity MemoryMax=infinity
+sudo systemctl set-property --runtime user-$(id -u).slice MemoryMax=infinity
 # … the job …
-sudo systemctl set-property --runtime user-$(id -u).slice MemoryHigh=700M MemoryMax=900M
+sudo systemctl set-property --runtime user-$(id -u).slice MemoryMax=900M
 sudo systemctl start lost-minutes-collector
 ```
 

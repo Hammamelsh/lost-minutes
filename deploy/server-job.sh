@@ -52,8 +52,10 @@ since=$(date -u '+%Y-%m-%d %H:%M:%S')
 echo "job $unit: ceiling $memory, scratch $scratch" >&2
 
 set +e
+# A hard ceiling only: a soft one beside it slows a job that reaches it to a crawl instead of stopping
+# it (the login slice's drop-in says how that was found).
 sudo systemd-run --scope --quiet --unit="$unit" \
-  -p MemoryMax="$memory" -p MemorySwapMax=0 -p MemoryHigh="$((megabytes * 9 / 10))M" \
+  -p MemoryMax="$memory" -p MemorySwapMax=0 \
   -- sudo -u "$user" env TMPDIR="$scratch" nice -n 19 ionice -c 3 "$@"
 status=$?
 set -e

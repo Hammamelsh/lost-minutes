@@ -2280,7 +2280,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
 
   <p className="map-credit-line">
    {BASEMAP_CREDITS.map((credit,index)=><span key={credit.href}>{index>0&&' · '}
-    <a href={credit.href} target="_blank" rel="noopener noreferrer">{credit.label}</a></span>)}
+    <a href={credit.href} target="_blank" rel="noopener noreferrer">{credit.label}
+     {'more' in credit&&<span className="credit-more">{credit.more}</span>}</a></span>)}
   </p>
  </div>;
 }

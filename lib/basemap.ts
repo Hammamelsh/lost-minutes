@@ -11,15 +11,19 @@ import maplibrePackage from 'maplibre-gl/package.json';
  *  (scripts/vendor-maplibre.mjs). The version in the path keeps every cached copy coherent. */
 export const MAPLIBRE_MODULE_URL = `/vendor/maplibre-gl/${maplibrePackage.version}/maplibre-gl.mjs`;
 
-/** Required credits, each linked to its own terms. OpenStreetMap data is ODbL; OpenFreeMap
- *  and OpenMapTiles ask to be named. */
+/** Required credits, each linked to its own terms, in the words each provider asks for (read
+ *  27 September 2026): OpenStreetMap's data is ODbL, credited "© OpenStreetMap contributors" or
+ *  "© OpenStreetMap" with the name linked to its copyright page; OpenFreeMap asks to be named; the
+ *  OpenMapTiles schema is CC-BY 4.0, credited "© OpenMapTiles". `more` is the part a phone leaves
+ *  out (globals.css), still giving the credit OpenStreetMap asks for; a © is joined to its name, so
+ *  a credit that has to take two lines never parts them. */
 export const BASEMAP_CREDITS = [
- {label:'© OpenStreetMap contributors',href:'https://www.openstreetmap.org/copyright'},
+ {label:'©\u00a0OpenStreetMap',more:' contributors',href:'https://www.openstreetmap.org/copyright'},
  {label:'OpenFreeMap',href:'https://openfreemap.org'},
- {label:'OpenMapTiles',href:'https://www.openmaptiles.org/'},
+ {label:'©\u00a0OpenMapTiles',href:'https://www.openmaptiles.org/'},
 ] as const;
 
-export const BASEMAP_ATTRIBUTION = BASEMAP_CREDITS.map(c=>c.label).join(' · ');
+export const BASEMAP_ATTRIBUTION = BASEMAP_CREDITS.map(c=>c.label+('more' in c?c.more:'')).join(' · ');
 
 /** Whether this device gives a WebGL context at all. The probe's own context is released at once:
  *  left for the garbage collector, one was kept alive for every page load, on top of the map's. */

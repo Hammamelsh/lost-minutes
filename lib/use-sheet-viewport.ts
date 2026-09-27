@@ -17,6 +17,9 @@
 import {useEffect,type RefObject} from 'react';
 
 export const SHEET_PEEK=92;
+/** Expanded, the sheet stops this far below the search, the 8 px it always left plus a line for the
+ *  basemap's credit, which sits between the two on the map (globals.css). A credit is 19.6 px tall. */
+export const CREDIT_STRIP=22;
 
 export type SheetHeights={peek:number;half:number;full:number};
 
@@ -49,7 +52,7 @@ export function readSheetHeights(el:HTMLElement|null):SheetHeights{
  * keyboard, on iOS, which shrinks what is visible without shrinking the page — so a sheet fixed
  * to `bottom: var(--vv-gap)` sits above the keyboard rather than under it. The top reserve is
  * the search bar's own measured bottom edge, so the expanded sheet fills everything beneath the
- * one control that must stay reachable from it.
+ * one control that must stay reachable from it, less the basemap credit's line.
  */
 export function useSheetViewport(ref:RefObject<HTMLElement|null>){
  useEffect(()=>{
@@ -71,7 +74,7 @@ export function useSheetViewport(ref:RefObject<HTMLElement|null>){
    // getBoundingClientRect is in layout-viewport coordinates; the visual viewport is offset
    // from it while zoomed or scrolled under a keyboard.
    const barBottom=bar?bar.getBoundingClientRect().bottom-offsetTop:0;
-   const heights=sheetHeights(height,Math.max(0,Math.round(barBottom+8)));
+   const heights=sheetHeights(height,Math.max(0,Math.round(barBottom+8+CREDIT_STRIP)));
    el.style.setProperty('--vvh',`${Math.round(height)}px`);
    el.style.setProperty('--vv-gap',`${gap}px`);
    el.style.setProperty('--sheet-half',`${heights.half}px`);

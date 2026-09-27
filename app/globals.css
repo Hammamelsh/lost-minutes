@@ -409,13 +409,19 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .map-credit-line a{color:#b6c9d4;text-decoration:none}
 .map-credit-line a:hover{text-decoration:underline}
-/* On a phone the credit stays one complete line (a smaller size, not an ellipsis), and the
-   legend and the ride button stack above it instead of on top of it. */
+/* On a phone the credit stays one complete line at the same readable size, and the legend and the
+   ride button stack above it instead of on top of it. */
 @media(max-width:640px){
- .map-credit-line{font-size:9.5px;padding:2px 6px;bottom:6px;white-space:nowrap;text-overflow:clip}
+ .map-credit-line{bottom:6px}
  .follow .your-stop-mark{display:none}
  .follow .your-stop{padding:10px 11px}
  .follow .your-stop-copy strong{font-size:16px}
+}
+/* On a phone, upright or on its side, the credit says "© OpenStreetMap", which OpenStreetMap's
+   guidelines accept, so that it is one whole line on a 360 px screen and in a map column beside the
+   panel; "contributors" is kept where there is room for it. */
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px),(orientation:landscape) and (max-height:560px){
+ .map-credit-line .credit-more{display:none}
 }
 
 /* ---- Buses near me: location first, search beside it with the same reach. */
@@ -1202,7 +1208,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .vector-map.view-ride .map-tools{top:calc(env(safe-area-inset-top,0px) + 64px);bottom:auto;
   right:calc(env(safe-area-inset-right,0px) + 12px)}
  .vector-map.view-ride .map-credit-line{left:auto;right:calc(env(safe-area-inset-right,0px) + 12px);
-  bottom:calc(env(safe-area-inset-bottom,0px) + 2px);font-size:9px;opacity:.8}
+  bottom:calc(env(safe-area-inset-bottom,0px) + 6px)}
 }
 /* A phone on its side: the bar and the card both shrink, and the actions stay beside the card
    rather than above it, so the street keeps the middle of the screen. */
@@ -1226,8 +1232,8 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .vector-map.view-ride .ride-about p{position:absolute;right:0;top:40px;width:min(320px,80vw)}
  .vector-map.view-ride .ride-mode{margin-left:auto}
  .vector-map.view-ride .ride-mode-state{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
- /* Room under the card for the basemap credit, which must always be readable. */
- .vector-map.view-ride .ride-hud{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 28px)}
+ /* Room under the card for the basemap credit, which must always be readable: its line and a gap. */
+ .vector-map.view-ride .ride-hud{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 32px)}
  .vector-map.view-ride .map-credit-line{left:calc(env(safe-area-inset-left,0px) + 12px);right:auto}
 }
 
@@ -1508,15 +1514,33 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .follow>.follow-notes{display:none}
  .follow>.follow-bar{justify-self:start}
 }
+/* The workspace fills what is left of the screen under the masthead and above the home bar, so the
+   map's foot and its credit are on the first screen. It was 100dvh - 78px, which ran 11 px past the
+   screen's bottom edge with the heading showing and ignored the home bar (27 September 2026). */
 @media(min-width:640px) and (orientation:landscape) and (max-height:560px){
- .follow{height:calc(100dvh - 78px);grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
+ .follow{height:calc(100dvh - var(--masthead-h) - 6px - env(safe-area-inset-bottom,0px));grid-template-columns:minmax(0,1fr) minmax(300px,360px)}
  .page-heading.compact{display:none}
+}
+/* A phone on its side rides full screen too. The two-column rule above outranked the ride's own
+   (max-width:860px) full-screen rule by source order, so from 22 September 2026 the ride sat in the
+   map's column, its card over its own Exit at 667 px and the basemap credit under the panel. Upright
+   had the same fault and was fixed that day; this is the same rule for the other orientation. */
+@media(min-width:640px) and (max-width:860px) and (orientation:landscape) and (max-height:560px){
+ .follow>.vector-map.view-ride{position:fixed;inset:0;width:100%;height:100dvh;max-height:none;min-height:0;margin:0;
+  border-radius:0;border-width:0;z-index:60}
+}
+/* The narrowest of them (a 667 px phone) leaves the map a 250 px column: the credit takes two lines
+   there, and the map's foot stands a line higher to leave them room. */
+@media(min-width:640px) and (max-width:699.98px) and (orientation:landscape) and (max-height:560px){
+ .map-credit-line{white-space:normal}
+ .follow>.vector-map .vector-map-foot{bottom:48px}
 }
 
 /* The masthead's own height, for the phone workspace to start right under it. */
 :root{--masthead-h:88px}
 @media(max-width:800px){:root{--masthead-h:72px}}
 @media(max-width:540px){:root{--masthead-h:68px}}
+@media(max-height:520px){:root{--masthead-h:58px}}
 
 /* ---- Phones upright: the map is the screen, the search floats above it, the panel is a sheet. */
 @media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
@@ -1561,12 +1585,23 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .follow>.panel .panel-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;contain:paint;padding-bottom:16px;scrollbar-width:thin}
  .follow.sheet-peek>.panel .panel-body,.follow.sheet-peek>.panel .panel-head{visibility:hidden}
  .follow>.follow-notes{display:none}
- .follow>.vector-map .vector-map-foot{bottom:calc(var(--sheet-half,46dvh) + 10px);right:67px}
- .follow.sheet-peek>.vector-map .vector-map-foot{bottom:104px}
+ /* The basemap's credit is the map's last line, just above the sheet at each height it rests at, and
+    the map's foot (its legend and Ride along) and "Find stops around here" stand a line higher to
+    leave it the row. From 22 to 27 September 2026 it was display:none here, so an upright phone
+    showed no credit at all, not even in the ride, which had kept room for it under the card. */
+ .follow>.vector-map .vector-map-foot{bottom:calc(var(--sheet-half,46dvh) + 30px);right:67px}
+ .follow.sheet-peek>.vector-map .vector-map-foot{bottom:122px}
  .follow.sheet-full>.vector-map .vector-map-foot{display:none}
- .follow>.vector-map .map-credit-line{display:none}
- .follow>.vector-map .map-find-here{top:auto;bottom:calc(var(--sheet-half,46dvh) + 62px)}
- .follow.sheet-peek>.vector-map .map-find-here{bottom:150px}
+ .follow:not(.riding)>.vector-map .map-credit-line{bottom:calc(var(--sheet-half,46dvh) + 6px)}
+ .follow.sheet-peek:not(.riding)>.vector-map .map-credit-line{bottom:98px}
+ .follow.sheet-full:not(.riding)>.vector-map .map-credit-line{bottom:calc(var(--sheet-full,calc(100dvh - 200px)) + 5px)}
+ /* Expanded, the sheet stops a credit's line short of the search (CREDIT_STRIP in
+    lib/use-sheet-viewport.ts); the view and tool buttons, which the sheet covers, stand down once it
+    has grown over them rather than show a sliver above it. */
+ .follow.sheet-full:not(.riding)>.vector-map .map-views,
+ .follow.sheet-full:not(.riding)>.vector-map .map-tools{visibility:hidden;transition:visibility 0s .28s}
+ .follow>.vector-map .map-find-here{top:auto;bottom:calc(var(--sheet-half,46dvh) + 82px)}
+ .follow.sheet-peek>.vector-map .map-find-here{bottom:168px}
  /* Riding: the sheet folds to its handle so the ride's own card is the screen. */
  .follow.riding>.panel{display:none}
  .follow.riding>.follow-top{display:none}
@@ -1667,8 +1702,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 
 /* On a phone the masthead already says what this is; the heading under it cost 36 px of a 664 px
    screen and said it again. It stays for assistive technology, which is what an h1 is for. This
-   sits after every other rule for it, because two of them re-add padding. */
-@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px){
+   sits after every other rule for it, because two of them re-add padding, and one re-showed it on a
+   phone held sideways, where two display:none rules meant it to stand down too. */
+@media(max-width:1023.98px) and (orientation:portrait),(max-width:639.98px),(min-width:640px) and (orientation:landscape) and (max-height:560px){
  .page-heading.compact{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;
   clip:rect(0 0 0 0);white-space:nowrap;gap:0}
 }

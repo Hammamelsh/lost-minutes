@@ -1847,6 +1847,13 @@ half their stated width (backlog 35). `scripts/probes/fleet-replay.mjs` measures
 measured time. The smallest reusable capability is one exported metres-per-pixel function, tested
 against MapLibre's own `transform`, that probes, checks and the style all import. Status: not built.
 
+**27 September 2026: built.** `lib/scale.ts` (`metresPerPixel`) serves the front view's widths and the
+camera-eye diagnostic. MapLibre 6.7 does not expose its transform at runtime, so it is checked against
+what the map draws instead: in `fleet.spec`, the on-screen distance between buses standing at their
+reports, in metres, matches the reports' own distance to within 2% on a flat map. The browser checks
+that must compute inside the page already used the same 512-pixel figure. The served probe (not in Git)
+is corrected. Status: closed.
+
 ## 59. A full-screen overlay boxed in by an ancestor's containment
 
 **Problem and evidence.** The view from above (26 September 2026) was written as `position: fixed;
@@ -1889,6 +1896,23 @@ afterwards. systemd already provides the cap; nothing new is needed.
 **Next cheap step.** Write the wrapper and use it for the next server-side read. Status: the rule is
 recorded; the wrapper is not written.
 
+**27 September 2026: mitigated.** The gap, measured on the server: the collector, the refresh and the
+evaluation had ceilings, and a login session had none (the user slice's `memory.max` read `max`), so no
+manual job was held. Now:
+- a drop-in for every `user-UID.slice` holds each user's logins, sudo included, to a 900M hard ceiling.
+  A soft 700M limit beside it was tried first, and on the server it slowed a runaway to a crawl instead
+  of stopping it, so it was removed. A 1,000 MB allocation at a prompt is now killed in 1 s, and a
+  1.2 GB file write under the ceiling completes;
+- `OOMScoreAdjust` makes the collector the last the kernel takes (−500) and the arrival evaluation the
+  first (+300);
+- `deploy/server-job.sh` runs a deliberate job in its own scope. It has a ceiling (at most 800M), no swap,
+  the lowest priorities and scratch under `/var/tmp`. It refuses `/tmp` paths and reports afterwards any
+  out-of-memory line since it began.
+
+Heavy replays stay local (`deploy/README.md`, "Memory"). The server check after deploying is in
+`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md` §2. On the way, 175 MB of my own derived extracts
+from 22–23 September were found still in the server's `/tmp` (RAM) and removed.
+
 ## 61. Local servers outlive their purpose and answer for others
 
 **Problem and evidence.** On 26 September 2026 `deploy/validate.sh` reported fourteen failures that were
@@ -1907,4 +1931,77 @@ it, and `scripts/preview.sh status` is checked at the end of a session.
 **Next cheap step.** A `scripts/ports.sh` that lists this project's listeners (8098, 8099, 4173, 4198,
 4199) with their start times. Status: not written; the preview tunnel is still up, for the owner to keep
 or stop.
+
+**27 September 2026.** The tunnel and its Caddy were stopped with `scripts/preview.sh stop`, after
+checking that nothing was connected, nothing referred to the address and both pid files named those
+programs. It had been serving the 12 September publication. `scripts/ports.sh` is still not written.
+
+## 62. A deployment check that passes the directives systemd will ignore
+
+**Problem and evidence.** `deploy/validate.sh` judged the systemd units by the exit status of
+`systemd-analyze verify`. That command exits 0 when it meets a directive it does not know: it prints
+"Unknown key … ignoring" and carries on (checked 27 September 2026 with `MemoryMaxx` in a slice drop-in
+and `OOMScoreAdjst` in the collector's unit). The settings that keep the collector alive are exactly the
+ones a typo would have switched off, silently, while the check and the record said they were in place.
+
+**Who hits it, workaround.** Whoever edits a unit here; the only workaround was reading
+`systemctl show` on the server after deploying.
+
+**Recurrence and effort.** Found the first time the units carried memory protections. Unknown otherwise.
+
+**Small fix, script, tool or product.** A small fix, done: the check fails on any "unknown key/section,
+failed to parse, invalid, ignoring" line, and verifies the login slice's drop-in with the units. A
+deliberate typo failed it. Existing unit linters were not researched.
+
+**Next cheap step.** None needed here. Status: closed.
+
+## 63. Which branch of the drawing made each repositioning is not recorded
+
+**Problem and evidence.** On 27 September 2026 every repositioning on two reels was tagged with the
+branch of `lib/motion.ts` that made it, by editing a scratch copy of the code. Counting marks by reason
+had hidden two kinds of wrong reason, which the audit found: a playback's start always said "too long",
+and a lone report said "no earlier report". Reading the branch behind the second found a third: every
+move in *reported positions only* said the same (`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md`
+§3.4). Every other mark's reason agreed with its branch. A mark carries its reason but not how it was
+reached, so a reason can be checked against the evidence only by re-deriving the branch.
+
+**Who hits it, workaround.** Whoever audits the drawing's words; the workaround is the scratch copy.
+
+**Recurrence and effort.** Once, about an hour. The drawing has at least eight places that reposition.
+
+**Small fix, script, tool or product.** A small fix in this repository: a `via` field on each
+repositioning, read by `scripts/evaluate-fleet-steps.mjs` into a reason-by-branch table, with each
+reason checked against the pair rule for the two places it joined. No new tool.
+
+**Next cheap step.** Add the field when the drawing is next changed. Status: observed.
+
+## 64. A collector's stop is tested only where someone thought to put it
+
+**Problem and evidence.** Three ways for the collector to mishandle a stop were found in two days.
+- 26 September: a stop during a warehouse query exited 1.
+- 26 September: a stop during the timetable matching was swallowed until systemd killed the collector.
+- 27 September: a stop landing in the batch insert of positions was swallowed by DuckDB's
+  `executemany` in 8 and 9 of 19 signals, found only because a deploy's restart hit it
+  (`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md` §5).
+
+Each earlier fix came with a test that sends the signal into one chosen query, so each covered only the
+place already suspected. The sweep that found the third, `scripts/probes/stop-sweep.py`, runs the real
+collector in a child process against a copy of the warehouse. It signals it at 20 ms steps and names the
+step and the statement each signal landed in. It located the fault in minutes.
+
+**Who hits it, workaround.** Whoever deploys, since every deploy that changes the pipeline restarts
+the collector, and the nightly refresh stops it. A lost stop costs 30 s and a killed process, and the
+next start closes the abandoned run. The workaround was reading `journalctl` after a restart.
+
+**Recurrence and effort.** Three defects in two days, each an hour or more to trace. The sweep takes
+about a minute per 20 signals.
+
+**Small fix, script, tool or product.** A script, now in the repository. The smallest reusable
+capability is a sweep over the whole cycle (startup, fetch, load, publication, sleep and the
+timetable download), run before a release that touches the collector, reporting any signal that
+did not stop it within systemd's allowance. Existing tools were not researched. Fault-injection
+frameworks exist, but this needs only the real signal at swept moments.
+
+**Next cheap step.** Run the sweep over a whole cycle, not only the first load, and keep its summary
+beside the release. Status: the probe exists; a whole-cycle sweep has not been run.
 

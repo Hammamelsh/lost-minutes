@@ -4,12 +4,74 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`4d1f586`**, deployed 26 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`bf33c80`**, deployed 27 September 2026, early morning (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 27 September: the front view's roads at their width, the server's memory held, every repositioning's reason true
+
+**Deployed: `bf33c80`**, after `1419704` and `7753031` the same night; `7753031` is kept for
+`deploy/rollback.sh`. The account and the measurements are in
+`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md`.
+
+**What a passenger sees.**
+- **The front view's roads are drawn at their stated widths**, twice what they were. The conversion used
+  a 256-pixel tile's scale on MapLibre's 512-pixel world. One tested function, `lib/scale.ts`, now
+  serves every caller. A browser check confirms that on-screen distance matches the reports' metres to
+  within 2%.
+- **A bus moved rather than followed says truly why.** The deployed drawing gave five kinds of wrong
+  reason, found by tracing single buses and then by tagging every repositioning on two reels with the
+  branch that made it. Each is fixed, with a test that fails on the deployed code.
+- **On touch, a tap on the dashed trace chooses the bus**, and its card says why on a line of its own.
+- **A bus back from a silence longer than the published trail stands where it was drawn** until the
+  drawing reaches its new report. The deployed code moved it as soon as the report arrived.
+
+**The 131 m repositioning** was 108 m of necessary recovery from a seven-minute gap in the bus's reports,
+and 23.5 m of drawing defect: the new report, made at the stand behind its road's start, was clamped onto
+the road. It is now one move of 108 m, to the report itself. The deployed journey change blended two
+journeys, placing the old journey's reports on the new journey's road; it now finishes the old journey
+and bridges from where that left the bus.
+
+**Server memory.**
+- **Before:** the collector, the refresh and the evaluation had ceilings; a login session, and so any
+  manual diagnostic job, had none.
+- **Now:**
+  - each user's logins together are held to a 900M hard ceiling. A soft limit beside it was tried first:
+    on the server it slowed a runaway to a crawl rather than stopping it, so it was removed;
+  - the collector is the last process the kernel would take, and the arrival evaluation the first;
+  - `deploy/server-job.sh` gives a deliberate job its own ceiling and disk scratch, refusing `/tmp`.
+- **The deployment check** now fails on a misspelt directive, which it had passed silently.
+- **Checked on the server, bounded by the ceiling under test:**
+  - a 1,000 MB allocation typed at a prompt was killed in 1 s inside the login slice;
+  - a 1.2 GB file write completed under the same ceiling;
+  - a wrapper job was killed at its 64M ceiling in its own scope;
+  - the collector kept its process and priority (−500) throughout, with no machine-wide out-of-memory
+    line.
+
+**The collector's stop.** Restarting the collector for this release, its SIGTERM was swallowed, and
+systemd killed it 30 s later. Reproduced against a copy of the warehouse
+(`scripts/probes/stop-sweep.py`): DuckDB's batch insert of positions lost the stop in 8 and 9 of 19
+signals landing there. The handler now records the stop and the loop acts on it (`7753031`). The same
+sweep: none of 19 lost. Two restarts on the server then stopped cleanly.
+
+**The preview tunnel** of 22 September is stopped, after checking nothing depended on it.
+
+**Verified:**
+- 276 Node and 141 Python tests; typecheck; lint with no errors; `deploy/validate.sh`, now strict on
+  unknown directives.
+- The full browser gate: 409 passed, 41 skipped by design, 2 failed. The two were one check whose setup
+  relied on the old instant move of a bus with no trail; it now waits for the bus to arrive, with its
+  assertions unchanged, and passed 6 of 6.
+- On the served site:
+  - the page and all 22 JS chunks are this build's;
+  - the preview answers 401, and the public configuration has no `photo3d`;
+  - the noon publications move BNSM 11930 once by 108.3 m, marked, and never cut 11918;
+  - the front view's roads are at their width;
+  - the trace-tap and scale checks pass on both profiles.
+- Emulation only.
 
 ## 26 September, afternoon: the fleet's two jumps fixed, a private preview, the view ready for real imagery
 

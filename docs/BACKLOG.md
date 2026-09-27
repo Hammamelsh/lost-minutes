@@ -418,14 +418,18 @@ notices, the frame's identity with the map's, and a harness for the first look
 - The 3D bus is a box; the map's stylised model (`public/models/lm-bus.json`) could be built as one
   Cesium entity of boxes for the chosen bus.
 
-## 35. The front view's roads are half the width they are said to be
+## 35. The front view's roads are half the width they are said to be — fixed 27 September 2026
 
 Found 26 September 2026 while correcting a probe's metres. `components/city-map.tsx` converts metres to
 pixels with `METRES_PER_PIXEL_Z0 = 156543.03 × cos(lat)`, the scale of a 256-pixel tile. MapLibre's world
 is 512 pixels at zoom 0, so the true figure is half that. Every road class in the front view is drawn at
-half the width `ROAD_METRES` names: a primary road meant as 9 m is 4.5 m. The widths were judged by eye
-at the time, so a fix doubles what was approved. The fix is one constant, but the owner should see the
-before-and-after frames first. Not changed yet.
+half the width `ROAD_METRES` names: a primary road meant as 9 m is 4.5 m.
+
+**Fixed**, with the owner's permission: "my approval of the previous appearance was not a request to
+preserve a calculation error". One function, `metresPerPixel` in `lib/scale.ts`, serves every caller,
+the camera-eye diagnostic and the probes included. It is checked against what the map draws in
+`fleet.spec`, to within 2%. The before-and-after frames, matched by the bus's place on the road, are in
+`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md` §1.
 
 ## 36. Small things seen on the phone, left for now
 
@@ -433,7 +437,11 @@ Seen on 26 September 2026 reviewing the everyday screens at 390 px
 (`outputs/probes/everyday-flows/after-preview/`):
 - the sheet handle truncates "Stretford Mall (Stop A) · 2 coming" to "· 2…";
 - the chosen bus's progress appears both in the card's sticky head and in the answer block below it;
-- departure rows name the operator by its code ("BNML"), which means nothing to a passenger.
+- departure rows name the operator by its code ("BNML"), which means nothing to a passenger;
+- in the front view, now that the kerb has its real width, its outer edge steps in by about 2.5 CSS px at
+  one place on the fixture road (27 September 2026, `outputs/probes/front-view/roads-compare/`). It moves
+  with the ground, and it is not a vector-tile edge or a change of road class. Most likely it is a joint
+  between two OpenStreetMap features of the road; the cause is not established.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

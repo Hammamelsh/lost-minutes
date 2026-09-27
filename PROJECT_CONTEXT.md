@@ -4,10 +4,45 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 26 September 2026, afternoon (the fleet's two jumps traced to a journey change and fixed,
-with every other bus's repositioning now marked on the map; the view from above kept private behind a
-password until the owner's public switch; the view made ready for real imagery; and the gate's failures fixed: `4d1f586`). Before that
-the same day: the everyday flow simplified and the view from above built, `b849bbf`.
+Last updated: 27 September 2026 (the front view's roads drawn at their stated width; login sessions on the
+server held to a memory ceiling, with a wrapper for deliberate jobs; every repositioning's reason made
+true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
+tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
+journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **27 September — roads at their width, the server's memory held, reasons made true**
+  (`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md`).
+  - **Roads.** The front view drew every road at half its stated width: metres were turned into
+    pixels at a 256-pixel tile's scale on MapLibre's 512-pixel world. One tested function
+    (`lib/scale.ts`) now serves every caller, and a browser check confirms on-screen distance against
+    the reports' metres to within 2%. Before-and-after frames are matched by the bus's place on the road.
+  - **Server memory.** Before: the collector, the refresh and the evaluation had ceilings; a login
+    session, and so any manual diagnostic job, had none. Now:
+    - each user's logins together are held to a 900M hard ceiling (a soft limit beside it slowed a
+      runaway to a crawl instead of stopping it, on the server, and was removed);
+    - the collector is the last process the kernel would take;
+    - `deploy/server-job.sh` gives a deliberate job its own ceiling and disk scratch;
+    - `deploy/validate.sh` fails on a misspelt directive, which it had passed silently.
+  - **Movement.** The marked 131 m move was 108 m of necessary recovery from a seven-minute gap in the
+    bus's reports, plus 23.5 m of drawing defect (a report at a stand clamped onto its road's start):
+    fixed. So is the deployed journey change's blending of two journeys. The deployed drawing gave five
+    kinds of wrong reason, found by tracing single buses and by tagging every repositioning on two reels
+    by the branch that made it; each is fixed, with a test that fails on the deployed code. A tap on a
+    trace chooses its bus, and the card says why on a line of its own.
+  - **The collector's stop.** Restarting it for this release, its SIGTERM was swallowed, and systemd
+    killed it 30 s later. `scripts/probes/stop-sweep.py` reproduced it against a copy of the warehouse:
+    DuckDB's batch insert of positions lost the stop in 8 and 9 of 19 signals landing there. The handler
+    now records the stop and the loop acts on it: none of 19 lost, and two clean restarts on the server.
+  - **Verified:**
+    - 276 Node and 141 Python tests; `deploy/validate.sh`, now strict on unknown directives.
+    - The full browser gate: 409 passed, 41 skipped, 2 failed. The failures were one check relying on
+      the old instant move, restated to wait for the bus to arrive; then 6 of 6.
+    - On the server, bounded by each ceiling under test: a runaway at a prompt killed at 900M in 1 s; a
+      1.2 GB file written under the same ceiling; a 64M wrapper job killed in its own scope; the
+      collector untouched throughout.
+    - Deployed as `1419704`, then `7753031`, then `bf33c80`. On the served site the build is
+      byte-identical, the preview locked, and the noon publications move 11930 once, 108.3 m, marked.
+    - Emulation only.
 
 - **26 September, afternoon — the fleet's jumps, a private preview, the view ready for imagery**
   (`docs/MILESTONE_2026-09-26_PREVIEW_AND_JUMPS.md`).

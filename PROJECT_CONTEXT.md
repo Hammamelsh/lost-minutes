@@ -4,11 +4,31 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 27 September 2026 (the front view's roads drawn at their stated width; login sessions on the
+Last updated: 27 September 2026, evening (the map's credit back on every phone, whole, readable and
+linked, and a phone on its side fitted to its screen with a full-screen ride: `5736b2a`). Before that,
+the same morning (the front view's roads drawn at their stated width; login sessions on the
 server held to a memory ceiling, with a wrapper for deliberate jobs; every repositioning's reason made
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **27 September, evening — the map's credit back on phones** (`docs/RELEASE.md`, top).
+  - **The fault.** From 22 September an upright phone showed no basemap credit: the phone workspace hid it
+    (`display:none`), including in the ride. Computers and phones on their side showed it without the
+    © OpenMapTiles asks for.
+  - **Now.** "© OpenStreetMap · OpenFreeMap · © OpenMapTiles", linked, 10.5 px:
+    - just above the sheet at each height, in a 22 px strip when the sheet is expanded;
+    - under the card in the ride and the front view;
+    - on the first screen above the home bar on a phone on its side, whose ride is now full screen as
+      upright.
+  - **Verified:**
+    - `tests/browser/attribution.spec.mjs`: 9 checks with a notch and home bar emulated, every one
+      failing on `bf33c80`.
+    - Node: 276 tests.
+    - The full gate: 419 passed, 50 skipped, 1 failed. The lifted legend touched the 3D-model notice;
+      lifted less, the 14 affected specs passed 126 on the phone profile.
+    - The served site: 9 of 9 checks, and a real-data check at Mancunian Way.
+    - **Deployed as `5736b2a`.** Emulation only.
 
 - **27 September — roads at their width, the server's memory held, reasons made true**
   (`docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md`).

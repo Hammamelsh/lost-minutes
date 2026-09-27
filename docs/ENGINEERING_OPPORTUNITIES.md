@@ -2042,3 +2042,32 @@ else was researched.
 
 **Next cheap step.** If repeatable clips are wanted, move those five files to `scripts/probes/showcase/`
 and give `demo-recording.mjs` the display-scale launch. Status: `measured` (one film made and verified).
+
+## 66. A rule meant for one layout loses to another by source order, and no check sees it
+
+**Problem and evidence.** `app/globals.css` is one 1,700-line stylesheet with overlapping media queries,
+where equal specificity is settled by source order. Four cases in six days:
+- 22 September: on an upright phone the ride sat inside the workspace, because the workspace's map rule
+  outranked the ride's full-screen rule (fixed that day, `docs/MILESTONE_2026-09-22_WORKSPACE.md`).
+- 22–27 September: on a phone held sideways, the same clash with the two-column rule kept the ride in
+  the map's column, with its card over its own Exit at 667 px.
+- 22–27 September: sideways, two `display:none` rules for the compact heading were undone by a later
+  unconditional `display:flex`, so the workspace ran 11 px past the screen.
+- 22–27 September: the phone workspace hid the basemap credit outright. The overlap checks
+  (`journey.spec` `collisions`) skip hidden elements, so they passed.
+
+**Who hits it, workaround.** Whoever changes the stylesheet. The workaround is noticing by eye, or a
+browser check that happens to measure the element.
+
+**Recurrence and effort.** Four cases in six days. Effort per case not measured.
+
+**Small fix, script, tool or product.** A check in this repository. The smallest reusable capability is
+a table of what must be true of an element in each layout: for example, the ride `position:fixed` on
+phones, the credit displayed and on top, the heading hidden. It would be asserted by computed style in
+each of the six viewports the suite uses. `tests/browser/attribution.spec.mjs` does this for the
+credit. Existing tools not researched beyond this: stylelint's `no-descending-specificity` flags some
+order problems, but knows nothing of which layout a rule was meant for. A visual interface would not
+help.
+
+**Next cheap step.** Add the ride's position and the heading's visibility to such a table. Status:
+`observed` (one element covered).

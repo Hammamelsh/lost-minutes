@@ -4,12 +4,73 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`bf33c80`**, deployed 27 September 2026, early morning (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`5736b2a`**, deployed 27 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 27 September, evening: the map's credit back on phones
+
+**Deployed: `5736b2a`**, after `bf33c80`, which is kept for `deploy/rollback.sh`.
+
+**What a passenger sees.**
+- **The basemap's credit is on every phone again**, as one readable line of links:
+  "© OpenStreetMap · OpenFreeMap · © OpenMapTiles", 10.5 px, at least 5.8:1 against its ground. From
+  22 September an upright phone showed no credit at all: the phone workspace hid it (`display:none`)
+  rather than place it above the sheet, and that rule reached the ride too.
+  - Upright, it is the map's last line, just above the sheet at each of the sheet's three heights.
+  - With the sheet expanded, the sheet stops 22 px lower (`CREDIT_STRIP`), so the credit has a strip
+    under the search.
+  - In the ride and the front view it sits under the card, clear of the home bar.
+- **The credit says what each provider asks for** (read 27 September):
+  - OpenStreetMap's guidelines: a credit in a corner of the map, readable without interaction, with
+    "OpenStreetMap" linked to its copyright page;
+  - "© OpenMapTiles", from the OpenMapTiles licence (the © had been missing everywhere);
+  - OpenFreeMap, named.
+
+  Computers keep "© OpenStreetMap contributors". Phones say "© OpenStreetMap", which the guidelines
+  accept, so the line is whole on a 360 px screen.
+- **A phone on its side:**
+  - the workspace fits the screen above the home bar (it ran 11 px past the bottom edge, and a heading
+    meant to stand down still showed);
+  - the ride is full screen, as upright (it had stayed in the map's column, its card over its own Exit at
+    667 px);
+  - at 667 px the credit takes two lines, with the map's foot a line higher.
+- **Moved to make room.** On an upright phone:
+  - the map's foot (legend and Ride along) and "Find stops around here" stand 18–20 px higher;
+  - the ride's card stands 4 px higher;
+  - with the sheet expanded, the view and tool buttons it covered stand down.
+
+**Verified.**
+- `tests/browser/attribution.spec.mjs`, 9 checks on desktop and phone:
+  - upright at 390 × 844 with a notch and home bar emulated: the sheet at half, folded and expanded,
+    City, the ride and the front view;
+  - upright at 360 × 740, 375 × 667 and 390 × 664;
+  - on its side at 667 × 375, 740 × 360, 844 × 390 and 932 × 430;
+  - a computer.
+- Each check requires the credit to be:
+  - displayed, at least 10 px, and at least 4.5:1 over black and over white;
+  - one whole line (two at 667 px), on the map, and clear of the notch and home bar;
+  - clear of every control, on top at both ends and the middle of each link, and linked to the three
+    providers' pages.
+- On the deployed build (`bf33c80`), every one of these checks failed.
+- Node: 276 tests.
+- The full browser gate on the first candidate: 419 passed, 50 skipped, 1 failed. The legend, then
+  lifted 26 px, touched the 3D-model notice by a pixel at 390 × 844. It now lifts 20 px. The 14 specs
+  that touch the foot, the credit, the sheet or the notice, re-run on the phone profile: 126 passed,
+  7 skipped, none failed.
+- The served site:
+  - 9 of 9 attribution checks pass against it; all 9 failed there on `bf33c80` an hour before;
+  - with real data at Mancunian Way, the credit is whole, on top and linked: upright at half, expanded,
+    folded and in the ride, and sideways on the map and in the ride;
+  - the build is byte-identical to the local one, `/preview/` is still locked, and no Google imagery
+    is offered.
+- Emulation only.
+
+**Found and left:** at 667 × 375 on its side, the legend chips and Ride along overlap the tool column,
+and the ride-offer chip is cut short at the column's edge, as before this change (backlog 37).
 
 ## 27 September: the front view's roads at their width, the server's memory held, every repositioning's reason true
 

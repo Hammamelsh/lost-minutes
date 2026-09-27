@@ -443,6 +443,15 @@ Seen on 26 September 2026 reviewing the everyday screens at 390 px
   with the ground, and it is not a vector-tile edge or a change of road class. Most likely it is a joint
   between two OpenStreetMap features of the road; the cause is not established.
 
+## 37. A phone on its side at 667 px: controls over controls
+
+Seen on 27 September 2026 while checking the map's credit on its side: at 667 × 375 (an iPhone SE) the
+two-column layout leaves the map a 250 px column. There, the legend chips ("Suggested bus", "5 buses")
+and Ride along overlap the tool column, and the ride-offer chip ("Reported positions · may pause ·
+Front view") is cut short at the column's edge. The credit itself is clear of them (it takes two lines
+there, with the foot a line higher), and 740 px and wider are clear. Not changed: it is the layout of
+the whole column, not the credit.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

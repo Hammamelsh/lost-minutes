@@ -2005,3 +2005,40 @@ frameworks exist, but this needs only the real signal at swept moments.
 **Next cheap step.** Run the sweep over a whole cycle, not only the first load, and keep its summary
 beside the release. Status: the probe exists; a whole-cycle sweep has not been run.
 
+
+## 65. Showcase footage came out at CSS resolution, and only as WebM
+
+**Problem and evidence.** The portfolio showcase of 27 September needed footage of the served app
+that a phone can read. `scripts/probes/demo-recording.mjs` (18 September) records with Playwright's
+`recordVideo` at the viewport's CSS size (390 × 844) and writes WebM only. This machine has no ffmpeg
+with an H.264 encoder: Playwright's bundled ffmpeg has VP8, MJPEG and PNG and nothing else. Headless
+Chromium's CDP screencast ignored an emulated device scale factor too. A 432 × 720 viewport at DPR 2.5
+gave 432 × 720 frames. `Page.captureScreenshot` with a clip scale gave device pixels, but at about 3
+frames a second. Three exploratory scripts were written before this was understood.
+
+**What worked.**
+- A real display scale makes the screencast carry device pixels: 1085 × 1800 at about 16 fps. Chromium
+  was launched with `--force-device-scale-factor=2.16 --window-size=498,918` and `viewport: null`.
+- Each painted frame is held until the next was painted, so the footage plays at real speed.
+- The film is composed on a canvas and encoded frame by frame with WebCodecs `VideoEncoder` (H.264
+  High 4.0). The page runs on a routed `https://` origin, because WebCodecs needs a secure context.
+- About 70 lines of muxer write it as a non-fragmented MP4.
+- It was checked by playing it in `<video>`: every sought frame was exact, PSNR against the composed
+  frames was 37.5–43.5 dB, and the media clock kept pace at 1×.
+- No download or new dependency was needed.
+
+**Who hits it, workaround.** The owner, whenever a milestone needs a clip or stills for people outside
+the project. The workaround was low-resolution WebM.
+
+**Recurrence and effort.** Twice so far (18 and 27 September). Effort not measured; most of the
+second went on the resolution and the encoder.
+
+**Small fix, script, tool or product.** A script. The pipeline exists in `outputs/showcase/`, which Git
+ignores: `capture.mjs`, `compose.mjs`, `compose-page.js`, `mp4.mjs` and `verify.mjs`. The smallest
+reusable capability does four things: records takes at device pixels with their paint times, composes
+them with a caption and credit band, encodes an MP4, and verifies it by playback. A visual interface
+would not help. Installed encoders (ffmpeg with libx264, OBS) were not an option here, and nothing
+else was researched.
+
+**Next cheap step.** If repeatable clips are wanted, move those five files to `scripts/probes/showcase/`
+and give `demo-recording.mjs` the display-scale launch. Status: `measured` (one film made and verified).

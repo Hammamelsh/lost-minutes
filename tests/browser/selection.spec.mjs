@@ -535,6 +535,19 @@ test('a bus beside the chosen one, tapped where it shows, is chosen rather than 
   place.metres = 14 * 40075016.686 * Math.cos(ALPHA.lat * Math.PI / 180) / (512 * 2 ** zoom);
   await publish(page, feed, 1);
   await settledMap(page);
+  // BRAVO's new report is 212 m and a few seconds from the one it was drawn at, with no trail between, so
+  // it travels there in the pair's own time, as any two reports are (GLIDE in lib/motion.ts). Until
+  // 26 September 2026 such a bus was moved at once and said to have had "no earlier report", and this
+  // check measured it the moment the map settled. It now waits for the bus to arrive, reading the map's
+  // own diagnostics without moving the camera, and then measures and taps exactly as before. Arrived means
+  // stopped as well as near: measured while it was still coming in, a tap aimed at its far side landed
+  // where it had been.
+  await expect.poll(async () => {
+    const b1 = await busPoint(page, BRAVO.id);
+    await page.waitForTimeout(400);
+    const b2 = await busPoint(page, BRAVO.id), a = await selectedPoint(page);
+    return Math.hypot(b2.x - b1.x, b2.y - b1.y) < 0.5 && Math.hypot(b2.x - a.x, b2.y - a.y) < 22;
+  }, {timeout: 25_000, message: 'the other bus arrives beside the chosen one and stops there'}).toBe(true);
   const bravo = await reachable(page, BRAVO.id), alpha = await selectedPoint(page);
   const d = Math.hypot(bravo.x - alpha.x, bravo.y - alpha.y);
   expect(d, `the two markers overlap on screen (${d.toFixed(1)} px apart)`).toBeGreaterThan(8);

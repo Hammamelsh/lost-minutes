@@ -228,6 +228,10 @@ export const REPOSITION_WORDS:Record<RepositionReason,string>={
  too_far:'it is too far to have been followed between reports',
  too_long:'too long passed between its reports',
  resumed:'the page was in the background, so its movement meanwhile was not drawn',
+ // Short enough for the ride's status line; the card's sentence adds that the stretch was skipped rather than
+ // drawn faster than the bus went.
+ late:'its reports arrived late',
+ reports_only:'you chose to see reported positions only',
 };
 
 const ageWords=(seconds:number)=>seconds<90?`${seconds} s`:`${Math.round(seconds/60)} min`;
@@ -253,7 +257,8 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string;said
   const c=info.correction;
   const moved=c?.kind==='snap'&&c.metres>=5
    ?c.why?` It was moved ${Math.round(c.metres)} m to its latest report rather than travelled there, because `
-     +`${REPOSITION_WORDS[c.why]}. The ground in between was not drawn, because it is not known.`
+     +`${REPOSITION_WORDS[c.why]}.${c.why==='late'?' The stretch between was skipped rather than drawn faster than the bus went.'
+      :c.why==='reports_only'?'':' The ground in between was not drawn, because it is not known.'}`
     :` The drawn bus moved ${Math.round(c.metres)} m to that report.`:'';
   // The label says what is drawn at this instant — travelling between two of its own reports, or
   // standing at the newest — and one sentence under both explains the cycle, so the two read as

@@ -26,6 +26,9 @@ TimeoutStartSec=20min
 Environment=LM_DB_MEMORY_LIMIT=1GB
 Environment=LM_DB_THREADS=2
 MemoryMax=1500M
+# It runs beside the collector and can be run again tomorrow; the collector cannot re-fetch what it
+# misses. If memory runs out, this goes first.
+OOMScoreAdjust=300
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

@@ -47,11 +47,12 @@ function run(phase) {
      entry.roadAsked = true;
      const id = entry.bus.match && 'patternId' in entry.bus.match ? entry.bus.match.patternId : null;
      if (!id) { entry.road = null; continue; }
-     pending.push({at: t + ROAD_MS, entry, track: id === road.id ? road : null});
+     pending.push({at: t + ROAD_MS, entry, journey: entry.journey, track: id === road.id ? road : null});
     }
    }
   }
-  for (const p of pending.filter(p => p.at <= t)) { p.entry.road = p.track; pending.splice(pending.indexOf(p), 1); }
+  // As the map does: a road lands only on the journey it was asked for.
+  for (const p of pending.filter(p => p.at <= t)) { if (p.entry.journey === p.journey) p.entry.road = p.track; pending.splice(pending.indexOf(p), 1); }
   const step = stepFleet(fleet, t, options);
   for (const f of step.features) {
    const list = drawn.get(f.properties.key) ?? [];
@@ -97,22 +98,14 @@ test('across the journey changes no bus is moved unmarked, at any poll phase', (
  }
 });
 
-test('11918 is drawn across its journey change from its own reports, not cut to the new one', () => {
- let continuous = 0;
+test('11918 is drawn across its journey change from its own reports, never cut, at every poll phase', () => {
+ // Its reports allow the move (41 s and 54 m apart): the drawing finishes its inbound journey's reports,
+ // then travels from where that left it to the outbound journey's first report, at the pair's own pace.
  for (let phase = 0; phase < 20_000; phase += 1000) {
   const {traces} = run(phase);
   const mine = traces.filter(m => m.key === 'BNSM|11918');
-  // Where its next report reached the page late enough that the drawing had waited past the old one
-  // by more than the rewind allowance, the playback's own rule repositions it, and it is marked —
-  // the late-report rule every bus has, not the 54 m cut the change of journey made.
-  assert.ok(mine.length <= 1, `phase ${phase / 1000} s: ${mine.length} repositionings`);
-  for (const m of mine) {
-   assert.ok(m.metres < 30, `phase ${phase / 1000} s: a ${m.metres.toFixed(0)} m repositioning`);
-   assert.equal(m.why, 'too_long');
-  }
-  if (!mine.length) continuous += 1;
+  assert.equal(mine.length, 0, `phase ${phase / 1000} s: ${mine.map(m => `${m.metres.toFixed(0)} m ${m.why}`).join(', ')}`);
  }
- assert.ok(continuous >= 12, `travelled without a repositioning at ${continuous} of 20 poll phases`);
 });
 
 test('11930’s seven unseen minutes are one marked repositioning, when the moment shown reaches its new report', () => {
@@ -123,9 +116,12 @@ test('11930’s seven unseen minutes are one marked repositioning, when the mome
   const [m] = mine;
   assert.equal(m.why, 'too_long', 'the reason is the time unseen');
   assert.ok(metres(OLD_11930, m.from) < 2, `from where it stood: ${metres(OLD_11930, m.from).toFixed(1)} m off its last inbound report`);
-  // Onto its new journey: within reach of one of its new reports (the checked road places it).
-  const news = recorded.publications.flatMap(p => p.live.vehicles).filter(v => v.vehicle === '11930' && v.journeyRef === '223');
-  assert.ok(Math.min(...news.map(v => metres(v, m.to))) < 40, 'onto its new journey');
+  // To where its next report was made, and no further: that report lies 23.5 m behind the start of its
+  // road, at the stand, and until 26 September 2026 it was clamped onto the road, a 131 m move of which
+  // 23.5 m was the drawing's own.
+  const first = recorded.publications.flatMap(p => p.live.vehicles).find(v => v.vehicle === '11930' && v.journeyRef === '223');
+  assert.ok(metres(first, m.to) < 1, `to its first outbound report: ${metres(first, m.to).toFixed(1)} m off it`);
+  assert.ok(Math.abs(m.metres - metres(OLD_11930, first)) < 2, `the move is the reports' own distance: ${m.metres.toFixed(1)} m`);
   // Not at the publication's arrival but as the playback reaches the report, a delay after it was made.
   assert.ok(m.at >= T('12:03:30') && m.at <= T('12:04:05'), new Date(m.at).toISOString());
  }

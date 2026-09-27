@@ -917,7 +917,9 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .bus-card-motion{margin:9px 0 0;padding:8px 11px;border-radius:10px;border:1px dashed #5d7a3a;background:#18261a}
 .bus-card-motion.observed{border-color:#3d5260;background:#15222b}
 .bus-card-motion p{margin:0}
-.bus-card-motion .bus-card-moved{margin:6px 0 0;font-size:12.5px;line-height:1.45;color:#f0d49a}
+.bus-card-moved,.bus-card-motion .bus-card-moved{margin:6px 0 0;font-size:12.5px;line-height:1.45;color:#f0d49a}
+/* On a bus not coming to the stop, its own line, dashed like the trace on the map it explains. */
+.bus-card-moved.alone{margin:9px 0 0;padding:8px 11px;border-radius:10px;border:1px dashed #3d5260;background:#15222b}
 .bus-card-motion strong{display:block;font-size:13px;color:#dff5bd}
 .bus-card-motion.observed strong{color:#cfe0ea}
 .bus-card-motion span{display:block;margin-top:2px;font-size:12px;line-height:1.5;color:#a9bcc7}

@@ -35,9 +35,17 @@ if command -v systemd-analyze >/dev/null; then
   fi
   cp deploy/systemd/lost-minutes-*.service deploy/systemd/lost-minutes-*.timer "$scratch/etc/systemd/system/"
   units=$(cd deploy/systemd && ls lost-minutes-*.service lost-minutes-*.timer)
+  # The login sessions' memory ceiling is a drop-in for every user-UID.slice, checked on one of them.
+  mkdir -p "$scratch/etc/systemd/system/user-.slice.d"
+  cp deploy/systemd/user-.slice.d/*.conf "$scratch/etc/systemd/system/user-.slice.d/"
+  printf '[Unit]\nDescription=a login user'"'"'s slice, for the drop-in\n' > "$scratch/etc/systemd/system/user-1000.slice"
+  # verify exits 0 on a directive it does not know, and prints "Unknown key ..., ignoring": a misspelt
+  # MemoryMax or OOMScoreAdjust would pass here and be ignored on the server, the protection silently
+  # absent. Any such line fails the check.
   # shellcheck disable=SC2086
-  if out=$(cd "$scratch/etc/systemd/system" && systemd-analyze verify --root="$scratch" --man=no $units 2>&1); then
-    ok "$(echo $units | wc -w) units"
+  if out=$(cd "$scratch/etc/systemd/system" && systemd-analyze verify --root="$scratch" --man=no $units user-1000.slice 2>&1) \
+     && ! grep -qiE 'unknown (key|section|lvalue)|failed to parse|invalid|ignoring' <<<"$out"; then
+    ok "$(echo $units | wc -w) units and the login sessions' memory ceiling"
   else
     echo "$out" | sed 's/^/        /'
     bad "units"

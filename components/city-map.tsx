@@ -17,6 +17,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
         type Visual} from '@/lib/motion';
 import {daylightAt} from '@/lib/daylight';
 import {fleetAtReports,reconcileFleet,stepFleet,type Fleet,type FleetStep} from '@/lib/fleet';
+import {metresPerPixel} from '@/lib/scale';
 import type {DrawnFrame} from '@/lib/gods-eye';
 import {elapsedWords} from '@/lib/live';
 import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
@@ -137,7 +138,10 @@ const SKY_OFF:NonNullable<Parameters<MapLibreMap['setSky']>[0]>={'sky-color':'tr
 // real width in metres, its casing a kerb wider. Exponential base 2 in zoom is constant in metres.
 const ROAD_METRES:Record<string,number>={'lm-motorway':11,'lm-primary':9,'lm-secondary':7.5,'lm-minor':6,
  'lm-service':4,'lm-path':2,'lm-rail':2.5};
-const METRES_PER_PIXEL_Z0=156543.03*Math.cos(53.46*Math.PI/180);   // Manchester's latitude
+// Metres per pixel at zoom 0 at Manchester's latitude, on MapLibre's 512-pixel world (lib/scale.ts).
+// It was a 256-pixel tile's figure, twice this, until 26 September 2026: every road below was drawn at
+// half its width.
+const METRES_PER_PIXEL_Z0=metresPerPixel(0,53.46);
 const metresWide=(metres:number)=>['interpolate',['exponential',2],['zoom'],
  14,metres*2**14/METRES_PER_PIXEL_Z0,24,metres*2**24/METRES_PER_PIXEL_Z0];
 // The chosen bus's own marks on the map: hidden in the front view, where the camera is inside it.
@@ -174,7 +178,9 @@ const FRONT_WAIT_MS=8000;
 /** A stable empty catalogue, so a map given no stops does not re-run its stops effect. */
 const NO_STOP_CATALOGUE:Stop[]=[];
 /** Every layer that draws a bus, in the order they are stacked: all of them answer a tap. */
-const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model','lm-fleet-model'];
+// A repositioned bus's dashed trace chooses that bus too (26 September 2026): on a touch screen, where
+// there is no hover, choosing it is how its card says what happened.
+const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-sel-marker','lm-sel-ring','lm-bus-badge','lm-bus-model','lm-fleet-model','lm-fleet-moved'];
 /** Hovered with a mouse: the bus's route, destination and report age in a small tip. */
 const HOVERABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-fleet-model'];
 /** At most this many other buses get a 3D model at once, nearest the centre first. */
@@ -751,7 +757,11 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     (instance.getSource(FLEET_MOVED_SOURCE) as GeoJSONSource|undefined)?.setData({type:'FeatureCollection',
      features:m?[]:step.moved.map(x=>({type:'Feature',geometry:{type:'LineString',coordinates:[[x.from.lon,x.from.lat],[x.to.lon,x.to.lat]]},
       properties:{key:x.key,metres:Math.round(x.metres)}}))} as never);
-    el.setAttribute('data-fleet-moved',m?'':step.moved.map(x=>`${x.key}:${Math.round(x.metres)}`).join(','));
+    // key:metres:from x,y:to x,y:reason — where the trace is drawn, so a check can tap the line itself.
+    el.setAttribute('data-fleet-moved',m?'':step.moved.map(x=>{
+     const a=instance.project([x.from.lon,x.from.lat]),b=instance.project([x.to.lon,x.to.lat]);
+     return `${x.key}:${Math.round(x.metres)}:${Math.round(a.x)},${Math.round(a.y)}:${Math.round(b.x)},${Math.round(b.y)}:${x.why??''}`;
+    }).join(';'));
    }
    const modelSource=instance.getSource(FLEET_MODEL_SOURCE) as GeoJSONSource|undefined;
    if(models&&inp.model){
@@ -769,7 +779,11 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     entry.roadAsked=true;
     if(!id){entry.road=null;continue}
     fl.roadsInFlight+=1;
-    loadTrack(id).then(result=>{entry.road=result.track},()=>{entry.road=null}).finally(()=>{fl.roadsInFlight-=1});
+    // For the journey it was asked for: a vehicle's next journey takes its drawing over (lib/fleet.ts),
+    // and the old journey's road arriving after that must not become the new one's.
+    const journey=entry.journey;
+    loadTrack(id).then(result=>{if(entry.journey===journey)entry.road=result.track},()=>{if(entry.journey===journey)entry.road=null})
+     .finally(()=>{fl.roadsInFlight-=1});
    }
    fl.ms.push(performance.now()-t0);
    if(fl.ms.length>20)fl.ms.splice(0,fl.ms.length-20);
@@ -896,6 +910,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
       if(d<(hits.get(key)??Infinity))hits.set(key,d);
      }
      const ranked=[...hits].sort((a,b)=>a[1]-b[1]);
+     // Diagnostic: where the last tap landed and what it met, nearest first.
+     root.current?.setAttribute('data-tap',`${Math.round(x)},${Math.round(y)}:${ranked.map(([key,d])=>`${key}@${Math.round(d)}`).join(';')}`);
      // Two buses under one finger and neither clearly the nearer: the passenger is asked, at the
      // tap, rather than given whichever won by a pixel. A tap that lands on one bus still takes it.
      if(ranked.length>=2&&ranked[1][1]-ranked[0][1]<CHOOSER_MARGIN){
@@ -1005,7 +1021,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     {
      const fov=(instance.getVerticalFieldOfView?.()??36.87)*Math.PI/180,pitch=instance.getPitch()*Math.PI/180;
      const bearing=instance.getBearing()*Math.PI/180,height=instance.getCanvas().clientHeight;
-     const metresPerPx=40075016.686*Math.cos(centre.lat*Math.PI/180)/(512*2**instance.getZoom());
+     const metresPerPx=metresPerPixel(instance.getZoom(),centre.lat);
      const back=0.5/Math.tan(fov/2)*height*Math.sin(pitch)*metresPerPx;
      const lat=centre.lat-back*Math.cos(bearing)/111195,lon=centre.lng-back*Math.sin(bearing)/(111195*Math.cos(centre.lat*Math.PI/180));
      root.current?.setAttribute('data-eye',`${lat.toFixed(7)},${lon.toFixed(7)}`);

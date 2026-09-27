@@ -1208,6 +1208,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}
    {activityLine&&relevant&&<details className="bus-card-activity"><summary><strong>{activityLine.text}</strong>
     <span>How this is known</span></summary><p>{activityLine.detail}</p></details>}
+   {/* A bus just moved to a report it could not be followed to says so in view, as its own fact: most buses
+       tapped on the map are not coming to the stop, and on a touch screen, with no hover, this is where it
+       is read. Inside the stop's note it read as part of whether the bus serves the stop, and a bus past the
+       stop, which has no note, never said it (26 September 2026). A bus coming to the stop says it in its
+       motion block, below. */}
+   {!relevant&&!absent&&motionWords?.said&&<p className="bus-card-moved alone" data-moved>{motionWords.said}</p>}
    {notServing&&!absent&&<div className="bus-card-explored" role="note" data-other-side={otherSide?otherSide.stop.id:undefined}>
     <p>{notServing}</p>
     {otherSide&&<button className="back-to-stop" onClick={()=>selectStop(otherSide.stop)} data-use-other-side>

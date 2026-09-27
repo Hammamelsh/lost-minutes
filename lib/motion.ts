@@ -27,6 +27,9 @@ export type Fix = {
  availableAt?: number | null;    // when it was fetched: nothing could know it earlier
  service: string;                // route|direction|journeyRef
  source?: string | null;         // SHA-256 of the source file
+ /** A place drawn exactly where it is and never measured onto a road: the fleet's bridge from where a
+  *  vehicle's previous journey left it to its next journey's reports (lib/fleet.ts). */
+ anchor?: boolean;
 };
 
 /** Road geometry, with the timetabled stops' offsets along it where the shape carries them. */
@@ -515,15 +518,20 @@ export type Visual = {
           represented?: number; resume?: number | null;
           /** The furthest the clock may run on the reports it has: when it stands here, the frame loop
            *  may rest, and a gap in frames is not a pause in drawing. */
-          latestAt?: number} | null;
+          latestAt?: number;
+          /** Where the bus was drawn, at the moment that place stood for, kept in front of reports that
+           *  no longer reach back to it (continuity), until the drawing has passed the next report. */
+          bridge?: Fix | null} | null;
 };
 
 /**
- * Why a bus was repositioned rather than travelled to its new report. Each is a fact about the
- * evidence, not about the app: there was nothing to travel from, the move is too far to have been
- * followed, or too long went unseen. The passenger is told which.
+ * Why a bus was repositioned rather than travelled to its new report, and the passenger is told which.
+ * Three are facts about the evidence: there was nothing to travel from, the move is too far to have been
+ * followed, or too long went unseen. Three are about the page: it was in the background (`resumed`), the
+ * reports reached it later than its delay allows (`late`), or the passenger chose to see reported
+ * positions only (`reports_only`). Where a pair of reports is refused, its own reason is said first.
  */
-export type RepositionReason = 'no_earlier_report' | 'too_far' | 'too_long' | 'resumed';
+export type RepositionReason = 'no_earlier_report' | 'too_far' | 'too_long' | 'resumed' | 'late' | 'reports_only';
 
 /**
  * Moving a bus shown at its reports from one report to the next.
@@ -729,10 +737,10 @@ function supportedReports(fixes: Fix[], road: Track | null): {kept: Fix[]; held:
  const places: {s: number; on: boolean}[] = [];
  let near: number | undefined;
  for (const fix of fixes) {
-  const p = placeOnRoad(road, fix, near);
-  const on = p.offset <= (p.agrees ? BEARING_AGREED_METRES : DEFAULT_PARAMS.offTrack);
-  places.push({s: p.s, on});
-  if (on) near = p.s;
+  const p = roadPlace(road, fix, near);
+  const on = !!p && p.on;
+  places.push({s: p?.s ?? 0, on});
+  if (on && p) near = p.s;
  }
  const joins = (a: number, b: number) => {
   const along = places[b].s - places[a].s, seconds = (fixes[b].at - fixes[a].at) / 1000;
@@ -785,18 +793,47 @@ function placeOnRoad(road: Track, fix: Fix, near: number | undefined): {s: numbe
  return best ? {...best, agrees: true} : {s: p.s, offset: p.offset, agrees: null};
 }
 
+/** A report further than this past either end of its road, along the road's direction there, is not
+ *  on it. The road begins at the first stop and ends at the last, and a bus at a stand behind the first
+ *  stop is not on its route yet. Until 26 September 2026 such a report was clamped onto the road's end,
+ *  within the allowance meant for a report beside its road: a route-192 bus at Piccadilly was drawn
+ *  23.5 m from where it had reported. A bus's length, because a bus waiting at its first stop reports
+ *  from its middle. */
+export const ROAD_END_SLACK = 12;
+
+/** How far a place lies past the end of `road` its nearest road point `s` is at (0 alongside the road). */
+function pastEnd(road: Track, place: {lat: number; lon: number}, s: number): number {
+ const atStart = s <= 0.5, atEnd = s >= road.length - 0.5;
+ if (!atStart && !atEnd) return 0;
+ const end = pointAt(road, atStart ? 0 : road.length);
+ const h = headingAt(road, atStart ? Math.min(road.length, 8) : Math.max(0, road.length - 8)) * RAD;
+ const dx = (place.lon - end.lon) * 111195 * Math.cos(end.lat * RAD), dy = (place.lat - end.lat) * 111195;
+ const along = dx * Math.sin(h) + dy * Math.cos(h);
+ return atStart ? Math.max(0, -along) : Math.max(0, along);
+}
+
+/** Where a report is placed on its road, and whether it is on it: beside the road within `offTrack`, or
+ *  where its own bearing agrees within BEARING_AGREED_METRES — and not beyond either end of the road by
+ *  more than ROAD_END_SLACK. An anchored place is never measured onto a road. */
+function roadPlace(road: Track, fix: Fix, near: number | undefined): {s: number; offset: number; agrees: boolean | null; on: boolean} | null {
+ if (fix.anchor) return null;
+ const p = placeOnRoad(road, fix, near);
+ const beyond = pastEnd(road, fix, project(road, fix, near).s);
+ return {...p, on: beyond <= ROAD_END_SLACK && p.offset <= (p.agrees ? BEARING_AGREED_METRES : DEFAULT_PARAMS.offTrack)};
+}
+
 export function buildPath(all: Fix[], road: Track | null): Path {
  const {kept: fixes, held} = supportedReports(all, road);
  const nodes: PathNode[] = [];
  let S = 0, prevS: number | undefined;
  for (let i = 0; i < fixes.length; i++) {
   const fix = fixes[i];
-  const p = road && road.points.length ? placeOnRoad(road, fix, prevS) : null;
+  const p = road && road.points.length ? roadPlace(road, fix, prevS) : null;
   // On the road: within `offTrack` of it; or, where its own bearing agrees with a place on the road
-  // further off, within BEARING_AGREED_METRES of that place. (A first version also refused a report
-  // lying on the road because its bearing pointed elsewhere; a stale bearing then turned a bus's road
-  // into straight chords that cut its corners.)
-  let onRoad = !!p && p.offset <= (p.agrees ? BEARING_AGREED_METRES : DEFAULT_PARAMS.offTrack);
+  // further off, within BEARING_AGREED_METRES of that place; and not past either end of it (roadPlace).
+  // (A first version also refused a report lying on the road because its bearing pointed elsewhere; a
+  // stale bearing then turned a bus's road into straight chords that cut its corners.)
+  let onRoad = !!p && p.on;
   let roadS = onRoad && p ? p.s : 0;
   let roadSeg = false, jump: RepositionReason | null = null, length = 0;
   if (i > 0) {
@@ -1040,6 +1077,53 @@ function lastMomentAt(path: Path, S: number, upTo: number): number {
  return lo;
 }
 
+/** The node of `path` for the report that was node `k` of `before`: a rebuilt path numbers its reports
+ *  afresh (the trail's oldest drops off; a vehicle's next journey takes over from a single place), and an
+ *  index carried across unchanged pointed at another report. On 26 September 2026 a resync carried index
+ *  6 from a route-192's old journey into its new two-report path, and the bus was drawn at the new
+ *  journey's first report 20 s before the moment shown reached it. Null where the report is not there. */
+function sameReport(before: Path, k: number, path: Path): number | null {
+ const at = before.nodes[k]?.fix.at;
+ if (at === undefined) return null;
+ const j = path.nodes.findIndex(n => n.fix.at === at);
+ return j >= 0 ? j : null;
+}
+
+/** The place a bus is drawn at, kept in front of its reports where they no longer reach back to the moment
+ *  that place stands for; null where they do, or where nothing is kept.
+ *
+ *  A published trail reaches back 240 s (pipeline/live.py), so a bus silent for longer comes back with no
+ *  report from before its silence, and its path began at the report after it. The move there was judged
+ *  as a path rebuilt under the bus: on the 26 September noon and evening reels, of 12 buses back from
+ *  silences of 4–14 minutes, three were said to have moved for "no earlier report" (each with a report
+ *  seven minutes before) and one as "late" (fourteen minutes silent), and a move under the drawing's snap
+ *  distance would have been eased across the silence as a correction. Now the drawn place is kept, at the
+ *  moment it stood for — as the fleet's bridge between two journeys (lib/fleet.ts) — and the step from it
+ *  to the next report is judged as any two reports are: travelled where they allow it, said as a
+ *  repositioning with its own reason where they do not. Only on the same journey, and only for a bus
+ *  already played back: a journey change has its own hand-over. */
+function continuity(previous: Visual, fixes: Fix[]): Fix | null {
+ const b = previous.buffer;
+ if (!b || !fixes.length || previous.mode !== 'observed') return null;
+ const first = fixes[0], kept = b.bridge ?? null;
+ if (kept) {
+  // Kept until the drawing has reached the first report after it.
+  const after = fixes.find(f => f.at > kept.at);
+  return after && kept.service === first.service && !((b.represented ?? -Infinity) >= after.at) ? kept : null;
+ }
+ // The report the drawn place is at or after, on the path it was drawn along. Still published: nothing
+ // to keep.
+ const path = b.path as Path | null, node = path?.nodes[b.k];
+ if (!path || !node || b.represented === undefined || node.fix.service !== first.service) return null;
+ if (fixes.some(f => f.at === node.fix.at)) return null;
+ // The moment the place stands for, from its start: at a report (standing there, or through a silence
+ // after it, where the place "stands for" every moment up to the next report) that report's own time,
+ // so the silence is measured whole; between two reports, the moment the drawing had reached.
+ const moment = b.sd - node.S < 0.5 ? node.fix.at : b.represented;
+ if (!(first.at > moment + 500)) return null;
+ return {at: moment, lat: previous.lat, lon: previous.lon, bearing: previous.bearing, service: first.service, source: null, anchor: true};
+}
+
 /**
  * Playing a bus's reports back a bounded time behind them. The display clock runs at real time,
  * `delay` behind the presentation clock; the reports put the bus at one place on its path at the
@@ -1051,7 +1135,7 @@ function lastMomentAt(path: Path, S: number, upTo: number): number {
  * repositioning beyond it.
  */
 function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: number, road: Track | null,
-                  settled: Visual): Visual {
+                  settled: Visual, bridge: Fix | null = null): Visual {
  // The clock may run one smoothing window past the newest report, on the reading that the bus
  // then stood there: the place shown is the path's average over that window, and reaches the
  // newest report only once the window is wholly past it. The place is never past the report. When
@@ -1192,7 +1276,7 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
     // resynced on the next frame.
     else { shown = Math.min(latestAt, target); sd = pathAt(path, shown).S; vd = 0; correction = 'snap'; rebuilt = null; }
    }
-  } else leftK = prior.k;
+  } else leftK = prior.path && prior.pathKey !== path.key ? sameReport(prior.path as Path, prior.k, path) : prior.k;
  }
  // The follower: towards the place the reports put the bus at the moment shown, at a bus's pace.
  const goal = pathAt(path, shown);
@@ -1242,16 +1326,33 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  // A short pause (the device busy for a second or two) leaves a small move: eased over at the
  // correction's own pace rather than hopped, and too small to be worth saying.
  else if (resumed && previous && moved > 1) { ease = {fromLat: previous.lat, fromLon: previous.lon, at: now, ms: Math.max(400, moved * 100)}; correction = 'smooth'; }
- else if (correction === 'snap' && moved >= REPOSITION_METRES) last = {kind: 'snap', metres: moved, at: now, why: 'too_long'};
+ // A pair of reports that could not be travelled between, crossed: that pair's own reason, whether or not
+ // the clock was also behind — the silence is why nothing was drawn between (a bus fourteen minutes
+ // silent was said to have been "late", 26 September 2026).
+ else if (crossed && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: crossed}; }
+ // A resync, or a rewind past its allowance: the reports came late, not far apart, and saying "too long
+ // passed between its reports" of a pair 41 s apart was untrue (26 September 2026, a route-192 at its
+ // terminus). It is its own reason.
+ else if (correction === 'snap' && moved >= REPOSITION_METRES) last = {kind: 'snap', metres: moved, at: now, why: 'late'};
  // A resync that moves the bus less than a repositioning's worth is eased across, not stepped.
  else if (correction === 'snap' && previous && moved > 1) { ease = {fromLat: previous.lat, fromLon: previous.lon, at: now, ms: Math.max(400, moved * 100)}; correction = 'smooth'; }
- else if (crossed && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: crossed}; }
  else if (!prior && previous && startEased) {
   // The start's change of place, eased across: a correction, said as one where it is more than scatter.
   correction = 'smooth';
   if (moved > 8) last = {kind: 'smooth', metres: moved, at: now};
  }
- else if (!prior && previous && moved >= REPOSITION_METRES) { correction = 'snap'; last = {kind: 'snap', metres: moved, at: now, why: 'too_long'}; }
+ else if (!prior && previous && moved >= REPOSITION_METRES) {
+  // From the report the bus was drawn at to the place the playback starts at, judged as two reports are;
+  // a pair that could have been travelled was skipped because the playback starts its delay behind the
+  // newest report. Until 26 September 2026 every such move was "too long": on the noon and evening reels,
+  // two of nine were 455 m and 2,282 m (too far) and four were 22–43 s apart (skipped, not unseen).
+  correction = 'snap';
+  const why = previous.basisAt > 0 && previous.basisAt < shown
+   ? travelable({at: previous.basisAt, lat: previous.lat, lon: previous.lon, bearing: null, service: ''},
+                {at: shown, lat: at.lat, lon: at.lon, bearing: null, service: ''}) ?? 'late'
+   : 'too_long';
+  last = {kind: 'snap', metres: moved, at: now, why};
+ }
  else if (previous && rebuilt) {
   // The new path has the bus's moment somewhere else: a knot appended to the curve bends the
   // stretch before it by a metre or two, a late report by more. Under the drawing's snap distance
@@ -1298,7 +1399,7 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  return {...settled, lat: drawn.lat, lon: drawn.lon, bearing, heading: at.heading ?? bearing, velocity: vd,
   correction, lastCorrection: last, glide: null,
   buffer: {shown, delay, lags, ease, sd, vd, end, goalS: goal.S, k: at.k, onRoad: at.onRoad, roadS: at.roadS, pathKey: path.key, path,
-   represented, resume, latestAt}};
+   represented, resume, latestAt, bridge}};
 }
 
 /**
@@ -1450,7 +1551,9 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // With the reports to play back, the bus is drawn a bounded time behind them (PLAYBACK), every
   // frame, whether or not a new report has arrived; the rest of this branch is what happens
   // without them.
-  if (history?.fixes && history.fixes.length >= 2) return playback(previous, e, history.fixes, now, road, settled);
+  const bridge = history?.fixes ? continuity(previous, history.fixes) : null;
+  const kept = bridge && history?.fixes ? [bridge, ...history.fixes.filter(f => f.at > bridge.at)] : history?.fixes;
+  if (kept && kept.length >= 2) return playback(previous, e, kept, now, road, settled, bridge);
   // Still the same report: stand at it. A finished glide is cleared rather than kept.
   if (previous.basisAt === e.basis.at) return settled;
   const gap = metres(previous, e);
@@ -1480,9 +1583,17 @@ export function stepVisual(previous: Visual | null, e: Estimate, now: number, tr
   // remainder and the new gap share one interval: a little fast, and bounded below. A report that
   // follows another very closely still gets a visible step rather than an instant one.
   // Without the reports there is nothing to take the time from, and nothing to travel between:
-  // that is what "reported positions only" asks for, and it is left exactly as it was.
+  // that is what "reported positions only" asks for, and it is left exactly as it was — and said as the
+  // passenger's choice. "There was no earlier report to travel from" was said of a bus with a trail.
   const fixes = history?.fixes;
-  if (!fixes || fixes.length < 2) return reposition('no_earlier_report');
+  if (!fixes) return reposition('reports_only');
+  // Its history holds no report before this one, but the bus was drawn at a report of its own: that is
+  // the earlier report, older than the published trail reaches, and the pair is judged as any two are.
+  // A route-203 drawn at a lone report of 11:50:22 next reported at 11:55:02, 392 m on, and was said to
+  // have had no earlier report (26 September 2026). A bus played back to here — another journey's reports
+  // — has no report of this journey to travel from, and that is still what is said.
+  const lone = fixes.length < 2 && !previous.buffer && previous.basisAt > 0 && previous.basisAt < e.basis.at;
+  if (fixes.length < 2 && !lone) return reposition('no_earlier_report');
   const from = previous.basisAt > 0 && previous.basisAt < e.basis.at ? previous.basisAt : fixes[fixes.length - 2].at;
   const span = e.basis.at - from;
   if (span <= 0) return settled;

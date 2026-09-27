@@ -37,9 +37,13 @@ export type FleetEntry={
  journey:string;
  /** The newest report and the trail's length: a change means the history is rebuilt. */
  stamp:string;
- /** The vehicle's previous journey's reports, kept in front of this journey's while the drawing
-  *  crosses from one to the other (reconcileFleet); empty otherwise. */
- carried:Fix[];
+ /** The vehicle's next journey, published while this one's reports are still being drawn. It takes over
+  *  once the drawing has reached this journey's last report (stepFleet). */
+ next:{bus:FollowBus;journey:string;stamp:string}|null;
+ /** Where the previous journey's drawing left the vehicle, at the moment that place stood for: the first
+  *  place of this journey's drawing until the drawing has passed it. Drawn where it is, never placed on
+  *  this journey's road. */
+ bridge:Fix|null;
  /** Its latest repositioning, marked on the map for FLEET_MOVED_MS. */
  moved:FleetMove|null;
 };
@@ -47,30 +51,40 @@ export type Fleet=Map<string,FleetEntry>;
 
 const journeyOf=(bus:FollowBus)=>`${bus.route}|${bus.direction}|${bus.journeyRef}`;
 const stampOf=(bus:FollowBus)=>`${bus.observedAtMs}:${bus.trail?.length??0}`;
+const fresh=(bus:FollowBus,journey:string,stamp:string):FleetEntry=>
+ ({bus,history:historyOf(bus),vis:null,e:null,road:undefined,roadAsked:false,journey,stamp,next:null,bridge:null,moved:null});
 
-/** This journey's history, with the vehicle's previous journey's reports in front of it while they
- *  are still needed: one vehicle's consecutive reports, played by the rules any two reports are —
- *  travelled between where they can be, a repositioning where they cannot. They are labelled as this
- *  journey's only so that the drawing reads one run of reports; nothing here is stored or published.
- *  All of them, not the newest alone: a bus drawn still short of its last report, as it is for a
- *  smoothing window, lay off a path that began there, and was eased 26 m across to it. */
-function historyWith(bus:FollowBus,carried:Fix[]):History{
+/** This journey's history, with the bridge in front of its reports while the drawing has yet to pass it. */
+function historyWith(bus:FollowBus,bridge:Fix|null):History{
  const own=historyOf(bus);
- if(!own.fixes.length)return own;
- const before=carried.filter(f=>f.at<own.fixes[0].at);
- if(!before.length)return own;
- const service=serviceOf(bus);
- return historyFrom([...before.map(f=>({...f,service})),...own.fixes]);
+ if(!bridge||!own.fixes.length||bridge.at>=own.fixes[0].at)return own;
+ return historyFrom([bridge,...own.fixes]);
 }
 
-/** The drawing has reached the new journey's own reports, or is no longer being drawn: the carried
- *  reports have done their work. */
-function crossed(entry:FleetEntry):boolean{
- const last=entry.carried[entry.carried.length-1];
- if(!last||!entry.vis)return true;
- const first=entry.history.fixes.find(f=>f.at>last.at);
+/** The drawing has passed the bridge onto this journey's own reports, or is not being drawn. */
+function passed(entry:FleetEntry):boolean{
+ const bridge=entry.bridge;
+ if(!bridge||!entry.vis)return true;
+ const first=entry.history.fixes.find(f=>f.at>bridge.at);
  const at=entry.vis.buffer?.represented;
  return first!==undefined&&at!==undefined&&at>=first.at;
+}
+
+/** The previous journey's drawing has reached its last report: the place it now stands for is that one. */
+function finished(entry:FleetEntry):boolean{
+ const last=entry.history.fixes[entry.history.fixes.length-1];
+ const at=entry.vis?.buffer?.represented;
+ return !entry.vis||!last||at===undefined||at>=last.at;
+}
+
+/** The next journey takes the drawing over from where the previous one left the vehicle. */
+function takeOver(entry:FleetEntry){
+ const {bus,journey,stamp}=entry.next!;
+ const v=entry.vis,last=entry.history.fixes[entry.history.fixes.length-1];
+ entry.bridge=v&&last?{at:last.at,lat:v.lat,lon:v.lon,bearing:v.bearing,service:serviceOf(bus),source:null,anchor:true}:null;
+ entry.bus=bus;entry.journey=journey;entry.stamp=stamp;entry.next=null;
+ entry.road=undefined;entry.roadAsked=false;
+ entry.history=historyWith(bus,entry.bridge);
 }
 
 /** The fleet after a publication: a bus still published keeps its drawing (its history rebuilt where
@@ -79,29 +93,29 @@ function crossed(entry:FleetEntry):boolean{
  *  A vehicle on another journey keeps its drawing too, while it is being drawn. Until 26 September
  *  2026 it was given a new one, which began at its new report: at the Piccadilly terminus two 192s
  *  starting their next journeys stepped 54 m and 108 m in one frame with nothing between and nothing
- *  said (tests/fleet-journey-change.test.mjs, from the server's own captures). Now its previous
- *  journey's reports stay in front of the new journey's until the drawing has crossed to them, so
- *  the move between the two journeys is judged as any two reports are: travelled at the
- *  bus's own pace where they allow it (41 s and 54 m apart), and a repositioning where they do not
- *  (seven minutes unseen), which the map marks. */
+ *  said (tests/fleet-journey-change.test.mjs, from the server's own captures). A first fix carried the
+ *  old journey's reports into the new one's, which placed them on the new journey's road: two journeys
+ *  blended. Now the drawing first finishes the old journey's reports, on the old journey's road; then the
+ *  new journey takes over from the place the drawing left the vehicle (the bridge), and the step from
+ *  there to the new journey's first report is judged as any two reports are: travelled at the bus's own
+ *  pace where they allow it (41 s and 54 m apart), a marked repositioning where they do not (seven
+ *  minutes unseen). */
 export function reconcileFleet(fleet:Fleet,buses:FollowBus[]):Fleet{
  const next:Fleet=new Map();
  for(const bus of buses){
   const previous=fleet.get(bus.key),journey=journeyOf(bus),stamp=stampOf(bus);
   if(previous&&previous.journey===journey){
    if(previous.stamp!==stamp){
-    if(previous.carried.length&&crossed(previous))previous.carried=[];
-    previous.history=historyWith(bus,previous.carried);previous.stamp=stamp;
+    if(previous.bridge&&passed(previous))previous.bridge=null;
+    previous.history=historyWith(bus,previous.bridge);previous.stamp=stamp;
    }
-   previous.bus=bus;
+   previous.bus=bus;previous.next=null;
    next.set(bus.key,previous);
   }else if(previous?.vis){
-   // A new entry, so that a road still being fetched for the old journey's pattern lands on the old one.
-   const carried=previous.history.fixes;
-   next.set(bus.key,{bus,history:historyWith(bus,carried),vis:previous.vis,e:previous.e,road:undefined,roadAsked:false,
-    journey,stamp,carried,moved:previous.moved});
-  }else next.set(bus.key,{bus,history:historyOf(bus),vis:null,e:null,road:undefined,roadAsked:false,journey,stamp,
-   carried:[],moved:null});
+   // Another journey while this one is drawn: it waits until the drawing has reached this one's end.
+   previous.next={bus,journey,stamp};
+   next.set(bus.key,previous);
+  }else next.set(bus.key,fresh(bus,journey,stamp));
  }
  return next;
 }
@@ -144,6 +158,8 @@ export function stepFleet(fleet:Fleet,now:number,options:FleetOptions):FleetStep
  const moved:FleetMove[]=[];
  let inView=0,moving=0,total=0;
  for(const entry of fleet.values()){
+  // A next journey takes over once the previous one's drawing is done, or at once where it is not drawn.
+  if(entry.next&&finished(entry))takeOver(entry);
   const {bus}=entry;
   if(bus.key===options.selectedKey)continue;
   total+=1;

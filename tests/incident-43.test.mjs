@@ -78,7 +78,9 @@ test('the delay it is drawn at is bounded once reports are there, and a gap is r
   // Ninety seconds without a publication: while none comes it waits at its newest report (and that
   // is what it is: that old); when they come back it is repositioned, said, not driven faster.
   const back = runs.stall.filter(x => x.wall >= T('17:53:30'));
-  assert.ok(back.slice(0, 20).some(x => x.said === 'too_long'), 'the lost time is a repositioning, said');
+  // Said as 'late' since 26 September 2026: the reports were made every 20 s and reached the page late,
+  // and "too long passed between its reports", the reason it had been given, was not true of them.
+  assert.ok(back.slice(0, 20).some(x => x.said === 'late'), 'the lost time is a repositioning, said');
   for (const x of back.slice(20)) assert.ok(x.delay <= bound, `stall: ${x.delay.toFixed(0)} s behind at ${new Date(x.wall).toISOString().slice(11, 19)}`);
 });
 
@@ -91,5 +93,5 @@ test('the frame loop resting between publications is not taken for the page bein
   assert.equal(f.filter(x => x.said === 'resumed').length, 0, 'nothing is said about the background');
   const limit = 30 * 0.1;
   f.forEach((x, i) => assert.ok(x.step <= limit || said(f, i), `${x.step.toFixed(1)} m unsaid at ${new Date(x.wall).toISOString().slice(11, 21)}`));
-  assert.ok(f.some(x => x.said === 'too_long'), 'the lost time is said');
+  assert.ok(f.some(x => x.said === 'late'), 'the lost time is said, as reports that came late');
 })

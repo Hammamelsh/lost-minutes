@@ -73,6 +73,57 @@ on mobile data.
 - Keep the server patched (`sudo apt install unattended-upgrades`) and SSH key-only.
 - The key lives only in `/etc/lost-minutes/collector.env` (root, group `lostminutes`, 0640).
 
+## Memory: what is held, and where heavy work runs
+
+The server has 4 GB and no swap, and `/tmp` is a RAM disk, so a file written there costs memory. On
+26 September 2026 a replay run by hand over ssh, with its scratch copy in `/tmp`, filled the machine.
+The kernel killed the collector twice before it killed the replay.
+
+| What runs | Where | Its ceiling |
+|---|---|---|
+| The collector | `lost-minutes-collector.service` | MemoryHigh 1800M, MemoryMax 2400M; `OOMScoreAdjust=-500`, so a machine-wide shortage takes something else first |
+| The nightly refresh | `lost-minutes-refresh.service` | MemoryMax 1500M; it runs while the collector is stopped |
+| The arrival evaluation | `lost-minutes-arrival-eval.service` | MemoryMax 1500M; `OOMScoreAdjust=300`, the first to go |
+| Health, retention, Caddy | their units | none; each uses a few megabytes |
+| Anything run from a login, sudo included | that user's slice | MemoryHigh 700M, MemoryMax 900M for each user, across all of that user's sessions (`systemd/user-.slice.d/`) |
+| A deliberate diagnostic job | `deploy/server-job.sh` | its own ceiling, 400M by default and 800M at most |
+
+**Before 26 September**, a login session had no ceiling at all. That was the gap.
+
+**A diagnostic job on the server** runs through the wrapper, from `/srv/lost-minutes/app`:
+
+```bash
+deploy/server-job.sh --name catalogue --memory 400M -- .venv/bin/python scripts/…
+```
+
+The wrapper gives the job:
+- its own scope, so past its ceiling it is killed and nothing else is touched;
+- the lowest CPU and I/O priority;
+- `TMPDIR` on disk under `/var/tmp/lost-minutes-jobs`, and it refuses any `/tmp` or `/dev/shm` path in
+  the command.
+
+Afterwards it reports whether the ceiling was hit, and any machine-wide out-of-memory line since the
+job began.
+
+**Heavy work runs on a laptop, not here.** For replays and anything that copies the warehouse, copy
+the captures down (a few megabytes an hour), export only the tables needed through the wrapper, and
+run it locally. The noon replay of 26 September needed 2.2 MB of captures and 1.3 MB of catalogue.
+
+**Lifting the ceiling, deliberately.** Recovery work that genuinely needs more (a restore, say) is run
+with the collector stopped, after lifting your own slice's ceiling until the next reboot, and putting
+it back afterwards:
+
+```bash
+sudo systemctl stop lost-minutes-collector
+sudo systemctl set-property --runtime user-$(id -u).slice MemoryHigh=infinity MemoryMax=infinity
+# … the job …
+sudo systemctl set-property --runtime user-$(id -u).slice MemoryHigh=700M MemoryMax=900M
+sudo systemctl start lost-minutes-collector
+```
+
+`deploy/validate.sh` checks the drop-in with the units, and fails on any directive systemd would ignore:
+a misspelt `MemoryMax` or `OOMScoreAdjust` would otherwise pass and leave the protection silently absent.
+
 ## Guarding one unit on another: a running one-shot is "activating"
 
 `systemctl is-active` prints `activating`, never `active`, for a `Type=oneshot` service for the whole

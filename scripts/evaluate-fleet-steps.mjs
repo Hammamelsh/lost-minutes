@@ -6,9 +6,12 @@
 //
 //   node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/evaluate-fleet-steps.mjs \
 //     --reel data/evaluation/reel-live-evening.json [--fleet path/to/fleet.ts] [--minutes 30] [--phase 7]
+//     [--dump marks.json]
 //
 // `--fleet` runs another version of lib/fleet.ts (a copy of an earlier commit's, say) on the same
-// frames, for a before-and-after. Written 26 September 2026 for the two 192s at Piccadilly.
+// frames, for a before-and-after; run it from that version's own checkout, so that its '@/' imports
+// resolve there too. `--dump` writes every marked move (bus, moment, metres, reason) for comparing two
+// versions mark by mark. Written 26 September 2026 for the two 192s at Piccadilly.
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -60,11 +63,14 @@ for (let t = start; t <= end; t += 100) {
     entry.roadAsked = true;
     const id = entry.bus.match && 'patternId' in entry.bus.match ? entry.bus.match.patternId : null;
     if (!id) { entry.road = null; continue; }
-    pending.push({at: t + ROAD_MS, entry, track: roadFor(id)});
+    pending.push({at: t + ROAD_MS, entry, journey: entry.journey, track: roadFor(id)});
    }
   }
  }
- for (let i = pending.length - 1; i >= 0; i--) if (pending[i].at <= t) { pending[i].entry.road = pending[i].track; pending.splice(i, 1); }
+ for (let i = pending.length - 1; i >= 0; i--) if (pending[i].at <= t) {
+  if (pending[i].entry.journey === pending[i].journey) pending[i].entry.road = pending[i].track;
+  pending.splice(i, 1);
+ }
  const step = stepFleet(fleet, t, options);
  ticks += 1;
  const moved = new Map((step.moved ?? []).map(m => [m.key, m]));
@@ -89,6 +95,9 @@ for (let t = start; t <= end; t += 100) {
  }
 }
 const unmarked = cuts.filter(c => !c.marked);
+// Every marked move, for comparing two versions of the drawing mark by mark.
+if (arg('dump', null)) (await import('node:fs')).writeFileSync(arg('dump'), JSON.stringify(marks.map(m => ({key: m.key, at: m.at, metres: Math.round(m.metres), why: m.why,
+ journeyChange: journeyChangedAt.has(m.key) && m.at >= journeyChangedAt.get(m.key) ? Math.round((m.at - journeyChangedAt.get(m.key)) / 1000) : null})), null, 1));
 const pct = (xs, q) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return +s[Math.min(s.length - 1, Math.floor(q * s.length))].toFixed(1); };
 const byReason = marks.reduce((a, m) => (a[m.why ?? 'none'] = (a[m.why ?? 'none'] ?? 0) + 1, a), {});
 console.log(JSON.stringify({
@@ -98,5 +107,8 @@ console.log(JSON.stringify({
  unmarked: {count: unmarked.length, afterJourneyChange: unmarked.filter(c => c.afterJourneyChange).length,
   medianMetres: pct(unmarked.map(c => c.metres), 0.5), maxMetres: pct(unmarked.map(c => c.metres), 1),
   worst: unmarked.sort((a, b) => b.metres - a.metres).slice(0, 5).map(c => `${c.key} ${new Date(c.at).toISOString().slice(11, 19)} ${c.metres.toFixed(0)} m${c.afterJourneyChange ? ' (journey change)' : ''}`)},
- marked: {count: marks.length, byReason, medianMetres: pct(marks.map(m => m.metres), 0.5), maxMetres: pct(marks.map(m => m.metres), 1)},
+ marked: {count: marks.length, byReason, medianMetres: pct(marks.map(m => m.metres), 0.5), maxMetres: pct(marks.map(m => m.metres), 1),
+  // Marked within 90 s of the vehicle starting another journey, by reason: the move between two journeys.
+  atJourneyChange: marks.filter(m => { const c = journeyChangedAt.get(m.key); return c !== undefined && m.at >= c && m.at - c < 90_000; })
+   .reduce((a, m) => (a[m.why ?? 'none'] = (a[m.why ?? 'none'] ?? 0) + 1, a), {})},
 }, null, 1));

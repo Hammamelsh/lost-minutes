@@ -60,6 +60,10 @@ Environment=MALLOC_ARENA_MAX=2
 # unit before it runs.
 MemoryHigh=1800M
 MemoryMax=2400M
+# If the machine as a whole ever runs out of memory, the kernel takes something else first: the
+# collector is the one process whose loss costs data that cannot be fetched again (26 September 2026,
+# when it was taken twice for a replay run by hand).
+OOMScoreAdjust=-500
 
 [Install]
 WantedBy=multi-user.target

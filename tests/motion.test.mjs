@@ -222,9 +222,11 @@ test('visual: withdrawing an estimate is a correction that is said; moving to a 
  // Without the reports it cannot travel, so it is repositioned — and that is said, not silent.
  // Until 22 September 2026 this case returned the bus at the new report with no correction at
  // all, and this check passed because it asked the question without the history.
+ // The reason is the passenger's choice: this read "no_earlier_report" until 26 September 2026, which
+ // said "there was no earlier report to travel from" of a bus with two (tests/reposition-reasons.test.mjs).
  const jumped = stepVisual(v, observedAt(h2, 31_000, 'you chose reported positions only'), 31_000, null);
  assert.equal(jumped.lastCorrection.kind, 'snap');
- assert.equal(jumped.lastCorrection.why, 'no_earlier_report');
+ assert.equal(jumped.lastCorrection.why, 'reports_only');
  assert.equal(jumped.glide, null, 'and it does not pretend to have travelled');
 });
 

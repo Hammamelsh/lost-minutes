@@ -77,16 +77,23 @@ test('a publication keeps each drawing, rebuilds a changed history, and carries 
  assert.equal(fleet.get('OP|a').history.fixes.length, before.history.fixes.length, 'history rebuilt from the new reports');
  // Restated 26 September 2026: a new journey was a new drawing, which began at the new report and
  // stepped the bus there unsaid (two 192s at Piccadilly, 54 m and 108 m; tests/fleet-journey-change).
- // The drawing now goes on, with the previous journey's newest report in front of the new reports.
+ // The drawing now finishes the previous journey's reports on that journey's own terms, and the next
+ // journey takes over from the place it left the bus, never blending the two.
+ assert.equal(fleet.get('OP|c').vis, null, 'a new bus has no drawing until it is stepped');
+ assert.equal(fleet.size, 3);
  const b = fleet.get('OP|b');
  assert.notEqual(b.vis, null, 'another journey keeps the drawing it had');
+ assert.equal(b.journey, '42|inbound|j1', 'the previous journey is drawn to its end first');
+ assert.equal(b.next.journey, '42|inbound|j2', 'the next journey waits');
+ // Played on until the drawing stands for the previous journey's last report, the next one takes over.
+ const lastOld = b.history.fixes.at(-1).at;
+ for (let t = now + 20_000; b.next && t < now + 200_000; t += 100) stepFleet(fleet, t, options());
+ assert.equal(b.next, null, 'taken over');
  assert.equal(b.journey, '42|inbound|j2');
  assert.equal(b.road, undefined, 'the new journey’s road is asked for afresh');
- assert.ok(b.carried.length > 0, 'the previous journey’s reports are carried');
- assert.equal(b.history.fixes[0].at, b.carried[0].at, 'in front of the new journey’s reports');
+ assert.ok(b.bridge?.anchor, 'the place the drawing left it is the bridge, never placed on a road');
+ assert.equal(b.history.fixes[0].at, lastOld, 'in front of the new journey’s reports, at the moment it stood for');
  assert.equal(b.history.fixes.at(-1).at, next.observedAtMs, 'up to the new journey’s newest');
- assert.equal(fleet.get('OP|c').vis, null);
- assert.equal(fleet.size, 3);
 });
 
 test('3D models go to the nearest buses in view with a heading, a bounded number, and those give up their flat marker', () => {

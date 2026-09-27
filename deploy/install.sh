@@ -50,6 +50,10 @@ install -m 0644 deploy/Caddyfile /etc/caddy/Caddyfile
 install -d /etc/systemd/system/caddy.service.d
 install -m 0644 deploy/systemd/caddy.service.d/lost-minutes.conf /etc/systemd/system/caddy.service.d/lost-minutes.conf
 install -m 0644 deploy/systemd/lost-minutes-*.service deploy/systemd/lost-minutes-*.timer /etc/systemd/system/
+# Every login session held to a memory ceiling, so nothing run by hand can starve the collector.
+install -d /etc/systemd/system/user-.slice.d
+install -m 0644 deploy/systemd/user-.slice.d/lost-minutes.conf /etc/systemd/system/user-.slice.d/lost-minutes.conf
+chmod 0755 deploy/server-job.sh
 chmod 0755 deploy/check-health.sh
 
 ufw allow OpenSSH

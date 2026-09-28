@@ -81,3 +81,18 @@ test('with no job record published, the view says so in place and the rest of Op
   await expect(page.locator('.nightly-jobs')).toContainText('No job record is published on this server yet.');
   await expect(page.getByRole('tab', {name: 'Operations'})).toHaveAttribute('aria-selected', 'true');
 });
+
+test('with its steps’ resident peaks recorded, a job is judged on them, and the unit’s total with page cache is said beside', async ({page}) => {
+  // The rebuild of 30 September onwards records each step's own resident peak (pipeline/jobs.py step): here the
+  // 654 MB measured at DuckDB's 512 MB limit, against a unit total that page cache takes near the ceiling.
+  const now = Date.now(), MB = 1048576;
+  await open(page, [job('refresh', {lastAttempt: {startedAt: iso(now - 2 * HOUR), finishedAt: iso(now - 2 * HOUR + 60_000), trigger: 'timer',
+    result: 'succeeded', serviceResult: 'success', memoryPeakBytes: 1450 * MB, memoryMaxBytes: 1500 * MB, residentPeakBytes: 654 * MB},
+  lastScheduledAttemptAt: iso(now - 2 * HOUR), lastSuccess: {at: iso(now - 2 * HOUR + 60_000), trigger: 'timer'}}), job('arrival-eval', {})]);
+  const memory = page.locator('[data-job="refresh"] [data-memory]');
+  await expect(memory).toHaveAttribute('data-memory', 'ok');
+  await expect(memory).toHaveAttribute('data-memory-basis', 'resident');
+  await expect(memory).toContainText('654 MB resident of its 1,500 MB ceiling (44%)');
+  await expect(memory).toContainText('the unit’s total, page cache included: 1,450 MB');
+  await expect(memory).not.toContainText('close to its ceiling');
+});

@@ -81,13 +81,20 @@ test('the timetable’s seconds interpolate between the stops the road places, s
 // ------------------------------------------------------------------ what a release covers
 
 const PATTERN = {id: 'BNML:15:outbound:c9291c1aea', operator: 'BNML', line: '15', direction: 'outbound'};
-const SCOPE = {operator: 'BNML', line: '15', direction: 'outbound', patternIds: [PATTERN.id], model: ARRIVAL_MODEL, p80Abs: 2.48};
+const SCOPE = {operator: 'BNML', line: '15', direction: 'outbound', patternIds: [PATTERN.id], model: ARRIVAL_MODEL,
+ protocol: 'display-1', interval: {low: -1.15, high: 5.75, coverage: 0.81}};
 
 test('only a scope that names the operator, line, direction, pattern and model releases a pattern', () => {
  assert.ok(releasedScope({released: [], scopes: [SCOPE]}, PATTERN));
  assert.equal(releasedScope({released: ['outbound']}, PATTERN), null, 'a direction alone, the old form, releases nothing');
- for (const [field, value] of [['operator', 'BNSM'], ['line', '15A'], ['direction', 'inbound'], ['model', 'blended@000000000000']])
+ for (const [field, value] of [['operator', 'BNSM'], ['line', '15A'], ['direction', 'inbound'], ['model', 'blended@000000000000'],
+  ['protocol', undefined], ['interval', undefined], ['interval', {low: 2.48, high: -2.48}]])
   assert.equal(releasedScope({released: [], scopes: [{...SCOPE, [field]: value}]}, PATTERN), null, `another ${field}`);
+ // The range of 28 September, ± the 80th-percentile absolute error, was never validated as an interval: a scope
+ // carrying only that releases nothing.
+ const old = {...SCOPE, p80Abs: 2.48};
+ delete old.protocol; delete old.interval;
+ assert.equal(releasedScope({released: [], scopes: [old]}, PATTERN), null, 'no validated interval');
  assert.equal(releasedScope({released: [], scopes: [SCOPE]}, {...PATTERN, id: 'BNML:15:outbound:ffffffffff'}), null, 'another variant of the line');
  assert.equal(releasedScope({released: [], scopes: [SCOPE]}, {id: 'BNML:250:outbound:aaaa', operator: 'BNML', line: '250', direction: 'outbound'}), null,
   'another outbound service');
@@ -134,7 +141,7 @@ test('the estimate is the evaluator’s answer, and every refusal around it is s
  assert.equal(e.kind, 'estimate');
  assert.equal(e.atMs, eta, 'the evaluator’s own millisecond');
  assert.equal(e.model, ARRIVAL_MODEL);
- assert.match(arrivalWords(e), /^\d+–\d+ min$/, 'a range: the direction’s 80th-percentile error is over 2 min');
+ assert.match(arrivalWords(e), /^\d+–\d+ min$/, 'always the validated range');
  const reason = over => ask(over).reason;
  assert.match(reason({release: {released: ['outbound']}}), /not released/);
  assert.match(reason({journeyChanged: true}), /another journey/);
@@ -152,9 +159,9 @@ test('the estimate is the evaluator’s answer, and every refusal around it is s
  assert.ok(near && far, 'the moment has a stop on each side of the band');
 });
 
-test('minutes are worded to whole minutes: a point within 2 min of error, else a range', () => {
- const point = {kind: 'estimate', atMs: 0, minutes: 6.4, lowMinutes: 4.4, highMinutes: 8.4, method: 'blended', model: ARRIVAL_MODEL, reportAgeS: 9, remainingM: 1500};
- assert.equal(arrivalWords(point), 'about 6 min');
- assert.equal(arrivalWords({...point, lowMinutes: 3.9, highMinutes: 8.9}), '4–9 min');
- assert.equal(arrivalWords({...point, minutes: 2.1, lowMinutes: 0, highMinutes: 4.6}), '1–5 min', 'never below 1');
+test('minutes are shown as the validated range, each end rounded outwards, never below 1', () => {
+ const e = {kind: 'estimate', atMs: 0, minutes: 6.4, lowMinutes: 6.4 - 1.15, highMinutes: 6.4 + 5.75, method: 'blended', model: ARRIVAL_MODEL, reportAgeS: 9, remainingM: 1500};
+ assert.equal(arrivalWords(e), '5–13 min', '5.25 down to 5, 12.15 up to 13: never narrower than validated');
+ assert.equal(arrivalWords({...e, lowMinutes: 0.4, highMinutes: 6.2}), '1–7 min', 'never below 1');
+ assert.equal(arrivalWords({...e, lowMinutes: 1.2, highMinutes: 1.9}), '1–2 min', 'always a range');
 });

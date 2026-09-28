@@ -12,6 +12,7 @@ starts writes nothing at all, so the page judges "overdue" from the age of the l
 attempt against the job's schedule: a timer that stopped firing shows too.
 
     python -m pipeline.jobs start refresh
+    python -m pipeline.jobs step refresh -- python -m pipeline.patterns build   # runs a step, keeps its resident peak
     python -m pipeline.jobs finish refresh          # reads SERVICE_RESULT, EXIT_CODE, EXIT_STATUS
     python -m pipeline.jobs seed refresh --attempt 2026-09-28T02:40:33+00:00 --result failed ...  (once)
     python -m pipeline.jobs publish
@@ -25,6 +26,8 @@ import argparse
 import fcntl
 import json
 import os
+import resource
+import subprocess
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -132,6 +135,29 @@ def start(root, name, now=None, env=None):
     return state
 
 
+def step(root, name, argv, run=subprocess.run):
+    """Run one step of a nightly job and add its resident peak to the running attempt. The unit's own peak
+    (memory.peak, read by `finish`) counts page cache, which the kernel reclaims before it kills anything, and
+    which a job reading a large warehouse fills to near its ceiling whatever its real need; a step's largest
+    resident set is the memory that could get it killed. The step's exit status is the job's, unchanged, and a
+    failure to record never becomes a failure of the job."""
+    code = run(argv).returncode
+    peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * 1024     # the largest child, in kB on Linux
+    try:
+        with _locked(root):
+            state = _load(root, name)
+            attempt = state.get('lastAttempt') or {'startedAt': None, 'result': 'running'}
+            attempt['residentPeakBytes'] = max(attempt.get('residentPeakBytes') or 0, peak)
+            attempt.setdefault('steps', []).append({'command': ' '.join(os.path.basename(a) for a in argv[-3:]),
+                                                    'residentPeakBytes': peak, 'exitStatus': code})
+            state['lastAttempt'] = attempt
+            atomic_json(_state_path(root, name), state)
+            publish(root)
+    except OSError as error:
+        print(json.dumps({'jobsRecord': 'step not recorded', 'job': name, 'error': type(error).__name__}), file=sys.stderr)
+    return code
+
+
 def finish(root, name, now=None, env=None, memory=None):
     env = os.environ if env is None else env
     now = now or utc_now()
@@ -142,7 +168,8 @@ def finish(root, name, now=None, env=None, memory=None):
         attempt.update({'finishedAt': now, **outcome(env), **memory})
         state['lastAttempt'] = attempt
         if attempt['result'] == 'succeeded':
-            state['lastSuccess'] = {'at': now, 'trigger': attempt.get('trigger'), **memory}
+            state['lastSuccess'] = {'at': now, 'trigger': attempt.get('trigger'), **memory,
+                                    **({'residentPeakBytes': attempt['residentPeakBytes']} if attempt.get('residentPeakBytes') else {})}
         else:
             state['lastFailure'] = {'at': now, 'trigger': attempt.get('trigger'),
                                     'serviceResult': attempt.get('serviceResult'),
@@ -194,16 +221,25 @@ def publish(root):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('command', choices=['start', 'finish', 'seed', 'publish'])
+    parser.add_argument('command', choices=['start', 'step', 'finish', 'seed', 'publish'])
     parser.add_argument('name', nargs='?', choices=sorted(JOBS))
     parser.add_argument('--root', default='.')
     parser.add_argument('--attempt'); parser.add_argument('--finished'); parser.add_argument('--result')
     parser.add_argument('--success'); parser.add_argument('--service-result'); parser.add_argument('--exit-status')
     parser.add_argument('--success-memory-peak', help='the journal\'s "memory peak" for that success, e.g. 1.4G')
     parser.add_argument('--memory-max', help='the unit\'s MemoryMax, e.g. 1500M')
+    argv = sys.argv[1:] if argv is None else list(argv)
+    command_argv = []
+    if '--' in argv:                                   # step: what follows -- is the step to run
+        cut = argv.index('--')
+        argv, command_argv = argv[:cut], argv[cut + 1:]
     args = parser.parse_args(argv)
     if args.command != 'publish' and not args.name:
         parser.error('a job name is needed')
+    if args.command == 'step':
+        if not command_argv:
+            parser.error('step needs the command to run after --')
+        return step(args.root, args.name, command_argv)
     try:
         if args.command == 'start':
             start(args.root, args.name)

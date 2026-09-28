@@ -16,12 +16,12 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # after the collector is started again. "-": a failure to record never fails the job.
 ExecStartPre=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs start refresh
 ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
-ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
 # The stops' scheduled departure boards, from the catalogue just rebuilt: about 2,700 small files
 # under public/data/departures/, replaced in place and never sent by a deploy, for the same reason
 # the catalogue is not — they are the server's own, from what the server itself holds.
-ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.departures publish
-ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /srv/lost-minutes/app/.venv/bin/python -m pipeline.departures publish
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
 # A consistent copy of the warehouse for the arrival evaluation, taken here because the collector
 # is already stopped for the rebuild: measured 0.16 s to copy 50 MB, so it adds nothing a passenger
 # could notice. The evaluation then reads the copy and leaves collection alone.
@@ -31,7 +31,10 @@ ExecStopPost=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs finish ref
 TimeoutStartSec=30min
 # Measured peak 853 MB on 18 September 2026 (`/usr/bin/time -v`), in 3 min 05 s. This runs with the
 # collector stopped, so the two footprints never add up.
-Environment=LM_DB_MEMORY_LIMIT=1GB
+# DuckDB's buffer pool, not the timetables, set this job's peak: at 1GB it filled scanning the warehouse for the
+# services seen running and held 1.11 GB resident through the build; at 512MB the same inputs peaked at 654 MB and
+# built a byte-identical catalogue, 5 s sooner (28 September 2026, the server's own inputs; backlog 39).
+Environment=LM_DB_MEMORY_LIMIT=512MB
 MemoryMax=1500M
 NoNewPrivileges=yes
 PrivateTmp=yes

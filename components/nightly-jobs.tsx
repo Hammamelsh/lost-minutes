@@ -46,10 +46,12 @@ export default function NightlyJobs(){
      <div><dt>Last attempt</dt><dd>{last?.startedAt?<>{stamp(last.startedAt,false)} · {by(last.trigger)} · {judged.status==='failed'?failureWords(last):status.words}</>:'none recorded'}</dd></div>
      <div><dt>Last success</dt><dd>{job.lastSuccess?<>{stamp(job.lastSuccess.at,false)}{job.lastSuccess.trigger==='manual'?' · by hand':''}</>:'none recorded'}</dd></div>
      <div><dt>Last scheduled run</dt><dd>{job.lastScheduledAttemptAt?stamp(job.lastScheduledAttemptAt,false):'none recorded'}{judged.overdue?' · the next was due and has not run':''}</dd></div>
-     {(()=>{const m=memoryHeadroom(job);return <div data-memory={m?(m.tight?'tight':'ok'):'none'}><dt>Memory at its peak</dt><dd>{m
-      ?<>{m.peakMB.toLocaleString('en-GB')} MB{m.maxMB?` of its ${m.maxMB.toLocaleString('en-GB')} MB ceiling (${Math.round((m.share??0)*100)}%)`:''}
+     {(()=>{const m=memoryHeadroom(job);const n=(x:number)=>x.toLocaleString('en-GB');
+      return <div data-memory={m?(m.tight?'tight':'ok'):'none'} data-memory-basis={m?.basis}><dt>Memory at its peak</dt><dd>{m
+      ?<>{n((m.basis==='resident'?m.residentMB:m.unitMB)!)} MB{m.basis==='resident'?' resident':''}{m.maxMB?` of its ${n(m.maxMB)} MB ceiling (${Math.round((m.share??0)*100)}%)`:''}
        {m.tight?<strong className="nightly-jobs-tight"> · close to its ceiling</strong>:''}
-       <small> · {m.from==='attempt'?'last attempt':'last success'}{m.source==='journal'?', from the journal, rounded':''}; page cache included</small></>
+       <small> · {m.from==='attempt'?'last attempt':'last success'}{m.source==='journal'?', from the journal, rounded':''}
+        {m.basis==='resident'?(m.unitMB?`; the unit’s total, page cache included: ${n(m.unitMB)} MB`:''):'; page cache included'}</small></>
       :'not recorded yet'}</dd></div>})()}
     </dl>
     {job.seededFrom==='journal'&&<p className="nightly-jobs-note">Attempts before 28 September 2026 were read from the server’s journal; each run records itself from then.</p>}

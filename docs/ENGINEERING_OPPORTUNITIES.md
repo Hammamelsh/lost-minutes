@@ -2247,3 +2247,32 @@ ride's next stops, the planner and the journey card read the pattern's own stop 
 route-15 evaluation and the page's old estimator were touched, and both are fixed. What is left is the
 format change above. Status: `small fix built` on reading.
 
+**Built the same night, at the owner's request.** The format change: version 2 stop mappings
+(`docs/STOP_MAPPING.md`), recovered for all 560 shapes from their stored routing requests and checked
+against geometry (15,960 stops within 15.7 m), with every reader refusing a mapping that does not agree
+with its pattern and every derived file carrying the version. Status: `built`.
+
+## 71. A computation that gives a different answer, or none, on the same inputs
+
+**Problem and evidence.** On 28 September 2026 the new display evaluation, run repeatedly on identical
+inputs, failed in 4 of 17 runs with DuckDB 1.5.5 loaded in the same Python 3.14.4 process: swapped objects,
+a missing builtin, a segmentation fault. It never failed in 12 runs with DuckDB not loaded (backlog 43). It
+was found only because a first failure was re-run instead of trusted or dismissed. A single run of any job
+here is taken as its answer: the nightly units, the evaluations, the parity checks.
+
+**Who hits it, workaround.** Anyone reading a number from a pipeline job as evidence. The workaround now is
+to keep heavy computation out of processes that load DuckDB, and to compare outputs across reruns by hand
+when a result matters.
+
+**Recurrence and effort.** One job so far, found in about an hour. How often the other DuckDB processes are
+affected is unknown.
+
+**Small fix, script, tool or product.** A script: run a job N times on the same inputs, in fresh processes,
+and compare the outputs byte for byte, ignoring declared timestamps, reporting crashes and differences. It
+is reusable for any deterministic data job. Existing practice: reproducible-build and "test flakiness"
+tools do this for builds and tests; for data jobs it is usually done by hand. No visual interface is
+needed.
+
+**Next cheap step.** Run the passage audit and the rebuild each five times on the server's copy and compare.
+Status: `observed`.
+

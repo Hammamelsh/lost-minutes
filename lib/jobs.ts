@@ -10,13 +10,15 @@ const attemptSchema=z.object({
  trigger:z.enum(['timer','manual']).nullable().optional(),result:z.string(),
  serviceResult:z.string().nullable().optional(),exitCode:z.string().nullable().optional(),exitStatus:z.string().nullable().optional(),
  memoryPeakBytes:z.number().nullable().optional(),memoryMaxBytes:z.number().nullable().optional(),
+ residentPeakBytes:z.number().nullable().optional(),
 });
 const jobSchema=z.object({
  name:z.string(),unit:z.string(),title:z.string(),does:z.string().optional(),schedule:z.string(),
  everySeconds:z.number(),graceSeconds:z.number(),timeoutSeconds:z.number().optional(),
  lastAttempt:attemptSchema.nullable().optional(),lastScheduledAttemptAt:z.string().nullable().optional(),
  lastSuccess:z.object({at:z.string(),trigger:z.string().nullable().optional(),memoryPeakBytes:z.number().nullable().optional(),
-  memoryMaxBytes:z.number().nullable().optional(),memorySource:z.string().nullable().optional()}).nullable().optional(),
+  memoryMaxBytes:z.number().nullable().optional(),memorySource:z.string().nullable().optional(),
+  residentPeakBytes:z.number().nullable().optional()}).nullable().optional(),
  lastFailure:z.object({at:z.string().nullable(),trigger:z.string().nullable().optional(),
   serviceResult:z.string().nullable().optional(),exitStatus:z.string().nullable().optional()}).nullable().optional(),
  seededFrom:z.string().nullable().optional(),
@@ -39,20 +41,30 @@ export function failureWords(attempt:{serviceResult?:string|null;exitStatus?:str
 }
 
 /**
- * How close a run came to its memory ceiling: the unit's own cgroup peak, which counts page cache the
- * kernel reclaims before it would stop anything, against its MemoryMax. From the last attempt that
- * recorded one, else the last success. `tight` from 85%: the rebuild of 27 September peaked at 1.4G of
- * 1500M (backlog 39).
+ * How close a run came to its memory ceiling, against its MemoryMax. Two figures, from the last attempt that
+ * recorded either, else the last success:
+ *  - resident: the largest resident set of any of its steps (pipeline/jobs.py `step`), the memory that could
+ *    get it killed, and what `tight` is judged on when it is known;
+ *  - unit: the unit's own cgroup peak, which also counts page cache the kernel reclaims before it would stop
+ *    anything, and which a job reading the 0.9 GB warehouse fills towards its ceiling whatever it needs.
+ * `tight` from 85%: the rebuild of 27 September read 1.4G of 1500M as a unit, 1.11 GB of it resident (backlog 39).
  */
-export function memoryHeadroom(job:NightlyJob):{peakMB:number;maxMB:number|null;share:number|null;tight:boolean;from:'attempt'|'success';source:string|null}|null{
- const attempt=job.lastAttempt;
- const pick=attempt?.memoryPeakBytes?{peak:attempt.memoryPeakBytes,max:attempt.memoryMaxBytes??null,from:'attempt' as const,source:null}
-  :job.lastSuccess?.memoryPeakBytes?{peak:job.lastSuccess.memoryPeakBytes,max:job.lastSuccess.memoryMaxBytes??null,from:'success' as const,
-   source:job.lastSuccess.memorySource??null}:null;
- if(!pick)return null;
+export type MemoryHeadroom={residentMB:number|null;unitMB:number|null;maxMB:number|null;share:number|null;tight:boolean;
+ basis:'resident'|'unit';from:'attempt'|'success';source:string|null};
+export function memoryHeadroom(job:NightlyJob):MemoryHeadroom|null{
  const mb=(bytes:number)=>Math.round(bytes/1048576);
- const share=pick.max?pick.peak/pick.max:null;
- return {peakMB:mb(pick.peak),maxMB:pick.max?mb(pick.max):null,share,tight:share!==null&&share>=0.85,from:pick.from,source:pick.source};
+ const a=job.lastAttempt,s=job.lastSuccess;
+ const pick=a&&(a.residentPeakBytes||a.memoryPeakBytes)
+  ?{resident:a.residentPeakBytes??null,unit:a.memoryPeakBytes??null,max:a.memoryMaxBytes??null,from:'attempt' as const,source:null}
+  :s&&(s.residentPeakBytes||s.memoryPeakBytes)
+   ?{resident:s.residentPeakBytes??null,unit:s.memoryPeakBytes??null,max:s.memoryMaxBytes??null,from:'success' as const,source:s.memorySource??null}
+   :null;
+ if(!pick)return null;
+ const basis=pick.resident?'resident' as const:'unit' as const;
+ const peak=(pick.resident??pick.unit)!;
+ const share=pick.max?peak/pick.max:null;
+ return {residentMB:pick.resident?mb(pick.resident):null,unitMB:pick.unit?mb(pick.unit):null,maxMB:pick.max?mb(pick.max):null,
+  share,tight:share!==null&&share>=0.85,basis,from:pick.from,source:pick.source};
 }
 
 export type JobJudgement={

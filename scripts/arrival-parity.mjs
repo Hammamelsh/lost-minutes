@@ -3,7 +3,7 @@
 // compared, from the file scripts/arrival-parity-cases.py writes.
 //
 //   node --experimental-strip-types --import ./tests/alias-loader.mjs scripts/arrival-parity.mjs \
-//     --cases cases.json --stops <stops.json> [--deployed <an older lib/arrival.ts to measure too>]
+//     --cases cases.json [--deployed <an older lib/arrival.ts to measure too>]
 //
 // Three readings of each moment:
 //   full     every report of the journey at or before the moment, as the evaluator reads them;
@@ -17,7 +17,6 @@ import {ARRIVAL_MODEL, ARRIVAL_PARAMS, arrivalTrack, blendedEta, cruiseFor, plac
 
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 const cases = JSON.parse(readFileSync(arg('cases'), 'utf8'));
-const stopsFile = JSON.parse(readFileSync(arg('stops', 'public/data/stops.json'), 'utf8'));
 const index = JSON.parse(readFileSync('public/data/shapes/index.json', 'utf8'));
 const shape = JSON.parse(readFileSync(`public/data/shapes/${index.patterns[cases.pattern].file}`, 'utf8'));
 const track = arrivalTrack(shape.polyline6, shape.stopMapping, {id: cases.pattern, stops: cases.patternStops});

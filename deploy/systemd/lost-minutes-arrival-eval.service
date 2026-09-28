@@ -19,13 +19,18 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 # step before the restart failed. Nothing here reaches a passenger: results go under data/.
 # Each attempt records itself for the Operations view (pipeline/jobs.py); "-": never the job's failure.
 ExecStartPre=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs start arrival-eval
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15 --db data/evaluation/snapshot.duckdb --out data/evaluation/passages-15-server.json
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --params scripts/arrival-params-frozen.json --candidate blended --label nightly
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --out data/evaluation/schedule-anchor-server.json
-# Pool every night so far and read the criteria per direction; the page reads the verdict. A direction
-# that passes is shown only once deploy/arrival-release-approval.json lists it (held 28 September 2026
-# for the owner's decision; without --approval, passing is enough).
-ExecStart=/srv/lost-minutes/app/.venv/bin/python scripts/arrival-release-check.py --out public/data/arrival-release.json --approval deploy/arrival-release-approval.json
+# The display protocol (docs/ARRIVAL_DISPLAY_PROTOCOL.md), a day at a time: DuckDB reads the new complete days'
+# inputs in one process, and they are scored in another that never loads it (scripts/extract-arrival-inputs.py
+# says why). A day already scored is not scored again, so the work does not grow with the warehouse. (Until 29
+# September 2026 every night re-scored every day held: 684.5M on eight days, heading for the ceiling.)
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step arrival-eval -- /srv/lost-minutes/app/.venv/bin/python scripts/extract-arrival-inputs.py --line 15 --db data/evaluation/snapshot.duckdb --scored data/evaluation/arrival-display-nightly.jsonl --out data/evaluation/arrival-display-inputs.pkl
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step arrival-eval -- /srv/lost-minutes/app/.venv/bin/python scripts/evaluate-arrival-display.py --inputs data/evaluation/arrival-display-inputs.pkl --out data/evaluation/arrival-display-nightly.jsonl
+# The schedule anchor on the server's own reports of the last fortnight (not served: the page reads the shipped file).
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step arrival-eval -- /srv/lost-minutes/app/.venv/bin/python scripts/audit-passages.py --line 15 --db data/evaluation/snapshot.duckdb --since-days 14 --out data/evaluation/passages-15-server.json
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step arrival-eval -- /srv/lost-minutes/app/.venv/bin/python scripts/schedule-anchor.py --line 15 --db data/evaluation/snapshot.duckdb --passages data/evaluation/passages-15-server.json --out data/evaluation/schedule-anchor-server.json
+# Read the criteria on the confirmation days, once they are all scored; the page reads the verdict. A passing
+# scope is shown only once deploy/arrival-release-approval.json names it field for field.
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step arrival-eval -- /srv/lost-minutes/app/.venv/bin/python scripts/arrival-release-check.py --out public/data/arrival-release.json --approval deploy/arrival-release-approval.json
 ExecStopPost=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs finish arrival-eval
 TimeoutStartSec=20min
 Environment=LM_DB_MEMORY_LIMIT=1GB

@@ -33,6 +33,9 @@ def main():
     args.add_argument('--operator', default='BNML')
     args.add_argument('--db', default=None, help='a warehouse file to read instead of the live one, e.g. a snapshot')
     args.add_argument('--out', default=str(ROOT / 'data/evaluation/passages-15.json'))
+    args.add_argument('--since-days', type=int, default=None,
+                      help='only reports from this many days before the newest (the nightly anchor reads 14): '
+                           'the work stays the same size as the warehouse grows')
     a = args.parse_args()
 
     catalogue = json.loads((ROOT / 'public/data/patterns.json').read_text())
@@ -41,11 +44,16 @@ def main():
     stop_xy = {s['id']: (s['lat'], s['lon']) for s in (stops_json['stops'] if isinstance(stops_json, dict) else stops_json)}
 
     con = connect(a.db or (ROOT / DEFAULT_DB))
+    since = 0
+    if a.since_days:
+        newest = con.execute('SELECT max(observed_at_ms) FROM v_publishable_observation').fetchone()[0] or 0
+        since = newest - a.since_days * 86_400_000
     rows = con.execute("""
         SELECT direction, vehicle, aimed_departure, observed_at_ms, lat, lon
         FROM v_publishable_observation
         WHERE operator = ? AND route = ? AND aimed_departure IS NOT NULL AND aimed_departure <> ''
-        ORDER BY observed_at_ms""", [a.operator, a.line]).fetchall()
+          AND observed_at_ms >= ?
+        ORDER BY observed_at_ms""", [a.operator, a.line, since]).fetchall()
     by_dir = defaultdict(lambda: defaultdict(list))
     for direction, vehicle, aimed, t, lat, lon in rows:
         by_dir[direction][f'{vehicle}|{aimed}'].append((int(t), lat, lon))

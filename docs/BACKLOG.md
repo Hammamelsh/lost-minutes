@@ -500,7 +500,22 @@ sides with one rule, the offsets put on the pattern's own indices and a road tha
 refused (`arrivalTrack` on the page, `placed_offsets` in the pipeline), and held by the parity check
 on both route-15 patterns (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`, sections 1 and 6).
 
-## 39. The nightly rebuild's memory peak is growing with the warehouse
+**Replaced the same night by an explicit mapping** (`docs/STOP_MAPPING.md`): each shape names every stop it
+was built through by its index, code and offset (version 2), recovered for the 560 published shapes from
+their stored routing requests and checked against their geometry (all 15,960 stops within 15.7 m). No
+reader infers from list position or from today's stop list any more; old and new files are refused rather
+than mixed.
+
+## 39. The nightly rebuild's memory peak is growing with the warehouse — fixed 29 September 2026
+
+**Measured and fixed.** Sampled by phase on the server's own inputs, the peak was DuckDB's buffer pool
+filled to its 1 GB limit by the scan of every observation for the services seen, and held through the
+build: 1,107–1,117 MB resident. At `LM_DB_MEMORY_LIMIT=512MB` the same inputs peak at 654 MB and build a
+byte-identical catalogue, 5 s sooner; capping glibc's arenas made no difference. The unit's ceiling is
+unchanged, and the peak no longer grows with the warehouse. Each step's resident peak is now recorded and
+shown in Operations beside the unit's total, which counts page cache
+(`docs/MILESTONE_2026-09-29_CORRECTIONS.md` §4). Kept below for the record:
+
 
 The server's journal gives the rebuild of 27 September a **1.4G memory peak** over 4 min 12 s, against
 the unit's `MemoryMax=1500M` (systemd's figure for the unit's cgroup, which counts page cache: the
@@ -514,7 +529,15 @@ files; not yet separated. Measure them apart, and if it is the scan, keep a smal
 services the collector maintains. Until then read the peak after each run
 (`journalctl -u lost-minutes-refresh | grep 'memory peak'`).
 
-## 40. Arrival minutes: a display band and a criterion on predicted minutes — the owner's decision
+## 40. Arrival minutes: a display band and a criterion on predicted minutes — settled as a frozen protocol, 29 September 2026
+
+**Settled differently from the step below:** the thresholds are kept and read on the exact moments a page
+would show an estimate (`docs/ARRIVAL_DISPLAY_PROTOCOL.md`, protocol `display-1`, frozen before the first
+confirmation day). On the revision days both directions fail (outbound 1.70/4.00 min; inbound coverage
+2.1%). The confirmation, 29 September to 5 October, is collected nightly and read once; nothing is shown
+without the owner's exact approval. What would change the outcome is a revised model or display, judged by
+a new confirmation after it. Kept below for the record:
+
 
 The release criteria are read by the actual minutes before a bus passed the stop, known only
 afterwards; a page can choose what to show only by its own predicted minutes. On outbound 15's held-out
@@ -536,7 +559,12 @@ withheld and the planner times it as an unchecked service. Read at its first ten
 first stops (+2.59). Whether that may count as the check is the owner's decision; it would show inbound
 15's timetabled time at stops and in the planner's wording. `scripts/schedule-anchor.py`.
 
-## 42. The nightly evaluation re-scores the whole warehouse every night, and grows toward its ceiling
+## 42. The nightly evaluation re-scores the whole warehouse every night, and grows toward its ceiling — solved 29 September 2026
+
+**Solved:** the nightly unit now scores each complete day once, under the display protocol, from at most 14
+days of extracted inputs, and keeps each day's per-journey histograms (the evidence a release needs, in
+full); the server's anchor reads a 14-day window. The old full re-scoring is gone from the unit. Kept below:
+
 
 `lost-minutes-arrival-eval` scores every day the warehouse holds, each night, and the release check
 reads every night's stored errors. Measured here on the server's copy (resident memory, one process):
@@ -549,6 +577,27 @@ approval) and Operations would show it, but nightly. Fix when next worked on: sc
 yet scored by the current model (the nightly file is already keyed by day and model), and store the
 pooled errors compactly (a fine histogram per direction keeps the quantiles to 0.01 min). Until then,
 Operations shows each night's peak against its ceiling.
+
+## 43. The DuckDB extension corrupts memory in a Python 3.14 process that also computes heavily
+
+**Evidence (28 September 2026).** The display evaluation, reading a warehouse copy with DuckDB 1.5.5 on
+Python 3.14.4 and then scoring in the same process, failed at random in 4 of 17 runs: a float met where a
+range iterator was expected, "'float' object is not an iterator", `max` not found as a builtin, and a
+segmentation fault. The failures always came inside pure-Python arithmetic, with the connection open or
+closed first. With DuckDB never loaded, 12 of 12 runs succeeded, byte-identical. The successful in-process
+runs agreed with them too, so no wrong number was seen, but a corruption that can crash can also mislead.
+
+**Mitigated where it was found:** the evaluation reads the warehouse in one process and scores in another,
+behind a guard that stops any use of DuckDB (`scripts/extract-arrival-inputs.py`,
+`scripts/evaluate-arrival-display.py`).
+
+**Still exposed:** every other job that computes in a process with DuckDB loaded. That means the collector,
+the rebuild, the passage audit and the anchor, and the old evaluator, which is no longer nightly. None has
+failed this way, and their repeated outputs have matched, but that is not proof.
+
+**Next, cheap:** run the reproduction against a DuckDB release with Python 3.14 fixes, or Python 3.13,
+before changing a dependency. It is the owner's decision. `docs/MILESTONE_2026-09-29_CORRECTIONS.md` §3
+has the runs.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

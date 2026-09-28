@@ -48,7 +48,17 @@ test('memory headroom is the last recorded peak against its ceiling, and tight f
  const {memoryHeadroom} = await import('../lib/jobs.ts');
  const MB = 1048576;
  const rebuilt = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1434 * MB, memoryMaxBytes: 1500 * MB}});
- assert.deepEqual(memoryHeadroom(rebuilt), {peakMB: 1434, maxMB: 1500, share: 1434 / 1500, tight: true, from: 'attempt', source: null});
+ assert.deepEqual(memoryHeadroom(rebuilt), {residentMB: null, unitMB: 1434, maxMB: 1500, share: 1434 / 1500, tight: true,
+  basis: 'unit', from: 'attempt', source: null});
+ // With its steps' resident peaks recorded, those are what closeness is judged on; the unit's total, page cache
+ // and all, is still said beside them.
+ const stepped = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1434 * MB,
+  memoryMaxBytes: 1500 * MB, residentPeakBytes: 654 * MB}});
+ const m = memoryHeadroom(stepped);
+ assert.equal(m.basis, 'resident');
+ assert.equal(m.residentMB, 654);
+ assert.equal(m.unitMB, 1434);
+ assert.equal(m.tight, false, '654 of 1,500 is not close');
  const seeded = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'failed'},
   lastSuccess: {at: 'y', trigger: 'timer', memoryPeakBytes: 700 * MB, memoryMaxBytes: 1500 * MB, memorySource: 'journal'}});
  assert.equal(memoryHeadroom(seeded).from, 'success');

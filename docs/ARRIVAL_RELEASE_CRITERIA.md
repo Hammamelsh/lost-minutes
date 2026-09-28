@@ -142,3 +142,19 @@ in the criteria themselves:
   withheld on the owner's instruction.
 - The page's estimator has now been compared with the evaluated one on the same real moments: all
   2,078,969 answers agree, 5 of them 1 ms apart (both route-15 patterns, 21–27 September).
+
+## 29 September 2026: the criteria read on what a page would show (protocol `display-1`)
+
+At the owner's request the thresholds above are kept, and read on the exact moments a page would show an
+estimate, not by hindsight's actual minutes before the passage. `docs/ARRIVAL_DISPLAY_PROTOCOL.md` fixes how:
+- when a page holds a report;
+- the 5-second ticks of its clock;
+- the live match and the 2–10 predicted minutes;
+- coverage counted against every moment the bus is truly 2–10 minutes away;
+- a range only as the frozen 10th–90th percentile interval, validated at 80%;
+- results by journey.
+
+It was frozen before its confirmation days (29 September to 5 October), which are read once. The revision
+days (21–26 September) fail in both directions: outbound 1.70 and 4.00 min; inbound shown on 2.1% of the
+moments its buses were 2–10 minutes away. The "shown band" of 28 September is superseded by this protocol,
+as is the pooling of the old nightly file. That file's inbound rows were already withdrawn (stop numbering).

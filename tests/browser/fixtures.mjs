@@ -405,6 +405,13 @@ export function fixtureOffsetOf(lat, lon) {
 }
 /** The fixture road's stop offsets, as the recorded shape declares them (Stop A is index 6). */
 export const FIXTURE_STOP_OFFSETS = SHAPE.stopOffsets;
+/** Which stop each offset is (docs/STOP_MAPPING.md, version 2): the fixture's pattern stops lie inside the area,
+ *  one for one, as every published shape now says explicitly. The page refuses a shape without one. */
+export const FIXTURE_STOP_MAPPING = {version: 2, patternId: 'FX:256:main', patternStopCount: FX.main.length, source: 'fixture',
+  occurrences: FX.main.map(([stop], index) => ({index, stop, offset: SHAPE.stopOffsets[index]}))};
+/** The fixture's main road as a shape file, with its stop mapping or, to test the refusal, as one from before it. */
+export const fixtureMainShape = ({mapping = true} = {}) => ({id: 'FX:256:main', polyline6: SHAPE.polyline6,
+  stopOffsets: SHAPE.stopOffsets, ...(mapping ? {stopMapping: FIXTURE_STOP_MAPPING} : {})});
 
 /** Google's encoded polyline at precision 6: the inverse of decodePolyline6, for served fixtures. */
 function encodePolyline6(points) {
@@ -465,8 +472,7 @@ export async function serveMotion(page, {evaluation = FIXTURE_MOTION, branch = '
     patterns: {'FX:256:main': {status: 'accepted', reason: null, file: 'FX_256_main.json',
       lengthMetres: Math.round(TRACK.length), validation: {reports: 120, offsetP50Metres: 6, offsetP95Metres: 18}},
       'FX:256:branch': branchEntry}}}));
-  await page.route('**/data/shapes/FX_256_main.json*', route => route.fulfill({json: {id: 'FX:256:main',
-    polyline6: SHAPE.polyline6, stopOffsets: SHAPE.stopOffsets}}));
+  await page.route('**/data/shapes/FX_256_main.json*', route => route.fulfill({json: fixtureMainShape()}));
   await page.route('**/data/shapes/FX_256_branch.json*', route => route.fulfill({json: branchShape()}));
   await page.route('**/data/motion-evaluation.json*', route => evaluation
     ? route.fulfill({json: evaluation}) : route.fulfill({status: 404, body: 'no evaluation'}));

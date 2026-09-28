@@ -1,56 +1,47 @@
-"""Pool every nightly evaluation of the arrival candidate and read the release criteria over it.
+"""Read the release criteria on the display protocol's confirmation days, and publish the verdict the page reads.
 
-The nightly unit scores one snapshot a night with frozen parameters and writes one entry per day to
-data/evaluation/arrival-nightly.jsonl: that day's journeys, passages and per-direction errors at the
-release band, the counts coverage needs, both errors where the timetable's time exists too, the
-patterns scored and the model. This pools those days, per direction, and reads **every** criterion of
-docs/ARRIVAL_RELEASE_CRITERIA.md against the pooled set: median and 80th-percentile error, better
-than the timetable by half a minute, coverage, the floors, a weekday. (Until 28 September 2026 it
-read four of the six; the timetable comparison and coverage were not checked.)
+Since 29 September 2026 the criteria (docs/ARRIVAL_RELEASE_CRITERIA.md, thresholds unchanged) are read on the
+moments a page would show an estimate (docs/ARRIVAL_DISPLAY_PROTOCOL.md, protocol display-1), scored a day at a
+time by scripts/evaluate-arrival-display.py into data/evaluation/arrival-display-nightly.jsonl. This pools them:
 
-It writes the verdict to public/data/arrival-release.json, which the page reads. A direction that
-passes is shown only as an exact **scope**: an operator, a line, a direction, the patterns that were
-scored and the model that scored them. A scope is released only when the approval file names it,
-field for field; a bare direction ("outbound") approves nothing. `released`, the list of directions
-the page read before 28 September, is always written empty, so a page from before then shows nothing.
+  - revision days (before the confirmation window) are reported, and decide nothing;
+  - the confirmation window (seven service days from 29 September) is reported as collecting until every day
+    of it is scored, and then read once, per direction, against every criterion and the frozen interval;
+  - a direction that passes is published as an exact scope (operator, line, direction, patterns, model,
+    protocol, and the validated interval) only when the approval file names it field for field; otherwise it
+    waits. A bare direction approves nothing, and `released`, the list older pages read, is always empty.
 
-    .venv/bin/python scripts/arrival-release-check.py [--nightly data/evaluation/arrival-nightly.jsonl]
+    .venv/bin/python scripts/arrival-release-check.py [--display data/evaluation/arrival-display-nightly.jsonl]
         [--approval deploy/arrival-release-approval.json] [--out public/data/arrival-release.json]
-
-Without --approval nothing is released: a passing scope is written as awaiting approval.
 """
 import argparse
 import json
-import statistics
-from datetime import datetime
+import sys
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from pipeline import arrival_display as ad  # noqa: E402  (no DuckDB: this reads JSON only)
+from pipeline.stop_mapping import MAPPING_VERSION  # noqa: E402
+
 LONDON = ZoneInfo('Europe/London')
-THRESHOLDS = {'medianAbs': 1.5, 'p80Abs': 3.0, 'betterThanScheduled': 0.5, 'coverage': 0.5,
-              'minJourneys': 20, 'minPassages': 150}
-# The first day no development or reserved evaluation had seen. The development set was 11-14 and
-# 17-20 September and the reserved set was Sunday 20 September, scored and read that evening (10 of
-# the 19 journeys the server holds for that day are those), so 20 September is not held out: checked
-# journey by journey on 28 September 2026 (docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md).
-UNSEEN_FROM = '2026-09-21'
+MODEL = 'blended@9a626129f782'   # the frozen parameters' hash (scripts/arrival-params-frozen.json)
 
 
-def pct(values, q):
-    if not values:
-        return None
-    ordered = sorted(values)
-    return ordered[min(len(ordered) - 1, int(q * len(ordered)))]
+def window():
+    first = date.fromisoformat(ad.CONFIRMATION_FROM)
+    return [(first + timedelta(days=k)).isoformat() for k in range(ad.CONFIRMATION_DAYS)]
 
 
 def approved_scope(approval, proposal):
-    """The part of a passing scope the approval file names exactly, or None. Every field must match;
-    a pattern is released only if the approval names it and it was scored."""
+    """The part of a passing scope the approval file names exactly, or None. Every field must match; a pattern
+    is released only if the approval names it and it was scored."""
     for entry in (approval or {}).get('approved') or []:
         if not isinstance(entry, dict):
             continue                                   # a bare direction approves nothing
-        if any(entry.get(k) != proposal[k] for k in ('operator', 'line', 'direction', 'model')):
+        if any(entry.get(k) != proposal[k] for k in ('operator', 'line', 'direction', 'model', 'protocol')):
             continue
         patterns = [p for p in entry.get('patternIds') or [] if p in proposal['patternIds']]
         if patterns:
@@ -58,96 +49,98 @@ def approved_scope(approval, proposal):
     return None
 
 
+def checks_for(r):
+    t = ad.THRESHOLDS
+    better = (r['timetableMedianAbsWherePaired'] - r['medianAbsWherePaired']
+              if r['timetableMedianAbsWherePaired'] is not None and r['medianAbsWherePaired'] is not None else None)
+    return {'medianAbs<=1.5': r['medianAbs'] is not None and r['medianAbs'] <= t['medianAbs'],
+            'p80Abs<=3.0': r['p80Abs'] is not None and r['p80Abs'] <= t['p80Abs'],
+            'betterThanTimetableBy0.5': better is not None and better >= t['betterThanTimetable'],
+            'coverage>=50%': r['coverage'] is not None and r['coverage'] >= t['coverage'],
+            'journeys>=20': r['journeys'] >= t['minJourneys'],
+            'passages>=150': r['passages'] >= t['minPassages'],
+            'weekdays>=1': r['weekdays'] >= t['minWeekdays'],
+            'intervalCoverage>=80%': r['intervalCoverage'] is not None and r['intervalCoverage'] >= t['intervalCoverage']}
+
+
+def fragile(r):
+    """Criteria a 95% interval by journey crosses: a pass that could as well have been a fail."""
+    b = r.get('bootstrap') or {}
+    out = []
+    for key, limit in (('medianAbs95', ad.THRESHOLDS['medianAbs']), ('p80Abs95', ad.THRESHOLDS['p80Abs'])):
+        ci = b.get(key)
+        if ci and ci[0] <= limit < ci[1]:
+            out.append(key)
+    ci = b.get('intervalCoverage95')
+    if ci and ci[0] < ad.THRESHOLDS['intervalCoverage'] <= ci[1]:
+        out.append('intervalCoverage95')
+    return out
+
+
+def summary(entries, direction, interval):
+    journeys = [j for e in entries for j in e['directions'].get(direction, {}).get('journeys', [])]
+    r = ad.summarise(journeys, interval)
+    r['days'] = [e['day'] for e in entries if e['directions'].get(direction, {}).get('journeys')]
+    r['weekdays'] = sum(1 for e in entries if e.get('weekday') and e['directions'].get(direction, {}).get('journeys'))
+    return r
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--nightly', default=str(ROOT / 'data/evaluation/arrival-nightly.jsonl'))
+    ap.add_argument('--display', default=str(ROOT / 'data/evaluation/arrival-display-nightly.jsonl'))
     ap.add_argument('--out', default=str(ROOT / 'public/data/arrival-release.json'))
     ap.add_argument('--approval', default=None, help='a JSON file whose "approved" list names, field for field, the scopes '
                                                         'the owner has agreed may be shown once they pass')
     a = ap.parse_args()
     approval = json.loads(Path(a.approval).read_text()) if a.approval else None
-    path = Path(a.nightly)
-    # One entry per day, the latest scoring of that day winning, and only days after every development
-    # and reserved set. An entry from before the criteria were read in full (no counts for coverage or
-    # the timetable comparison, no model) counts toward nothing: the next nightly run re-scores its day.
+    path = Path(a.display)
     entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.exists() else []
-    latest = {}
-    for e in entries:
-        day = e.get('day') or (e.get('days') or ['?'])[0]
-        if day >= UNSEEN_FROM and (day not in latest or e.get('scoredAt', '') >= latest[day].get('scoredAt', '')):
-            latest[day] = e
-    nights = [latest[d] for d in sorted(latest)]
-    # A night counts only if its passages named their stops by the shapes' explicit stop mapping (version 2,
-    # 28 September 2026): before it, inbound passages were paired with the stops 14 earlier.
-    usable = [n for n in nights if n.get('model') and n.get('operator') and n.get('line') and n.get('stopMapping') == 2]
-    verdict = {'schemaVersion': 2, 'generatedAt': datetime.now(LONDON).isoformat(), 'nights': len(usable),
-               'days': [n.get('day') for n in usable], 'unseenFrom': UNSEEN_FROM, 'thresholds': THRESHOLDS,
+    current = lambda e: (e.get('protocol'), e.get('model'), e.get('stopMapping')) == (ad.PROTOCOL, MODEL, MAPPING_VERSION)
+    usable = sorted((e for e in entries if current(e)), key=lambda e: e['day'])
+    days = window()
+    revision = [e for e in usable if e['day'] < ad.CONFIRMATION_FROM]
+    confirmation = [e for e in usable if e['day'] in days]
+    complete = sorted(e['day'] for e in confirmation) == days
+    verdict = {'schemaVersion': 3, 'generatedAt': datetime.now(LONDON).isoformat(), 'protocol': ad.PROTOCOL,
+               'model': MODEL, 'stopMapping': MAPPING_VERSION, 'thresholds': ad.THRESHOLDS,
+               'confirmation': {'window': days, 'scored': [e['day'] for e in confirmation], 'complete': complete,
+                                'note': 'read once, when every day of the window is scored'},
                'directions': {}, 'scopes': [], 'awaitingApproval': [],
                'released': [], 'releasedNote': 'directions alone release nothing since 28 September 2026: see scopes',
                'approval': {'file': a.approval, 'entries': (approval or {}).get('approved') or []} if a.approval else None,
-               'skippedNights': [n.get('day') for n in nights if n not in usable]}
-    for direction in ('inbound', 'outbound'):
-        # One model and one service per scope: nights scored by another model are not pooled with these.
-        groups = {}
-        for night in usable:
-            d = night.get('directions', {}).get(direction)
-            if d and d.get('moments') is not None:
-                groups.setdefault((night['operator'], night['line'], night['model']), []).append((night, d))
-        for (operator, line, model), members in sorted(groups.items()):
-            errs, both_c, both_s, patterns, shown = [], [], [], set(), []
-            journeys = passages = moments = with_estimate = weekdays = 0
-            for night, d in members:
-                errs.extend(d.get('absErrorsReleaseBand', []))
-                both_c.extend(d.get('bothCandidateAbs', []))
-                both_s.extend(d.get('bothScheduledAbs', []))
-                shown.extend(d.get('absErrorsShownBand', []))
-                patterns.update(d.get('patternIds', []))
-                journeys += d.get('journeys', 0)
-                passages += d.get('passages', 0)
-                moments += d.get('moments', 0)
-                with_estimate += d.get('withEstimate', 0)
-                weekdays += 1 if night.get('weekday') and d.get('journeys', 0) else 0
-            med, p80 = (statistics.median(errs) if errs else None), pct(errs, .8)
-            med_c = statistics.median(both_c) if both_c else None
-            med_s = statistics.median(both_s) if both_s else None
-            coverage = with_estimate / moments if moments else None
-            checks = {'medianAbs<=1.5': med is not None and med <= THRESHOLDS['medianAbs'],
-                      'p80Abs<=3.0': p80 is not None and p80 <= THRESHOLDS['p80Abs'],
-                      'betterThanScheduledBy0.5': med_c is not None and med_s is not None
-                                                  and med_s - med_c >= THRESHOLDS['betterThanScheduled'],
-                      'coverage>=50%': coverage is not None and coverage >= THRESHOLDS['coverage'],
-                      'journeys>=20': journeys >= THRESHOLDS['minJourneys'],
-                      'passages>=150': passages >= THRESHOLDS['minPassages'],
-                      'weekdayNights>=1': weekdays >= 1}
-            ok = all(checks.values())
-            proposal = {'operator': operator, 'line': line, 'direction': direction, 'patternIds': sorted(patterns),
-                        'model': model, 'medianAbs': med, 'p80Abs': p80}
-            scope = approved_scope(approval, proposal) if ok else None
-            verdict['directions'][direction] = {
-                'operator': operator, 'line': line, 'model': model, 'patternIds': sorted(patterns), 'nights': len(members),
-                'moments': moments, 'withEstimate': with_estimate, 'coverage': coverage, 'journeys': journeys, 'passages': passages,
-                'weekdayNights': weekdays, 'medianAbs': med, 'p80Abs': p80, 'pairedMoments': len(both_c),
-                'medianAbsWherePaired': med_c, 'scheduledMedianAbsWherePaired': med_s,
-                'checks': checks, 'passed': ok, 'released': scope is not None,
-                # Not a criterion: the same errors on the moments a page would show, chosen by its own
-                # predicted minutes (2-10). Read before approving; on 28 September they missed both thresholds.
-                'shownBand': {'moments': len(shown), 'medianAbs': statistics.median(shown) if shown else None,
-                              'p80Abs': pct(shown, .8)}}
-            if scope:
-                verdict['scopes'].append(scope)
-            elif ok:
-                verdict['awaitingApproval'].append(proposal)
-            print(f'{operator} {line} {direction:9} nights {len(members)}  journeys {journeys:3}  passages {passages:5}  '
-                  f'median {med if med is None else round(med, 2)}  p80 {p80 if p80 is None else round(p80, 2)}  '
-                  f'vs timetable {None if med_s is None or med_c is None else round(med_s - med_c, 2)}  '
-                  f'coverage {None if coverage is None else round(coverage, 3)}  '
-                  f'shown band {None if not shown else round(statistics.median(shown), 2)}/{None if not shown else round(pct(shown, .8), 2)}  -> '
-                  + (('RELEASED: ' + ', '.join(scope['patternIds'])) if scope
-                     else 'PASSED, awaiting an exact approval' if ok
-                     else 'not met: ' + ', '.join(k for k, v in checks.items() if not v)))
+               'skipped': sorted({e['day'] for e in entries if not current(e)})}
+    for (operator, line, direction), interval in sorted(ad.FROZEN_INTERVALS.items()):
+        patterns = sorted({p for e in usable if (e.get('operator'), e.get('line')) == (operator, line)
+                           for p in e['directions'].get(direction, {}).get('patternIds', [])})
+        rev = summary([e for e in revision if (e.get('operator'), e.get('line')) == (operator, line)], direction, interval)
+        conf = summary([e for e in confirmation if (e.get('operator'), e.get('line')) == (operator, line)], direction, interval)
+        block = {'operator': operator, 'line': line, 'direction': direction, 'patternIds': patterns,
+                 'interval': {'low': interval[0], 'high': interval[1], 'nominal': ad.INTERVAL_NOMINAL},
+                 'revision': rev, 'confirmation': conf, 'released': False}
+        if not complete:
+            block['status'] = f"collecting: {len(confirmation)} of {len(days)} confirmation days scored"
+        else:
+            checks = checks_for(conf)
+            block.update({'checks': checks, 'fragile': fragile(conf),
+                          'status': 'passed' if all(checks.values()) else 'not met: ' + ', '.join(k for k, v in checks.items() if not v)})
+            if all(checks.values()):
+                proposal = {'operator': operator, 'line': line, 'direction': direction, 'patternIds': patterns,
+                            'model': MODEL, 'protocol': ad.PROTOCOL,
+                            'interval': {'low': interval[0], 'high': interval[1], 'coverage': conf['intervalCoverage']},
+                            'medianAbs': conf['medianAbs'], 'p80Abs': conf['p80Abs']}
+                scope = approved_scope(approval, proposal)
+                if scope:
+                    verdict['scopes'].append(scope)
+                    block['released'] = True
+                else:
+                    verdict['awaitingApproval'].append(proposal)
+        verdict['directions'][direction] = block
+        fmt = lambda x: '-' if x is None else f'{x:.2f}'
+        print(f"{operator} {line} {direction:9} revision {len(rev['days'])} days: median {fmt(rev['medianAbs'])} p80 {fmt(rev['p80Abs'])} "
+              f"coverage {fmt(rev['coverage'])} | confirmation {len(conf['days'])} of {len(days)} days: median {fmt(conf['medianAbs'])} "
+              f"p80 {fmt(conf['p80Abs'])} -> {block['status']}{' RELEASED' if block['released'] else ''}")
     Path(a.out).write_text(json.dumps(verdict, indent=1))
-    print(f'written {a.out}: {len(verdict["scopes"])} scope(s) released'
-          + (f'; awaiting approval {[p["direction"] for p in verdict["awaitingApproval"]]}' if verdict['awaitingApproval'] else ''))
+    print(f'written {a.out}: {len(verdict["scopes"])} scope(s) released')
 
 
 if __name__ == '__main__':

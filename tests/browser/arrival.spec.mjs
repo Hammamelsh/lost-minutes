@@ -5,17 +5,19 @@
 import {test, expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {departureBoard, movingLive, serveDepartures, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
+import {departureBoard, fixtureMainShape, movingLive, serveDepartures, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
 
 const MODEL = `blended@${createHash('sha256').update(readFileSync(new URL('../../scripts/arrival-params-frozen.json', import.meta.url)))
  .digest('hex').slice(0, 12)}`;
-const SCOPE = {operator: 'BNML', line: '256', direction: 'inbound', patternIds: ['FX:256:main'], model: MODEL, p80Abs: 2.48};
+const SCOPE = {operator: 'BNML', line: '256', direction: 'inbound', patternIds: ['FX:256:main'], model: MODEL,
+ protocol: 'display-1', interval: {low: -1.15, high: 5.75, coverage: 0.81}};
 const card = page => page.locator('.bus-card');
 test.use({permissions: ['geolocation'], geolocation: {latitude: 53.4487, longitude: -2.3095, accuracy: 40}});
 
-async function open(page, {release, live = {}, expectRoute = true}) {
+async function open(page, {release, live = {}, expectRoute = true, beforeLoad = null}) {
  await servePatterns(page);
  await serveMotion(page);
+ if (beforeLoad) await beforeLoad(page);          // routes added last are matched first
  await serveDepartures(page, {board: departureBoard({nowMs: Date.now()})});
  await page.route('**/data/arrival-release.json*', route => release === null
   ? route.fulfill({status: 404, body: 'none'}) : route.fulfill({json: release}));
@@ -72,4 +74,14 @@ test('a release for another pattern or model shows nothing on this one', async (
   live: {cadence: 40}});
  await page.waitForTimeout(3000);
  await expect(card(page).locator('.bus-card-arrival')).toHaveCount(0);
+});
+
+test('a released scope whose road carries no stop mapping gives no minutes, and says why', async ({page}) => {
+  // A shape from before stop mapping version 2 (docs/STOP_MAPPING.md): which stop each offset is cannot be known,
+  // so the page refuses the road rather than pair its offsets with the pattern's stops by list position.
+  await open(page, {release: {released: [], schemaVersion: 3, scopes: [SCOPE]}, live: {cadence: 40},
+    beforeLoad: p => p.route('**/data/shapes/FX_256_main.json*', route => route.fulfill({json: fixtureMainShape({mapping: false})}))});
+  const none = card(page).locator('.bus-card-arrival[data-arrival="none"]');
+  await expect(none).toContainText('its checked road is not loaded, or its stops do not line up with the timetable', {timeout: 20_000});
+  await expect(card(page).locator('.bus-card-arrival[data-arrival-model]')).toHaveCount(0);
 });

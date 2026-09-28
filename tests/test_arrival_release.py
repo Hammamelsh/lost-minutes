@@ -1,129 +1,128 @@
-"""Pooling nightly evaluations: days are the unit, a re-run replaces, nothing before 21 September counts,
-every criterion is read, and only a scope an approval names field for field is released."""
+"""The release check on the display protocol (scripts/arrival-release-check.py, docs/ARRIVAL_DISPLAY_PROTOCOL.md):
+revision days decide nothing, the confirmation window is read once and only when complete, every criterion and
+the frozen interval are read, and only a scope an approval names field for field is released."""
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from pipeline import arrival_display as ad  # noqa: E402
+
 MODEL = 'blended@9a626129f782'
-SCOPE = {'operator': 'BNML', 'line': '15', 'direction': 'outbound', 'patternIds': ['BNML:15:outbound:c9291c1aea'], 'model': MODEL}
+PATTERN = 'BNML:15:outbound:c9291c1aea'
+SCOPE = {'operator': 'BNML', 'line': '15', 'direction': 'outbound', 'patternIds': [PATTERN], 'model': MODEL,
+         'protocol': 'display-1'}
+WINDOW = [(date(2026, 9, 29) + timedelta(days=k)).isoformat() for k in range(7)]
 
 
-def entry(day, journeys, passages, errs, scored_at='2026-09-22T04:10:00+01:00', weekday=True, model=MODEL,
-          moments=None, with_estimate=None, candidate_abs=None, scheduled_abs=None, shown=None):
-    d = {'journeys': journeys, 'passages': passages, 'absErrorsReleaseBand': errs,
-         'moments': len(errs) if moments is None else moments, 'withEstimate': len(errs) if with_estimate is None else with_estimate,
-         'bothCandidateAbs': errs if candidate_abs is None else candidate_abs,
-         'bothScheduledAbs': [e + 1.0 for e in errs] if scheduled_abs is None else scheduled_abs,
-         'patternIds': ['BNML:15:outbound:c9291c1aea'], 'absErrorsShownBand': errs if shown is None else shown}
-    return {'day': day, 'scoredAt': scored_at, 'weekday': weekday, 'candidate': 'blended', 'model': model,
-            'operator': 'BNML', 'line': '15', 'stopMapping': 2, 'directions': {'outbound': d}}
+def journey(key, errors, timetable_errors=None, eligible=None, shown=None, passages=6):
+    signed, cand, tt = {}, {}, {}
+    for e in errors:
+        signed[ad.bin_of(e)] = signed.get(ad.bin_of(e), 0) + 1
+    for e, s in zip(errors, timetable_errors or [e + 2.0 for e in errors]):
+        cand[abs(ad.bin_of(e))] = cand.get(abs(ad.bin_of(e)), 0) + 1
+        tt[abs(ad.bin_of(s))] = tt.get(abs(ad.bin_of(s)), 0) + 1
+    pairs = lambda h: sorted([b, c] for b, c in h.items())
+    return {'journey': key, 'pattern': PATTERN, 'signed': pairs(signed), 'pairedCandidate': pairs(cand),
+            'pairedTimetable': pairs(tt), 'eligible': len(errors) if eligible is None else eligible,
+            'eligibleShown': len(errors) if shown is None else shown, 'passages': passages}
 
 
-def passing(days=('2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24'), **over):
-    return [entry(day, 6, 40, [1.0] * 40, **over) for day in days]    # 24 journeys, 160 passages, weekdays
+def entry(day, errors=(0.2, -0.3, 0.8, 1.1, -0.9, 2.0), journeys=4, split=None, **over):
+    """A day of display moments: `journeys` journeys, each with these errors (minutes, bus later positive)."""
+    js = [journey(f'{day}|{k}', list(errors)) for k in range(journeys)]
+    e = {'day': day, 'protocol': 'display-1', 'model': MODEL, 'stopMapping': 2, 'operator': 'BNML', 'line': '15',
+         'weekday': date.fromisoformat(day).weekday() < 5,
+         'split': split or ('confirmation' if day >= '2026-09-29' else 'revision'),
+         'directions': {'outbound': {'patternIds': [PATTERN], 'journeys': js}}}
+    e.update(over)
+    return e
 
 
 class ReleaseCheckTests(unittest.TestCase):
     def run_check(self, entries, approval=None):
         with tempfile.TemporaryDirectory() as tmp:
-            nightly = Path(tmp) / 'nightly.jsonl'
-            nightly.write_text(''.join(json.dumps(e) + '\n' for e in entries))
-            out = Path(tmp) / 'release.json'
+            display, out = Path(tmp) / 'display.jsonl', Path(tmp) / 'release.json'
+            display.write_text(''.join(json.dumps(e) + '\n' for e in entries))
             extra = []
             if approval is not None:
                 (Path(tmp) / 'approval.json').write_text(json.dumps(approval))
                 extra = ['--approval', str(Path(tmp) / 'approval.json')]
-            subprocess.run([sys.executable, str(ROOT / 'scripts/arrival-release-check.py'), '--nightly', str(nightly), '--out', str(out), *extra],
-                           check=True, capture_output=True)
+            subprocess.run([sys.executable, str(ROOT / 'scripts/arrival-release-check.py'), '--display', str(display),
+                            '--out', str(out), *extra], check=True, capture_output=True)
             return json.loads(out.read_text())
 
-    def test_the_same_day_scored_four_times_is_one_day(self):
-        same = [entry('2026-09-21', 5, 40, [1.0] * 40, scored_at=f'2026-09-22T04:0{i}:00+01:00') for i in range(4)]
-        v = self.run_check(same, {'approved': [SCOPE]})
-        self.assertEqual(v['nights'], 1)
-        self.assertEqual(v['directions']['outbound']['journeys'], 5)
-        self.assertFalse(v['directions']['outbound']['checks']['journeys>=20'])
+    def test_until_every_confirmation_day_is_scored_it_is_collecting_and_nothing_is_read(self):
+        v = self.run_check([entry(d) for d in WINDOW[:6]], {'approved': [SCOPE]})
+        self.assertFalse(v['confirmation']['complete'])
+        self.assertEqual(v['directions']['outbound']['status'], 'collecting: 6 of 7 confirmation days scored')
+        self.assertNotIn('checks', v['directions']['outbound'])
         self.assertEqual(v['scopes'], [])
 
-    def test_a_later_scoring_of_a_day_replaces_the_earlier_one(self):
-        v = self.run_check([entry('2026-09-21', 3, 30, [2.0] * 30, '2026-09-22T04:00:00+01:00'),
-                            entry('2026-09-21', 8, 60, [1.0] * 60, '2026-09-22T04:20:00+01:00')])
-        self.assertEqual(v['directions']['outbound']['journeys'], 8, 'the later run of the same day wins')
+    def test_revision_days_decide_nothing(self):
+        # Excellent revision days and no confirmation: reported, never released.
+        v = self.run_check([entry(f'2026-09-{d}') for d in range(21, 29)], {'approved': [SCOPE]})
+        self.assertEqual(len(v['directions']['outbound']['revision']['days']), 8)
+        self.assertEqual(v['directions']['outbound']['confirmation']['days'], [])
+        self.assertEqual(v['scopes'], [])
 
-    def test_days_up_to_the_reserved_sunday_count_toward_nothing(self):
-        # 20 September was the reserved set, scored and read that evening: not held out.
-        v = self.run_check([entry('2026-09-17', 30, 300, [0.5] * 300), entry('2026-09-20', 30, 300, [0.5] * 300),
-                            entry('2026-09-21', 4, 20, [1.0] * 20)])
-        self.assertEqual(v['days'], ['2026-09-21'])
-        self.assertEqual(v['directions']['outbound']['journeys'], 4)
+    def test_a_complete_passing_window_waits_for_an_exact_approval(self):
+        entries = [entry(d) for d in WINDOW]
+        v = self.run_check(entries)
+        block = v['directions']['outbound']
+        self.assertEqual(block['status'], 'passed', block.get('checks'))
+        self.assertEqual(v['scopes'], [])
+        self.assertEqual([p['direction'] for p in v['awaitingApproval']], ['outbound'])
+        self.assertEqual(v['released'], [])
+        # A bare direction approves nothing; the exact scope does, and carries the validated interval.
+        self.assertEqual(self.run_check(entries, {'approved': ['outbound']})['scopes'], [])
+        scopes = self.run_check(entries, {'approved': [SCOPE]})['scopes']
+        self.assertEqual(len(scopes), 1)
+        self.assertEqual(scopes[0]['interval']['low'], -1.15)
+        self.assertEqual(scopes[0]['interval']['high'], 5.75)
+        self.assertEqual(scopes[0]['protocol'], 'display-1')
+        for field, value in (('model', 'blended@000000000000'), ('protocol', 'display-0'), ('line', '15A')):
+            self.assertEqual(self.run_check(entries, {'approved': [{**SCOPE, field: value}]})['scopes'], [], field)
 
     def test_every_criterion_is_read(self):
-        ok = self.run_check(passing(), {'approved': [SCOPE]})
-        self.assertTrue(ok['directions']['outbound']['passed'])
-        # Not half a minute better than the timetable where both exist: not released.
-        close = self.run_check(passing(scheduled_abs=[1.2] * 40), {'approved': [SCOPE]})
-        self.assertFalse(close['directions']['outbound']['checks']['betterThanScheduledBy0.5'])
-        self.assertEqual(close['scopes'], [])
-        # An estimate at under half the moments: not released.
-        thin = self.run_check(passing(moments=100), {'approved': [SCOPE]})
-        self.assertFalse(thin['directions']['outbound']['checks']['coverage>=50%'])
-        self.assertEqual(thin['scopes'], [])
-        # No weekday: not released.
-        weekend = self.run_check(passing(weekday=False), {'approved': [SCOPE]})
-        self.assertFalse(weekend['directions']['outbound']['checks']['weekdayNights>=1'])
+        cases = {
+            'medianAbs<=1.5': dict(errors=(1.6, -1.7, 1.8, 2.0, -1.9, 1.6)),
+            'p80Abs<=3.0': dict(errors=(0.1, 0.2, 3.5, 4.0, 0.3, 3.6, 0.1, 3.9, 0.2, 3.2)),
+            'coverage>=50%': None,
+            'intervalCoverage>=80%': dict(errors=(0.2, -1.4, 0.8, -1.3, 1.1, -1.6)),
+        }
+        for name, spec in cases.items():
+            if spec is None:
+                entries = [entry(d) for d in WINDOW]
+                for e in entries:
+                    for j in e['directions']['outbound']['journeys']:
+                        j['eligible'], j['eligibleShown'] = 100, 10
+            else:
+                entries = [entry(d, **spec) for d in WINDOW]
+            block = self.run_check(entries, {'approved': [SCOPE]})['directions']['outbound']
+            self.assertFalse(block['checks'][name], name)
+            self.assertTrue(block['status'].startswith('not met'), name)
+        # The floors: too few journeys and passages.
+        thin = self.run_check([entry(d, journeys=1) for d in WINDOW])['directions']['outbound']
+        self.assertFalse(thin['checks']['journeys>=20'])
 
-    def test_a_night_without_the_new_counts_counts_toward_nothing(self):
-        old = [{'day': d, 'scoredAt': 'x', 'weekday': True, 'candidate': 'blended',
-                'directions': {'outbound': {'journeys': 6, 'passages': 40, 'absErrorsReleaseBand': [1.0] * 40}}}
-               for d in ('2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24')]
-        v = self.run_check(old, {'approved': [SCOPE]})
-        self.assertEqual(v['nights'], 0)
-        self.assertEqual(v['scopes'], [])
-
-    def test_a_night_scored_before_the_stop_mapping_counts_toward_nothing(self):
-        # Until 28 September 2026 passages were paired with stops by list position (inbound 15 by 14 stops).
-        old = [{**e, 'stopMapping': None} for e in passing()]
-        verdict = self.run_check(old)
-        self.assertEqual(verdict['nights'], 0)
-        self.assertEqual(sorted(verdict['skippedNights']), ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24'])
-        self.assertEqual(verdict['directions'], {})
-
-    def test_only_an_exact_approval_releases_and_only_what_it_names(self):
-        self.assertEqual(self.run_check(passing())['scopes'], [], 'no approval file: nothing')
-        held = self.run_check(passing(), {'approved': []})
-        self.assertEqual(held['scopes'], [])
-        self.assertEqual([p['direction'] for p in held['awaitingApproval']], ['outbound'])
-        self.assertEqual(self.run_check(passing(), {'approved': ['outbound']})['scopes'], [], 'a bare direction approves nothing')
-        for field, value in (('operator', 'BNSM'), ('line', '15A'), ('direction', 'inbound'), ('model', 'blended@000000000000')):
-            self.assertEqual(self.run_check(passing(), {'approved': [{**SCOPE, field: value}]})['scopes'], [], f'another {field}')
-        unevaluated = {**SCOPE, 'patternIds': ['BNML:15:outbound:ffffffffff']}
-        self.assertEqual(self.run_check(passing(), {'approved': [unevaluated]})['scopes'], [], 'a pattern never scored')
-        agreed = self.run_check(passing(), {'approved': [SCOPE]})
-        self.assertEqual(len(agreed['scopes']), 1)
-        self.assertEqual({k: agreed['scopes'][0][k] for k in SCOPE}, SCOPE)
-        self.assertEqual(agreed['released'], [], 'the list pages before 28 September read stays empty')
-        # Approval releases nothing that has not passed.
-        self.assertEqual(self.run_check(passing(days=('2026-09-21',)), {'approved': [SCOPE]})['scopes'], [])
-
-    def test_the_moments_a_page_would_show_are_reported_beside_the_criteria(self):
-        v = self.run_check(passing(shown=[4.0] * 40), {'approved': []})
-        band = v['directions']['outbound']['shownBand']
-        self.assertEqual(band['medianAbs'], 4.0)
-        self.assertTrue(v['directions']['outbound']['passed'], 'reported, not a criterion')
+    def test_entries_from_another_protocol_model_or_stop_mapping_count_toward_nothing(self):
+        entries = ([entry(d, protocol='display-0') for d in WINDOW[:3]] + [entry(d, model='blended@000000000000') for d in WINDOW[3:5]]
+                   + [entry(d, stopMapping=None) for d in WINDOW[5:]])
+        v = self.run_check(entries, {'approved': [SCOPE]})
+        self.assertEqual(sorted(v['skipped']), WINDOW)
+        self.assertFalse(v['confirmation']['complete'])
 
     def test_the_shipped_approval_file_approves_nothing_and_the_unit_reads_it(self):
         approval = json.loads((ROOT / 'deploy/arrival-release-approval.json').read_text())
         self.assertEqual(approval['approved'], [])
         unit = (ROOT / 'deploy/systemd/lost-minutes-arrival-eval.service').read_text()
         self.assertIn('--approval deploy/arrival-release-approval.json', unit)
-
-
-if __name__ == '__main__':
-    unittest.main()
 
 
 class NightlyEvaluationReadsTheCatalogueTests(unittest.TestCase):
@@ -148,3 +147,7 @@ class NightlyEvaluationReadsTheCatalogueTests(unittest.TestCase):
         # The older pair form still reads, as the warehouse's own reader allows.
         pairs = {'P': module._departure_info(json.dumps({'timings': [[0, 60, 120]], 'departures': [['07:05:00', 0]]}))}
         self.assertEqual(module.scheduled_for(pattern, pairs, 'V1|2026-09-28T07:05:00+01:00')[0], [0, 60, 120])
+
+
+if __name__ == '__main__':
+    unittest.main()

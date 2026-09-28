@@ -99,6 +99,23 @@ class JobRecordTests(unittest.TestCase):
         self.assertEqual(job['lastAttempt']['memoryPeakBytes'], 1_400_000_000)
         self.assertEqual(job['lastSuccess']['memoryMaxBytes'], 1_572_864_000)
 
+    def test_each_step_s_resident_peak_is_kept_and_its_exit_status_passed_through(self):
+        """The unit's peak counts page cache; a step's own largest resident set is what could get it killed."""
+        jobs.start(self.root, 'refresh', now='2026-09-30T02:43:00+00:00', env={'TRIGGER_UNIT': 'lost-minutes-refresh.timer'})
+        code = jobs.step(self.root, 'refresh', [sys.executable, '-c', 'x = bytearray(60 * 1024 * 1024)'])
+        self.assertEqual(code, 0)
+        failing = jobs.step(self.root, 'refresh', [sys.executable, '-c', 'import sys; sys.exit(3)'])
+        self.assertEqual(failing, 3, 'the job fails as its step did')
+        attempt = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())['lastAttempt']
+        self.assertGreaterEqual(attempt['residentPeakBytes'], 60 * 1024 * 1024)
+        self.assertEqual([s['exitStatus'] for s in attempt['steps']], [0, 3])
+        jobs.finish(self.root, 'refresh', now='2026-09-30T02:45:00+00:00', env={'SERVICE_RESULT': 'success'}, memory={})
+        state = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())
+        self.assertEqual(state['lastSuccess']['residentPeakBytes'], attempt['residentPeakBytes'])
+        # A new attempt starts without the last one's peak.
+        jobs.start(self.root, 'refresh', now='2026-10-01T02:43:00+00:00', env={})
+        self.assertNotIn('residentPeakBytes', json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())['lastAttempt'])
+
     def test_a_seeded_success_can_carry_the_journal_s_rounded_peak(self):
         self.assertEqual(jobs.parse_size('1.4G'), int(1.4 * 1024 ** 3))
         self.assertEqual(jobs.parse_size('1500M'), 1500 * 1024 ** 2)

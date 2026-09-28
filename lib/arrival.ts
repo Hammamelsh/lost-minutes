@@ -199,18 +199,29 @@ export const cruiseFor = (patternId: string) => ARRIVAL_PARAMS.cruise[patternId]
 
 // ------------------------------------------------------------------ what a release covers
 
-/** One released scope, as scripts/arrival-release-check.py writes it: exactly what was evaluated and approved. */
+/** One released scope, as scripts/arrival-release-check.py writes it: exactly what was evaluated, confirmed and
+ *  approved. Its interval is the only range a page may show (docs/ARRIVAL_DISPLAY_PROTOCOL.md): the direction's
+ *  10th to 90th percentile of signed error, frozen before the confirmation days and validated on them. */
 export type ArrivalScope = {operator: string; line: string; direction: string; patternIds: string[]; model: string;
- p80Abs?: number | null; medianAbs?: number | null};
+ protocol?: string; interval?: {low: number; high: number; coverage?: number | null}; p80Abs?: number | null; medianAbs?: number | null};
+export const ARRIVAL_PROTOCOL = 'display-1';
 /** The published verdict. `released` is the list of directions before 28 September 2026, kept empty
  *  so a page from before then shows nothing; `scopes` is what a page may show minutes for now. */
 export type ArrivalRelease = {released: string[]; scopes?: ArrivalScope[]} | null;
 
-/** The scope that releases this pattern, if any: operator, line, direction, pattern and model all named. */
+/** A range the protocol validated: two finite numbers of signed error, the lower below the upper. Without one a
+ *  scope releases nothing: until 29 September 2026 the range was the estimate ± the 80th-percentile absolute
+ *  error, which no evaluation had validated as an interval. */
+const validInterval = (i: ArrivalScope['interval']): i is {low: number; high: number} =>
+ !!i && Number.isFinite(i.low) && Number.isFinite(i.high) && i.low < i.high;
+
+/** The scope that releases this pattern, if any: operator, line, direction, pattern, model and protocol all
+ *  named, and a validated interval to show. */
 export function releasedScope(release: ArrivalRelease, pattern: {id: string; operator?: string | null; line: string; direction?: string | null}): ArrivalScope | null {
  for (const scope of release?.scopes ?? []) {
-  if (scope.model === ARRIVAL_MODEL && scope.operator === (pattern.operator ?? '') && scope.line === pattern.line
-   && scope.direction === (pattern.direction ?? '') && Array.isArray(scope.patternIds) && scope.patternIds.includes(pattern.id)) return scope;
+  if (scope.model === ARRIVAL_MODEL && scope.protocol === ARRIVAL_PROTOCOL && scope.operator === (pattern.operator ?? '')
+   && scope.line === pattern.line && scope.direction === (pattern.direction ?? '') && Array.isArray(scope.patternIds)
+   && scope.patternIds.includes(pattern.id) && validInterval(scope.interval)) return scope;
  }
  return null;
 }
@@ -290,15 +301,14 @@ export function arrivalEstimate(input: {
  const minutes = (eta - input.nowMs) / 60000;
  if (minutes < ARRIVAL_DISPLAY.minMinutes) return {kind: 'none', reason: 'under 2 minutes away: minutes are given from 2 to 10'};
  if (minutes > ARRIVAL_DISPLAY.maxMinutes) return {kind: 'none', reason: 'more than 10 minutes away: minutes are given from 2 to 10'};
- const p80 = scope.p80Abs ?? 2;
- return {kind: 'estimate', atMs: eta, minutes, lowMinutes: Math.max(0, minutes - p80), highMinutes: minutes + p80,
+ const interval = scope.interval!;                  // releasedScope admits no scope without a validated one
+ return {kind: 'estimate', atMs: eta, minutes, lowMinutes: Math.max(0, minutes + interval.low), highMinutes: minutes + interval.high,
          method: 'blended', model: ARRIVAL_MODEL, reportAgeS: Math.round(ageS), remainingM: Math.round(stopOffset - placed[at][1])};
 }
 
-/** "about 6 min", or "4–9 min" when the direction's measured 80th-percentile error is over 2 min: the
- *  ends rounded to whole minutes, never below 1. */
+/** The range the protocol validated, from the minutes now: "4–11 min", each end rounded outwards to whole
+ *  minutes (so the range shown is never narrower than the one validated), never below 1. */
 export function arrivalWords(e: Extract<ArrivalEstimate, {kind: 'estimate'}>) {
- const spread = e.highMinutes - e.minutes;
- if (spread > 2) return `${Math.max(1, Math.round(e.lowMinutes))}–${Math.round(e.highMinutes)} min`;
- return `about ${Math.max(1, Math.round(e.minutes))} min`;
+ const low = Math.max(1, Math.floor(e.lowMinutes));
+ return `${low}–${Math.max(low + 1, Math.ceil(e.highMinutes))} min`;
 }

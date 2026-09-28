@@ -1193,7 +1193,9 @@ criteria on the nightly-accumulated weekday passages. Do not lower the criteria.
 evaluator already takes a method as a function; adding one is twenty lines.
 
 **Next cheap validation.** A week of unattended nightly runs, then the blended method scored on
-those days. **Status:** evaluated, not released, running nightly.
+those days. **Status:** evaluated, not released. The nightly run failed every night from 24 to 28
+September 2026 (the stored departures had become triples on the 23rd; entry 68) and was fixed in
+`ee3f4d0`; the first run with the fix is due at 03:10 UTC on 29 September.
 
 ## 33. Six builds to find that a listener was on the wrong element
 
@@ -2080,3 +2082,68 @@ help.
 
 **Next cheap step.** Add the ride's position and the heading's visibility to such a table. Status:
 `observed` (one element covered).
+
+## 67. A planner judged on fixtures and a handful of journeys, wrong on what it promised
+
+**Problem and evidence.** The journey planners (`lib/plan.ts`, `lib/connections.ts`) were checked on
+fixture catalogues and on five or six real journeys read by eye (`scripts/probes/connection-real.mjs`).
+On 28 September, one morning of real buses showed three faults that every such check had passed:
+- the planners said "within a 900 m walk" and searched the 14 nearest stops, 130–460 m in practice (the
+  14th nearest to Piccadilly Gardens is 131 m away, with 159 stops within 900 m); the direct 23 from
+  Norwood Road, 418 m from Hillingdon Road, was never found. In the direct planner since 22 September;
+- a leg was timed from one pattern of its line, and on Brook's Bar → The Trafford Centre that pattern
+  had no journeys that morning while the 86 itself called at the same two stops 24 times in four hours;
+- the loop refusal leaned on the same few stops, so in the centre it offered "ride one stop, walk
+  330 m back to Piccadilly Gardens (Stop H) for the 43".
+
+Earlier in the same milestone a fourth, the Stretford Mall loop, was found the same way.
+
+**Who hits it, workaround.** Whoever changes a planner. The workaround is running the real-data probe
+and reading its output for journeys someone thought to list.
+
+**Recurrence and effort.** Four faults in one day's work on the planners; about an hour each to find,
+reproduce and fix. How often planner changes happen is unknown.
+
+**Small fix, script, tool or product.** A script in this repository. The smallest reusable capability
+is an audit over a few hundred sampled pairs of real stops, 1–8 km apart, against the served catalogue
+and boards, counting the violations of invariants the planner states: every stop within the stated
+walk is a candidate (against a brute-force search); a listed leg has a departure in the window
+wherever any bus between its two stops has one; no second bus passes within reach of the start before
+the passenger gets off it; the listed order is the order of arrival. Existing tools, not researched in
+depth: OpenTripPlanner keeps itinerary regression tests, and property-based testing libraries
+(fast-check for JavaScript) generate such cases; neither knows this planner's promises. A visual
+interface would not help; a count per invariant would.
+
+**Next cheap step.** Put the four invariants into `scripts/probes/connection-real.mjs` over 200
+sampled stop pairs, and run it before a planner change is deployed. Status: `observed` (the four
+faults fixed with unit tests; the audit not written).
+
+## 68. Nightly units that fail are seen only by someone who happens to look
+
+**Problem and evidence.** Two of the server's nightly units failed with nobody told, found on
+28 September 2026 only because a deploy check listed the units' states:
+- `lost-minutes-arrival-eval` failed on five nights, 24 to 28 September, after timing out on the 22nd
+  and 23rd. The warehouse had begun storing each departure as `[time, timing, rule]` on the 23rd, and
+  `scripts/evaluate-arrival.py` still unpacked pairs. Entry 32 still said "running nightly".
+- `lost-minutes-refresh`, the timetable rebuild, failed on 28 September. BODS had answered a
+  timetable download with an error page under HTTP 200 the evening before, the collector stored it as
+  a snapshot, and the rebuild stopped on it. The catalogue of the 27th stayed in place.
+
+Both are fixed with tests (`ee3f4d0`). What is not fixed is that a failure is visible only in
+`systemctl` and the journal. The health unit checks only the collector's publication, and external
+alerting is prepared and off, waiting on the owner (`PROJECT_CONTEXT.md`, 20 September).
+
+**Who hits it, workaround.** Whoever relies on the nightly outputs: the catalogue's freshness, the
+evaluation's history. The workaround is looking at `systemctl list-units` after a deploy.
+
+**Recurrence and effort.** Two units in five days; each fault took under an hour to fix once seen. Days
+of silent failure, not effort, are the cost.
+
+**Small fix, script, tool or product.** A small fix in this repository. The smallest reusable
+capability is each nightly unit's last result (`systemctl show -p Result,ExecMainExitTimestamp`)
+written by the health unit into `operations.json`, so that the Operations view says "timetable
+rebuild failed at 02:40" the next morning. systemd's `OnFailure=` is the existing mechanism for
+acting on a failure; the prepared dead man's switch is the existing way to reach a person. A visual
+interface exists already (Operations).
+
+**Next cheap step.** Add the two units' last results to the health check's output. Status: `observed`.

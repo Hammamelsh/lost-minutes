@@ -452,6 +452,42 @@ Front view") is cut short at the column's edge. The credit itself is clear of th
 there, with the foot a line higher), and 740 px and wider are clear. Not changed: it is the layout of
 the whole column, not the credit.
 
+## 37a. A journey with a change: what is left open (28 September 2026)
+
+- Two changes are not planned; journeys needing an operator not held are not found (said so).
+- The transfer allowance (2 min; 7 with *More time to change*) is a stated default, not measured.
+- Accessibility of a change (crossings, steps, a station's layout) is not in the data and is said to
+  be unknown.
+- The card's rows are the timetable's; a tracked first bus's own lateness is not used to shift its
+  arrival, because no per-bus timetabled time is trusted where the clock is unverified (574 of 576
+  patterns). A verified clock with a bound bus could offer "running about N min late": an evaluation
+  first, never a release by default.
+- **Direct buses in the list carry no time** and keep their order by walking and riding distance. With
+  every stop within the walk searched, a school service can come first (Hillingdon Road → Withington
+  Community Hospital, 28 September, 06:55: the 734 above the 23 from the same stop). Time them from
+  the boards as the journeys with one change are, the whole family between the two stops, and order
+  them by arrival.
+- **An overshoot is not refused**: a first bus carried past the destination and a second bringing the
+  passenger back (Piccadilly Gardens → Withington Golf Club: the 103 to Moor End, then the 43). Ranked
+  by arrival it falls behind the direct buses and is folded beside them; a rule would refuse a second
+  leg that heads back towards the first leg's route.
+- **The list's times use the provisional walk** (the straight line × 1.3); a walk the router finds
+  longer moves the connection after it is chosen, and the card says so (Trafford Bar: 50 m straight,
+  230 m by the router, the 06:56 53 becoming the 07:16). Checking the walks of the listed options
+  would take one router request each.
+- Watch both: see the milestone record.
+
+## 38. A road shape's stop offsets are read by the pattern's stop index
+
+`lib/arrival.ts` reads `track.stops[stopIndex]`; `makeTrack` drops the offsets a shape could not
+place (and any at or beyond its length), so from the first missing stop on, the index names the
+wrong stop. Where the index runs off the end the estimate is withheld ("does not place your stop");
+where it lands on another stop's offset the remaining metres are wrong. Found 28 September 2026 while
+drawing a journey's legs (the fixture's last stop, at the shape's exact length, was dropped); the legs
+measure their stops onto the road instead. Not changed in `arrival.ts`: no direction is released, so
+nothing shown is affected; fix with a per-stop offset array (null where unplaced) when the estimator
+is next worked on.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

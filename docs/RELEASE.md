@@ -4,12 +4,82 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`5736b2a`**, deployed 27 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`e3c760b`**, deployed 28 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 28 September: follow both legs of your journey
+
+**Deployed: `e3c760b`**, with `3c81756` kept for `deploy/rollback.sh`. The release before the feature
+was `5736b2a`; the feature was first released the same day (`f27d6ea`, `d0ad985`, `cbceb2e`), and the
+second half (`7d4862c` to `e3c760b`) corrects what real morning buses showed. The account and the evidence are in
+`docs/MILESTONE_2026-09-28_CONNECTION.md`; a first-time tester's walkthrough is
+`docs/CONNECTION_WALKTHROUGH.md`.
+
+**What a passenger sees.**
+- **Plan a journey offers journeys with one change**, from the timetables held, after any direct
+  bus, soonest at the destination first, each with its next connection by the timetable: "263 → 53 ·
+  one change at Trafford Bar · Next: 255 06:42 from Davyhulme Road East (nr) · at MediaCityUK 07:03 ·
+  by the timetable, not live". Beside a direct bus they fold under "Journeys with one change (N)".
+  Before, a two-bus journey read "Journeys with a change are not planned here".
+- **A leg is every bus between its two stops**: "Take the 263 (or the 255) towards Piccadilly
+  Gardens". Its times, its tracked buses and a restored link read them all.
+- **Choosing one gives one card**: take the first bus (from where, get off where) → walk to the
+  second boarding point → take the second bus (get off where); the next step marked *now*; the next
+  connections by the timetable, an earlier bus that makes the same second bus named on its row;
+  **I’m on the first bus** and **I’ve changed buses**, each with a correction; *Show whole journey* /
+  *First bus* / *Next bus*; *Other journeys*; *Share*; *End*; *Details*. On the first bus its times
+  become the second bus's from the change; on the second, there are none.
+- **The page's stop follows the journey**: the first boarding point, the stop to get off at, the
+  last. No vehicle has to be chosen.
+- **One map**: both legs, the numbered stops, the walk and the tracked buses of both legs, framed on
+  request only; a report arriving never moves it.
+- **Tracked buses say what they are**: tied to this journey by its operator's own reported
+  departure; on another journey, named by its time ("the 06:19 by the timetable"); unidentified; or
+  none ("that is not ‘no bus’"). Never minutes, never "you’ll make it".
+- **A timetable known to be wrong gives no times**: inbound 15 runs 15 min ahead of its buses
+  (`schedule-anchor.json`), and a journey on it shows its steps and the reason instead.
+- **The walk between the stops is provisional until checked** with one request to the pedestrian
+  router (two stop positions, nothing about the passenger); the card then recomputes and says what
+  changed (Trafford Bar: 50 m in a straight line, 230 m and 3 min by the router).
+- **Ride-along keeps the other leg in view** with a focus switch that never moves the stage.
+- **Both planners search every stop within the 900 m walk they state**, where they had searched the
+  14 nearest, 130–460 m in practice: Hillingdon Road → Withington Community Hospital now finds the
+  direct 23 from Norwood Road, 418 m away, where it said there was none.
+
+**Also in this release, found on the server during the deploys** (`ee3f4d0`): the nightly
+timetable rebuild had stopped on a BODS error page the collector stored as a timetable (the
+collector now keeps such bytes apart; the rebuild skips an unreadable snapshot and names it), and
+the nightly arrival evaluation had failed on five nights since the stored departures gained their
+rule (it reads them by position now). Both run again at 02:41 and 03:10 UTC on 29 September.
+
+**Not built, deliberately:** no new estimator (nothing has passed the arrival criteria; nothing
+withheld before is shown now); no two-change journeys; no accessibility claims (not in the data);
+Watch both (a second map halved both maps' frame rate on this renderer: the record has the numbers).
+
+**Verified.**
+- Node: 290 tests (14 on connections: the refusals measured stop by stop, a leg's family and its
+  restoration, folding, ranking by arrival including the last walk, the onward times, a misleading
+  sibling left out, midnight and the next day, the binding rule). Python: 144 (the unreadable
+  snapshot, the refused error page, the evaluation's departures). Typecheck and lint clean.
+- `connection.spec` (14) and `plan.spec` (8) on the final build: 22 of 22 — a working scheduled
+  connection, the list's own times, a transfer that fails once the walk is checked, missing and
+  unnamed second-bus tracking, incomplete coverage, a known timing-quality exclusion, the stages with
+  their times, a reload, a look at another bus, the ride and its focus switch, folding beside a
+  direct bus, no reframing across three publications.
+- The full browser gate on `7d4862c`, the second half's first build: 434 passed, 50 skipped by
+  design, none failed (1.4 h). Each later change: `connection.spec` and `plan.spec` 22 of 22 on its
+  final build.
+- The served site: `bb563ea`, `ee3f4d0`, `3c81756` and `e3c760b`, each byte-identical to the local
+  build, `/preview/` 401, no imagery key; the journey walked on real morning buses at 08:30 and 08:50
+  (the list's next connections, both legs' buses tied to their journeys, the onward 53s on the first
+  bus, the ride and its switch to the next bus, no page errors).
+- Real data: the morning's journeys through the served boards (`scripts/probes/connection-real.mjs`),
+  and this build on the server's own data at both sizes (`outputs/connection/after2.mjs`).
+- Emulation only; no real passenger has tried it.
 
 ## 27 September, evening: the map's credit back on phones
 

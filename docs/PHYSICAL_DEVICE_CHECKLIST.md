@@ -186,13 +186,18 @@ result without the phone.
 
 ## A journey with a change (28 September 2026; docs/CONNECTION_WALKTHROUGH.md)
 
-- [ ] Plan Hillingdon Road → MediaCityUK; choose the journey; the card reads in order on the phone's
-      own screen, and the six questions in the walkthrough can be answered from it. *unchecked*
+- [ ] Plan Hillingdon Road → MediaCityUK; each journey's "Next: … · at … · by the timetable, not
+      live" line reads at arm's length, and the soonest is first; choose it; the card reads in order
+      on the phone's own screen, and the six questions in the walkthrough can be answered from it.
+      *unchecked*
+- [ ] A destination with a direct bus (Withington Community Hospital from Hillingdon Road): the direct
+      buses lead, and "Journeys with one change" opens with one thumb. *unchecked*
 - [ ] The two legs, the numbered stops and the walk are readable on the map by day; the second leg's
       dashes and the "2" disc tell it from the first without colour. *unchecked*
-- [ ] Walking Trafford Bar (Stop A) → Trafford Bar (by): the card's minutes and metres match the
-      walk; the crossing is as the router's line suggests. *unchecked*
-- [ ] On the first bus, **I’m on the first bus** with one thumb; the card leads with getting off.
-      *unchecked*
+- [ ] Walking Trafford Bar (opp) → Trafford Bar (by): the card's minutes and metres (3 min, about
+      230 m by the router on 28 September) match the walk; the crossing is as the router's line
+      suggests. *unchecked*
+- [ ] On the first bus, **I’m on the first bus** with one thumb; the card leads with getting off, and
+      its times are the next 53s from Trafford Bar (by). *unchecked*
 - [ ] A screen lock on the bus and back: the journey and the stage are still there. *unchecked*
 - [ ] Share: what arrives on another phone opens the same journey and names no location. *unchecked*

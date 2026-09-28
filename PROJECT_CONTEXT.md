@@ -4,13 +4,46 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 27 September 2026, evening (the map's credit back on every phone, whole, readable and
-linked, and a phone on its side fitted to its screen with a full-screen ride: `5736b2a`). Before that,
+Last updated: 28 September 2026 (journeys with one change, planned from the timetables held, timed only as
+the timetable allows, followed leg by leg on one map with one card, and both planners searching the whole
+walk they state: `e3c760b`). Before that, 27 September, evening (the map's credit back on every phone,
+whole, readable and linked, and a phone on its side fitted to its screen with a full-screen ride:
+`5736b2a`). Before that,
 the same morning (the front view's roads drawn at their stated width; login sessions on the
 server held to a memory ceiling, with a wrapper for deliberate jobs; every repositioning's reason made
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **28 September — follow both legs of your journey** (`docs/MILESTONE_2026-09-28_CONNECTION.md`,
+  `docs/CONNECTION_WALKTHROUGH.md`).
+  - **Planned from what is held**: journeys with one change from the timetable catalogue and the
+    published boards (`lib/connections.ts`); every stop within the stated 900 m walk (both planners
+    had searched the 14 nearest, 130–460 m in practice, and missed a direct 23 418 m away); a leg is
+    every bus between its two stops; refusals (a direct bus, a loop, a U-turn, a detour) measured
+    stop by stop. 9–32 ms a plan.
+  - **Timed only as the timetable allows**: each leg's timetables judged verified / unverified /
+    unreliable from the schedule anchor, inbound 15 (15 min early) giving no times, with the reason;
+    the list timed and ordered by arrival at the destination; an earlier bus for the same second bus
+    folded and named; the walk provisional until one router request; buses tied to dated journeys
+    only by the reported departure, and a bus on another journey named by its time.
+  - **One card, one map, three stages**: take → walk → take, the next step *now*; the page's stop
+    follows the stage; on the first bus the second bus's times from the change; legs, numbered stops
+    and the walk on the map, framed on request only; the ride keeps the other leg; the plan survives
+    reload, another bus, the ride and the walking hand-off; *Share* carries the journey, never a
+    location.
+  - **Found by real morning buses after the first release** (`f27d6ea`–`cbceb2e`): the list led with
+    a journey two hours out; the timing read one variant of a line (an 86 with no journeys that
+    morning while the 86 ran every ten minutes); the same journey was listed twice. All fixed.
+  - **Found on the server:** the nightly timetable rebuild stopped on a BODS error page stored as a
+    timetable (28 September), and the nightly arrival evaluation had failed five nights on a changed
+    departure format; both fixed with tests (`ee3f4d0`), next runs 29 September.
+  - **Verified:** Node 290, Python 144; the full gate on `7d4862c` 434 passed, 50 skipped by design,
+    none failed (1.4 h), and `connection.spec` with `plan.spec` 22 of 22 on each later build; served
+    as `bb563ea`, `ee3f4d0`, `3c81756` and `e3c760b`, each byte-identical to the local build, and the
+    journey walked on real morning buses (the list's times, both legs' buses tied to their journeys,
+    the onward times, the ride and its switch to the next bus). **Deployed as `e3c760b`.** Emulation
+    only; no real passenger yet.
 
 - **27 September, evening — the map's credit back on phones** (`docs/RELEASE.md`, top).
   - **The fault.** From 22 September an upright phone showed no basemap credit: the phone workspace hid it

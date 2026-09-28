@@ -343,7 +343,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // while the list is open, so nothing moves under a finger; the times on it follow the clock.
  const candidateKey=connections.map(o=>o.key).join(',');
  const anchorSettled=scheduleAnchor!==undefined;
- const [planTimes,setPlanTimes]=useState<{key:string;order:string[];boards:Map<string,StopDepartures|null>;rules:OperatingRule[]|null}|null>(null);
+ const [planTimes,setPlanTimes]=useState<{key:string;order:string[];at:number;boards:Map<string,StopDepartures|null>;rules:OperatingRule[]|null}|null>(null);
  useEffect(()=>{
   if(!connections.length||!anchorSettled)return;
   let current=true;
@@ -351,8 +351,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   const ids=[...new Set(candidates.flatMap(o=>[o.first.board.id,o.second.board.id]))];
   Promise.all([Promise.all(ids.map(id=>loadStopDepartures(id).then(board=>[id,board] as const))),loadDepartureRules()]).then(([pairs,rules])=>{
    if(!current)return;
-   const boards=new Map(pairs),at=Date.now();
-   setPlanTimes({key,boards,rules,order:rankConnections(candidates,o=>timeListed(o,boards,rules,at,scheduleAnchor)).map(o=>o.key)});
+   // On the page's own quarter-minute clock, as the times shown are: a bus leaving in the moment
+   // between two clocks was ranked gone and shown still to come (served, 28 September 2026, 08:27).
+   const boards=new Map(pairs),at=Math.floor(Date.now()/15_000)*15_000;
+   setPlanTimes({key,boards,rules,at,order:rankConnections(candidates,o=>timeListed(o,boards,rules,at,scheduleAnchor)).map(o=>o.key)});
   });
   return()=>{current=false};
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -461,7 +463,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   second:familyQuality(chosenJourney.second,scheduleAnchor)}:null,[chosenJourney,scheduleAnchor]);
  const timingTick=Math.floor(nowMs/15_000);
  // The listed journeys' times on the page's clock, once their boards are in; null while they are read.
- const connectionTimes=useMemo(()=>planReady?new Map(listedConnections.map(o=>[o.key,timeListed(o,planTimes!.boards,planTimes!.rules,timingTick*15_000,scheduleAnchor)] as const)):null,
+ const connectionTimes=useMemo(()=>planReady?new Map(listedConnections.map(o=>[o.key,timeListed(o,planTimes!.boards,planTimes!.rules,Math.max(timingTick*15_000,planTimes!.at),scheduleAnchor)] as const)):null,
   [planReady,planTimes,listedConnections,timingTick,scheduleAnchor]);
  const journeyTiming=useMemo<ConnectionTiming|{kind:'loading'}|null>(()=>{
   if(!chosenJourney||!journeyQuality)return null;
@@ -528,7 +530,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const nextRow=journeyTiming&&journeyTiming.kind==='timed'?journeyTiming.rows[0]??null:null;
  const boundFirst=nextRow?busOnJourney(nextRow.first.departure,buses):null;
  const boundSecond=nextRow?.second?busOnJourney(nextRow.second.departure,buses):null;
- const rideable=chosenJourney&&legBuses?(stage==='second'?boundSecond??legBuses.second[0]?.bus??null:boundFirst??legBuses.first[0]?.bus??null):null;
+ // A leg's tracked bus to show or ride: before the passenger has boarded that leg, the one coming to
+ // its stop (a bus already past it cannot be caught); once on it, the one already on its way.
+ const legBus=(n:1|2)=>{
+  if(!legBuses)return null;
+  const list=n===1?legBuses.first:legBuses.second;
+  const boarded=n===1?stage!=='before':stage==='second';
+  return (boarded?list[0]:list.find(x=>x.standing.kind==='before')??list[0])?.bus??null;
+ };
+ const rideable=chosenJourney&&legBuses?(stage==='second'?boundSecond??legBus(2):boundFirst??legBus(1)):null;
  // Which leg the bus shown on the map belongs to: its matched pattern's, else the stage's.
  const shownLeg=(bus:FollowBus|undefined):1|2=>{
   const id=bus?.match&&'patternId' in bus.match?bus.match.patternId:null;
@@ -536,7 +546,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(chosenJourney&&id&&legFamily(chosenJourney.first).some(l=>l.pattern.id===id))return 1;
   return stage==='second'?2:1;
  };
- const otherLegBusOf=(leg:1|2)=>chosenJourney&&legBuses?(leg===1?boundSecond??legBuses.second[0]?.bus??null:boundFirst??legBuses.first[0]?.bus??null):null;
+ const otherLegBusOf=(leg:1|2)=>chosenJourney&&legBuses?(leg===1?boundSecond??legBus(2):boundFirst??legBus(1)):null;
  function choosePlan(option:DirectOption){
   clearJourneyPlan();
   setChosenPlan(`${option.pattern.id}|${option.board.id}|${option.alight.id}`);
@@ -1029,7 +1039,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    <span>{(()=>{
     // A tracked bus of the other leg: tied to the next connection, else named by its own journey's
     // timetabled time where its report names one, else said to be unidentified.
-    const other=(n:1|2)=>{const bound=n===1?boundFirst:boundSecond,first=legBuses?.[n===1?'first':'second'][0]?.bus;
+    const other=(n:1|2)=>{const bound=n===1?boundFirst:boundSecond,first=legBus(n);
      if(bound)return n===1?`${bound.route}, ${bound.ageWords}`:`tracked, ${bound.ageWords}`;
      if(!first)return n===1?`the ${lineShort(chosenJourney.first)}, no tracked bus reporting`:'no tracked bus reporting yet';
      const time=trackedTime(first,n);

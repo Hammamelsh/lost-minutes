@@ -73,7 +73,10 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
  const tracked=(list:{bus:FollowBus;standing:LegStanding}[],leg:Leg,n:1|2,bound:FollowBus|null,at:'board'|'alight')=>{
   if(bound){const s=list.find(x=>x.bus.key===bound.key)?.standing;
    return <span className="journey-tracked" data-tracked="journey">Tracked on this journey · {s?standingWords(s,leg,at):'reported'} · {bound.ageWords}</span>}
-  if(list.length){const {bus,standing}=list[0];
+  if(list.length){
+   // Before boarding, the bus coming to the stop leads (served 28 September: a 255 already past the
+   // stop was named first); on the bus, the one already on its way.
+   const {bus,standing}=at==='board'?(list.find(x=>x.standing.kind==='before')??list[0]):list[0];
    // Its own journey where its report names one (an earlier or a later bus than the next connection's);
    // otherwise it is a bus of the line, and which journey it is on is left open.
    const time=trackedTime?.(bus,n)??null;

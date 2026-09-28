@@ -11,7 +11,7 @@ import type {FollowBus} from '@/lib/follow';
 import type {Place} from '@/lib/places';
 import PlaceSearch from '@/components/place-search';
 import {BEE_NETWORK_PLANNER,directOptions,planText,transitHandoff,type DirectOption} from '@/lib/plan';
-import {legService,lineNames,stopName as stopWords,type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
+import {CONNECTION_RULES,legService,lineNames,stopName as stopWords,type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
 import {clockWords} from '@/lib/departures';
 import {londonDate} from '@/lib/service-days';
 import {PLACES_ATTRIBUTION} from '@/lib/places';
@@ -159,8 +159,12 @@ function NextConnection({option,timing,day}:{option:ConnectionOption;timing:Conn
  if(!row){const first=timing.rows[0];
   return <p className="plan-next" data-plan-next="no-second">Next {first.first.departure.line} {when(first.first.departMs)}, but no {lineNames(option.second)} is timetabled within 90 min of it reaching the change.</p>}
  const arrive=row.second!.arriveMs;
+ // The walk from the last stop, provisional as every walk here is, so that two journeys ending at
+ // different distances from the destination can be compared from their lines alone.
+ const walkMinutes=Math.round(option.walkFromAlightMetres*CONNECTION_RULES.transferDetour/CONNECTION_RULES.walkMetresPerMinute);
  return <p className="plan-next" data-plan-next="timed">Next: <strong>{row.first.departure.line} {when(row.first.departMs)}</strong>
   {row.earlier?` (or ${row.earlier.count>1?'any from':row.earlier.line===row.first.departure.line?'the':`the ${row.earlier.line} at`} ${when(row.earlier.departMs)})`:''} from {stopWords(option.first.board)}
   {arrive!==null?<> · at {option.second.alight.name} <strong>{when(arrive)}</strong></>:<> · then the {row.second!.departure.line} {when(row.second!.departMs)}</>}
+  {walkMinutes>=3?` · then about ${walkMinutes} min on foot`:''}
   <small> · by the timetable, not live</small></p>;
 }

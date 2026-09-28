@@ -57,6 +57,10 @@ export type ScheduledDeparture={
  sharedDeparture:number;
  /** False when the journey carried no operating profile we could read: it may not run today. */
  dayKnown:boolean;
+ /** Which of the pattern's per-stop timings this journey runs (`ServicePattern.timings[timing]`), so
+  *  its scheduled time at any other stop of the pattern can be read; and its operating rule's index. */
+ timing:number;
+ rule:number;
 };
 
 const SECONDS_IN_DAY=86_400;
@@ -128,7 +132,7 @@ function departuresOf(service:StopBoardService,rules:OperatingRule[],day:string)
     originSeconds:origin,stopSeconds:seconds,serviceDay:day,
     line:service.line,destination:label(service.destination),direction:service.direction,
     operator:service.operator,patternId:service.patternId,
-    sharedDeparture:shared.get(origin)??1,dayKnown,
+    sharedDeparture:shared.get(origin)??1,dayKnown,timing,rule:ruleIndex,
    });
   }
  }
@@ -160,6 +164,26 @@ export function nextDepartures(board:StopDepartures|null,rules:OperatingRule[]|n
  }
  const from=nowMs-graceSeconds*1000,to=nowMs+withinMinutes*60_000;
  return all.filter(d=>d.atMs>=from&&d.atMs<=to).sort((a,b)=>a.atMs-b.atMs).slice(0,limit);
+}
+
+/**
+ * Every scheduled departure of one pattern from this stop inside a window of instants, in order: the
+ * planner's question ("which journeys of the 42 leave here between now and three hours from now?"),
+ * read over the same three service days as `nextDepartures` so a journey timed past midnight is found.
+ */
+export function departuresOn(board:StopDepartures|null,rules:OperatingRule[]|null,patternId:string,
+                             fromMs:number,toMs:number):ScheduledDeparture[]{
+ if(!board||!rules)return [];
+ const today=serviceDayOf(fromMs),yesterday=previousDay(today),tomorrow=shiftDay(today,1);
+ const all:ScheduledDeparture[]=[];
+ for(const service of board.services){
+  if(service.patternId!==patternId)continue;
+  all.push(...departuresOf(service,rules,today));
+  for(const departure of departuresOf(service,rules,yesterday))
+   if(departure.stopSeconds>=SECONDS_IN_DAY)all.push(departure);
+  all.push(...departuresOf(service,rules,tomorrow));
+ }
+ return all.filter(d=>d.atMs>=fromMs&&d.atMs<=toMs).sort((a,b)=>a.atMs-b.atMs);
 }
 
 /** Minutes until a departure, from the instants themselves: never from a clock-face subtraction. */

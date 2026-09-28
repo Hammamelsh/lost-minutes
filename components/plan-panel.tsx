@@ -11,6 +11,7 @@ import type {FollowBus} from '@/lib/follow';
 import type {Place} from '@/lib/places';
 import PlaceSearch from '@/components/place-search';
 import {BEE_NETWORK_PLANNER,directOptions,planText,transitHandoff,type DirectOption} from '@/lib/plan';
+import {legLines,stopName as stopWords,type ConnectionOption} from '@/lib/connections';
 import {PLACES_ATTRIBUTION} from '@/lib/places';
 
 export type PlanFrom={kind:'device';lat:number;lon:number;accuracyMetres?:number}|{kind:'chosen';lat:number;lon:number;label:string};
@@ -19,11 +20,14 @@ export type PlanTo={lat:number;lon:number;label:string;detail?:string};
 const metresWords=(m:number)=>`about ${Math.max(10,Math.round(m/10)*10)} m`;
 const stopName=(s:Stop)=>s.indicator?`${s.name} (${s.indicator})`:s.name;
 
-export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false}:{
+export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false,
+                                  connections=[],onChooseConnection}:{
  stops:Stop[];patterns:PatternCatalogue|null;day:string;buses:FollowBus[];
  from:PlanFrom|null;to:PlanTo|null;device:{lat:number;lon:number}|null;
  onUseDevice:()=>void;onChooseFrom:(place:Place)=>void;onSetTo:(place:PlanTo|null)=>void;
- onChoose:(option:DirectOption)=>void;onShowOnMap:()=>void;link:string;chosenKey:string|null;compact?:boolean}){
+ onChoose:(option:DirectOption)=>void;onShowOnMap:()=>void;link:string;chosenKey:string|null;compact?:boolean;
+ /** Journeys with one change (lib/connections.ts), worked out by the view, listed after the direct buses. */
+ connections?:ConnectionOption[];onChooseConnection?:(option:ConnectionOption)=>void}){
  const [editing,setEditing]=useState<'from'|'to'|null>(null);
  const [sharing,setSharing]=useState(false);
  const [copied,setCopied]=useState<'no'|'yes'|'failed'>('no');
@@ -52,7 +56,7 @@ export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUse
  </section>;
  return <section className={`plan-panel${compact?' compact':''}`} aria-label="Plan a journey" data-plan={from&&to?'set':to?'to-only':'empty'}>
   <h3 className="section-head"><Bus size={15} aria-hidden="true"/> Plan a journey
-   <small>direct buses from our timetable; changes through a full planner</small></h3>
+   <small>direct buses and one change, from our timetables</small></h3>
   <div className="plan-fields">
    <div className="plan-field" data-field="from">
     <span className="plan-field-label">From</span>
@@ -81,8 +85,9 @@ export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUse
   </div>
 
   {from&&to&&<div className="plan-options" data-plan-options={options.length}>
-   {options.length===0&&<p className="empty-state plan-empty" role="status"><strong>No direct bus found within a {900} m walk of both places on today’s timetable.</strong>
-    <span>Journeys with a change are not planned here; the planners below take the same places.</span></p>}
+   {options.length===0&&connections.length===0&&<p className="empty-state plan-empty" role="status"><strong>No bus journey found within a {900} m walk of both places on today’s timetable, direct or with one change.</strong>
+    <span>That is what our timetables hold (four operators), not proof that no journey exists: the planners below take the same places.</span></p>}
+   {options.length===0&&connections.length>0&&<p className="plan-note" role="status" data-plan-no-direct>No direct bus within a 900 m walk of both places today; these need one change.</p>}
    {options.map(o=><article key={key(o)} className={`plan-option${key(o)===chosenKey?' on':''}`} data-plan-option={o.line}>
     <div className="plan-option-head"><span className="route-pill">{o.line}</span><strong>towards {o.headsign}</strong>
      <small>{o.rideStops} stop{o.rideStops===1?'':'s'}{o.rideMetres?` · ${(o.rideMetres/1000).toFixed(1)} km by the timetable’s links`:''}</small></div>
@@ -96,6 +101,17 @@ export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUse
      : <>No tracked bus is before your boarding stop right now. That is not “no bus”: check the stop’s live board after choosing.</>}</p>
     {o.caution&&<p className="plan-caution">Careful: {o.caution}.</p>}
     <button className="action" onClick={()=>onChoose(o)} data-choose-plan>{key(o)===chosenKey?'Chosen · open the boarding stop':'Choose this bus'}</button>
+   </article>)}
+   {connections.map(o=><article key={o.key} className={`plan-option connection${o.key===chosenKey?' on':''}`} data-plan-connection={`${o.first.line}|${o.second.line}`}>
+    <div className="plan-option-head"><span className="route-pill">{o.first.line}</span><span className="plan-then" aria-hidden="true">→</span><span className="route-pill">{o.second.line}</span>
+     <strong>one change at {o.transfer.sameStop?stopWords(o.transfer.to):o.transfer.to.name}</strong>
+     <small>{o.first.rideStops+o.second.rideStops} stops</small></div>
+    <ol className="plan-legs">
+     <li>Take the <strong>{legLines(o.first)}</strong> towards <strong>{o.first.headsign}</strong> from <strong>{stopWords(o.first.board)}</strong> <em>({metresWords(o.walkToBoardMetres)} away, straight line)</em></li>
+     <li>Get off at <strong>{stopWords(o.first.alight)}</strong>{o.transfer.sameStop?', and change there':<>, then walk to <strong>{stopWords(o.transfer.to)}</strong> <em>({metresWords(o.transfer.straightMetres)} in a straight line; the walk is checked once chosen)</em></>}</li>
+     <li>Take the <strong>{legLines(o.second)}</strong> towards <strong>{o.second.headsign}</strong>, get off at <strong>{stopWords(o.second.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line)</em></li>
+    </ol>
+    <button className="action" onClick={()=>onChooseConnection?.(o)} data-choose-connection>{o.key===chosenKey?'Chosen':'Choose this journey'}</button>
    </article>)}
    <div className="plan-handoffs">
     <a href={transitHandoff(from,to)} target="_blank" rel="noopener noreferrer" data-handoff="google"><ExternalLink size={14} aria-hidden="true"/> Whole journey in Google Maps (transit), with these two places</a>

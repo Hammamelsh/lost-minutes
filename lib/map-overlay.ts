@@ -13,8 +13,14 @@ export const ALL_STOPS_SOURCE='lm-all-stops';
 export const FLEET_MODEL_SOURCE='lm-fleet-model';
 /** Other buses moved to a report they could not be followed to: each move, for a few seconds. */
 export const FLEET_MOVED_SOURCE='lm-fleet-moved';
+/** A journey with a change (lib/connections.ts): both legs, the change on foot, and the four stops. */
+export const JOURNEY_SOURCE='lm-journey';
 export const OVERLAY_SOURCES=[ALL_STOPS_SOURCE,BUS_SOURCE,STOP_SOURCE,HERE_SOURCE,MODEL_SOURCE,FLEET_MODEL_SOURCE,FLEET_MOVED_SOURCE,WALK_SOURCE,SELECTED_SOURCE,
- TRAIL_SOURCE,STOPS_AHEAD_SOURCE] as const;
+ TRAIL_SOURCE,STOPS_AHEAD_SOURCE,JOURNEY_SOURCE] as const;
+/** The two legs of a journey with a change, told apart by more than colour: the first is a solid
+ *  line, the second a dashed one, and each boarding point carries its number. Neither colour is a
+ *  reserved one (blue is You, orange your stop, lime your bus). */
+export const LEG_COLOURS={1:'#2b7a80',2:'#8a4fb0'} as const;
 /** The walking route is drawn in the blue that means "you", dotted so it reads as a way on
  *  foot rather than a road or a bus route. */
 export const WALK_COLOUR='#2f86d6';
@@ -76,6 +82,27 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
           'line-dasharray':[0.1,1.7]}},
   {id:'lm-walk-connector',type:'line',source:WALK_SOURCE,filter:['==',['get','kind'],'connector'],
    paint:{'line-color':WALK_COLOUR,'line-width':1.6,'line-dasharray':[2,2],'line-opacity':0.85}},
+  // A journey with a change, under the markers: the first leg solid, the second dashed, each on its
+  // checked road where one is accepted and stop to stop where none is (thinner, and the card says
+  // so). The change on foot is dotted like the walk; until a router has checked it, a thin dashed
+  // straight line, which is all that is known of it.
+  {id:'lm-journey-leg-casing',type:'line',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'leg'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':o.halo,'line-width':['interpolate',['linear'],['zoom'],11,4.5,15,7,18,13],'line-opacity':0.9}},
+  {id:'lm-journey-leg',type:'line',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'leg'],
+   layout:{'line-cap':['case',['==',['get','n'],2],'butt','round'],'line-join':'round'},
+   paint:{'line-color':['case',['==',['get','n'],2],LEG_COLOURS[2],LEG_COLOURS[1]],
+          'line-width':['interpolate',['linear'],['zoom'],11,['case',['get','onRoad'],2.6,1.8],15,['case',['get','onRoad'],4,2.6],18,['case',['get','onRoad'],7.5,4.5]],
+          'line-opacity':['case',['get','onRoad'],0.95,0.75],
+          'line-dasharray':['case',['==',['get','n'],2],['literal',[1.6,1.1]],['literal',[1,0]]]}},
+  {id:'lm-journey-transfer-casing',type:'line',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'transfer'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':o.halo,'line-width':['interpolate',['linear'],['zoom'],13,5,18,12],'line-opacity':0.92}},
+  {id:'lm-journey-transfer',type:'line',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'transfer'],
+   layout:{'line-cap':'round','line-join':'round'},
+   paint:{'line-color':WALK_COLOUR,'line-width':['interpolate',['linear'],['zoom'],13,2.6,18,6.5],'line-dasharray':[0.1,1.7]}},
+  {id:'lm-journey-provisional',type:'line',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'provisional'],
+   paint:{'line-color':WALK_COLOUR,'line-width':1.8,'line-dasharray':[2,2],'line-opacity':0.85}},
   {id:'lm-stop-ring',type:'circle',source:STOP_SOURCE,
    paint:{'circle-radius':15,'circle-color':'#ffb459','circle-opacity':0.18,'circle-pitch-alignment':'map',
           'circle-stroke-color':o.stopRing,'circle-stroke-width':2.5}},
@@ -219,6 +246,15 @@ export function overlayLayers(theme:MapTheme):Record<string,unknown>[]{
            'text-variable-anchor':['top','bottom','right','left'],'text-justify':'auto',
            'text-font':['Noto Sans Bold'],'text-max-width':11},
    paint:{'text-color':o.stopLabel,'text-halo-color':o.halo,'text-halo-width':2.4}},
+  // The journey's four stops: where to board each bus (a numbered disc) and where to get off it
+  // (a smaller disc with the same number), each named. Drawn over the legs and the buses, under
+  // the passenger's own stop, which stays orange wherever it is.
+  {id:'lm-journey-mark',type:'symbol',source:JOURNEY_SOURCE,filter:['==',['get','kind'],'mark'],
+   layout:{'icon-image':['get','icon'],'icon-allow-overlap':true,'icon-ignore-placement':true,'icon-pitch-alignment':'map',
+           'text-field':['get','label'],'text-size':12.5,'text-radial-offset':1.5,'text-max-width':11,
+           'text-variable-anchor':['top','bottom','right','left'],'text-justify':'auto','text-font':['Noto Sans Bold'],
+           'text-optional':true,'symbol-sort-key':['get','sort']},
+   paint:{'text-color':['case',['==',['get','n'],2],LEG_COLOURS[2],LEG_COLOURS[1]],'text-halo-color':o.halo,'text-halo-width':2.2}},
   {id:'lm-here-dot',type:'symbol',source:HERE_SOURCE,filter:['==',['get','kind'],'point'],
    layout:{'icon-image':['case',['==',['get','label'],'Starting point'],'lm-start-dot','lm-here-dot'],
            'icon-allow-overlap':true,'icon-pitch-alignment':'map'}},

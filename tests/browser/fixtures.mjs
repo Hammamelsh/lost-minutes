@@ -201,6 +201,33 @@ export function fixtureCatalogue() {
           notes: ['FIXTURE']};
 }
 
+/**
+ * A second FIXTURE line for a journey with a change (lib/connections.ts): the 53 north-east along
+ * Talbot Road from Talbot Court (nr), 113 m from the 256's Thomas Street stop, to Trafford Bar.
+ * Real NaPTAN stops; the timetable is invented (about a minute a stop).
+ */
+export const FX53 = {
+  stops: [['1800SJ16941', 53.45315, -2.29832], ['1800SJ16931', 53.45466, -2.29494], ['1800SJ32131', 53.45673, -2.29039],
+          ['1800SJ32111', 53.45882, -2.28578], ['1800SJ32091', 53.45996, -2.28341], ['1800SJ32071', 53.46175, -2.27962],
+          ['1800SJ32051', 53.46209, -2.27749]],
+  metres: [0, 280, 570, 900, 1080, 1370, 1520],
+  seconds: [0, 60, 120, 180, 240, 300, 360],
+  board: '1800SJ16941', alight: '1800SJ32051',
+  /** Beside Trafford Bar (Stop A): a destination the 256 does not reach. */
+  destination: {lat: 53.4622, lon: -2.2772, label: 'Trafford Bar'},
+  /** Beside Stretford Mall (Stop A): a start 70 m from the 256's boarding point. */
+  start: {postcode: 'M32 9AA', latitude: 53.4458, longitude: -2.3112},
+};
+export function connectionCatalogue() {
+  const base = fixtureCatalogue();
+  const stops = FX53.stops.map(s => s[0]);
+  const fifty3 = {...base.patterns[0], id: 'FX:53:main', operator: 'BNSM', line: '53', direction: 'outbound',
+    destination: 'Trafford Bar', stops, metres: FX53.metres, seconds: FX53.seconds, timings: [FX53.seconds],
+    stopCount: stops.length, stopsInArea: stops.length, lengthMetres: 1520, journeys: 30};
+  return {...base, supportedLines: ['256', '53'], supportedServices: ['BNML|256', 'BNSM|53'],
+          patterns: [...base.patterns, fifty3]};
+}
+
 const EVIDENCE = {serviceDay: '2026-09-13', weekday: 'Sunday', operatorChecked: true,
   directionReported: true, operatingDayChecked: true, plausiblePaths: 1, resolvedBy: 'position'};
 
@@ -259,7 +286,8 @@ export async function serveScheduleAnchor(page, patterns = {'FX:256:main': {veri
  * real data: read a run, add its offset, place it against Europe/London.
  */
 export function departureBoard({stop = FX.stopA, nowMs = Date.now(), atMinutes = [4, 14, 26],
-                                line = '256', destination = 'Piccadilly Gardens',
+                                line = '256', destination = 'Piccadilly Gardens', operator = 'BNML',
+                                direction = 'inbound', sequence = 6,
                                 patternId = 'FX:256:main', rule = 0, offset = 247} = {}) {
   // Seconds from local midnight, read off the London clock itself rather than worked out from an
   // offset: the wall time is what a timetable states, and it is what the board carries.
@@ -275,20 +303,40 @@ export function departureBoard({stop = FX.stopA, nowMs = Date.now(), atMinutes =
     else runs.push([rule, 0, seconds]);
   }
   return {schemaVersion: 1, stop, generatedAt: new Date(nowMs).toISOString(), secondsInDay: 86_400,
-    services: [{patternId, operator: 'BNML', line, direction: 'inbound', destination,
-      sequence: 6, rules: [0], offsets: [offset], runs,
+    services: [{patternId, operator, line, direction, destination,
+      sequence, rules: [0], offsets: [offset], runs,
       timetable: {file: 'FIXTURE_256.xml', datasetSha256: 'f'.repeat(64),
         validFrom: '2026-01-01', validTo: '2031-12-31'}}]};
 }
 
+/** The origin departures a board made with `atMinutes` carries, as HH:MM:SS local: what a bus
+ *  reporting that journey says as its aimed departure, so a fixture bus can be tied to a row. */
+export function boardOrigins({nowMs = Date.now(), atMinutes = [4, 14, 26], offset = 247} = {}) {
+  const clock = new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour12: false,
+    hour: '2-digit', minute: '2-digit', second: '2-digit'}).formatToParts(nowMs);
+  const part = type => Number(clock.find(p => p.type === type).value);
+  const secondsNow = (part('hour') % 24) * 3600 + part('minute') * 60 + part('second');
+  return atMinutes.map(minutes => {
+    const s = ((secondsNow + minutes * 60 - offset) % 86_400 + 86_400) % 86_400;
+    return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  });
+}
+
 /** The boards and the shared rules a stop's page asks for. `board: null` serves a 404, which is
- *  what a stop with no published board looks like. */
-export async function serveDepartures(page, {board = departureBoard(),
+ *  what a stop with no published board looks like. `boards` serves one board per stop, by ATCO
+ *  code, and a 404 for any other stop. */
+export async function serveDepartures(page, {board = departureBoard(), boards = null,
                                              rules = [{days: [0, 1, 2, 3, 4, 5, 6]}]} = {}) {
   await page.route('**/data/departure-rules.json*', route =>
     route.fulfill({json: {schemaVersion: 1, generatedAt: new Date().toISOString(), rules}}));
-  await page.route('**/data/departures/*.json*', route =>
-    board ? route.fulfill({json: board}) : route.fulfill({status: 404, body: 'no board'}));
+  await page.route('**/data/departures/*.json*', route => {
+    if (boards) {
+      const atco = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop().replace(/\.json$/, ''));
+      const found = boards[atco];
+      return found ? route.fulfill({json: found}) : route.fulfill({status: 404, body: 'no board'});
+    }
+    return board ? route.fulfill({json: board}) : route.fulfill({status: 404, body: 'no board'});
+  });
 }
 
 export async function servePatterns(page, catalogue = fixtureCatalogue()) {

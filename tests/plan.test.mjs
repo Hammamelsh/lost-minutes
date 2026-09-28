@@ -78,8 +78,8 @@ test('places: postcodes are recognised, our stops come as places, and the provid
 
 test('the plan link is read defensively and written back without touching the rest of the address', async () => {
  const {readPlanLink,withPlan}=await import('../lib/plan-link.ts');
- assert.deepEqual(readPlanLink(''),{from:null,to:null});
- assert.deepEqual(readPlanLink('?stop=1800SJ00811'),{from:null,to:null});
+ assert.deepEqual(readPlanLink(''),{from:null,to:null,plan:null});
+ assert.deepEqual(readPlanLink('?stop=1800SJ00811'),{from:null,to:null,plan:null});
  assert.deepEqual(readPlanLink('?to=53.4,-2.3&toLabel=Work').to,{lat:53.4,lon:-2.3,label:'Work'});
  assert.equal(readPlanLink('?to=53.4').to,null);
  assert.equal(readPlanLink('?to=,').to,null);

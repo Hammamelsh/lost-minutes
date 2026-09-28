@@ -183,3 +183,16 @@ Open **Send feedback** at the foot of the page and press **Copy this report**: i
 with the publication hash, the map's frame time and the state of the ride to the clipboard. Paste
 it into an issue with the phone model. Do not describe an emulation result as a phone result, and do not describe a phone
 result without the phone.
+
+## A journey with a change (28 September 2026; docs/CONNECTION_WALKTHROUGH.md)
+
+- [ ] Plan Hillingdon Road → MediaCityUK; choose the journey; the card reads in order on the phone's
+      own screen, and the six questions in the walkthrough can be answered from it. *unchecked*
+- [ ] The two legs, the numbered stops and the walk are readable on the map by day; the second leg's
+      dashes and the "2" disc tell it from the first without colour. *unchecked*
+- [ ] Walking Trafford Bar (Stop A) → Trafford Bar (by): the card's minutes and metres match the
+      walk; the crossing is as the router's line suggests. *unchecked*
+- [ ] On the first bus, **I’m on the first bus** with one thumb; the card leads with getting off.
+      *unchecked*
+- [ ] A screen lock on the bus and back: the journey and the stage are still there. *unchecked*
+- [ ] Share: what arrives on another phone opens the same journey and names no location. *unchecked*

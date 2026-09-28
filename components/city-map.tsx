@@ -8,7 +8,7 @@ import {applyTheme,baseLayers,buildingExtrusion,buildStyle,FRONT,PALETTES,type M
 import {FLEET_LIVERY,MODEL_URL,orientedBus,parseBusModel,unorientedToken,type BusModel} from '@/lib/bus-model';
 import {accuracyRing} from '@/lib/geo';
 import {ALL_STOPS_SOURCE,BUS_SOURCE,FLEET_MODEL_SOURCE,HERE_SOURCE,HIDE_SELECTED_WHEN_MODEL,MODEL_MIN_ZOOM,MODEL_SOURCE,OVERLAY,OVERLAY_SOURCES,
-        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE,
+        overlayLayers,SELECTED_SOURCE,SHOW_RING_WHEN_MODEL,STOP_SOURCE,STOPS_AHEAD_SOURCE,TRAIL_SOURCE,WALK_SOURCE,JOURNEY_SOURCE,LEG_COLOURS,
         FLEET_MOVED_SOURCE} from '@/lib/map-overlay';
 import {journeyFocus} from '@/lib/journey';
 import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointAt,project,type RepositionReason,slice,stepVisual,tickClock,turnToward,
@@ -91,6 +91,9 @@ type Props = {
  busLabel?:string;
  /** A walking route from a pedestrian router, from you to your stop. */
  walk?:{path:[number,number][];from:{lat:number;lon:number};to:{lat:number;lon:number}}|null;
+ /** A journey with a change (lib/connections.ts), drawn whole: both legs, the four stops and the walk
+  *  between them, and which of it the camera frames when asked. */
+ journey?:JourneyOverlay|null;
  /** The server's clock minus this device's, so estimates run on the clock report ages use. */
  clockOffsetMs?:number;
  /** Whether movement may be estimated at all, and if not, why. */
@@ -102,6 +105,9 @@ type Props = {
 };
 
 const EMPTY={type:'FeatureCollection' as const,features:[]};
+export type JourneyOverlay={key:string;focus:'whole'|'first'|'second';
+ legs:{n:1|2;line:string;path:[number,number][];onRoad:boolean;board:{id:string;lat:number;lon:number;label:string};alight:{id:string;lat:number;lon:number;label:string}}[];
+ transfer:{from:{lat:number;lon:number};to:{lat:number;lon:number};path:[number,number][]|null}|null};
 /** The ride-along's framing: close enough that the 12 m bus reads as a bus (about 135 px long,
  *  seen flat, at Manchester's latitude). Set when the ride starts and by "Return to bus"; the
  *  passenger's own zoom and tilt are kept through ordinary updates. */
@@ -278,6 +284,20 @@ function ring({stroke,outline,radius}:{stroke:string;outline:string;radius:numbe
  return g.getImageData(0,0,size*ratio,size*ratio);
 }
 
+/** A numbered disc: a leg's number where its bus is boarded, and where it is left. */
+function numbered({fill,outline,radius,text,ink='#ffffff'}:{fill:string;outline:string;radius:number;text:string;ink?:string}):ImageData{
+ const ratio=2,size=Math.ceil(radius*2+10);
+ const canvas=document.createElement('canvas');
+ canvas.width=size*ratio;canvas.height=size*ratio;
+ const g=canvas.getContext('2d')!;
+ g.scale(ratio,ratio);g.translate(size/2,size/2);
+ g.beginPath();g.arc(0,0,radius,0,2*Math.PI);g.lineWidth=4;g.strokeStyle=outline;g.stroke();
+ g.fillStyle=fill;g.fill();
+ g.fillStyle=ink;g.font=`800 ${Math.round(radius*1.3)}px Inter, "Noto Sans", Arial, sans-serif`;
+ g.textAlign='center';g.textBaseline='middle';g.fillText(text,0,1);
+ return g.getImageData(0,0,size*ratio,size*ratio);
+}
+
 function markerImages(theme:MapTheme){
  const o=OVERLAY[theme];
  // By day the chosen bus is rimmed in ink, not a pale rim that vanished against cream roads and
@@ -291,6 +311,11 @@ function markerImages(theme:MapTheme){
   // A starting point chosen for the journey: the same blue as You, but hollow, so the two are
   // never mistaken for each other when both are drawn.
   'lm-start-dot':marker({fill:o.halo,stroke:'#5aa9e6',outline:'#5aa9e6',radius:7,nose:false}),
+  // A journey with a change: where each bus is boarded (its number in a disc) and left (smaller).
+  'lm-leg-1':numbered({fill:LEG_COLOURS[1],outline:o.halo,radius:11,text:'1'}),
+  'lm-leg-2':numbered({fill:LEG_COLOURS[2],outline:o.halo,radius:11,text:'2'}),
+  'lm-off-1':numbered({fill:o.halo,outline:LEG_COLOURS[1],radius:8,text:'1',ink:LEG_COLOURS[1]}),
+  'lm-off-2':numbered({fill:o.halo,outline:LEG_COLOURS[2],radius:8,text:'2',ink:LEG_COLOURS[2]}),
   // Every boarding point: a sign on a post, ink on paper by day and paper on ink by night.
   'lm-stop-sign':stopSign(theme==='day'?{plate:'#fbf6ea',ink:'#1e2b33',post:'#1e2b33'}:{plate:'#e6eff3',ink:'#0b1720',post:'#e6eff3'}),
   // A chosen bus with no current report: hollow, so it cannot pass for one being tracked.
@@ -592,7 +617,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
                                  stops=NO_STOP_CATALOGUE,onSelectStop,onWantMap,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
-                                 rideOverlay,busLabel='Your bus',walk=null,
+                                 rideOverlay,busLabel='Your bus',walk=null,journey=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
@@ -641,6 +666,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const userMoved=useRef(false);
  // The last report the camera was brought to, or that a fit framed: `${key}|${observedAtMs}`.
  const broughtTo=useRef('');
+ // The journey with a change being shown, if any: while one is, a report's arrival never moves the frame.
+ const journeyShown=useRef(journey);journeyShown.current=journey;
  // The theme the map is created in; later changes are applied in place, never by rebuilding.
  const themeRef=useRef(theme);
  const modelRequested=useRef(false);
@@ -1204,6 +1231,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   // camera is still up, and the hand-over's fit is about to frame this bus anyway. Chasing it
   // here started an ease the hand-over then stopped: one camera call too many on the way out.
   if(wasRiding.current)return;
+  // A journey with a change is framed as the passenger asked; a report arriving does not move it.
+  if(journeyShown.current)return;
   const {lat,lon}=selected;
   const chase=()=>{
    // A newer report, the ride, or the passenger's own hand on the map has taken over since.
@@ -1340,6 +1369,34 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   if(apart(last,walk.to)>6)features.push(lineFeature([last,[walk.to.lon,walk.to.lat]],'connector'));
   source?.setData({type:'FeatureCollection',features});
  },[ready,walk]);
+
+ // --- a journey with a change ------------------------------------------------------------
+ useEffect(()=>{
+  if(!ready||!map.current)return;
+  const source=map.current.getSource(JOURNEY_SOURCE) as GeoJSONSource|undefined;
+  const el=root.current;
+  if(!journey){source?.setData(EMPTY);el?.removeAttribute('data-journey');el?.removeAttribute('data-journey-focus');return}
+  const features:{type:'Feature';geometry:{type:'LineString';coordinates:[number,number][]}|{type:'Point';coordinates:[number,number]};properties:Record<string,unknown>}[]=[];
+  // The page's own stop is named by its orange marker already: the journey's disc there keeps its
+  // number and gives up its name, so one stop is never named twice.
+  const own=stopIdRef.current;
+  for(const leg of journey.legs){
+   if(leg.path.length>=2)features.push({type:'Feature',geometry:{type:'LineString',coordinates:leg.path},properties:{kind:'leg',n:leg.n,onRoad:leg.onRoad,line:leg.line}});
+   features.push({type:'Feature',geometry:{type:'Point',coordinates:[leg.board.lon,leg.board.lat]},
+    properties:{kind:'mark',n:leg.n,icon:`lm-leg-${leg.n}`,label:leg.board.id===own?`${leg.n}`:`${leg.n} · ${leg.board.label}`,sort:leg.n}});
+   features.push({type:'Feature',geometry:{type:'Point',coordinates:[leg.alight.lon,leg.alight.lat]},
+    properties:{kind:'mark',n:leg.n,icon:`lm-off-${leg.n}`,label:leg.alight.id===own?'Get off':`Get off · ${leg.alight.label}`,sort:leg.n+2}});
+  }
+  if(journey.transfer){
+   const t=journey.transfer;
+   if(t.path&&t.path.length>=2)features.push(lineFeature(t.path,'transfer'));
+   else features.push(lineFeature([[t.from.lon,t.from.lat],[t.to.lon,t.to.lat]],'provisional'));
+  }
+  source?.setData({type:'FeatureCollection',features});
+  el?.setAttribute('data-journey',JSON.stringify({key:journey.key,legs:journey.legs.map(l=>({n:l.n,points:l.path.length,onRoad:l.onRoad})),
+   transfer:journey.transfer?(journey.transfer.path?'route':'provisional'):'none'}));
+  el?.setAttribute('data-journey-focus',journey.focus);
+ },[ready,journey,stop?.id]);
 
  // --- the 3D bus: fetched once, only when a tilted view first needs it ------------------
  useEffect(()=>{
@@ -1829,6 +1886,16 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   // The walking route is part of the journey: it is framed too, and so is a destination being planned.
   if(walk)points.push(...walk.path);
   if(destination)points.push([destination.lon,destination.lat]);
+  // A journey with a change is framed as asked: the whole of it, or one leg with its change. Nothing
+  // else widens or narrows that frame, and it is never made on a report's arrival (the fit is only
+  // ever asked for).
+  if(journey){
+   points.length=0;
+   const legs=journey.focus==='whole'?journey.legs:journey.legs.filter(l=>l.n===(journey.focus==='first'?1:2));
+   for(const leg of legs){points.push(...(leg.path.length?leg.path:[[leg.board.lon,leg.board.lat] as [number,number],[leg.alight.lon,leg.alight.lat] as [number,number]]))}
+   if(journey.transfer){const t=journey.transfer;points.push([t.from.lon,t.from.lat],[t.to.lon,t.to.lat]);if(t.path)points.push(...t.path)}
+   whole=true;
+  }
   // With nothing chosen yet, frame the buses nearest the middle of the map, not the whole
   // city: one distant bus must not shrink everything else to specks.
   if(!points.length&&buses.length){
@@ -1878,7 +1945,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     m.easeTo({center:fitted.center,zoom:fitted.zoom,...camera,duration:reduce?0:500});
    else m.fitBounds(bounds,{padding,maxZoom:16.2,...camera,duration:reduce?0:500});
   });
- },[here,stop,selected,buses,walk,destination,move]);
+ },[here,stop,selected,buses,walk,destination,journey,move]);
 
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
  // bus, a found location. It never moves on an ordinary refresh.
@@ -2220,6 +2287,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    <div className="map-legend-chips" aria-hidden="true">
     {here&&<span className="legend-you">{originKind==='chosen'?'Starting point':'You'}</span>}
     {walk&&<span className="legend-walk">Walk</span>}
+    {journey&&<span className="legend-leg1">1 · {journey.legs[0]?.line}</span>}
+    {journey&&<span className="legend-leg2">2 · {journey.legs[1]?.line}</span>}
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}
     {/* Every bus in the publication is on the map, each drawn from its own reports (lib/fleet.ts). */}

@@ -7,8 +7,16 @@ import CityMap,{RIDE_WORDS,type Here,type MapView,type RideState,type SelectionK
 import Nearby from '@/components/nearby';
 import StopSearch from '@/components/stop-search';
 import PlanPanel,{type PlanTo} from '@/components/plan-panel';
+import JourneyCard,{type JourneyStage,type TransferState} from '@/components/journey-card';
 import {readPlanLink,withPlan} from '@/lib/plan-link';
 import type {DirectOption} from '@/lib/plan';
+import {busOnJourney,busesOnLeg,connectionFromKey,connectionOptions,connectionSentence,scheduleQuality,timeConnection,transferWalk,
+ CONNECTION_RULES,stopName as journeyStopName,type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
+import {loadDepartureRules,loadStopDepartures,type StopDepartures} from '@/lib/departures';
+import type {OperatingRule} from '@/lib/service-days';
+import {fetchWalkingRoute,type WalkingProblem,type WalkingRoute} from '@/lib/walking';
+import {project,slice} from '@/lib/motion';
+import type {JourneyOverlay} from '@/components/city-map';
 import type {Place} from '@/lib/places';
 import {longestPattern,routeIndex,type RouteHit} from '@/lib/route-search';
 import {serviceKey as serviceKeyOf} from '@/lib/journey';
@@ -270,29 +278,213 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [destination,setDestinationState]=useState<PlanTo|null>(null);
  const [chosenPlan,setChosenPlan]=useState<string|null>(null);
  const DESTINATION_KEY='lost-minutes.destination.v1';
+ // A journey with a change, chosen from the planner (lib/connections.ts): the option itself, how far
+ // along it the passenger has said they are, which part of it the map frames, and the allowance.
+ // Kept for this tab (JOURNEY_PLAN_KEY) so a refresh, a return from walking directions or a look at
+ // another bus brings it back; a link carries its key (`plan=`); New journey and End clear it.
+ const JOURNEY_PLAN_KEY='lost-minutes.journey-plan.v1';
+ const [chosenJourney,setChosenJourney]=useState<ConnectionOption|null>(null);
+ const [stage,setStage]=useState<JourneyStage>('before');
+ const [journeyFocus,setJourneyFocus]=useState<'whole'|'first'|'second'>('whole');
+ const [moreTime,setMoreTime]=useState(false);
+ // A chosen journey's key waiting for the catalogue, from a link or this tab's store.
+ const [pendingPlan,setPendingPlan]=useState<{key:string;stage:JourneyStage;moreTime:boolean}|null>(null);
+ const [legBoards,setLegBoards]=useState<{key:string;first:StopDepartures|null;second:StopDepartures|null;rules:OperatingRule[]|null}|null>(null);
+ const [legTracks,setLegTracks]=useState<{key:string;first:Track|null;second:Track|null}|null>(null);
+ const [transferResult,setTransferResult]=useState<{key:string;value:WalkingRoute|WalkingProblem}|null>(null);
+
  // Restored after mount, off the render path: a link's destination first, else this tab's. A
  // starting point in a link is a fixed place someone chose, and is taken up as one, once.
  useEffect(()=>{
   const linked=readPlanLink(window.location.search);
-  let kept:PlanTo|null=null;
+  let kept:PlanTo|null=null,keptPlan:{key:string;stage:JourneyStage;moreTime:boolean}|null=null;
   try{const raw=sessionStorage.getItem(DESTINATION_KEY);if(raw){const t=JSON.parse(raw);if(t&&Number.isFinite(t.lat)&&Number.isFinite(t.lon)&&t.label)kept=t}}catch{/* nothing kept */}
+  try{const raw=sessionStorage.getItem(JOURNEY_PLAN_KEY);if(raw){const t=JSON.parse(raw);
+   if(t&&typeof t.key==='string'&&['before','first','second'].includes(t.stage))keptPlan={key:t.key,stage:t.stage,moreTime:Boolean(t.moreTime)}}}catch{/* nothing kept */}
   const timer=setTimeout(()=>{
    if(linked.to)setDestinationState(linked.to);else if(kept)setDestinationState(kept);
    if(linked.from&&onChooseOrigin&&!origin)onChooseOrigin({lat:linked.from.lat,lon:linked.from.lon},linked.from.label);
+   // A link's journey wins; this tab's own is restored otherwise. Either waits for the catalogue.
+   if(linked.plan&&linked.plan.startsWith('c:'))setPendingPlan({key:linked.plan,stage:'before',moreTime:false});
+   else if(keptPlan&&(linked.to||kept))setPendingPlan(keptPlan);
   },0);
   return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
  function setDestination(next:PlanTo|null){
-  setDestinationState(next);setChosenPlan(null);
+  setDestinationState(next);setChosenPlan(null);clearJourneyPlan();
   if(!next)setPlanOpen(true);
   try{if(next)sessionStorage.setItem(DESTINATION_KEY,JSON.stringify(next));else sessionStorage.removeItem(DESTINATION_KEY)}catch{}
   const fromPlace=origin?.kind==='chosen'?{lat:origin.lat,lon:origin.lon,label:origin.label}:null;
   const target=`${window.location.pathname}${withPlan(window.location.search,next?fromPlace:null,next)}`;
   if(target!==`${window.location.pathname}${window.location.search}`){window.history.replaceState(window.history.state,'',target);onAddress?.(withPlan(window.location.search,next?fromPlace:null,next))}
  }
- const planLink=typeof window==='undefined'?'':`${window.location.origin}${window.location.pathname}${withPlan(window.location.search,origin?.kind==='chosen'?{lat:origin.lat,lon:origin.lon,label:origin.label}:null,destination)}`;
+ const planLink=typeof window==='undefined'?'':`${window.location.origin}${window.location.pathname}${withPlan(window.location.search,origin?.kind==='chosen'?{lat:origin.lat,lon:origin.lon,label:origin.label}:null,destination,chosenJourney?.key??null)}`;
+ // The start the planner works from: the same origin the walk uses, this device or a fixed place.
+ const planFrom=useMemo(()=>origin?origin.kind==='device'?{kind:'device' as const,lat:origin.lat,lon:origin.lon,accuracyMetres:origin.accuracyMetres}:{kind:'chosen' as const,lat:origin.lat,lon:origin.lon,label:origin.label}:null,[origin]);
+ // Journeys with one change between the places, from the catalogue: found here so that the planner
+ // lists them and the chosen one can be shown, timed and followed.
+ const connections=useMemo(()=>planFrom&&destination?connectionOptions(planFrom,destination,patterns,stops,day):[],[planFrom,destination,patterns,stops,day]);
+ function clearJourneyPlan(){
+  setChosenJourney(null);setStage('before');setJourneyFocus('whole');setMoreTime(false);setPendingPlan(null);
+  try{sessionStorage.removeItem(JOURNEY_PLAN_KEY)}catch{}
+ }
+ function rememberJourneyPlan(key:string,at:JourneyStage,more:boolean){
+  try{sessionStorage.setItem(JOURNEY_PLAN_KEY,JSON.stringify({key,stage:at,moreTime:more}))}catch{}
+ }
+ // The stop the passenger needs next is the page's stop: where the first bus is boarded, then where
+ // it is left (the change), then where the second bus is left. The board, the walk guide and the
+ // buses coming are all about that stop, filtered to that leg's service, so the everyday page and
+ // the journey say the same thing. No bus is chosen here: the page suggests the first coming, as
+ // it does at any stop, and a tap on any bus chooses it as usual.
+ function goToLeg(option:ConnectionOption,at:JourneyStage){
+  const next=at==='before'?option.first.board:at==='first'?option.first.alight:option.second.alight;
+  // The board is filtered to the first bus's service at its boarding point; at a stop the passenger
+  // gets off at, which may be the line's terminus, there is nothing to filter to.
+  onSelectStop(next);setServiceChoice(at==='before'?serviceKeyOf(option.first.pattern):null);setPinChoice(null);setChangeNote(null);
+  setView(v=>v==='ride'?v:'2d');setFollow(false);setBusOpen(false);setPlanOpen(false);setSheet('half');
+  setJourneyFocus(at==='second'?'second':at==='first'?'first':'whole');setFitRequest(n=>n+1);
+ }
+ function chooseConnection(option:ConnectionOption){
+  setChosenJourney(option);setChosenPlan(option.key);setStage('before');setMoreTime(false);
+  rememberJourneyPlan(option.key,'before',false);
+  goToLeg(option,'before');
+  setTimeout(()=>scrollTo('.journey-card'),0);
+ }
+ function moveStage(at:JourneyStage){
+  if(!chosenJourney)return;
+  setStage(at);rememberJourneyPlan(chosenJourney.key,at,moreTime);
+  goToLeg(chosenJourney,at);
+  setTimeout(()=>scrollTo('.journey-card'),0);
+ }
+ function setMoreTimeKept(value:boolean){
+  setMoreTime(value);
+  if(chosenJourney)rememberJourneyPlan(chosenJourney.key,stage,value);
+ }
+ // A chosen journey from a link or this tab, once the catalogue is here: rebuilt from its key and
+ // checked against today, or said to be no longer available.
+ // The day it is checked against is the page's clock's, which reads 1970 until the first tick: a
+ // restore before it refused every journey as not running (28 September 2026).
+ const clockRunning=nowMs>0;
+ useEffect(()=>{
+  if(!pendingPlan||!patterns||!stops.length||!clockRunning)return;
+  // Off the render path, as the destination's restore is.
+  const timer=setTimeout(()=>{
+   const option=connectionFromKey(pendingPlan.key,patternsById,stopById,day);
+   setPendingPlan(null);
+   if(!option){setChangeNote('The journey with a change you had chosen is not in today’s timetable any more, so it was let go.');clearJourneyPlan();return}
+   setChosenJourney(option);setChosenPlan(option.key);setStage(pendingPlan.stage);setMoreTime(pendingPlan.moreTime);
+   rememberJourneyPlan(option.key,pendingPlan.stage,pendingPlan.moreTime);
+   // The tab's own stop is restored by the page; a link's is not, so the leg's stop is opened.
+   if(!stop)goToLeg(option,pendingPlan.stage);
+   else setJourneyFocus(pendingPlan.stage==='second'?'second':pendingPlan.stage==='first'?'first':'whole');
+  },0);
+  return()=>clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[pendingPlan,patterns,stops.length,clockRunning]);
+ // Both boarding points' timetable boards and the shared rules, once per chosen journey.
+ const journeyKey=chosenJourney?.key??null;
+ useEffect(()=>{
+  if(!chosenJourney)return;
+  let current=true;
+  const key=chosenJourney.key;
+  Promise.all([loadStopDepartures(chosenJourney.first.board.id),loadStopDepartures(chosenJourney.second.board.id),loadDepartureRules()])
+   .then(([first,second,rules])=>{if(current)setLegBoards({key,first,second,rules})});
+  Promise.all([loadTrack(chosenJourney.first.pattern.id),loadTrack(chosenJourney.second.pattern.id)])
+   .then(([first,second])=>{if(current)setLegTracks({key,first:first.track,second:second.track})});
+  return()=>{current=false};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[journeyKey]);
+ // The walk between the two boarding points, checked once by the pedestrian router: two public
+ // stop positions, nothing about the passenger. Provisional (a straight line) until it answers.
+ const transferOff=walking.provider==='none'||!walking.baseUrl;
+ useEffect(()=>{
+  if(!chosenJourney||chosenJourney.transfer.sameStop||transferOff)return;
+  const key=chosenJourney.key,t=chosenJourney.transfer;
+  let current=true;
+  const controller=new AbortController();
+  fetchWalkingRoute(walking,{lat:t.from.lat,lon:t.from.lon},{id:t.to.id,lat:t.to.lat,lon:t.to.lon},{signal:controller.signal}).then(value=>{
+   if(current)setTransferResult({key,value});
+  });
+  return()=>{current=false;controller.abort()};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[journeyKey,walking,transferOff]);
+ // The walk as it stands: the same stop; the router off; checking; or its answer for this journey.
+ const transfer=useMemo<{key:string;state:TransferState}|null>(()=>{
+  if(!chosenJourney)return null;
+  const key=chosenJourney.key;
+  if(chosenJourney.transfer.sameStop)return {key,state:{status:'same'}};
+  if(transferOff)return {key,state:{status:'off'}};
+  const result=transferResult&&transferResult.key===key?transferResult.value:null;
+  if(!result)return {key,state:{status:'checking'}};
+  return {key,state:result.kind==='route'?{status:'route',route:result}:{status:'problem',problem:result}};
+ },[chosenJourney,transferOff,transferResult]);
+ const wallOf=(ms:number)=>new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit',hour12:false}).format(ms);
+ // The timetable's quality for each leg, and the connections by the timetable: recomputed on the
+ // page's clock (quantised, as the board is), when the boards arrive, and when the walk is checked.
+ const journeyQuality=useMemo(()=>chosenJourney?{first:scheduleQuality(chosenJourney.first.pattern.id,scheduleAnchor),
+  second:scheduleQuality(chosenJourney.second.pattern.id,scheduleAnchor)}:null,[chosenJourney,scheduleAnchor]);
+ const timingTick=Math.floor(nowMs/15_000);
+ const journeyTiming=useMemo<ConnectionTiming|{kind:'loading'}|null>(()=>{
+  if(!chosenJourney||!journeyQuality)return null;
+  if(!legBoards||legBoards.key!==chosenJourney.key||!transfer||transfer.key!==chosenJourney.key||transfer.state.status==='checking')return {kind:'loading'};
+  const route=transfer.state.status==='route'?transfer.state.route:null;
+  return timeConnection(chosenJourney,{boards:{first:legBoards.first,second:legBoards.second},rules:legBoards.rules,nowMs:timingTick*15_000,
+   walk:transferWalk(chosenJourney.transfer,route),allowanceSeconds:CONNECTION_RULES.allowanceSeconds+(moreTime?CONNECTION_RULES.moreTimeSeconds:0),
+   quality:journeyQuality});
+ },[chosenJourney,journeyQuality,legBoards,transfer,timingTick,moreTime]);
+ // What checking the walk changed: the second bus the straight line allowed against the one the
+ // checked route allows, for the next first bus. Said in the card while it is so, so a tighter change
+ // is never a surprise.
+ const walkNote=useMemo(()=>{
+  if(!chosenJourney||!journeyQuality||!legBoards||legBoards.key!==chosenJourney.key||!transfer||transfer.state.status!=='route')return null;
+  const route=transfer.state.route;
+  const time=(walk:{metres:number;seconds:number}|null)=>timeConnection(chosenJourney,{boards:{first:legBoards.first,second:legBoards.second},rules:legBoards.rules,
+   nowMs:timingTick*15_000,walk:transferWalk(chosenJourney.transfer,walk),allowanceSeconds:CONNECTION_RULES.allowanceSeconds+(moreTime?CONNECTION_RULES.moreTimeSeconds:0),quality:journeyQuality});
+  const before=time(null),after=time({metres:route.metres,seconds:route.seconds});
+  const was=before.kind==='timed'?before.rows[0]?.second:null,now=after.kind==='timed'?after.rows[0]?.second:null;
+  if(!was||(now&&now.departMs===was.departMs))return null;
+  const mins=Math.max(1,Math.round(route.seconds/60));
+  return now
+   ?`The walk between the stops is ${mins} min by a checked route, so the ${wallOf(was.departMs)} ${chosenJourney.second.line} cannot be reached by the timetable; the next is the ${wallOf(now.departMs)}.`
+   :`The walk between the stops is ${mins} min by a checked route, and no ${chosenJourney.second.line} is timetabled within 90 minutes of arriving after it.`;
+ },[chosenJourney,journeyQuality,legBoards,transfer,timingTick,moreTime]);
+ // What the map draws for the journey: each leg on its checked road between its two stops where one is
+ // accepted, else stop to stop; the walk between the stops as routed, else the straight line it is.
+ const journeyOverlay=useMemo<JourneyOverlay|null>(()=>{
+  if(!chosenJourney)return null;
+  const tracks=legTracks&&legTracks.key===chosenJourney.key?legTracks:null;
+  const leg=(n:1|2,l:ConnectionOption['first'],track:Track|null|undefined)=>{
+   // The two stops measured onto the road themselves (a shape's own stop offsets skip the stops it
+   // could not place, so they cannot be read by the pattern's index): on it within 40 m, in order.
+   const on=track?[project(track,l.board),project(track,l.alight)]:null;
+   const onRoad=Boolean(on&&on[0].offset<=40&&on[1].offset<=40&&on[1].s>on[0].s);
+   const path:[number,number][]=onRoad?slice(track!,on![0].s,on![1].s).map(p=>[p[0],p[1]] as [number,number])
+    :l.pattern.stops.slice(l.boardIndex,l.alightIndex+1).map(id=>stopById.get(id)).filter((x):x is Stop=>Boolean(x)).map(x=>[x.lon,x.lat] as [number,number]);
+   return {n,line:l.line,path,onRoad,board:{id:l.board.id,lat:l.board.lat,lon:l.board.lon,label:journeyStopName(l.board)},alight:{id:l.alight.id,lat:l.alight.lat,lon:l.alight.lon,label:journeyStopName(l.alight)}};
+  };
+  const t=chosenJourney.transfer;
+  const route=transfer&&transfer.key===chosenJourney.key&&transfer.state.status==='route'?transfer.state.route:null;
+  return {key:chosenJourney.key,focus:journeyFocus,legs:[leg(1,chosenJourney.first,tracks?.first),leg(2,chosenJourney.second,tracks?.second)],
+   transfer:t.sameStop?null:{from:{lat:t.from.lat,lon:t.from.lon},to:{lat:t.to.lat,lon:t.to.lon},path:route?route.path:null}};
+ },[chosenJourney,legTracks,transfer,journeyFocus,stopById]);
+ // The buses on either leg, drawn a size stronger with the stop's own; and the one the current leg
+ // could be ridden along with: the bus tied to the next timetabled journey, else the nearest coming.
+ const legBuses=useMemo(()=>chosenJourney?{first:busesOnLeg(chosenJourney.first,buses),second:busesOnLeg(chosenJourney.second,buses)}:null,[chosenJourney,buses]);
+ const nextRow=journeyTiming&&journeyTiming.kind==='timed'?journeyTiming.rows[0]??null:null;
+ const boundFirst=nextRow?busOnJourney(nextRow.first.departure,buses):null;
+ const boundSecond=nextRow?.second?busOnJourney(nextRow.second.departure,buses):null;
+ const rideable=chosenJourney&&legBuses?(stage==='second'?boundSecond??legBuses.second[0]?.bus??null:boundFirst??legBuses.first[0]?.bus??null):null;
+ // Which leg the bus shown on the map belongs to: its matched pattern's, else the stage's.
+ const shownLeg=(bus:FollowBus|undefined):1|2=>{
+  const id=bus?.match&&'patternId' in bus.match?bus.match.patternId:null;
+  if(chosenJourney&&id&&[chosenJourney.second.pattern,...chosenJourney.second.also.map(l=>l.pattern)].some(p=>p.id===id))return 2;
+  if(chosenJourney&&id&&chosenJourney.first.pattern.id===id)return 1;
+  return stage==='second'?2:1;
+ };
+ const otherLegBusOf=(leg:1|2)=>chosenJourney&&legBuses?(leg===1?boundSecond??legBuses.second[0]?.bus??null:boundFirst??legBuses.first[0]?.bus??null):null;
  function choosePlan(option:DirectOption){
+  clearJourneyPlan();
   setChosenPlan(`${option.pattern.id}|${option.board.id}|${option.alight.id}`);
   setPlanOpen(false);
   selectStop(option.board);
@@ -330,8 +522,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  },[stop,board,onRoute,buses]);
  // The buses the map draws a size stronger than the rest of the fleet: those coming to the stop, or
  // that may be, or last reported beside it; with no stop, the route being browsed.
- const mapEmphasis=useMemo(()=>stop&&board?[...board.coming,...board.maybe,...board.nearby].map(row=>row.bus.key)
-  :onRoute.map(b=>b.key),[stop,board,onRoute]);
+ const mapEmphasis=useMemo(()=>{
+  const own=stop&&board?[...board.coming,...board.maybe,...board.nearby].map(row=>row.bus.key):onRoute.map(b=>b.key);
+  return legBuses?[...new Set([...own,...legBuses.first.map(x=>x.bus.key),...legBuses.second.map(x=>x.bus.key)])]:own;
+ },[stop,board,onRoute,legBuses]);
  // A journey restored from this device or a link is a pin like any other: the same vehicle on the
  // same journey is followed again; otherwise the page says what became of it and chooses nothing
  // in its place. A recording restores nothing.
@@ -538,7 +732,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // New journey: nothing chosen, nothing filtered, nothing followed; the page clears the rest.
  function newJourney(){
   setPinChoice(null);setServiceChoice(null);setChoice(null);setFollow(false);setView('2d');setChangeNote(null);
-  setDestinationState(null);setChosenPlan(null);try{sessionStorage.removeItem(DESTINATION_KEY)}catch{}
+  setDestinationState(null);setChosenPlan(null);clearJourneyPlan();try{sessionStorage.removeItem(DESTINATION_KEY)}catch{}
   setBusOpen(false);setPlanOpen(false);setSheet('half');
   onNewJourney?.();
  }
@@ -576,6 +770,16 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   }catch(error){setShareState(error instanceof DOMException&&error.name==='AbortError'?'idle':'failed')}
  }
 
+ // A journey with a change, shared: the instructions and a link that carries the journey and the
+ // destination, and the start only where it is a fixed place, never this device's position.
+ async function shareJourney(){
+  if(!chosenJourney)return;
+  const text=`${connectionSentence(chosenJourney)}\nTimes are the operators’ timetables, not predictions; the link shows them afresh. ${planLink}`;
+  try{
+   if(navigator.share){await navigator.share({title:`Lost Minutes · ${chosenJourney.first.line} then ${chosenJourney.second.line}`,text,url:planLink});setShareState('idle');return}
+   await navigator.clipboard.writeText(text);setShareState('copied');
+  }catch(error){setShareState(error instanceof DOMException&&error.name==='AbortError'?'idle':'failed')}
+ }
  const ageText=(bus:FollowBus)=>mode==='archive'?`reported ${clock(bus.observedAtMs,true)}`:bus.ageWords;
  const ageChip=(bus:FollowBus)=>mode==='archive'?clock(bus.observedAtMs,true):bus.ageWords.replace('reported ','');
  const assoc=shown&&cardRelation?association(cardRelation,shown):null;
@@ -761,6 +965,23 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   {activityAdds&&activityLine&&<p className="ride-status-line">{activityLine.text}</p>}
   {stop&&cardRelation&&prog&&relevant&&<p className={`ride-progress tone-${prog.tone}`}>{prog.text}</p>}
   {stop&&cardRelation&&relevant&&<StopProgress items={schematic(cardRelation,name,stop.id,5)} compact/>}
+  {/* A journey with a change: the other leg stays in view while riding, and one control moves the
+      focus to it. Neither journey is lost by the switch; the plan is what it was. */}
+  {chosenJourney&&(()=>{const ridden=shownLeg(shown),other=otherLegBusOf(ridden);
+   return <div className="ride-next-leg" data-ride-leg={ridden===2?'second':'first'}>
+   <strong>{ridden===2?`Then: get off at ${journeyStopName(chosenJourney.second.alight)}`
+    :stage==='first'?`Next: get off at ${journeyStopName(chosenJourney.first.alight)}, ${chosenJourney.transfer.sameStop?'change there':`walk to ${journeyStopName(chosenJourney.transfer.to)}`}, take the ${chosenJourney.second.line} towards ${chosenJourney.second.headsign}`
+    :`Next bus: the ${chosenJourney.second.line} towards ${chosenJourney.second.headsign} from ${journeyStopName(chosenJourney.transfer.to)}`}</strong>
+   <span>{ridden===2
+    ?(boundFirst?`First bus: ${chosenJourney.first.line}, reported ${boundFirst.ageWords.replace('reported ','')}`:legBuses?.first[0]?`First bus: a ${chosenJourney.first.line} is tracked, journey not identified`:`First bus: the ${chosenJourney.first.line}, no tracked bus reporting`)
+    :nextRow?.second?`${chosenJourney.second.line} at ${wallOf(nextRow.second.departMs)} by the timetable · ${boundSecond?`tracked, ${boundSecond.ageWords}`:legBuses?.second[0]?`a ${legBuses.second[0].bus.route} is tracked, journey not identified`:'no tracked bus reporting yet'}`
+    :'times by the timetable are on the journey card'}</span>
+   {/* The focus moves to the other leg's bus; the stage, which is where the passenger said they are, does not. */}
+   {other&&<button className="text-action" data-switch-leg onClick={()=>{setJourneyFocus(ridden===2?'first':'second');pinBus(other,'ride');setView('ride')}}>
+    <Crosshair size={13} aria-hidden="true"/> {ridden===2?'Focus on the first bus':'Focus on the next bus'}</button>}
+   {!other&&ridden===1&&<button className="text-action" data-switch-leg onClick={()=>{setView('2d');setJourneyFocus('second');setFitRequest(n=>n+1)}}>
+    Show the next bus’s stop on the map</button>}
+  </div>})()}
   {/* The way from the ride to everything the card holds. It leaves the ride first, because on a
       phone the ride is the whole screen and the card is not on it. */}
   <button className="text-action ride-details" onClick={()=>{setView('2d');setTimeout(showCard,0)}}>Details</button>
@@ -820,6 +1041,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const showStopBlock=panelMode!=='plan';
  // The sheet's one line when it is folded down: what the panel is about, and the next thing to do.
  const handleWords=panelMode==='plan'?'Plan a journey'
+  :chosenJourney&&panelMode!=='bus'?`Your journey · ${chosenJourney.first.line} then ${chosenJourney.second.line}${stripStatus?` · ${stripStatus}`:''}`
   :panelMode==='bus'&&identity?`${identity.route||'Bus'} to ${destinationLabel(identity.destination)}${stripStatus?` · ${stripStatus}`:''}`
   :stop?`${stopLabel}${identity?` · ${identity.route} to ${destinationLabel(identity.destination)}`:board?.coming.length?` · ${board.coming.length} coming`:''}`
   :'Find your stop';
@@ -863,7 +1085,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   :copy.label==='ARCHIVE REPLAY'?'Recorded positions':`Positions ${copy.label.toLowerCase()}`)
   +(publicationAgeSeconds!==null&&!loading?` · ${elapsedWords(publicationAgeSeconds)} ago`:'');
  return <section ref={followRef} className={`follow panel-${panelMode} sheet-${sheet}${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}
-   data-panel={panelMode} data-sheet={sheet}>
+   data-panel={panelMode} data-sheet={sheet} data-journey-plan={chosenJourney?`${chosenJourney.key}|${stage}`:pendingPlan?`pending:${pendingPlan.key}`:''}>
   {/* The way in, always in reach: the feed's state, one search, and the entry to planning. */}
   <div className="follow-top">
   <div className={`follow-bar ${copy.tone}`} role="status">
@@ -918,6 +1140,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
       onPickOrigin={onChooseOrigin?point=>onChooseOrigin(point,'a point on the map'):undefined}
       busLabel={absent?'Your bus · no report':busNoun}
       walk={walkRoute&&here&&stop?{path:walkRoute.path,from:here,to:{lat:stop.lat,lon:stop.lon}}:null}
+      journey={journeyOverlay}
       clockOffsetMs={clockOffsetMs} motion={motion} onMotion={reportMotion} onRideState={setRideState}
       stopsAhead={stopsAhead} onSimpleMap={chooseSimpleMap}/>}
 
@@ -946,6 +1169,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      <RotateCcw size={14} aria-hidden="true"/> New journey</button>}
    </div>}
    <div className="panel-body" ref={panelBody}>
+  {/* A journey with a change leads: the next thing to do, then the rest in order, then the stop's
+      own board and buses below it, which are about the same stop. */}
+  {chosenJourney&&journeyQuality&&panelMode!=='plan'&&<JourneyCard option={chosenJourney} timing={journeyTiming??{kind:'loading'}} quality={journeyQuality}
+    stage={stage} transfer={transfer&&transfer.key===chosenJourney.key?transfer.state:{status:'checking'}} buses={buses} nowMs={nowMs} moreTime={moreTime}
+    onStage={moveStage} onFocus={f=>{setJourneyFocus(f);setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'})}}
+    onMoreTime={setMoreTimeKept} onEnd={newJourney} onOtherOptions={()=>{setPlanOpen(true);sheetTo('full')}}
+    rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}/>}
+  {chosenJourney&&walkNote&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
   {/* Where am I, where is my stop, and how do I walk there? The stop's name has the whole width;
       its actions sit on their own row beneath it. */}
   {showStopBlock&&(stop
@@ -1299,12 +1530,13 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
 
   {/* Planning: a start (this device or a fixed place, which is the same origin the walk uses), a
       destination, and the direct buses the timetable supports between them. */}
-  {stops.length>0&&mode!=='archive'&&(panelMode==='plan'||((inStop||panelMode==='home')&&(chosenPlan||destination)))
+  {stops.length>0&&mode!=='archive'&&(panelMode==='plan'||(!chosenJourney&&(inStop||panelMode==='home')&&(chosenPlan||destination)))
    &&<PlanPanel stops={stops} patterns={patterns} day={day} buses={buses}
-    from={origin?origin.kind==='device'?{kind:'device',lat:origin.lat,lon:origin.lon,accuracyMetres:origin.accuracyMetres}:{kind:'chosen',lat:origin.lat,lon:origin.lon,label:origin.label}:null}
+    from={planFrom}
     to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
     onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
-    link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}/>}
+    link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}
+    connections={connections} onChooseConnection={chooseConnection}/>}
   {panelMode==='home'&&(buses.length>0||choice)&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">{choice?`Route ${routeNumber(route)}`:'Or follow a route'}<small>{choice?'directions, stops and buses':'without choosing a stop'}</small>
     {choice&&<button className="text-action filter-clear" onClick={()=>{setChoice(null);setDirKey(null)}} data-clear-route>Clear route</button>}</h3>

@@ -42,6 +42,8 @@ await page.waitForTimeout(800);
 await shot('1-options');
 const options = await page.locator('.plan-option').allInnerTexts();
 note('options', {direct: await page.locator('.plan-option:not(.connection)').count(), connections: await page.locator('.plan-option.connection').count(),
+  folded: await page.locator('[data-plan-connections]').count(),
+  next: (await page.locator('[data-plan-next]').allInnerTexts()).map(t => t.replace(/\s+/g, ' ')),
   first: options[0]?.replace(/\s+/g, ' ').slice(0, 300)});
 if (!(await page.locator('[data-choose-connection]').count())) { note('no connection offered'); await browser.close(); process.exit(0); }
 await page.locator('[data-choose-connection]').first().click();
@@ -81,11 +83,15 @@ await page.waitForTimeout(600);
 // The stages.
 await page.locator('.journey-card [data-stage-to="first"]').click();
 await page.waitForTimeout(2500);
-note('stage first', {stop: await text('.your-stop-copy strong'), stage: await page.locator('.journey-card').getAttribute('data-stage')});
+note('stage first', {stop: await text('.your-stop-copy strong'), stage: await page.locator('.journey-card').getAttribute('data-stage'),
+  times: await page.locator('.journey-card .journey-times').getAttribute('data-times').catch(() => null),
+  onward: (await page.locator('.journey-card [data-onward-row]').allInnerTexts()).map(t => t.replace(/\s+/g, ' ')),
+  walkNote: await page.locator('[data-walk-note]').count()});
 await shot('4-stage-first');
 await page.locator('.journey-card [data-stage-to="second"]').click();
 await page.waitForTimeout(2500);
-note('stage second', {stop: await text('.your-stop-copy strong'), stage: await page.locator('.journey-card').getAttribute('data-stage')});
+note('stage second', {stop: await text('.your-stop-copy strong'), stage: await page.locator('.journey-card').getAttribute('data-stage'),
+  times: await page.locator('.journey-card .journey-times').count()});
 await shot('5-stage-second');
 await page.locator('.journey-card [data-stage-to="first"]').click();
 await page.waitForTimeout(1000);

@@ -274,6 +274,13 @@ test('a walk the router finds long breaks the connection by the timetable: said,
   await expect(page.locator('[data-walk-note]')).toContainText(`The walk between the stops is 12 min by a checked route, so the ${wall(now + 17 * 60_000)} 53 cannot be reached by the timetable; the next is the ${wall(now + 30 * 60_000)}.`);
   await expect(card(page).locator('.journey-row').first()).toContainText(`${wall(now + 30 * 60_000)}`);
   await expect(card(page).locator('.journey-row').first()).toContainText('23 min to change');
+  // The note is about choosing the connection: on the first bus the card's times are the 53s from the
+  // change, and the note beside them would answer another question.
+  await card(page).locator('[data-stage-to="first"]').click();
+  await expect(card(page)).toHaveAttribute('data-stage', 'first');
+  await expect(page.locator('[data-walk-note]')).toHaveCount(0);
+  await card(page).locator('[data-stage-to="before"]').click();
+  await expect(page.locator('[data-walk-note]')).toBeVisible();
   // Another option is one control away.
   await card(page).locator('[data-other-options]').click();
   await expect(panel(page).locator('.plan-option.connection')).toHaveCount(1);

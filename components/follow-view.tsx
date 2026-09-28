@@ -1035,7 +1035,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      const time=trackedTime(first,n);
      return `a ${first.route} is tracked${time?`, the ${time} by the timetable`:', journey not identified'}`;};
     if(ridden===2)return `First bus: ${other(1)}`;
-    if(stage==='first'&&onwardTiming?.kind==='timed')return `${onwardTiming.rows.map(r=>`${r.departure.line} ${wallOf(r.departMs)}`).join(', ')} by the timetable · ${other(2)}`;
+    if(stage==='first'&&onwardTiming?.kind==='timed'){
+     const lines=[...new Set(onwardTiming.rows.map(r=>r.departure.line))];
+     const times=lines.length===1?`${lines[0]} at ${onwardTiming.rows.map(r=>wallOf(r.departMs)).join(', ')}`
+      :onwardTiming.rows.map(r=>`${r.departure.line} at ${wallOf(r.departMs)}`).join(', ');
+     return `${times} by the timetable · ${other(2)}`;
+    }
     return nextRow?.second?`${nextRow.second.departure.line} at ${wallOf(nextRow.second.departMs)} by the timetable · ${other(2)}`:'times by the timetable are on the journey card';
    })()}</span>
    {/* The focus moves to the other leg's bus; the stage, which is where the passenger said they are, does not. */}
@@ -1240,7 +1245,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}
     roads={journeyOverlay?{first:journeyOverlay.legs[0].onRoad,second:journeyOverlay.legs[1].onRoad}:undefined}
     onward={onwardTiming} trackedTime={trackedTime}/>}
-  {chosenJourney&&walkNote&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
+  {/* What the checked walk changed is about choosing the connection: said before the first bus, not
+      beside the onward times once on it, which answer another question. */}
+  {chosenJourney&&walkNote&&stage==='before'&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
   {/* Where am I, where is my stop, and how do I walk there? The stop's name has the whole width;
       its actions sit on their own row beneath it. */}
   {showStopBlock&&(stop

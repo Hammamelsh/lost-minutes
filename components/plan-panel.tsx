@@ -113,7 +113,7 @@ export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChoose
        <li>Get off at <strong>{stopName(o.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line; about {minutes(egress.seconds)}, estimated)</em></li>
       </ol>
       <p className="plan-tracked">{o.tracked.length
-       ? <>Tracked: the nearest bus between these stops is <strong>{o.tracked[0].stopsAway} stop{o.tracked[0].stopsAway===1?'':'s'}</strong> before your boarding stop, reported {o.tracked[0].ageSeconds??'?'} s ago{o.tracked.length>1?`; ${o.tracked.length-1} more behind it`:''}. No arrival minutes: it is placed by its last report.</>
+       ? <>Tracked: the nearest bus between these stops is <strong>{o.tracked[0].stopsAway} stop{o.tracked[0].stopsAway===1?'':'s'}</strong> before your boarding stop, {o.tracked[0].bus.ageWords}{o.tracked.length>1?`; ${o.tracked.length-1} more behind it`:''}. No arrival minutes: it is placed by its last report.</>
        : <>No tracked bus is before your boarding stop right now. That is not “no bus”: check the stop’s live board after choosing.</>}</p>
       {o.caution&&<p className="plan-caution">Careful: {o.caution}.</p>}
       <button className="action" onClick={()=>onChoose(o)} data-choose-plan>{key(o)===chosenKey?'Chosen · open the boarding stop':'Choose this bus'}</button>

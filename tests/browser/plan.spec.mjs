@@ -61,8 +61,10 @@ test('a fixed start and a destination give the direct bus with its legs; choosin
   await expect(option.locator('.plan-legs li').nth(0)).toContainText(/Walk about \d+0 m \(straight line; about \d+ min on foot, estimated\) to Stretford Mall \(Stop A\)/);
   await expect(option.locator('.plan-legs li').nth(2)).toContainText('Get off at Sydney Street');
   await expect(option).toContainText('Tracked: the nearest bus between these stops is');
-  // A tracked bus is still placed by its report, never given minutes to arrive.
+  // A tracked bus is still placed by its report, never given minutes to arrive, and its age is worded
+  // as everywhere else on the page (a real report's age has a fraction: "52.442 s" was served).
   await expect(option).toContainText('No arrival minutes: it is placed by its last report');
+  await expect(option.locator('.plan-tracked')).toContainText(/before your boarding stop, reported \d+s ago/);
   // The next bus is the timetable's, said to be, and one the passenger can walk to the stop for:
   // worked out here from the walk the option states (straight line × 1.3 at 80 m a minute).
   const walked = Number(/Walk about (\d+) m/.exec(await option.locator('.plan-legs li').nth(0).innerText())[1]);

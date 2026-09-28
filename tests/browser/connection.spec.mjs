@@ -151,10 +151,15 @@ test('the stages move the page’s stop along the journey, survive a reload and 
   await card(page).locator('[data-stage-to="first"]').click();
   await expect(card(page)).toHaveAttribute('data-stage', 'first');
   await expect(yourStop(page)).toContainText('Thomas Street (nr)');
-  await expect(card(page).locator('.journey-step').nth(1)).toHaveClass(/tone-now/);
-  await expect(card(page).locator('.journey-step').nth(0)).toHaveClass(/tone-done/);
+  // On the first bus: getting off is the next action, the change is what follows; nothing is struck through yet.
+  await expect(card(page).locator('.journey-step').nth(0)).toHaveClass(/tone-riding/);
+  await expect(card(page).locator('.journey-step').nth(0)).toContainText('On the 256 towards Piccadilly Gardens');
+  await expect(card(page).locator('.journey-step').nth(0).locator('.journey-next')).toContainText('get off at Thomas Street (nr)');
+  await expect(card(page).locator('.journey-step').nth(1)).toHaveClass(/tone-soon/);
   await card(page).locator('[data-stage-to="second"]').click();
   await expect(card(page)).toHaveAttribute('data-stage', 'second');
+  await expect(card(page).locator('.journey-step').nth(0)).toHaveClass(/tone-done/);
+  await expect(card(page).locator('.journey-step').nth(2)).toHaveClass(/tone-riding/);
   await expect(yourStop(page)).toContainText('Trafford Bar (Stop A)');
   // The 53 ends there, so nobody boards it there and no service chip filters to it: the stop is the one to get off at.
   await expect(page.locator('.service-chip.on')).toHaveCount(0);

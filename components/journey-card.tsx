@@ -58,7 +58,10 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
   ?`Times are the operators’ timetables${timing.walk.basis==='route'?', the checked walk':', a provisional walk'} and ${Math.round(timing.allowanceSeconds/60)} min to change · not adjusted for where the buses are`
   :null;
  const unchecked=[quality.first,quality.second].filter(q=>q.kind==='unverified').length;
- const stepTone=(n:1|2)=>stage==='before'?(n===1?'now':'later'):stage==='first'?(n===1?'done':'now'):(n===1?'done':'done');
+ // What each step is at this stage: the one to do now, the bus the passenger is on (whose next
+ // action is getting off), done, or later. The change is next while on the first bus.
+ const stepTone=(n:1|2):'now'|'riding'|'done'|'later'=>stage==='before'?(n===1?'now':'later'):stage==='first'?(n===1?'riding':'later'):(n===1?'done':'riding');
+ const changeTone=stage==='before'?'later':stage==='first'?'soon':'done';
  const tracked=(list:{bus:FollowBus;standing:LegStanding}[],leg:Leg,bound:FollowBus|null,at:'board'|'alight')=>{
   if(bound){const s=list.find(x=>x.bus.key===bound.key)?.standing;
    return <span className="journey-tracked" data-tracked="journey">Tracked on this journey · {s?standingWords(s,leg,at):'reported'} · {bound.ageWords}</span>}
@@ -81,13 +84,13 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
    <li className={`journey-step tone-${stepTone(1)}`} data-step="1">
     <span className="journey-n" aria-hidden="true">1</span>
     <div className="journey-step-copy">
-     <strong>Take the {legLines(first)} towards {first.headsign}</strong>
+     <strong>{stepTone(1)==='riding'?'On':'Take'} the {legLines(first)} towards {first.headsign}</strong>
      <span>from <b>{stopName(first.board)}</b>{stage==='before'&&option.walkToBoardMetres>0?` · ${metresWords(option.walkToBoardMetres)} away in a straight line`:''}</span>
-     <span>get off at <b>{stopName(first.alight)}</b> · {first.rideStops} stop{first.rideStops===1?'':'s'}</span>
+     <span className={stepTone(1)==='riding'?'journey-next':undefined}>get off at <b>{stopName(first.alight)}</b> · {first.rideStops} stop{first.rideStops===1?'':'s'}</span>
      {stage!=='second'&&tracked(on1,first,bus1,stage==='first'?'alight':'board')}
     </div>
    </li>
-   <li className={`journey-step change tone-${stage==='first'?'now':stage==='second'?'done':'later'}`} data-step="change">
+   <li className={`journey-step change tone-${changeTone}`} data-step="change">
     <span className="journey-n" aria-hidden="true"><Footprints size={13}/></span>
     <div className="journey-step-copy">
      <strong>{change.sameStop?`Change at the same stop`:`Walk to ${stopName(change.to)}`}</strong>
@@ -98,9 +101,9 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
    <li className={`journey-step tone-${stepTone(2)}`} data-step="2">
     <span className="journey-n" aria-hidden="true">2</span>
     <div className="journey-step-copy">
-     <strong>Take the {legLines(second)} towards {second.headsign}</strong>
+     <strong>{stepTone(2)==='riding'?'On':'Take'} the {legLines(second)} towards {second.headsign}</strong>
      <span>from <b>{stopName(second.board)}</b></span>
-     <span>get off at <b>{stopName(second.alight)}</b> · {second.rideStops} stop{second.rideStops===1?'':'s'}{option.walkFromAlightMetres>0?` · then ${metresWords(option.walkFromAlightMetres)} in a straight line`:''}</span>
+     <span className={stepTone(2)==='riding'?'journey-next':undefined}>get off at <b>{stopName(second.alight)}</b> · {second.rideStops} stop{second.rideStops===1?'':'s'}{option.walkFromAlightMetres>0?` · then ${metresWords(option.walkFromAlightMetres)} in a straight line`:''}</span>
      {tracked(on2,second,bus2,stage==='second'?'alight':'board')}
     </div>
    </li>

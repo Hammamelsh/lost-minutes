@@ -30,10 +30,13 @@ await page.locator('.vector-map[data-map-state="painted"]').waitFor({timeout: 90
 note('opened', {release: await page.evaluate(() => fetch('/RELEASE').then(r => r.ok ? r.text() : '').then(t => t.split('\n')[0]).catch(() => ''))});
 await page.locator('[data-plan-entry]').click();
 await page.locator('.plan-panel [data-plan-from]').click();
+// The starting-point list leads with "My location": the place is picked by its own words.
+const pick = async words => { const option = page.locator('.place-search [role=option]', {hasText: new RegExp(words, 'i')}).first();
+  await option.waitFor({timeout: 15_000}); await option.dispatchEvent('mousedown'); };
 await page.getByRole('combobox', {name: 'Starting point'}).fill(FROM);
-await page.locator('.place-search [role=option]').first().dispatchEvent('mousedown');
+await pick(FROM);
 await page.getByRole('combobox', {name: 'Destination'}).fill(TO);
-await page.locator('.place-search [role=option]').first().dispatchEvent('mousedown');
+await pick(TO);
 await page.locator('.plan-option').first().waitFor({timeout: 20_000}).catch(() => {});
 await page.waitForTimeout(800);
 await shot('1-options');

@@ -58,3 +58,27 @@ class ReleaseCheckTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NightlyEvaluationReadsTheCatalogueTests(unittest.TestCase):
+    """The nightly evaluation names a journey's timing from the warehouse's departures. Since 23 September
+    2026 each is stored as [time, timing, rule]; reading them as pairs failed every night from the 24th."""
+
+    def test_a_journey_is_named_from_departures_stored_with_their_rule(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('evaluate_arrival', ROOT / 'scripts/evaluate-arrival.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        stored = json.dumps({'timings': [[0, 60, 120], [0, 90, 180]],
+                             'departures': [['07:05:00', 0, 2], ['07:25:00', 1, 2], ['07:45:00', 0, 2], ['07:45:00', 1, 3]],
+                             'departureFields': ['time', 'timing', 'rule']})
+        dep_info = {'P': module._departure_info(stored)}
+        pattern = {'id': 'P', 'seconds': [0, 60, 120]}
+        timing, departed = module.scheduled_for(pattern, dep_info, 'V1|2026-09-28T07:25:00+01:00')
+        self.assertEqual(timing, [0, 90, 180], 'the 07:25 runs the second timing')
+        self.assertEqual(departed, module.wall_to_ms(__import__('datetime').date(2026, 9, 28), '07:25:00'))
+        self.assertIsNone(module.scheduled_for(pattern, dep_info, 'V1|2026-09-28T07:45:00+01:00'),
+                          'two journeys at 07:45 on different timings name neither')
+        # The older pair form still reads, as the warehouse's own reader allows.
+        pairs = {'P': module._departure_info(json.dumps({'timings': [[0, 60, 120]], 'departures': [['07:05:00', 0]]}))}
+        self.assertEqual(module.scheduled_for(pattern, pairs, 'V1|2026-09-28T07:05:00+01:00')[0], [0, 60, 120])

@@ -157,16 +157,25 @@ def newest_snapshots(directory=TIMETABLE_DIR):
     A dataset is identified by the operator whose files dominate it (BNML, BNSM, BNFM), which is
     how TfGM publishes them, and only its newest file is read. "Newest" is the file's
     modification time: these are written once, when the collector stores them.
+
+    A snapshot that cannot be read as a gzipped zip is skipped and named, never fatal: on
+    27 September 2026 a BODS error page had been stored here as though it were a timetable, and
+    opening it stopped the nightly rebuild outright.
     """
-    newest, skipped = {}, []
+    newest, skipped, unreadable = {}, [], []
     for archive_path in sorted(Path(directory).glob('*.bin.gz')):
-        body = gzip.decompress(archive_path.read_bytes())
-        with zipfile.ZipFile(io.BytesIO(body)) as archive:
-            operators = collections.Counter()
-            for member in archive.infolist():
-                match = FILENAME.match(Path(member.filename).name)
-                if match:
-                    operators[match['operator']] += 1
+        try:
+            body = gzip.decompress(archive_path.read_bytes())
+            with zipfile.ZipFile(io.BytesIO(body)) as archive:
+                operators = collections.Counter()
+                for member in archive.infolist():
+                    match = FILENAME.match(Path(member.filename).name)
+                    if match:
+                        operators[match['operator']] += 1
+        except (OSError, EOFError, zipfile.BadZipFile):
+            skipped.append(archive_path.name)
+            unreadable.append(archive_path.name)
+            continue
         if not operators:
             skipped.append(archive_path.name)
             continue
@@ -180,7 +189,7 @@ def newest_snapshots(directory=TIMETABLE_DIR):
         else:
             skipped.append(archive_path.name)
     return {'datasets': {group: path for group, (_, path) in sorted(newest.items())},
-            'supersededOrUnreadable': sorted(skipped)}
+            'supersededOrUnreadable': sorted(skipped), 'unreadable': sorted(unreadable)}
 
 
 def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DAYS):
@@ -218,6 +227,7 @@ def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DA
     return {'entries': entries, 'unrecognised': unrecognised,
             'datasetsRead': sorted(snapshots['datasets']),
             'snapshotsSuperseded': len(snapshots['supersededOrUnreadable']),
+            'snapshotsUnreadable': snapshots['unreadable'],
             'filesExpired': expired, 'filesBeyondHorizon': beyond,
             # Kept under its old name for readers of earlier coverage summaries.
             'notValidOnDate': expired + beyond,

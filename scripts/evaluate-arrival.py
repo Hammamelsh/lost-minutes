@@ -180,7 +180,9 @@ def scheduled_for(pattern, dep_info, journey_key):
     when = datetime.fromisoformat(aimed.replace('Z', '+00:00')).astimezone(LONDON)
     local = when.strftime('%H:%M:%S')
     info = dep_info.get(pattern['id']) or {'timings': [], 'departures': []}
-    hits = [i for t, i in info['departures'] if t == local]
+    # Each departure is [time, timing] or, since 23 September 2026, [time, timing, rule]: read by
+    # position, as pipeline/match.py does. Unpacking pairs failed every nightly run from the 24th.
+    hits = [row[1] for row in info['departures'] if row[0] == local]
     if not hits or len(set(hits)) != 1:
         return None
     timing = info['timings'][hits[0]] if info['timings'] else pattern.get('seconds')
@@ -404,7 +406,9 @@ def main():
     print(f'\n-- per journey ({pj["journeys"]} journeys are the independent units), 2-10 min: median of journey medians / p80 --')
     print('  ' + '  '.join(f'{k} {f(pj[k]["medianOfJourneyMedians"])}/{f(pj[k]["p80OfJourneyMedians"])}' for k in ('progress', 'remaining', 'blended')))
     pu = summarise(rows, RELEASE_BAND)['passageUncertaintySeconds']
-    print(f'  passage uncertainty (half-gap) on scored passages: median ±{pu["median"]:.0f} s, p90 ±{pu["p90"]:.0f} s: errors below that are not resolvable')
+    # A night with nothing scored has no uncertainty to state, and says so rather than failing the run.
+    print(f'  passage uncertainty (half-gap) on scored passages: median ±{pu["median"]:.0f} s, p90 ±{pu["p90"]:.0f} s: errors below that are not resolvable'
+          if pu.get('median') is not None and pu.get('p90') is not None else '  passage uncertainty: no passage was scored')
     band = summarise(rows, RELEASE_BAND)
     result['heldOut']['releaseBand'] = band
     result['candidate'] = a.candidate

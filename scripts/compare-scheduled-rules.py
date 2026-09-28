@@ -53,7 +53,7 @@ def main(path):
     per_group = {}
     for (pid, local), keys in groups.items():
         info = patterns[pid].get('departureInfo') or {'departures': []}
-        hits = [i for t, i in info['departures'] if t == local]
+        hits = [row[1] for row in info['departures'] if row[0] == local]   # [time, timing(, rule)]
         per_group[(pid, local)] = {'vehicles': len(keys), 'journeys': len(hits), 'timings': len(set(hits)),
                                    'old': old_rule(hits), 'new': new_rule(hits)}
 

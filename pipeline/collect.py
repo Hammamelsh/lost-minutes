@@ -269,6 +269,16 @@ def collect_timetables(con, run_id, urls, directory, log=emit, fetch_fn=None, si
             log({'timetable': 'failed', 'errorClass': type(error).__name__,
                  'url': redact_url(url)})
             continue
+        # BODS publishes timetables as zips. Anything else is not a timetable, whatever the status
+        # said: on 27 September 2026 it answered with its "Sorry, there is a problem with the
+        # service" page under HTTP 200, the page was stored here as a snapshot, and the nightly
+        # rebuild, which opens every snapshot, failed on it the next night. The bytes are kept,
+        # content-addressed, beside the timetables rather than among them.
+        if not zipfile.is_zipfile(io.BytesIO(body)):
+            digest, _ = store_payload(body, directory, 'timetables-rejected')
+            log({'timetable': 'rejected', 'reason': 'not a zip archive', 'status': status,
+                 'bytes': len(body), 'sha256': digest[:12], 'url': redact_url(url)})
+            continue
         digest, path = store_payload(body, directory, 'timetables')
         declared = timetable_dates(body)
         members = declared.pop('member_count', None)

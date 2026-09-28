@@ -60,6 +60,26 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual(len(entries), 3)
             self.assertEqual(sorted(e['line'] for e in entries), ['15', '25', '256'])
 
+    def test_a_snapshot_that_is_not_a_timetable_is_skipped_and_named_not_fatal(self):
+        # 27-28 September 2026: a BODS error page stored as a snapshot stopped the nightly rebuild.
+        today = date(2026, 9, 28)
+        later = today + timedelta(days=365)
+        with TemporaryDirectory() as directory:
+            dataset(directory, 'a' * 8, [name('BNML', '15', today, later, '1')], mtime=1_000_000)
+            page = Path(directory) / ('c' * 8 + '.bin.gz')
+            page.write_bytes(gzip.compress(b'<!DOCTYPE html><title>Problem with the service - GOV.UK</title>'))
+            import os
+            os.utime(page, (2_000_000, 2_000_000))
+            truncated = Path(directory) / ('d' * 8 + '.bin.gz')
+            truncated.write_bytes(gzip.compress(b'PK\x03\x04 not really a zip at all')[:20])
+            snapshots = newest_snapshots(directory)
+            self.assertEqual(sorted(snapshots['datasets']), ['BNML'])
+            self.assertTrue(snapshots['datasets']['BNML'].name.startswith('a'), 'the newest readable one')
+            self.assertEqual([p[:8] for p in snapshots['unreadable']], ['cccccccc', 'dddddddd'])
+            survey = survey_datasets(directory, today)
+            self.assertEqual([e['line'] for e in survey['entries']], ['15'])
+            self.assertEqual([p[:8] for p in survey['snapshotsUnreadable']], ['cccccccc', 'dddddddd'])
+
     def test_a_registration_starting_within_the_horizon_is_read_but_marked_not_in_force(self):
         today = date(2026, 9, 17)
         with TemporaryDirectory() as directory:

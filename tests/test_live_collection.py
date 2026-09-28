@@ -569,6 +569,26 @@ if __name__ == '__main__':
 
 
 @unittest.skipUnless(HAS_DUCKDB, 'DuckDB not installed; see requirements.txt')
+class TimetableDownloadTests(unittest.TestCase):
+    def test_a_page_that_is_not_a_zip_is_kept_apart_not_stored_as_a_timetable(self):
+        # 27 September 2026: BODS answered a timetable download with its "problem with the service"
+        # page under HTTP 200, and the page became a snapshot the nightly rebuild then failed on.
+        from pipeline.collect import collect_timetables
+        page = b'<!DOCTYPE html>\n<html lang="en" class="govuk-template"><title>Problem with the service - GOV.UK</title>'
+        logged = []
+        with tempfile.TemporaryDirectory() as directory:
+            stored = collect_timetables(None, 'run-1', ['https://data.bus-data.dft.gov.uk/timetable/dataset/1/download/?api_key=SECRET'],
+                                        Path(directory), log=logged.append,
+                                        fetch_fn=lambda url: (page, 200, 'text/html'), size_fn=lambda url: None)
+            self.assertEqual(stored, [])
+            self.assertEqual([entry.get('timetable') for entry in logged], ['rejected'])
+            self.assertEqual(logged[0]['reason'], 'not a zip archive')
+            self.assertEqual(logged[0]['status'], 200)
+            self.assertNotIn('SECRET', json.dumps(logged), 'the key never reaches a log')
+            self.assertFalse((Path(directory) / 'timetables').exists(), 'nothing among the timetables')
+            self.assertEqual(len(list((Path(directory) / 'timetables-rejected').glob('*.bin.gz'))), 1, 'the bytes kept apart')
+
+
 class UnavailableDiagnosisTests(unittest.TestCase):
     """Why there is no live data must come from state, not from an assumption."""
 

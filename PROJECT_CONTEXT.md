@@ -4,7 +4,11 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 28 September 2026, afternoon (direct buses timed and ordered by arrival like journeys with
+Last updated: 28 September 2026, evening (the outbound-15 arrival pilot checked against the owner's four
+conditions and not enabled; the page's estimator made the evaluated one to the millisecond; inbound 15's
+stops found numbered 14 out in the evaluation, and "its timetable runs 15 minutes early" withdrawn from the
+page; closed services left out by name until the catalogue carries the flag; each nightly job's memory
+peak shown: `cd14ab3`). Before that, the same afternoon (direct buses timed and ordered by arrival like journeys with
 one change, the walks between stops checked before the list and a later answer offered rather than
 substituted, a planner regression set, and the nightly jobs recording themselves in Operations, the
 evaluation's timeouts fixed and its first release held for the owner: `53f2232`). Before that, the same
@@ -18,6 +22,47 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **28 September, evening — the arrival pilot checked, and not enabled; inbound 15's stops renumbered**
+  (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`).
+  - **No-go.** The owner authorised estimated minutes for outbound 15 on four conditions. Outbound meets
+    all six criteria on held-out days (21–27 September: median 1.20, p80 2.48, 253 journeys), but the
+    criteria group moments by the actual minutes before the passage; on the moments a page would show,
+    chosen by its predicted 2–10 min, it reads median **1.57** and p80 **3.79**, over both thresholds.
+    Nothing is enabled, and no band was chosen on the held-out days (backlog 40).
+  - **The page's estimator is now the evaluated one**: as deployed it differed on 88% of sampled answers,
+    by up to 205 s. Now an exact port (`lib/arrival.ts`), reading every report of the last three minutes
+    from joined publications; held to the evaluator on every held-out journey of both route-15 patterns,
+    all 2,078,969 answers agree, 5 of them 1 ms apart; a sample kept as a test.
+  - **Held out from 21 September**: 10 of 20 September's 19 journeys are in the development files. All six
+    criteria read (four were). Released only as an exact scope (operator, line, direction, patterns,
+    model), named field for field in the approval file; a bare direction releases nothing, and a page
+    shows minutes only for the scope's own pattern and model.
+  - **Found: inbound 15's stops numbered 14 out** in the evaluation pipeline (a road's offsets cover only
+    the stops inside the area; inbound 15 starts 14 outside it). So its arrival evaluation was invalid,
+    and "inbound 15's timetable runs 15 minutes early" (20 September) was that: paired with their own
+    stops the same passages read +2.6 min, as outbound's do. Its timetabled times were withheld on it
+    from 20 September, and on 28 September the planners said "schedule runs 15 min early" to passengers
+    and left its buses out. Fixed on both sides
+    (`placed_offsets`, `arrivalTrack`); the anchor regenerated from the server's copy: outbound verified
+    (+2.67 min, 806 passages), inbound **unchecked** (its first stops cannot be observed), so its
+    timetabled time at stops stays withheld as every unchecked one is, and the planners time it as
+    unchecked. Validly
+    scored, inbound passes all six criteria and the shown band (1.10/2.19; 1.27/2.76); **withheld on the
+    owner's instruction** (backlog 40, 41).
+  - **Closed services**: until the catalogue carries `publicUse` (the rebuild of 29 September, about
+    02:43 UTC), the planners leave out by name the ten services their files declare closed (BNML 732
+    among them). **Pending** that rebuild's check.
+  - **Memory headroom**: each nightly job records its cgroup's peak and ceiling; Operations shows the
+    rebuild's last success at 1.4G of 1500M (96%, close), limits unchanged (backlog 39).
+  - **Verified:** Node 313, Python 165; the full gate 454 passed, 50 skipped, none failed (1.4 h); the
+    page against the evaluator on every held-out route-15 journey (2,078,969 answers, 5 of them 1 ms
+    apart); served byte-identical, the collector untouched, the inbound 15 journey timed where it had said
+    "15 min early", no minutes on a live outbound 15, the memory rows in Operations, BNML 732 offered on
+    no trip along its own stops; the evaluation run once by hand on the server as a controlled test (2 min
+    47 s, 545 MB, nothing released). **Deployed as `cd14ab3`** (`53f2232` kept for rollback). **Next
+    unattended runs: 29 September, 02:43 and 03:12 UTC**, when the catalogue should first carry
+    `publicUse`. Emulation only.
 
 - **28 September, afternoon — the planner's correctness and the nightly jobs' reliability**
   (`docs/MILESTONE_2026-09-28_RELIABILITY.md`).
@@ -58,7 +103,8 @@ journey change and fixed, and the view from above kept private behind a password
     every bus between its two stops; refusals (a direct bus, a loop, a U-turn, a detour) measured
     stop by stop. 9–32 ms a plan.
   - **Timed only as the timetable allows**: each leg's timetables judged verified / unverified /
-    unreliable from the schedule anchor, inbound 15 (15 min early) giving no times, with the reason;
+    unreliable from the schedule anchor, inbound 15 (15 min early, withdrawn that evening: see above) giving
+    no times, with the reason;
     the list timed and ordered by arrival at the destination; an earlier bus for the same second bus
     folded and named; the walk provisional until one router request; buses tied to dated journeys
     only by the reported departure, and a bus on another journey named by its time.
@@ -813,7 +859,9 @@ route-15 schedule is a constant +15 to +17 min early** against its own buses' pa
 held; the journey key first appears in the feed 14.5 min after its registered departure. The deployed
 "Timetabled at your stop" line was ~16 min early in the passenger's own direction and is now gated per
 pattern on a published **schedule anchor** (inbound 15 withheld, outbound 15 verified, all else
-unchecked and withheld). The "zero risk" claim on shared departures is withdrawn for the precise one:
+unchecked and withheld). **The inbound 15 finding is withdrawn** (28 September, evening): an artefact of
+its stops being paired 14 out; paired correctly, +2.6 min at its first observed stops, and the late
+first appearance was the bus entering the area we collect. The "zero risk" claim on shared departures is withdrawn for the precise one:
 all retained candidate journeys agree on the scheduled time, subject to the match and the timetable;
 agreement names a time, not a journey. The controlled comparison on one publication: 117 → 156
 groups named, 0 lost.

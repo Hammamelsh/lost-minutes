@@ -118,3 +118,27 @@ which restores the automatic release agreed on 20 September). For that decision:
   journeys were captured on this machine and on the server); without it the verdict is the same;
 - the page's estimator (`lib/arrival.ts`) is a port of the evaluated one, tested on synthetic roads
   (`tests/arrival.test.mjs`), and has not been compared with it on the same real moments.
+
+## 28 September 2026, evening: the pilot checked, and not enabled
+
+The owner authorised a pilot for outbound 15 on four conditions; it is not enabled. The account is
+`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`. What changed in how these criteria are read, and nothing
+in the criteria themselves:
+- **Held out from 21 September.** 10 of the 19 journeys the server holds for 20 September are in the
+  development files, so the pooled check starts on the 21st (`UNSEEN_FROM`); the verdict above without
+  20 September is the one that counts.
+- **All six criteria read.** The pooled check had read the error thresholds and the floors; it now reads
+  the timetable comparison and coverage too, per direction.
+- **Released only as an exact scope**: operator, line, direction, the patterns scored and the model
+  (`blended@9a626129f782`, the frozen file's hash), named field for field in
+  `deploy/arrival-release-approval.json`. A direction alone releases nothing, and the automatic release
+  of 20 September is gone: without an approval, a passing scope waits.
+- **What a page would show, reported beside the criteria** (`shownBand`, not a criterion): the same
+  errors on moments chosen by the predicted minutes (2–10). Outbound 15 reads median 1.57 and p80 3.79
+  there, over both thresholds; that is why the pilot is not enabled.
+- **Inbound 15's evaluation was invalid until this evening**: its stops were numbered 14 out (backlog
+  38). The table's inbound row above is withdrawn. Scored correctly on 21–27 September, inbound reads
+  median 1.10 and p80 2.19, all six criteria, and 1.27 and 2.76 on the predicted band. It stays
+  withheld on the owner's instruction.
+- The page's estimator has now been compared with the evaluated one on the same real moments: all
+  2,078,969 answers agree, 5 of them 1 ms apart (both route-15 patterns, 21–27 September).

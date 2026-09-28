@@ -4,12 +4,63 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`53f2232`**, deployed 28 September 2026, afternoon (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`cd14ab3`**, deployed 28 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 28 September, evening: the arrival pilot checked and not enabled; inbound 15 renumbered
+
+**Deployed: `cd14ab3`**, with `53f2232` kept for `deploy/rollback.sh`. The account and the evidence are
+in `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`.
+
+**Go/no-go: no-go.** Estimated minutes for outbound 15 are **not enabled**. The page's estimator now
+answers exactly as the evaluated one (2,078,969 answers on held-out journeys, 5 of them 1 ms apart), and
+outbound 15 meets all six criteria on held-out days (median 1.20, p80 2.48 min). But the criteria group
+moments by the actual minutes before the bus passed, and a page can choose only by its predicted
+minutes: on predicted 2–10 min the errors read median **1.57** and p80 **3.79**, over both thresholds.
+**Scope enabled: none.** The approval file names nothing; the scope a future approval would name is
+BNML, line 15, outbound, `BNML:15:outbound:c9291c1aea`, `blended@9a626129f782`. Inbound 15, validly
+scored for the first time (section below), passes both ways (1.10/2.19; shown band 1.27/2.76) and stays
+withheld on the owner's instruction.
+
+**What a passenger sees.**
+- **No estimated minutes anywhere**, as before; the departure board and the timetabled lines are
+  unchanged.
+- **Inbound 15 is no longer said to run 15 minutes early.** That was the evaluation's fault (its stops
+  paired 14 out): the planners said it this morning, and its timetabled times had been withheld on it
+  since 20 September. Its timetabled time at stops stays withheld, as every unchecked service's is; in
+  the planners it is timed from the timetable and said to be unchecked, like every other unchecked
+  service, and its buses are no longer left out of other lines' legs. Outbound 15's check now reads "about 3 min behind it at the first stops" (806 passages).
+- **Services closed to the public are left out of both planners by name** (ten, BNML 732 among them)
+  until the served catalogue carries the flag; the first rebuild after this deploy writes it.
+  **Pending**: verified only after that rebuild (29 September, about 02:43 UTC).
+
+**Operations.** Each nightly job records its own memory peak and ceiling when it stops. The timetable
+rebuild's last success (27 September): **1.4G of its 1500M ceiling, 96%, close to it**, page cache
+included, from the journal and rounded; tonight's runs are the first to record their own. The limits
+are unchanged. The arrival evaluation's headroom is shrinking as the warehouse grows (684.5M of 1500M on
+8 days; about six weeks left at the measured rate, backlog 42).
+
+**Scheduled and controlled, told apart.** Tonight's runs are the first scheduled ones with this code:
+the rebuild at about 02:43 UTC and the evaluation at about 03:12 UTC, each recorded as *scheduled* in
+Operations. The one run of this code so far is a **controlled test**, recorded as *by hand*: the
+evaluation at 18:12–18:15 UTC, succeeded in 2 min 47 s at 545 MB of its 1,500 MB ceiling (measured by
+the unit itself), releasing nothing, with outbound and inbound 15 awaiting an exact approval.
+
+**Verified.**
+- Node: 313 tests. Python: 165. Typecheck; lint with no errors.
+- The full browser gate on the final code: **454 passed, 50 skipped by design, none failed** (1.4 h);
+  the focused arrival, Operations, planner and journey specs 66 of 66 before it.
+- The page against the evaluator on every held-out route-15 journey: 2,078,969 answers, 5 of them
+  1 ms apart. The nightly evaluation re-run with the stop numbering fixed: outbound identical on all
+  8 days.
+- Served: byte-identical build, `/preview/` 401, the collector the same process throughout; the inbound
+  15 journey timed and unchecked where it had said "15 min early"; a live outbound 15 with no minutes;
+  Operations' memory rows; BNML 732 offered on no trip along its own stops (4 of 4 with the list
+  lifted). Emulation only.
 
 ## 28 September, afternoon: the planner's correctness and the nightly jobs' reliability
 
@@ -87,7 +138,7 @@ second half (`7d4862c` to `e3c760b`) corrects what real morning buses showed. Th
   departure; on another journey, named by its time ("the 06:19 by the timetable"); unidentified; or
   none ("that is not ‘no bus’"). Never minutes, never "you’ll make it".
 - **A timetable known to be wrong gives no times**: inbound 15 runs 15 min ahead of its buses
-  (`schedule-anchor.json`), and a journey on it shows its steps and the reason instead.
+  (`schedule-anchor.json`), and a journey on it shows its steps and the reason instead (withdrawn 28 September 2026, evening: an artefact of the check pairing its stops 14 out; inbound 15 is unchecked now, `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6).
 - **The walk between the stops is provisional until checked** with one request to the pedestrian
   router (two stop positions, nothing about the passenger); the card then recomputes and says what
   changed (Trafford Bar: 50 m in a straight line, 230 m and 3 min by the router).
@@ -800,7 +851,10 @@ moment for inbound, and the deployed "Timetabled at your stop" line was **~16 mi
 inbound 15 — the passenger's own direction.** It is now gated per pattern on a **schedule anchor**
 (`schedule-anchor.json`): verified only where inferred passages at the first ten stops put the
 schedule within 3 min on ≥ 20 passages. Inbound 15 withheld (+15.4 min, 290 passages); outbound 15
-verified (+2.3, 133); every other pattern unchecked and withheld. Live on the site.
+verified (+2.3, 133); every other pattern unchecked and withheld. Live on the site. **The inbound finding
+in this paragraph is withdrawn** (28 September 2026, evening): its first 14 stops are outside the area
+and its passages were paired with the stops 14 earlier; paired with their own, +2.6 min, and the late
+first appearance was the bus reaching the area we collect (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6).
 
 **Head-turn in the street preview:** a one-finger drag turns the head (160° per canvas width, clamped
 at 150°), following never stops, and the view eases back to the road ahead on release. **Browser-tested,

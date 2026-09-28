@@ -483,16 +483,22 @@ the whole column, not the credit.
   router, which this page does only for the walk guide, on request.
 - Watch both: see the milestone record.
 
-## 38. A road shape's stop offsets are read by the pattern's stop index
+## 38. A road shape's stop offsets are read by the pattern's stop index — fixed 28 September 2026 (evening)
 
-`lib/arrival.ts` reads `track.stops[stopIndex]`; `makeTrack` drops the offsets a shape could not
-place (and any at or beyond its length), so from the first missing stop on, the index names the
-wrong stop. Where the index runs off the end the estimate is withheld ("does not place your stop");
-where it lands on another stop's offset the remaining metres are wrong. Found 28 September 2026 while
-drawing a journey's legs (the fixture's last stop, at the shape's exact length, was dropped); the legs
-measure their stops onto the road instead. Not changed in `arrival.ts`: no direction is released, so
-nothing shown is affected; fix with a per-stop offset array (null where unplaced) when the estimator
-is next worked on.
+`lib/arrival.ts` read `track.stops[stopIndex]`; `makeTrack` drops the offsets a shape could not
+place (and any at or beyond its length), so from the first missing stop on, the index named the
+wrong stop. Found 28 September 2026 while drawing a journey's legs; the legs measure their stops onto
+the road instead.
+
+**The same fault was in the evaluation pipeline, and it mattered there.** A shape's offsets cover only
+the stops inside the service area; inbound 15 starts 14 stops outside it, and `pipeline/passages.py`
+read its 47 offsets as the pattern's stops 0–46. Every inbound passage was named after the stop 14
+earlier, so the inbound arrival evaluation was invalid and the schedule anchor judged inbound 15's
+timetable 15 minutes early: its timetabled times were withheld on it from 20 September, and the
+planners said so to passengers on 28 September. Fixed on both
+sides with one rule, the offsets put on the pattern's own indices and a road that does not line up
+refused (`arrivalTrack` on the page, `placed_offsets` in the pipeline), and held by the parity check
+on both route-15 patterns (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`, sections 1 and 6).
 
 ## 39. The nightly rebuild's memory peak is growing with the warehouse
 
@@ -507,6 +513,42 @@ the selection of observed services, which scans every observation, and the parse
 files; not yet separated. Measure them apart, and if it is the scan, keep a small table of observed
 services the collector maintains. Until then read the peak after each run
 (`journalctl -u lost-minutes-refresh | grep 'memory peak'`).
+
+## 40. Arrival minutes: a display band and a criterion on predicted minutes — the owner's decision
+
+The release criteria are read by the actual minutes before a bus passed the stop, known only
+afterwards; a page can choose what to show only by its own predicted minutes. On outbound 15's held-out
+days (21–27 September) the criteria pass (median 1.20, p80 2.48 min) but the moments a page would show,
+predicted 2–10 min, read median 1.57 and p80 3.79; predicted 2–5 min passes (1.20, 2.94). So the
+outbound pilot was not enabled on 28 September. Choosing a band now would be choosing it on the
+held-out days. To settle it: write down a display band and a criterion on predicted minutes, measured
+as the page shows them (from the page's clock, the report some seconds old), and judge it only on
+nights from 29 September; the nightly verdict already reports `shownBand`. Inbound 15, validly
+evaluated from 28 September (entry 38), passes both ways (1.10 and 2.19; shown band 1.27 and 2.76) and
+is withheld on the owner's instruction. `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`, sections 2–3.
+
+## 41. A schedule anchor for a pattern whose first stops are outside the area
+
+The anchor checks a timetable's clock at a pattern's first ten stops. Inbound 15's first fourteen are
+outside the area we collect, so since the fix in entry 38 it is unchecked: its timetabled time is
+withheld and the planner times it as an unchecked service. Read at its first ten *observed* stops it is
++2.61 min on 1,461 passages (21–27 September), inside the 3-minute tolerance, as outbound's are at its
+first stops (+2.59). Whether that may count as the check is the owner's decision; it would show inbound
+15's timetabled time at stops and in the planner's wording. `scripts/schedule-anchor.py`.
+
+## 42. The nightly evaluation re-scores the whole warehouse every night, and grows toward its ceiling
+
+`lost-minutes-arrival-eval` scores every day the warehouse holds, each night, and the release check
+reads every night's stored errors. Measured here on the server's copy (resident memory, one process):
+scoring 2 days 404 MB, 4 days 433 MB; the nightly run over 8 days 598 MB (684.5M for the unit's cgroup on
+the server, 28 September). The nightly file adds about 1.5–2 MB of stored errors a day (four arrays a
+direction since 28 September, for the criteria and the shown band); the release check reads 8 days in
+96 MB. At roughly 20–26 MB more for each day of data, the unit's `MemoryMax=1500M` is reached in about six
+weeks, early November 2026. A kill would fail the evaluation safely (nothing is released without an
+approval) and Operations would show it, but nightly. Fix when next worked on: score only the days not
+yet scored by the current model (the nightly file is already keyed by day and model), and store the
+pooled errors compactly (a fine histogram per direction keeps the quantiles to 0.01 min). Until then,
+Operations shows each night's peak against its ceiling.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

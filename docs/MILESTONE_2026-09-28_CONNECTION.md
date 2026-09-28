@@ -27,7 +27,7 @@ passenger has tried it (`docs/CONNECTION_WALKTHROUGH.md` is for that).
   subscribed); the arrival estimator has released nothing (`arrival-release.json` is empty on the
   server); the timetable clock is checked against buses for 2 of 576 patterns, and one of those —
   **inbound 15** — is known to run about 15 minutes ahead of its buses
-  (`schedule-anchor.json`). So a connection can be timed from the timetable and shown with tracked
+  (`schedule-anchor.json`) (withdrawn 28 September 2026, evening: an artefact of the check pairing its stops 14 out; inbound 15 is unchecked now, `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6). So a connection can be timed from the timetable and shown with tracked
   positions, and nothing more.
 - **Absent data**: the catalogue carries no boarding/alighting restrictions and no interchange
   accessibility; both are said to be unknown rather than inferred.
@@ -173,7 +173,7 @@ emulation, read-only, the server's own catalogue and boards.
   the second walk, after the fix, found both right. The showcase capture at 08:56 then found the
   ride calling the second bus "Selected bus · does not serve your stop"; `e3c760b` reads "Your second
   bus · from Trafford Bar (by)" on the served site (§6).
-- **A known timing-quality exclusion, real:** the inbound 15 from Hillingdon Road (opp) to
+- **A known timing-quality exclusion, real** (withdrawn 28 September 2026, evening: an artefact of the check pairing its stops 14 out; inbound 15 is unchecked now, `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6)**:** the inbound 15 from Hillingdon Road (opp) to
   Manchester Royal Infirmary (Stop D), then the 53 to MediaCityUK, opened by link
   (`outputs/connection/served-inbound15.png`). The card gives the steps and the stop, and "No
   times for the 15: schedule runs 15 min early against the bus’s own reports at its first stops. A

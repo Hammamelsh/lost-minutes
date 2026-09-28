@@ -1172,6 +1172,15 @@ drifts is withdrawn the next morning without anyone noticing it first.
 against the local one for route 15. **Status:** the gate is live and the local anchor is shipped;
 the server-built anchor is written to `data/evaluation/` but not yet the one the page reads.
 
+**Withdrawn, 28 September 2026 (evening): the finding above was the check's own fault.** Inbound 15's
+first 14 stops are outside the service area, and the passages were named by the road's stop order as
+if it were the pattern's, so each was set against the timetable of the stop 14 earlier. Paired with
+their own stops the same passages read +2.61 min, as outbound's do (+2.59), and the journey key's late
+first appearance was the bus reaching the area we collect (entry 70). The rule this entry states
+stands, and applies to the check as well: an alignment check is itself a join of two sources, and was
+the one misaligned. The diff proposed as the next step would have found nothing, since both anchors
+were built by the same code.
+
 ## 32. An estimator whose baseline beats it past five minutes, and criteria that were written first
 
 **Problem and evidence.** The progress baseline (remaining road at observed speed) scored median
@@ -2178,3 +2187,62 @@ into `public/data/jobs.json`, and Operations shows each job's last attempt, last
 from the age of the last scheduled attempt. Reaching a person is still the dead man's switch, off
 until the owner approves an account. Status: `small fix built`; the first unattended nights are
 29 September, 02:40 and 03:10 UTC.
+
+## 69. An evaluated model and its served port drift apart, and nothing compares them
+
+**Problem and evidence.** The arrival estimator is evaluated in Python (`scripts/evaluate-arrival.py`)
+and would be served in TypeScript (`lib/arrival.ts`). Before any release, on 28 September 2026 the owner
+asked for the two to be compared on the same real moments. They had never been: the page's version, a
+near port, read other geometry, another search window and fewer reports. On a sample of held-out
+moments it gave 19,639 of 22,304 answers differently, up to 205 s apart, and refused 1,024 the
+evaluator answered. The unit tests ran on synthetic roads and passed throughout. After an exact port,
+`scripts/arrival-parity-cases.py` and `scripts/arrival-parity.mjs` held it to the evaluator on every
+held-out journey of both route-15 patterns: 2,078,969 answers, all agreeing, 5 of them 1 ms apart.
+
+**Who hits it, workaround.** Anyone releasing a model scored in one language and run in another, here
+the owner deciding whether numbers may be shown. The workaround is the parity pair above and a sample
+kept as a test (`tests/fixtures/arrival-parity-sample.json`).
+
+**Recurrence and effort.** One model, found before release. The motion model has the same shape (scored
+by `scripts/evaluate-*.mjs` in Node against the page's own `lib/motion.ts`, so it does not drift).
+Effort unknown (not timed); the exact port and the harness were built within one session.
+
+**Small fix, script, tool or product.** A script and a test in this repository, both built. The reusable
+capability is general: record the evaluator's answers on retained real inputs, replay them through the
+served code, and compare answers and refusals. Golden-file or snapshot testing is the existing practice;
+nothing new is needed.
+
+**Next cheap step.** Regenerate the parity sample whenever `scripts/arrival-params-frozen.json` or the
+estimator changes (the model name is that file's hash, and the test checks it). Status: `built`.
+
+## 70. Two artefacts joined by position over a filtered list
+
+**Problem and evidence.** A road shape's `stopOffsets` hold one entry per stop the road was built
+through, those inside the service area (`pipeline/shapes.py`); the pattern's `stops` hold every stop.
+Every consumer read `stopOffsets[j]` as pattern stop `j`. That is right only where a pattern starts
+inside the area. Inbound 15 starts 14 stops outside it: its passages were named after the stop 14
+earlier, the schedule anchor judged its timetable 15 minutes early, its timetabled times were withheld
+from 20 September, the planners said so to passengers and left its buses out on 28 September, and its
+arrival evaluation was invalid. Found
+because the page's exact port refused a road whose stops did not line up. Every test used patterns
+lying wholly inside the area.
+
+**Who hits it, workaround.** Every reader of a shape's offsets: the passage audit, the evaluator, the
+anchor, the page. The workaround now is one alignment rule applied on reading, `placed_offsets` in
+Python and `arrivalTrack` in TypeScript, refusing a count that does not match.
+
+**Recurrence and effort.** One fault, eight days on the live site, three consumers. Measured with the
+server's copy: 1,461 inbound passages at +15.41 min as paired, +2.61 as named after their own stops.
+
+**Small fix, script, tool or product.** A small fix in this repository: publish the offsets on the
+pattern's own indices (null where unplaced) or keyed by stop code, so no reader re-derives the join.
+That is a format change to the shape files and their index, left for when the shapes are next rebuilt;
+the reading rule covers it meanwhile. No tool is needed.
+
+**Next cheap step, taken the same evening.** Of 587 published patterns, 233 start outside the area and
+61 of those have an accepted road (about 40 lines, among them the 163, 256, 263 and 43 inbound). No
+other reader depended on the order: the drawing uses the offsets only as places to pause, and the
+ride's next stops, the planner and the journey card read the pattern's own stop codes. So only the
+route-15 evaluation and the page's old estimator were touched, and both are fixed. What is left is the
+format change above. Status: `small fix built` on reading.
+

@@ -1,7 +1,8 @@
 """Inferred stop passages: a crossing between two reports, with its uncertainty; not a report near a stop."""
 import unittest
 
-from pipeline.passages import MAX_GAP_S, Track, infer_passages, placed_offsets
+from pipeline.passages import MAX_GAP_S, Track, infer_passages
+from pipeline.stop_mapping import aligned_offsets, from_placed
 
 # A straight road heading east from Stretford, 3 km, a vertex every 50 m; stops at 500, 1500, 2500 m.
 LAT, LON = 53.4487, -2.3095
@@ -80,22 +81,20 @@ class PassageInferenceTests(unittest.TestCase):
 
 class PatternStartingOutsideTheAreaTests(unittest.TestCase):
     """Inbound 15 calls at 14 stops outside the service area before its first inside it; its road is built
-    through the 47 inside only. Read by the pattern's index as they stood, the road's offsets named every
-    passage after the stop 14 earlier, and its timetable, read there, looked 15 minutes early (28 September
-    2026). Here two stops outside come first."""
+    through the 47 inside only. Read by list position, the road's offsets named every passage after the
+    stop 14 earlier, and its timetable, read there, looked 15 minutes early (28 September 2026). Here two
+    stops outside come first, and the road's stop mapping says which stop each offset is."""
     PATTERN = ['O1', 'O2', 'S1', 'S2', 'S3']
-    PLACED = {'S1', 'S2', 'S3'}
+    MAPPING = from_placed('P', 5, [(2, 'S1'), (3, 'S2'), (4, 'S3')], [500.0, 1500.0, 2500.0])
+
+    def offsets(self):
+        return aligned_offsets(self.MAPPING, 'P', self.PATTERN)
 
     def test_the_offsets_are_put_on_the_patterns_own_stops(self):
-        self.assertEqual(placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED), [None, None, 500.0, 1500.0, 2500.0])
-        # A pattern starting inside the area is unchanged but for the stops after its last placed one.
-        self.assertEqual(placed_offsets(['S1', 'S2', 'S3', 'O1'], [500.0, 1500.0, 2500.0], self.PLACED), [500.0, 1500.0, 2500.0, None])
-
-    def test_a_road_whose_stops_do_not_line_up_is_refused(self):
-        self.assertIsNone(placed_offsets(self.PATTERN, [500.0, 1500.0], self.PLACED))
+        self.assertEqual(self.offsets(), [None, None, 500.0, 1500.0, 2500.0])
 
     def test_each_passage_is_named_after_its_own_stop(self):
-        track = Track(TRACK.points, placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED))
+        track = Track(TRACK.points, self.offsets())
         reports = journey([(0, 0), (80, 10), (160, 20), (240, 30), (320, 40), (400, 50), (560, 70), (640, 80)])
         passages, _ = infer_passages('P', self.PATTERN, reports, track)
         self.assertEqual([(p.stop_id, p.stop_index) for p in passages], [('S1', 2)])
@@ -108,7 +107,7 @@ class PatternStartingOutsideTheAreaTests(unittest.TestCase):
         spec.loader.exec_module(ev)
         # Scheduled seconds from the origin: O1 0, O2 600 (both outside), S1 900, S2 960, S3 1020.
         timing = [0, 600, 900, 960, 1020]
-        track = Track(TRACK.points, placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED))
+        track = Track(TRACK.points, self.offsets())
         self.assertEqual(ev.scheduled_seconds_at(track, timing, 1000.0), 930, 'halfway from S1 to S2')
         # From 1000 m to S3 (index 4) is 90 scheduled seconds. By the old indexing the road's offsets met the
         # timetable of the stops two earlier, and this read 900 - 300 = 600 s.

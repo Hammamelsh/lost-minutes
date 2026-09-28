@@ -1141,7 +1141,8 @@ unattended run is still to come.
 origin departure plus the timetable's link run times. It was reasoned, tested at the unit and
 browser level, and deployed. The first held-out evaluation of anything against inferred stop
 passages (`scripts/evaluate-arrival.py`) found it **a constant +15 to +17 minutes early for every
-inbound route-15 journey** on every day held, while outbound was within two minutes. The cause is
+inbound route-15 journey** on every day held, while outbound was within two minutes. *(Withdrawn 28
+September 2026: the check's own fault; see the end of this entry.)* The cause is
 upstream and invisible to the page: the inbound journey key first appears in the feed a median
 14.5 min after its registered departure, and the registration holds no `WaitTime` at all
 (`git log 02419ee`). Nothing in the unit or browser tests could have caught it, because they

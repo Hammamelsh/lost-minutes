@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pipeline.passages import load_track  # noqa: E402
+from pipeline.stop_mapping import MAPPING_VERSION  # noqa: E402
 from pipeline.patterns import _departure_info  # noqa: E402
 from pipeline.warehouse import DEFAULT_DB, connect  # noqa: E402
 
@@ -145,9 +146,19 @@ def progress_eta(placed, at_index, stop_offset, stop_offsets, params, cruise):
 
 # ------------------------------------------------------------------ data
 
+def passages_from(document):
+    """The passages of an audit file, only if they name their stops by the shapes' stop mapping (version 2).
+    A file from before 28 September 2026 paired a road's offsets with the pattern's stops by list position,
+    which named inbound 15's passages after the stops 14 earlier; it is refused, not mixed with new ones."""
+    if document.get('stopMapping') != MAPPING_VERSION:
+        raise SystemExit(f"passages written without stop mapping {MAPPING_VERSION} (found {document.get('stopMapping')!r}): "
+                         'rerun scripts/audit-passages.py')
+    return document['passages']
+
+
 def load_everything(line, operator, db=None, passages_file=None):
     passages_file = Path(passages_file) if passages_file else ROOT / f'data/evaluation/passages-{line}.json'
-    passages = json.loads(passages_file.read_text())['passages']
+    passages = passages_from(json.loads(passages_file.read_text()))
     catalogue = json.loads((ROOT / 'public/data/patterns.json').read_text())
     patterns = {p['id']: p for p in catalogue['patterns'] if p['operator'] == operator and p['line'] == line}
     con = connect(db or (ROOT / DEFAULT_DB))
@@ -486,7 +497,8 @@ def main():
         for day, drows in sorted(by_day.items()):
             entry = {'day': day, 'scoredAt': datetime.now(LONDON).isoformat(),
                      'weekday': datetime.strptime(day, '%Y-%m-%d').weekday() < 5, 'candidate': a.candidate,
-                     'model': model, 'operator': a.operator, 'line': a.line, 'directions': {}}
+                     'model': model, 'operator': a.operator, 'line': a.line, 'stopMapping': MAPPING_VERSION,
+                     'directions': {}}
             for d in ('inbound', 'outbound'):
                 # Every criterion needs its own count: the moments in the band (coverage's denominator),
                 # those with an estimate, and where the timetable's time exists too, both errors.

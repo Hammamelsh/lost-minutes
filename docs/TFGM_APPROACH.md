@@ -4,6 +4,14 @@
 address and send if and when he chooses. No individual is named because no name has been verified;
 the routes to a real contact are listed instead.
 
+**Not to be raised: inbound route 15's timing.** The 20 September record called the inbound 15
+registration 15–17 minutes early against its buses and pointed here to settle it. That was this
+project's own error, withdrawn on 28 September 2026: a road's stop offsets were read by list position,
+and inbound 15 starts 14 stops outside the area we collect, so every stop was compared with the
+timetable of the stop 14 before it. Paired correctly, its buses run about 2.6 minutes behind the
+timetable at the first stops we see, as outbound's do (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`
+§6). The only observation in these drafts is the 256's.
+
 Two things are being asked for, and they are worth keeping separate:
 
 1. **Feedback on a data-quality observation**, which costs them ten minutes and is useful to them

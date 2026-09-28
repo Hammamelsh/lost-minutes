@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pipeline.passages import Track, infer_passages, load_track, metres, passages_to_json  # noqa: E402
+from pipeline.stop_mapping import MAPPING_VERSION  # noqa: E402
 from pipeline.warehouse import DEFAULT_DB, connect  # noqa: E402
 
 LONDON = ZoneInfo('Europe/London')
@@ -89,7 +90,10 @@ def main():
     print(f'Hillingdon Road (opp) 1800SJ32251: {len(hill)} scoreable passages')
 
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(a.out).write_text(json.dumps({'line': a.line, 'operator': a.operator, 'generatedAt': datetime.now(LONDON).isoformat(),
+    # stopMapping: the passages name their stops from the shapes' explicit stop mapping (version 2), so a
+    # reader can refuse a file written by the list-position pairing of before 28 September 2026.
+    Path(a.out).write_text(json.dumps({'line': a.line, 'operator': a.operator, 'stopMapping': MAPPING_VERSION,
+                                       'generatedAt': datetime.now(LONDON).isoformat(),
                                        'rules': {'maxGapS': 60, 'offRoadM': 40, 'minReports': 6},
                                        'totals': dict(totals), 'within40Pairs': within40_pairs,
                                        'passages': passages_to_json(all_passages)}, indent=1))

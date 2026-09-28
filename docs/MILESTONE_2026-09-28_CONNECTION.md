@@ -70,7 +70,9 @@ passenger has tried it (`docs/CONNECTION_WALKTHROUGH.md` is for that).
   (checked against its buses), *unverified* (never checked; said so under the times) or
   *unreliable* (checked and wrong). An unreliable leg gives **no times**, and the card says why —
   "schedule runs 15 min early against the bus’s own reports" — rather than a "Scheduled" label
-  over the gap. Unverified is not unreliable, and is not treated as it.
+  over the gap. Unverified is not unreliable, and is not treated as it. (The quoted reason was inbound
+  15's verdict, withdrawn the same evening as the check's own fault; no service carries one now.
+  `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6.)
 - **The rows**: each first bus in the next three hours (else the next day's, said to be), when it
   is timetabled to reach the change, when the passenger could be at the second boarding point
   (arrival + walk + 2 min to change, 7 with *More time to change*), and the first second bus
@@ -206,7 +208,7 @@ moment the check starts and the router mocked:
   found … direct or with one change. That is what our timetables hold (four operators), not proof
   that no journey exists", with the external planners kept.
 - **A known timing-quality exclusion**: the 256's clock marked 15 min early gives the journey with
-  no times and the reason in view.
+  no times and the reason in view (a fixture's verdict, testing the rule; not a finding about the 256).
 - Also: the stages move the stop and survive a reload and a look at another bus; the frame does
   not move across three publications; the ride keeps the other leg and switches focus without
   moving the stage.

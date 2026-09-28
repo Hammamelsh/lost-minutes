@@ -20,13 +20,13 @@ Rules, each here for a reason:
     with 'visit' 2, 3, ...; a scorer decides what to do with it. On route 15 there are no loops,
     so a second visit is a jump artefact, and the scorer skips them.
   - The half-gap is the stated uncertainty. It is not GPS accuracy, which is not in the feed.
-  - A stop is named by its own index in the pattern. The shape's offsets cover only the stops it
-    was built through, those inside the service area, in order (pipeline/shapes.py), so they are
-    put on the pattern's indices first (placed_offsets), and a road whose stops do not line up is
-    refused. Until 28 September 2026 they were read by the pattern's index as they stood: right
-    where a pattern starts inside the area, wrong by 14 stops on inbound 15, which starts outside
-    it, so its passages were named after the stops 14 earlier and its timetable looked 15 minutes
-    early against them (docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md).
+  - A stop is named by its own index in the pattern, from the shape's explicit stop mapping
+    (pipeline/stop_mapping.py): which pattern stop each offset along the road is. A shape without
+    one, or whose mapping disagrees with the pattern in any respect, is refused. Until 28 September
+    2026 the offsets were read by the pattern's index as they stood: right where a pattern's stops
+    inside the service area come first, wrong for 284 of 560 shapes, and by 14 stops on inbound 15,
+    whose passages were named after the stops 14 earlier, so its timetable looked 15 minutes early
+    against them (docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md).
 
 This is the ground truth the arrival estimator is scored against, and it is only as good as
 this inference, which is why every passage carries its own uncertainty and its own evidence.
@@ -39,9 +39,10 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .stop_mapping import MAPPING_VERSION, MappingError, aligned_offsets
+
 ROOT = Path(__file__).resolve().parents[1]
 SHAPES = ROOT / 'public/data/shapes'
-STOPS = ROOT / 'public/data/stops.json'
 
 MAX_GAP_S = 60          # a passage bracketed wider than this is recorded but never scored
 OFF_ROAD_M = 40         # a report further from the shape than this is not placed
@@ -136,38 +137,21 @@ class Track:
         return lo
 
 
-def placed_stops(path: Path = STOPS) -> set[str]:
-    """The boarding points inside the service area: the stops a shape is built through."""
-    data = json.loads(Path(path).read_text())
-    return {s['id'] for s in (data['stops'] if isinstance(data, dict) else data)}
-
-
-def placed_offsets(pattern_stops: list[str], shape_offsets: list, placed: set[str]) -> list | None:
-    """The shape's stop offsets on the pattern's own stop indices, None for a stop the road was not
-    built through. None altogether when the pattern's stops inside the area do not number as the
-    shape's offsets: a road that cannot be lined up with its stops is refused, not guessed. The page
-    does the same (lib/arrival.ts, arrivalTrack)."""
-    indices = [j for j, stop in enumerate(pattern_stops) if stop in placed]
-    if len(indices) != len(shape_offsets):
-        return None
-    aligned = [None] * len(pattern_stops)
-    for j, offset in zip(indices, shape_offsets):
-        aligned[j] = offset
-    return aligned
-
-
-def load_track(pattern_id: str, pattern_stops: list[str], placed: set[str] | None = None) -> Track | None:
-    """The pattern's accepted road, its stop offsets on the pattern's own stop indices; None with no
-    accepted shape, or one whose stops do not line up with the pattern's."""
+def load_track(pattern_id: str, pattern_stops: list[str]) -> Track | None:
+    """The pattern's accepted road, its stop offsets on the pattern's own stop indices from the shape's
+    stop mapping; None with no accepted shape, or no mapping that agrees with this pattern."""
     index = json.loads((SHAPES / 'index.json').read_text())
     entry = index['patterns'].get(pattern_id)
     if not entry or entry.get('status') != 'accepted' or not entry.get('file'):
         return None
     shape = json.loads((SHAPES / entry['file']).read_text())
-    offsets = placed_offsets(pattern_stops, shape.get('stopOffsets') or [], placed_stops() if placed is None else placed)
-    if offsets is None:
+    points = decode_polyline(shape['polyline6'], 6)
+    track = Track(points, [])
+    try:
+        track.stop_offsets = aligned_offsets(shape.get('stopMapping'), pattern_id, pattern_stops, track.length)
+    except MappingError:
         return None
-    return Track(decode_polyline(shape['polyline6'], 6), offsets)
+    return track
 
 
 # ------------------------------------------------------------------ inference
@@ -179,9 +163,9 @@ def infer_passages(pattern_id: str, stops: list[str], reports_by_journey: dict[s
     track = track or load_track(pattern_id, stops)
     summary = {'journeys': len(reports_by_journey), 'journeysUsed': 0, 'reportsPlaced': 0,
                'reportsOffRoad': 0, 'journeysTooFewReports': 0, 'passages': 0, 'scoreable': 0,
-               'unbounded': 0, 'repeatVisits': 0, 'backwardsSkipped': 0}
+               'unbounded': 0, 'repeatVisits': 0, 'backwardsSkipped': 0, 'stopMapping': MAPPING_VERSION}
     if track is None:
-        summary['reason'] = 'no accepted shape, or its stops do not line up with the pattern'
+        summary['reason'] = 'no accepted shape, or no stop mapping that agrees with the pattern'
         return [], summary
     offsets = track.stop_offsets
     passages: list[Passage] = []

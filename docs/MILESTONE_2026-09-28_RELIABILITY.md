@@ -195,7 +195,8 @@ without a result and shows as that.
   8 of 8 sampled boards identical apart from the flag.
 - **The evaluation**, on the same copy here with the server's settings: the passage audit 13 s
   (374 MB), the scoring 1 min 14 s (576 MB), the schedule check 0.9 s (inbound 15 still 15.4 min
-  early, withheld; outbound verified). Then **by hand on the server** after the deploy, beside the
+  early, withheld; outbound verified). (Corrected that evening: the inbound figure was the check
+  pairing its stops 14 out; paired correctly, +2.6 min. `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6.) Then **by hand on the server** after the deploy, beside the
   collector, 14:34:57–14:37:41 UTC: succeeded in 2 min 44 s at a 684.5M peak (the unit's own figure,
   against `MemoryMax=1500M` and a 20-minute limit), the same 1,133,843 moments, outbound published as
   *passed, awaiting approval*. The collector was the same process before and after, publishing

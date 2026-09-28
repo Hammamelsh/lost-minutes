@@ -20,7 +20,7 @@ def entry(day, journeys, passages, errs, scored_at='2026-09-22T04:10:00+01:00', 
          'bothScheduledAbs': [e + 1.0 for e in errs] if scheduled_abs is None else scheduled_abs,
          'patternIds': ['BNML:15:outbound:c9291c1aea'], 'absErrorsShownBand': errs if shown is None else shown}
     return {'day': day, 'scoredAt': scored_at, 'weekday': weekday, 'candidate': 'blended', 'model': model,
-            'operator': 'BNML', 'line': '15', 'directions': {'outbound': d}}
+            'operator': 'BNML', 'line': '15', 'stopMapping': 2, 'directions': {'outbound': d}}
 
 
 def passing(days=('2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24'), **over):
@@ -83,6 +83,14 @@ class ReleaseCheckTests(unittest.TestCase):
         v = self.run_check(old, {'approved': [SCOPE]})
         self.assertEqual(v['nights'], 0)
         self.assertEqual(v['scopes'], [])
+
+    def test_a_night_scored_before_the_stop_mapping_counts_toward_nothing(self):
+        # Until 28 September 2026 passages were paired with stops by list position (inbound 15 by 14 stops).
+        old = [{**e, 'stopMapping': None} for e in passing()]
+        verdict = self.run_check(old)
+        self.assertEqual(verdict['nights'], 0)
+        self.assertEqual(sorted(verdict['skippedNights']), ['2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24'])
+        self.assertEqual(verdict['directions'], {})
 
     def test_only_an_exact_approval_releases_and_only_what_it_names(self):
         self.assertEqual(self.run_check(passing())['scopes'], [], 'no approval file: nothing')

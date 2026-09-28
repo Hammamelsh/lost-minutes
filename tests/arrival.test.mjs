@@ -27,15 +27,15 @@ test('the parameters and the model name are exactly the frozen file’s', () => 
 const sample = JSON.parse(read('tests/fixtures/arrival-parity-sample.json'));
 const index = JSON.parse(read('public/data/shapes/index.json'));
 const shape = JSON.parse(read(`public/data/shapes/${index.patterns[sample.pattern].file}`));
-const inArea = new Set(JSON.parse(read('public/data/stops.json')).stops.map(s => s.id));
-const TRACK = arrivalTrack(shape.polyline6, shape.stopOffsets, sample.patternStops, id => inArea.has(id));
+const TRACK = arrivalTrack(shape.polyline6, shape.stopMapping, {id: sample.pattern, stops: sample.patternStops});
 
 test('the road is measured as the evaluation measures it, its stops on the pattern’s own indices', () => {
  assert.ok(TRACK);
  sample.stopOffsets.forEach((offset, j) => assert.equal(TRACK.stopOffsets[j], offset));
  assert.ok(TRACK.stopOffsets.slice(sample.stopOffsets.length).every(o => o === null), 'the stops outside the area have none');
- // A road whose placed stops do not number the pattern's stops inside the area is refused, not guessed.
- assert.equal(arrivalTrack(shape.polyline6, shape.stopOffsets.slice(1), sample.patternStops, id => inArea.has(id)), null);
+ // A shape with no stop mapping, or one for another pattern, gives no track: nothing is paired by position.
+ assert.equal(arrivalTrack(shape.polyline6, undefined, {id: sample.pattern, stops: sample.patternStops}), null);
+ assert.equal(arrivalTrack(shape.polyline6, shape.stopMapping, {id: 'BNML:15:outbound:0000000000', stops: sample.patternStops}), null);
 });
 
 test('on held-out real journeys the page answers as the evaluator did, from the reports up to each moment only', () => {

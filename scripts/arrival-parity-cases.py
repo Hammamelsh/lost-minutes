@@ -72,7 +72,7 @@ def main():
     for direction, vehicle, aimed, t, lat, lon in rows:
         reports[(direction, f'{vehicle}|{aimed}')].append((int(t), lat, lon))
 
-    passages = json.loads(Path(a.passages).read_text())['passages']
+    passages = ev.passages_from(json.loads(Path(a.passages).read_text()))
     day_of = lambda ms: datetime.fromtimestamp(ms / 1000, LONDON).date().isoformat()
     keys = sorted({p['journey_key'] for p in passages if p['pattern_id'] == a.pattern and p['scoreable']
                    and a.first <= day_of(p['passed_at_ms']) <= a.last})

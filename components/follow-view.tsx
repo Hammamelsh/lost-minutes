@@ -998,9 +998,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   let current=true;
   const pattern=arrivalPattern;
   loadTrack(pattern.id).then(r=>{if(!current)return;
-   setArrivalTrack({patternId:pattern.id,track:r.shape?buildArrivalTrack(r.shape.polyline6,r.shape.stopOffsets,pattern.stops,id=>stopById.has(id)):null})});
+   setArrivalTrack({patternId:pattern.id,track:r.shape?buildArrivalTrack(r.shape.polyline6,r.shape.stopMapping,pattern):null})});
   return()=>{current=false};
- },[arrivalPattern,arrivalScoped,stopById]);
+ },[arrivalPattern,arrivalScoped]);
  // The shown bus's journey as the page has read it, publication by publication: what the estimate may
  // use, and from when every report of it is held (lib/arrival.ts, JourneyHistory). Each publication of
  // the bus adds its reports; another journey starts afresh. Merging the same publication twice changes

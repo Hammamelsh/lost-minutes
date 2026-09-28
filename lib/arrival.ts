@@ -21,6 +21,8 @@
  *   blended    remaining, with progress taking over linearly inside the last NEAR metres.
  */
 
+import {alignedOffsets} from '@/lib/stop-mapping';
+
 /** The frozen parameters, exactly as scripts/arrival-params-frozen.json holds them (a test compares). */
 export const ARRIVAL_MODEL = 'blended@9a626129f782';
 export const ARRIVAL_PARAMS = {
@@ -67,22 +69,19 @@ const metres = (a: [number, number], b: [number, number]) =>
  Math.hypot((a[0] - b[0]) * M_PER_DEG, (a[1] - b[1]) * M_PER_DEG * Math.cos(a[0] * DEG));
 
 /**
- * The road from its published shape. The shape's offsets are for the pattern's stops inside the
- * service area, in order (pipeline/shapes.py builds through them alone); they are put back on the
- * pattern's own indices, null for a stop outside. If the stops inside do not number as many as the
- * offsets, which stop is which cannot be known, and there is no track.
+ * The road from its published shape, its stops on the pattern's own indices from the shape's explicit stop
+ * mapping (lib/stop-mapping.ts): null for a stop the road was not built through. A shape with no mapping, or
+ * one that disagrees with this pattern in any respect, gives no track: which stop is which is never inferred
+ * from list position (until 28 September 2026 it was, and was wrong for inbound 15).
  */
-export function arrivalTrack(polyline6: string, shapeOffsets: (number | null)[], patternStops: string[],
-                             placed: (stopId: string) => boolean): ArrivalTrack | null {
+export function arrivalTrack(polyline6: string, mapping: unknown, pattern: {id: string; stops: string[]}): ArrivalTrack | null {
  const points = decodePolyline6(polyline6);
  if (points.length < 2) return null;
  const cum = [0];
  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + metres(points[i - 1], points[i]));
- const inside = patternStops.map(placed);
- if (inside.filter(Boolean).length !== shapeOffsets.length) return null;
- let k = 0;
- const stopOffsets = patternStops.map((_, i) => inside[i] ? shapeOffsets[k++] ?? null : null);
- return {points, cum, length: cum[cum.length - 1], stopOffsets};
+ const aligned = alignedOffsets(mapping, pattern, cum[cum.length - 1]);
+ if ('error' in aligned) return null;
+ return {points, cum, length: cum[cum.length - 1], stopOffsets: aligned.offsets};
 }
 
 function segmentAt(track: ArrivalTrack, s: number) {

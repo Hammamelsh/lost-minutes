@@ -907,7 +907,8 @@ export; nothing on a physical phone.
   road before it. **Replaced by measurement:** every vertex of the accepted track is tested against
   every other candidate's shape; shared road is where all lie within 10 m. On route 15 that is
   **387 → 13,611 m** of the accepted shape, with Hillingdon Road at 8,715 m and **8,320 m of shared
-  road before it**; a bus is placed on it only if its last report and its whole look-ahead (542 m:
+  road before it** (corrected 28 September: the stop is at 5,495 m, with about 5,100 m of shared road
+  before it; 8,715 m was the offset of the stop 14 places on, read by list position); a bus is placed on it only if its last report and its whole look-ahead (542 m:
   17 m/s × 30 s + the camera's 32 m) are inside, else left at its report with the reason. The first
   version fragmented on a 136 m straight and was caught by its own browser check.
 - **Arrival times: the timetabled journey is identifiable, and estimates are evaluable.** The feed's

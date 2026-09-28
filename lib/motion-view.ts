@@ -26,12 +26,14 @@ export function historyOf(bus:FollowBus):History{
 
 const indexSchema=z.object({patterns:z.record(z.object({status:z.string(),reason:z.string().nullable().optional(),
  file:z.string().optional()}).passthrough())}).passthrough();
+// stopOffsets are positions along the road, in road order, for the drawing's pauses at stops; which stop
+// each is comes only from stopMapping (lib/stop-mapping.ts), never from list position.
 const shapeSchema=z.object({id:z.string(),polyline6:z.string(),
- stopOffsets:z.array(z.number().nullable()).optional()}).passthrough();
+ stopOffsets:z.array(z.number().nullable()).optional(),stopMapping:z.unknown().optional()}).passthrough();
 
 /** The road for drawing, and the shape it came from: the arrival estimate measures the same shape by the
- *  evaluation's own rule (lib/arrival.ts, arrivalTrack), so it keeps the published polyline and offsets. */
-export type TrackResult={track:Track|null;reason:string|null;shape?:{polyline6:string;stopOffsets:(number|null)[]}};
+ *  evaluation's own rule (lib/arrival.ts, arrivalTrack), with the shape's stop mapping. */
+export type TrackResult={track:Track|null;reason:string|null;shape?:{polyline6:string;stopOffsets:(number|null)[];stopMapping?:unknown}};
 
 let indexRequest:Promise<z.infer<typeof indexSchema>|null>|null=null;
 const trackRequests=new Map<string,Promise<TrackResult>>();
@@ -65,7 +67,7 @@ export function loadTrack(patternId:string|null|undefined,base='/data/shapes'):P
   if(!response?.ok)return {track:null,reason:'its road geometry could not be loaded'};
   const shape=shapeSchema.parse(await response.json());
   return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]),reason:null,
-   shape:{polyline6:shape.polyline6,stopOffsets:shape.stopOffsets??[]}};
+   shape:{polyline6:shape.polyline6,stopOffsets:shape.stopOffsets??[],stopMapping:shape.stopMapping}};
  })().catch(()=>({track:null,reason:'its road geometry could not be read'}));
  trackRequests.set(patternId,request);
  return request;
@@ -93,8 +95,9 @@ export type SharedRoad={from:number;to:number}[];
  *
  * Measured on route 15 inbound on 20 September 2026: all 684 vertices of the 5-journey short
  * working lie within 10 m of the accepted 140-journey shape, so the shared run is 395 m to
- * 13,626 m of the accepted track, and Hillingdon Road (opp) at 8,715 m has 8,320 m of shared
- * road before it. The first 395 m are not shared and are refused.
+ * 13,626 m of the accepted track, and Hillingdon Road (opp), at 5,495 m, has about 5,100 m of
+ * shared road before it. The first 395 m are not shared and are refused. (The stop's offset was
+ * given as 8,715 m until 28 September 2026: that is the stop 14 places on, read by list position.)
  */
 export function sharedRoad(accepted:Track,others:Track[],toleranceMetres=10):SharedRoad{
  if(!others.length)return [{from:0,to:accepted.length}];

@@ -18,10 +18,9 @@ import {ARRIVAL_MODEL, ARRIVAL_PARAMS, arrivalTrack, blendedEta, cruiseFor, plac
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 const cases = JSON.parse(readFileSync(arg('cases'), 'utf8'));
 const stopsFile = JSON.parse(readFileSync(arg('stops', 'public/data/stops.json'), 'utf8'));
-const inArea = new Set((stopsFile.stops ?? stopsFile).map(s => s.id));
 const index = JSON.parse(readFileSync('public/data/shapes/index.json', 'utf8'));
 const shape = JSON.parse(readFileSync(`public/data/shapes/${index.patterns[cases.pattern].file}`, 'utf8'));
-const track = arrivalTrack(shape.polyline6, shape.stopOffsets, cases.patternStops, id => inArea.has(id));
+const track = arrivalTrack(shape.polyline6, shape.stopMapping, {id: cases.pattern, stops: cases.patternStops});
 if (!track) throw new Error('the page could not build the road');
 
 const summary = {pattern: cases.pattern, model: {evaluated: cases.model, page: ARRIVAL_MODEL, same: cases.model === ARRIVAL_MODEL},

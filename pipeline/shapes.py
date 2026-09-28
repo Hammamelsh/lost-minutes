@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .core import atomic_json, utc_now
+from . import stop_mapping as sm
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = Path('data/warehouse/lost-minutes.duckdb')
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS pattern_shape (
     run_id           TEXT,
     response_sha256  TEXT NOT NULL,     -- the stored router responses, comma-separated
     polyline6        TEXT,              -- the shape, Google polyline at precision 6 (lon/lat)
-    stop_offsets     TEXT,              -- JSON: metres along the shape of each placed stop
+    stop_offsets     TEXT,              -- JSON: metres along the shape of each placed stop, in road order
+    stop_mapping     TEXT,              -- JSON: which pattern stop each offset is (pipeline/stop_mapping.py)
     points           INTEGER NOT NULL,
     length_m         DOUBLE NOT NULL,
     stops_placed     INTEGER NOT NULL,
@@ -64,6 +66,15 @@ CREATE TABLE IF NOT EXISTS pattern_shape (
     reason           TEXT
 );
 """
+# A warehouse whose shape table predates the stop mapping (28 September 2026) gains the column at its end;
+# every statement names its columns, so the order does not matter.
+MIGRATIONS = ['ALTER TABLE pattern_shape ADD COLUMN IF NOT EXISTS stop_mapping TEXT']
+
+
+def ensure_schema(con):
+    con.execute(DDL)
+    for statement in MIGRATIONS:
+        con.execute(statement)
 
 # ------------------------------------------------------------------ polyline
 
@@ -272,11 +283,15 @@ def corridor_patterns(con, lines, stop_bearings):
             f'SELECT pattern_id, line_name, operator_code, stop_count FROM service_pattern'
             f' WHERE line_name IN ({marks}) AND stops_in_area >= {MIN_STOPS_IN_AREA}'
             ' ORDER BY operator_code, line_name, pattern_id', list(lines)).fetchall():
-        stops = [{'atco': atco, 'lat': lat, 'lon': lon, 'bearing': stop_bearings.get(atco)}
-                 for atco, lat, lon in con.execute(
-                     'SELECT ps.atco_code, s.lat, s.lon FROM service_pattern_stop ps'
-                     ' JOIN stop s ON s.atco_code = ps.atco_code WHERE ps.pattern_id = ?'
-                     ' ORDER BY ps.sequence', [pattern_id]).fetchall()]
+        # Each placed stop carries its own index in the pattern's full stop list (stops outside the area
+        # included), so the build can say which stop each offset is (pipeline/stop_mapping.py).
+        stops = [{'atco': atco, 'lat': lat, 'lon': lon, 'bearing': stop_bearings.get(atco), 'index': int(index)}
+                 for atco, lat, lon, index in con.execute(
+                     'SELECT atco_code, lat, lon, idx FROM ('
+                     ' SELECT ps.atco_code, s.lat, s.lon, s.atco_code AS placed,'
+                     ' row_number() OVER (ORDER BY ps.sequence) - 1 AS idx'
+                     ' FROM service_pattern_stop ps LEFT JOIN stop s ON s.atco_code = ps.atco_code'
+                     ' WHERE ps.pattern_id = ?) WHERE placed IS NOT NULL ORDER BY idx', [pattern_id]).fetchall()]
         patterns.append({'id': pattern_id, 'line': line, 'operator': operator,
                          'stopCount': int(stop_count), 'stops': stops})
     return patterns
@@ -291,7 +306,7 @@ def build(root=ROOT, db_path=None, lines=('15',), router=ROUTER, fetch=None, sle
     if stops_file.exists():
         bearings = {s['id']: s.get('bearing') for s in json.loads(stops_file.read_text())['stops']}
     con = connect(db_path or root / DEFAULT_DB)
-    con.execute(DDL)
+    ensure_schema(con)
     run_id = start_run(con, 'shape_build', is_historical=False,
                        note=f'bus road geometry for lines {",".join(lines)} from {router}')
     from .match import load_patterns
@@ -335,12 +350,23 @@ def build(root=ROOT, db_path=None, lines=('15',), router=ROUTER, fetch=None, sle
                 else:
                     stats = validate(points, buckets.get(pattern['id'], []))
                     status, reason = decide(stats)
+            mapping = None
+            if offsets:
+                try:
+                    mapping = sm.from_placed(pattern['id'], pattern['stopCount'],
+                                             [(stop['index'], stop['atco']) for stop in stops], offsets)
+                except sm.MappingError as error:
+                    status, reason = 'rejected', f'which stop each offset belongs to is not known: {error}'
             length = 0.0 if not offsets else offsets[-1]
             con.execute('DELETE FROM pattern_shape WHERE pattern_id = ?', [pattern['id']])
             con.execute(
-                'INSERT INTO pattern_shape VALUES (?, ?, ?, now(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO pattern_shape (pattern_id, router, costing, built_at, run_id, response_sha256,'
+                ' polyline6, stop_offsets, stop_mapping, points, length_m, stops_placed, stop_count, reports,'
+                ' offset_p50_m, offset_p95_m, within_30m, status, reason)'
+                ' VALUES (?, ?, ?, now(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [pattern['id'], router, 'bus', run_id, ','.join(hashes),
                  encode_polyline(points) if points else None, json.dumps(offsets),
+                 json.dumps(mapping) if mapping else None,
                  len(points), length, len(stops), pattern['stopCount'], stats['reports'],
                  stats['p50'], stats['p95'], stats['within30'], status, reason])
             built.append({'pattern': pattern['id'], 'status': status, 'reason': reason,
@@ -362,11 +388,50 @@ def safe_name(pattern_id):
     return pattern_id.replace(':', '_').replace('/', '_') + '.json'
 
 
+def latlon(points):
+    """(lon, lat) pairs, as this module decodes them, as (lat, lon)."""
+    return [(lat, lon) for lon, lat in points]
+
+
+def checked_mapping(pattern_id, pattern_stops, coords, hashes, offsets, points, root=ROOT, stored=None):
+    """A shape's stop mapping, from the build (`stored`) or else from its own stored routing requests,
+    and how far its worst stop lies from the road at its offset. MappingError when it cannot be made, or
+    when the geometry disagrees with it."""
+    if stored:
+        mapping = stored
+    else:
+        bodies = []
+        for digest in hashes:
+            raw = Path(root) / RAW_DIR / f'{digest}.json.gz'
+            if not raw.exists():
+                raise sm.MappingError(f'routing request {digest[:12]} is not kept here')
+            bodies.append(json.loads(gzip.decompress(raw.read_bytes())))
+        mapping = sm.from_requests(pattern_id, pattern_stops, coords, bodies, offsets)
+    sm.aligned_offsets(mapping, pattern_id, pattern_stops)            # every rule a reader applies
+    worst, _ = sm.geometry_check(mapping, latlon(points), coords)
+    if worst > sm.GEOMETRY_TOLERANCE_M:
+        raise sm.MappingError(f'a mapped stop lies {worst:.0f} m from the road at its offset '
+                              f'(at most {sm.GEOMETRY_TOLERANCE_M:.0f} m)')
+    return mapping, worst
+
+
+STOP_MAPPING_NOTE = ('stopMapping says which pattern stop each offset along the road is: its index in the '
+                     'pattern\'s full stop list, its stop code, its offset (version 2, since 28 September 2026). '
+                     'stopOffsets is the same offsets in road order, for readers that need only positions; it '
+                     'must never be paired with the pattern\'s stops by list position.')
+
+
 def publish(con, root=ROOT):
     """One small file per shape, loaded only for a selected bus, and an index of what exists."""
-    con.execute(DDL)
+    ensure_schema(con)
     target = Path(root) / SHAPES_DIR
-    index = {'schemaVersion': 1, 'generatedAt': utc_now(),
+    stops_of = {}
+    for pattern_id, atco in con.execute(
+            'SELECT pattern_id, atco_code FROM service_pattern_stop ORDER BY pattern_id, sequence').fetchall():
+        stops_of.setdefault(pattern_id, []).append(atco)
+    coords = {atco: (lat, lon) for atco, lat, lon in con.execute('SELECT atco_code, lat, lon FROM stop').fetchall()}
+    index = {'schemaVersion': 2, 'generatedAt': utc_now(), 'stopMappingVersion': sm.MAPPING_VERSION,
+             'stopMappingNote': STOP_MAPPING_NOTE,
              'rule': {'acceptP95Metres': ACCEPT_P95_METRES, 'minimumReports': ACCEPT_MIN_REPORTS},
              'notes': ['A shape is a road path a bus-costing router found through a pattern’s stops in '
                        'order. It is not the operator’s own route geometry, which TfGM does not publish.',
@@ -375,9 +440,9 @@ def publish(con, root=ROOT):
              'attribution': 'Road geometry: Valhalla bus routing on valhalla1.openstreetmap.de (FOSSGIS e.V.), '
                             '© OpenStreetMap contributors, ODbL.',
              'patterns': {}}
-    for (pattern_id, router, costing, built_at, hashes, polyline, offsets, points, length,
+    for (pattern_id, router, costing, built_at, hashes, polyline, offsets, stored_mapping, points, length,
          placed, total, reports, p50, p95, within, status, reason) in con.execute(
-            'SELECT pattern_id, router, costing, built_at, response_sha256, polyline6, stop_offsets,'
+            'SELECT pattern_id, router, costing, built_at, response_sha256, polyline6, stop_offsets, stop_mapping,'
             ' points, length_m, stops_placed, stop_count, reports, offset_p50_m, offset_p95_m,'
             ' within_30m, status, reason FROM pattern_shape ORDER BY pattern_id').fetchall():
         entry = {'status': status, 'reason': reason, 'lengthMetres': round(length, 1),
@@ -390,11 +455,69 @@ def publish(con, root=ROOT):
                                 'responseSha256': hashes.split(',') if hashes else []}}
         if polyline:
             entry['file'] = safe_name(pattern_id)
-            atomic_json(target / entry['file'], {'id': pattern_id, 'polyline6': polyline,
-                                                 'stopOffsets': json.loads(offsets or '[]'), **entry})
+            body = {'id': pattern_id, 'polyline6': polyline, 'stopOffsets': json.loads(offsets or '[]')}
+            try:
+                if pattern_id not in stops_of:
+                    raise sm.MappingError('the pattern is not in this warehouse')
+                mapping, worst = checked_mapping(pattern_id, stops_of[pattern_id], coords,
+                                                 hashes.split(',') if hashes else [], body['stopOffsets'],
+                                                 decode_polyline(polyline), root,
+                                                 json.loads(stored_mapping) if stored_mapping else None)
+                body['stopMapping'] = mapping
+                body['stopMappingCheck'] = {'version': sm.MAPPING_VERSION, 'source': mapping['source'],
+                                            'worstStopMetres': round(worst, 1)}
+            except sm.MappingError as error:
+                body['stopMappingCheck'] = {'version': None, 'refused': str(error)}
+            # The check stays in the shape file: the index is read by every page and needs none of it.
+            atomic_json(target / entry['file'], {**body, **entry})
         index['patterns'][pattern_id] = entry
     atomic_json(target / 'index.json', index)
     return index
+
+
+def map_published(root=ROOT, catalogues=(Path('public/data/patterns.json'),), log=print):
+    """Give every published shape its stop mapping, in place, from the build's own stored routing
+    requests, checked against the shape's geometry. Nothing else in a file changes. For shapes published
+    before 28 September 2026; a build since writes its mapping itself."""
+    root = Path(root)
+    target = root / SHAPES_DIR
+    index = json.loads((target / 'index.json').read_text())
+    patterns = {}
+    for catalogue in catalogues:
+        for pattern in json.loads((root / catalogue).read_text())['patterns']:
+            patterns.setdefault(pattern['id'], pattern['stops'])
+    stops = json.loads((root / 'public/data/stops.json').read_text())
+    coords = {stop['id']: (stop['lat'], stop['lon']) for stop in (stops['stops'] if isinstance(stops, dict) else stops)}
+    summary = {'shapes': 0, 'mapped': 0, 'refused': {}, 'worstStopMetres': 0.0, 'readByPositionDiffers': 0}
+    for pattern_id, entry in sorted(index['patterns'].items()):
+        if not entry.get('file'):
+            continue
+        summary['shapes'] += 1
+        shape = json.loads((target / entry['file']).read_text())
+        try:
+            if pattern_id not in patterns:
+                raise sm.MappingError('the pattern is in none of the catalogues given')
+            mapping, worst = checked_mapping(pattern_id, patterns[pattern_id], coords,
+                                             entry.get('provenance', {}).get('responseSha256') or [],
+                                             shape.get('stopOffsets') or [], decode_polyline(shape['polyline6']), root)
+        except sm.MappingError as error:
+            shape.pop('stopMapping', None)                    # a refused mapping is absent: readers refuse
+            check = {'version': None, 'refused': str(error)}
+            summary['refused'][pattern_id] = str(error)
+        else:
+            shape['stopMapping'] = mapping
+            check = {'version': sm.MAPPING_VERSION, 'source': mapping['source'], 'worstStopMetres': round(worst, 1)}
+            summary['mapped'] += 1
+            summary['worstStopMetres'] = max(summary['worstStopMetres'], round(worst, 1))
+            summary['readByPositionDiffers'] += ([o['index'] for o in mapping['occurrences']]
+                                                 != list(range(len(mapping['occurrences']))))
+        shape['stopMappingCheck'] = check          # in the shape file only: every page reads the index
+        entry.pop('stopMappingCheck', None)
+        atomic_json(target / entry['file'], shape)
+    index.update({'schemaVersion': 2, 'stopMappingVersion': sm.MAPPING_VERSION, 'stopMappingNote': STOP_MAPPING_NOTE})
+    atomic_json(target / 'index.json', index)
+    log(json.dumps({**summary, 'refused': len(summary['refused'])}))
+    return summary
 
 
 def main(argv=None):
@@ -404,7 +527,13 @@ def main(argv=None):
     make.add_argument('--lines', required=True, help='comma-separated line names, e.g. 15,250,256')
     make.add_argument('--router', default=ROUTER)
     sub.add_parser('publish', help='republish shapes already in the warehouse')
+    mapped = sub.add_parser('map', help='add stop mappings to the published shapes from their stored routing requests')
+    mapped.add_argument('--catalogue', action='append', default=None,
+                        help='a patterns.json holding the shapes\' patterns (repeatable; default public/data/patterns.json)')
     args = parser.parse_args(argv)
+    if args.command == 'map':
+        summary = map_published(ROOT, [Path(c) for c in (args.catalogue or ['public/data/patterns.json'])])
+        return 0 if not summary['refused'] else 1
     if args.command == 'publish':
         from .warehouse import connect
         con = connect(ROOT / DEFAULT_DB)

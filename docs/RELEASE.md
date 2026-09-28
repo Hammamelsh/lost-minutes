@@ -834,6 +834,19 @@ and this page does not decide it: no correction is applied, and the inbound time
 withheld by the schedule anchor. Settling it needs the operator or TfGM; the approach drafts are
 in `docs/TFGM_APPROACH.md`.
 
+**Correction, 28 September 2026: the trace above and its conclusion are wrong, and nothing is to be
+raised with TfGM or the operator.** A road shape covers only a pattern's stops inside the area we
+collect. Outbound 15's road ends at its last stop inside it (stop 44 of 57, about 10 min before the
+terminus by the timetable), not at the terminus; inbound 15's begins at its first stop inside it
+(stop 14 of 61, 9–10 min after the origin). MF74NNG's 22 minutes without reports were the bus outside
+the area: the last 12 outbound stops, its stand and the first 14 inbound stops. It reappeared "at the
+same spot" at the inbound's first stop inside the area at 13:34, where the 13:18 is timetabled about
+13:28: some 6 minutes late, not 16. The passage inference put it "at the origin" only because the
+road's stop offsets were read by list position (the stop-offset bug), and every "+15 to +17 min" in
+this record comes from that pairing. Paired with their own stops, inbound 15's first observed stops
+read +2.6 min on 21–27 September, as outbound's do. The missing `WaitTime` is not evidence of
+anything. `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6.
+
 **An outage I caused, recorded.** Taking a warehouse snapshot by hand on the server, the copy
 failed on a missing directory, `set -e` aborted the script before the collector restart, and
 **collection was down for 119 s** until I restarted it. That is precisely the failure the nightly
@@ -879,6 +892,12 @@ Sunday, 10 journeys, 289 passages, never seen by the fit — scored once: the ra
 thresholds pass, and **the floors fail: 10 journeys against 20, no weekday. Not released.** At
 Hillingdon Road (opp), 43 moments: 0.89 / 1.27.
 
+**Correction, 28 September 2026:** every inbound figure in this paragraph came from passages paired
+with the stop 14 places earlier in the pattern (the stop-offset bug), so the inbound errors are not
+valid, "At Hillingdon Road (opp)" describes a stop 14 places further on, and the "inbound discrepancy"
+the timetable-difference methods were said to be immune to did not exist. The outbound figures
+stand: outbound's stops inside the area come first, so its pairing was right. `docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md` §6.
+
 **Per-direction release is pre-registered from here for unseen data only** (criteria amendment):
 the page computes the blended estimate from raw reports on the accepted shape and shows it **only
 for a direction `arrival-release.json` says has passed on unseen journeys** — a data event, not a
@@ -899,7 +918,8 @@ is fixed and tested: days are the unit.
 destination: the 140-journey pattern (accepted shape) and a 5-journey Mon–Sat short working (shape
 rejected, 0 reports). On a weekday the bus is left unresolved and an unresolved bus had no road. The
 stop-list inference that stood in was wrong in principle and is replaced by **measured shared road**:
-**387 → 13,611 m** of the accepted shape, Hillingdon Road at 8,715 m, placed on it only if the bus's
+**387 → 13,611 m** of the accepted shape, Hillingdon Road at 8,715 m (corrected 28 September: 5,495 m;
+8,715 m was the offset of the stop 14 places on, read by list position), placed on it only if the bus's
 report and its whole 542 m look-ahead lie inside. **24 of 24 motion checks pass**, including a bus on
 shared road estimated with no candidate named, and one short of the divergence left at its report.
 

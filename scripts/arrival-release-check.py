@@ -77,7 +77,9 @@ def main():
         if day >= UNSEEN_FROM and (day not in latest or e.get('scoredAt', '') >= latest[day].get('scoredAt', '')):
             latest[day] = e
     nights = [latest[d] for d in sorted(latest)]
-    usable = [n for n in nights if n.get('model') and n.get('operator') and n.get('line')]
+    # A night counts only if its passages named their stops by the shapes' explicit stop mapping (version 2,
+    # 28 September 2026): before it, inbound passages were paired with the stops 14 earlier.
+    usable = [n for n in nights if n.get('model') and n.get('operator') and n.get('line') and n.get('stopMapping') == 2]
     verdict = {'schemaVersion': 2, 'generatedAt': datetime.now(LONDON).isoformat(), 'nights': len(usable),
                'days': [n.get('day') for n in usable], 'unseenFrom': UNSEEN_FROM, 'thresholds': THRESHOLDS,
                'directions': {}, 'scopes': [], 'awaitingApproval': [],

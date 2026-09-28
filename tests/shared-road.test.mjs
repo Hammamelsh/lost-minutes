@@ -56,11 +56,14 @@ test('the measured route 15 case: a bus approaching Hillingdon Road is on shared
  // Measured on 20 September 2026 with this function over the two published shapes: the shared
  // run is 387 to 13,611 m of the accepted 15 inbound shape (an earlier projection the other way
  // gave 395 to 13,626; the difference is which track's vertices are walked). Hillingdon Road
- // (opp) is at 8,715 m; look-ahead 542 m (17 m/s × 30 s + 32 m).
+ // (opp) is at 5,495 m (its own coordinates project to 5,501 m, 5.6 m off the road); look-ahead
+ // 542 m (17 m/s × 30 s + 32 m). Until 28 September 2026 this said 8,715 m: the offset of the stop
+ // 14 places on, read by list position (backlog 38).
  const shared=[{from:387,to:13611}];
  const LOOK=17*30+32;
- assert.equal(withinSharedRoad(shared,8715-2000,LOOK),true,'2 km before the stop');
- assert.equal(withinSharedRoad(shared,8715-300,LOOK),true,'300 m before the stop');
+ const STOP=5495;
+ assert.equal(withinSharedRoad(shared,STOP-2000,LOOK),true,'2 km before the stop');
+ assert.equal(withinSharedRoad(shared,STOP-300,LOOK),true,'300 m before the stop');
  assert.equal(withinSharedRoad(shared,100,LOOK),false,'in the unshared first 387 m');
  assert.equal(withinSharedRoad(shared,13611-100,LOOK),false,'within a look-ahead of the end');
 });

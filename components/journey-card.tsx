@@ -13,8 +13,8 @@
 import {ArrowRight,ChevronDown,Crosshair,Footprints,Info,RotateCcw,Share2,X} from 'lucide-react';
 import type {FollowBus} from '@/lib/follow';
 import {clockWords} from '@/lib/departures';
-import {busOnJourney,busesOnLeg,legLines,minutesWords,stopName,type ConnectionOption,type ConnectionTiming,type Leg,
- type LegStanding,type ScheduleQuality,type TimedConnection} from '@/lib/connections';
+import {busOnJourney,busesOnLeg,legService,lineNames,minutesWords,stopName,type ConnectionOption,type ConnectionTiming,type Leg,
+ type LegStanding,type OnwardTiming,type ScheduleQuality,type TimedConnection} from '@/lib/connections';
 import type {WalkingProblem,WalkingRoute} from '@/lib/walking';
 
 export type JourneyStage='before'|'first'|'second';
@@ -31,7 +31,8 @@ function standingWords(standing:LegStanding,leg:Leg,at:'board'|'alight'):string{
  return `past ${stopName(leg.alight)}`;
 }
 
-export default function JourneyCard({option,timing,quality,stage,transfer,buses,nowMs,moreTime,onStage,onFocus,onMoreTime,onEnd,onOtherOptions,rideable,onRide,onShare,shareState='idle',roads}:{
+export default function JourneyCard({option,timing,quality,stage,transfer,buses,nowMs,moreTime,onStage,onFocus,onMoreTime,onEnd,onOtherOptions,rideable,onRide,onShare,shareState='idle',roads,
+                                    onward=null,trackedTime}:{
  option:ConnectionOption;timing:ConnectionTiming|{kind:'loading'};quality:{first:ScheduleQuality;second:ScheduleQuality};
  stage:JourneyStage;transfer:TransferState;buses:FollowBus[];nowMs:number;moreTime:boolean;
  onStage:(stage:JourneyStage)=>void;onFocus:(focus:'whole'|'first'|'second')=>void;onMoreTime:(value:boolean)=>void;
@@ -42,6 +43,11 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
  onShare?:()=>void;shareState?:'idle'|'copied'|'failed';
  /** Whether each leg is drawn on a checked road, or stop to stop; undefined while the roads load. */
  roads?:{first:boolean;second:boolean};
+ /** On the first bus: the second bus's times from the change, which is what matters by then. */
+ onward?:OnwardTiming|null;
+ /** A tracked bus's own journey's timetabled time at the leg's boarding stop ("06:15"), where its
+  *  report names one and that timetable is not known to mislead. */
+ trackedTime?:(bus:FollowBus,leg:1|2)=>string|null;
 }){
  const {first,second,transfer:change}=option;
  const rows=timing.kind==='timed'?timing.rows:[];
@@ -64,12 +70,15 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
  // action is getting off), done, or later. The change is next while on the first bus.
  const stepTone=(n:1|2):'now'|'riding'|'done'|'later'=>stage==='before'?(n===1?'now':'later'):stage==='first'?(n===1?'riding':'later'):(n===1?'done':'riding');
  const changeTone=stage==='before'?'later':stage==='first'?'soon':'done';
- const tracked=(list:{bus:FollowBus;standing:LegStanding}[],leg:Leg,bound:FollowBus|null,at:'board'|'alight')=>{
+ const tracked=(list:{bus:FollowBus;standing:LegStanding}[],leg:Leg,n:1|2,bound:FollowBus|null,at:'board'|'alight')=>{
   if(bound){const s=list.find(x=>x.bus.key===bound.key)?.standing;
    return <span className="journey-tracked" data-tracked="journey">Tracked on this journey · {s?standingWords(s,leg,at):'reported'} · {bound.ageWords}</span>}
   if(list.length){const {bus,standing}=list[0];
-   return <span className="journey-tracked" data-tracked="line">A {bus.route} is tracked {standingWords(standing,leg,at)} · {bus.ageWords} · which journey it is on is not identified</span>}
-  return <span className="journey-tracked none" data-tracked="none">No tracked bus on the {leg.line} is reporting toward {stopName(leg.board)} yet · that is not “no bus”</span>;
+   // Its own journey where its report names one (an earlier or a later bus than the next connection's);
+   // otherwise it is a bus of the line, and which journey it is on is left open.
+   const time=trackedTime?.(bus,n)??null;
+   return <span className="journey-tracked" data-tracked={time?'other':'line'}>A {bus.route} is tracked {standingWords(standing,leg,at)} · {bus.ageWords} · {time?`the ${time} by the timetable`:'which journey it is on is not identified'}</span>}
+  return <span className="journey-tracked none" data-tracked="none">No tracked bus on the {lineNames(leg)} is reporting toward {stopName(leg.board)} yet · that is not “no bus”</span>;
  };
 
  return <section className={`journey-card stage-${stage}`} aria-label="Your journey" data-journey={option.key} data-stage={stage} data-timing={timing.kind}>
@@ -86,10 +95,10 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
    <li className={`journey-step tone-${stepTone(1)}`} data-step="1">
     <span className="journey-n" aria-hidden="true">1</span>
     <div className="journey-step-copy">
-     <strong>{stepTone(1)==='riding'?'On':'Take'} the {legLines(first)} towards {first.headsign}</strong>
+     <strong>{stepTone(1)==='riding'?'On':'Take'} the {legService(first)}</strong>
      <span>from <b>{stopName(first.board)}</b>{stage==='before'&&option.walkToBoardMetres>0?` · ${metresWords(option.walkToBoardMetres)} away in a straight line`:''}</span>
      <span className={stepTone(1)==='riding'?'journey-next':undefined}>get off at <b>{stopName(first.alight)}</b> · {first.rideStops} stop{first.rideStops===1?'':'s'}</span>
-     {stage!=='second'&&tracked(on1,first,bus1,stage==='first'?'alight':'board')}
+     {stage!=='second'&&tracked(on1,first,1,bus1,stage==='first'?'alight':'board')}
     </div>
    </li>
    <li className={`journey-step change tone-${changeTone}`} data-step="change">
@@ -103,17 +112,18 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
    <li className={`journey-step tone-${stepTone(2)}`} data-step="2">
     <span className="journey-n" aria-hidden="true">2</span>
     <div className="journey-step-copy">
-     <strong>{stepTone(2)==='riding'?'On':'Take'} the {legLines(second)} towards {second.headsign}</strong>
+     <strong>{stepTone(2)==='riding'?'On':'Take'} the {legService(second)}</strong>
      <span>from <b>{stopName(second.board)}</b></span>
      <span className={stepTone(2)==='riding'?'journey-next':undefined}>get off at <b>{stopName(second.alight)}</b> · {second.rideStops} stop{second.rideStops===1?'':'s'}{option.walkFromAlightMetres>0?` · then ${metresWords(option.walkFromAlightMetres)} in a straight line`:''}</span>
-     {tracked(on2,second,bus2,stage==='second'?'alight':'board')}
+     {tracked(on2,second,2,bus2,stage==='second'?'alight':'board')}
     </div>
    </li>
   </ol>
 
-  {/* When, by the timetable: the next first bus, when it reaches the change, and the second bus it
-      makes. Every line says what it is. */}
-  <div className="journey-times" data-times={timing.kind}>
+  {/* When, by the timetable: before the first bus, the next first bus, when it reaches the change, and
+      the second bus it makes; on the first bus, the second bus's times from the change; on the second
+      bus, nothing more to catch. Every line says what it is. */}
+  {stage==='before'&&<div className="journey-times" data-times={timing.kind}>
    {timing.kind==='loading'&&<p className="journey-note">Reading the timetables for both stops…</p>}
    {timing.kind==='unavailable'&&<p className="journey-note" data-times-unavailable>No times: {timing.reason}.</p>}
    {timing.kind==='withheld'&&<p className="journey-note warn" data-times-withheld={timing.leg}>
@@ -124,7 +134,8 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
     <ol className="journey-rows">
      {rows.slice(0,3).map((row,i)=><li key={row.first.departMs} className={`journey-row${i===0?' next':''}`} data-row={i}>
       <span className="journey-row-leg"><span className="route-pill">{row.first.departure.line}</span>
-       <strong>{clockWords({atMs:row.first.departMs})}</strong><small>{row.first.arriveMs!==null?`→ ${clockWords({atMs:row.first.arriveMs})} at ${first.alight.name}`:'arrival not declared'}</small></span>
+       <strong>{clockWords({atMs:row.first.departMs})}</strong><small>{row.first.arriveMs!==null?`→ ${clockWords({atMs:row.first.arriveMs})} at ${first.alight.name}`:'arrival not declared'}
+        {row.earlier&&row.second?` · or ${row.earlier.count>1?'any from':row.earlier.line===row.first.departure.line?'the':`the ${row.earlier.line} at`} ${clockWords({atMs:row.earlier.departMs})}, for the same ${row.second.departure.line}`:''}</small></span>
       <ArrowRight size={14} aria-hidden="true" className="journey-row-arrow"/>
       <span className="journey-row-leg">{row.second
        ?<><span className="route-pill">{row.second.departure.line}</span><strong>{clockWords({atMs:row.second.departMs})}</strong>
@@ -134,7 +145,23 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
     </ol>
     <p className="journey-basis" data-basis>{basis}{unchecked?` · ${unchecked===2?'neither timetable has':'one timetable has not'} been checked against its own buses`:''}</p>
    </>}
-  </div>
+  </div>}
+  {stage==='first'&&<div className="journey-times" data-times={onward?`onward-${onward.kind}`:'loading'}>
+   {!onward&&<p className="journey-note">Reading the timetable for {stopName(second.board)}…</p>}
+   {onward?.kind==='unavailable'&&<p className="journey-note" data-times-unavailable>No times: {onward.reason}.</p>}
+   {onward?.kind==='withheld'&&<p className="journey-note warn" data-times-withheld="2">
+    <strong>No times for the {second.line}:</strong> {onward.reason}. A time from this timetable would mislead, so none is shown.</p>}
+   {onward?.kind==='timed'&&<>
+    <p className="journey-note">The next {lineNames(second)} from {stopName(second.board)}, by the timetable:</p>
+    <ol className="journey-rows onward">
+     {onward.rows.map((row,i)=><li key={row.departMs} className={`journey-row${i===0?' next':''}`} data-onward-row={i}>
+      <span className="journey-row-leg"><span className="route-pill">{row.departure.line}</span><strong>{clockWords({atMs:row.departMs})}</strong>
+       <small>{row.arriveMs!==null?`→ ${clockWords({atMs:row.arriveMs})} at ${second.alight.name}`:'arrival not declared'}</small></span>
+     </li>)}
+    </ol>
+    <p className="journey-basis" data-basis>Times are the operator’s timetable from the soonest you could be at {stopName(second.board)} · not adjusted for where the buses are{quality.second.kind==='unverified'?' · this timetable has not been checked against its own buses':''}</p>
+   </>}
+  </div>}
 
   <div className="journey-controls">
    {stage==='before'&&<button className="action" onClick={()=>onStage('first')} data-stage-to="first">I’m on the first bus</button>}

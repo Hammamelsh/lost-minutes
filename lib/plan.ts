@@ -25,7 +25,11 @@ export type DirectOption={
  score:number;
 };
 
-export const PLAN_RULES={maxWalkMetres:900,candidateStops:14,options:5,walkMetresPerMinute:80};
+/** `candidateStops` bounds the search, not the walk: every stop within `maxWalkMetres` is looked at
+ *  (about 160 around Piccadilly Gardens, 50 in Stretford). It was 14 until 28 September 2026, which in
+ *  practice searched 130–460 m while the page said 900 m, and missed the 23 from Norwood Road, 418 m
+ *  from Hillingdon Road, to Withington Community Hospital. */
+export const PLAN_RULES={maxWalkMetres:900,candidateStops:250,options:5,walkMetresPerMinute:80};
 
 /** Direct bus options from `from` to `to` on `day` (YYYY-MM-DD, Europe/London). */
 export function directOptions(from:LatLon,to:LatLon,catalogue:PatternCatalogue|null,stops:Stop[],day:string,buses:FollowBus[]=[]):DirectOption[]{

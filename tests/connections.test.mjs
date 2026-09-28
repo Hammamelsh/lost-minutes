@@ -3,8 +3,8 @@
 // journeys only where the operator's own reported departure names them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {atStopMs,busOnJourney,busesOnLeg,connectionFromKey,connectionOptions,connectionSentence,legStanding,scheduleQuality,
- timeConnection,transferWalk} from '../lib/connections.ts';
+import {CONNECTION_RULES,atStopMs,busOnJourney,busesOnLeg,connectionFromKey,connectionOptions,connectionSentence,familyQuality,legFamily,legService,
+ legStanding,lineNames,onwardFromChange,rankConnections,scheduleQuality,timeConnection,timetabledAtBoard,transferWalk,withoutUnreliable} from '../lib/connections.ts';
 import {departuresOn,londonInstant} from '../lib/departures.ts';
 import {isPlanKey,readPlanLink,withPlan} from '../lib/plan-link.ts';
 
@@ -70,6 +70,12 @@ test('a second line that itself passes near the start is not a change to make, a
   metres:eightStops.map((_,j)=>j*300),seconds:seconds(6),timings:[seconds(6)]};
  const options=connectionOptions(near(S[1]),near(T[4]),{...catalogue,patterns:[nine,seven,eight]},[...stops,eightStops[0]],MONDAY);
  assert.deepEqual(options.map(o=>o.second.line),['7'],'the 8 could be boarded 270 m from the start: no change to it is offered');
+ // Measured directly, not among the few nearest stops: in a dense centre the stop it passes may not be
+ // one of them. An 8 to somewhere else, so it is not simply merged with the 7.
+ const eightFar={...eight,destination:'Far East'};
+ const dense=connectionOptions(near(S[1]),near(T[4]),{...catalogue,patterns:[nine,seven,eightFar]},[...stops,eightStops[0]],MONDAY,{...CONNECTION_RULES,candidateStops:1});
+ assert.deepEqual(dense.map(o=>o.second.line),['7'],'with only the nearest stop a candidate, the 8 is still seen to pass the start');
+ assert.deepEqual(dense[0].second.also,[],'nor is it offered as another bus for the second leg');
  // A 7A of the same operator to the same destination from the same change: one option, the better scored.
  const sevenA={...seven,id:'BNSM:7A:outbound:eeee',line:'7A',metres:T.map((_,j)=>j*330)};
  const merged=connectionOptions(near(S[1]),near(T[4]),{...catalogue,patterns:[nine,seven,sevenA]},stops,MONDAY);
@@ -109,8 +115,12 @@ test('the scheduled connection: first bus arrives at the change, the walk and th
  const routed=transferWalk(o.transfer,{metres:600,seconds:480});
  assert.equal(routed.basis,'route');
  const again=timeConnection(o,{boards,rules,nowMs:NOW,walk:routed,allowanceSeconds:120,quality:unverified});
- assert.equal(wall(again.rows[0].second.departMs),'10:41');
- assert.equal(again.rows[0].changeSeconds,32*60);
+ // And the 10:06 would now only wait 32 min for the 10:41 the 10:26 also makes: one connection, shown
+ // on the later first bus, which says the earlier makes it too.
+ assert.equal(again.rows.length,1);
+ assert.equal(wall(again.rows[0].first.departMs),'10:26'); assert.equal(wall(again.rows[0].second.departMs),'10:41');
+ assert.equal(again.rows[0].changeSeconds,12*60);
+ assert.deepEqual(again.rows[0].earlier,{departMs:a.first.departMs,line:'9',count:1});
 });
 
 test('a timetable known to run ahead of its buses gives no times, and says so; an unchecked one is said to be unchecked', () => {
@@ -194,4 +204,86 @@ test('the chosen journey travels in the address as public identifiers, and is dr
  assert.equal(readPlanLink('?to=53.46,-2.29&plan=d:BNML:9:inbound:aaaa%7CS001%7CS004').plan,'d:BNML:9:inbound:aaaa|S001|S004');
  assert.equal(isPlanKey('c:a|b|c|d|e'),false);
  assert.equal(isPlanKey('d:BNML:9:inbound:aaaa|S001|S004|x'),false);
+});
+
+// A 9A to Crossroads and a short working of the 9, both between S1 and S4.
+const nineA={...nine,id:'BNML:9A:inbound:ffff',line:'9A',destination:'Crossroads',stops:S.slice(0,6).map(s=>s.id),stopCount:6,
+ metres:S.slice(0,6).map((_,i)=>i*300),seconds:seconds(6),timings:[seconds(6)]};
+const nineShort={...nine,id:'BNML:9:inbound:gggg',stops:S.slice(0,5).map(s=>s.id),stopCount:5,
+ metres:S.slice(0,5).map((_,i)=>i*300),seconds:seconds(5),timings:[seconds(5)]};
+const merge=(...boards)=>({stop:boards[0].stop,generatedAt:'x',services:boards.flatMap(b=>b.services)});
+
+test('every bus between a leg’s two stops is one instruction and is timed: other lines, other variants, wherever they go on to', () => {
+ // A 9 that turns along the crossing road to T4 is a direct bus, not a first bus to change off; and it
+ // is the first leg's own line, so not a second bus either. A 7B that calls at S1 before the change is a loop.
+ const nineTurn={...nine,id:'BNML:9:inbound:hhhh',destination:'East End',stops:[...S.slice(0,5).map(s=>s.id),...T.slice(2).map(t=>t.id)],stopCount:9,
+  metres:Array.from({length:9},(_,i)=>i*300),seconds:seconds(9),timings:[seconds(9)]};
+ const sevenLoop={...seven,id:'BNSM:7B:outbound:iiii',line:'7B',stops:['S001',...T.map(t=>t.id)],stopCount:7,
+  metres:Array.from({length:7},(_,i)=>i*300),seconds:seconds(7),timings:[seconds(7)]};
+ const cat={...catalogue,patterns:[nine,seven,nineA,nineShort,nineTurn,sevenLoop]};
+ const options=connectionOptions(near(S[1]),near(T[4]),cat,stops,MONDAY);
+ assert.equal(options.length,1,'the 9, its short working and the 9A from S1 to S4 are one first leg, not three journeys');
+ const [o]=options;
+ assert.equal(o.first.pattern.id,nine.id);
+ assert.deepEqual(legFamily(o.first).map(l=>l.pattern.id),[nine.id,nineShort.id,nineA.id]);
+ assert.deepEqual(o.second.also,[],'no 9 onto the second leg, and no 7B that has already passed the start');
+ assert.equal(legService(o.first),'9 towards North End (or the 9A towards Crossroads)');
+ assert.equal(lineNames(o.first),'9 or 9A');
+ assert.match(connectionSentence(o),/^Take the 9 towards North End \(or the 9A towards Crossroads\) from Stop 1/);
+ // The 9 itself runs nothing this morning; its short working and the 9A do, and they are the answer.
+ const boards={first:merge(board('S001',nine,60,[hms(15,0)]),board('S001',nineShort,60,[hms(10,20),hms(10,40)]),board('S001',nineA,60,[hms(10,10)])),
+  second:board('T001',seven,60,[hms(10,30),hms(10,50)])};
+ const timing=timeConnection(o,{boards,rules,nowMs:NOW,walk:transferWalk(o.transfer,null),allowanceSeconds:120,quality:unverified});
+ assert.deepEqual(timing.rows.map(r=>`${r.first.departure.line} ${wall(r.first.departMs)} → ${r.second.departure.line} ${wall(r.second.departMs)}`),
+  ['9 10:21 → 7 10:31','9 10:41 → 7 10:51'],'the 9A’s 10:11 waits for the same 10:31 and is folded into the 10:21');
+ assert.equal(wall(timing.rows[0].earlier.departMs),'10:11'); assert.equal(timing.rows[0].earlier.line,'9A','the folded bus is named by its own line');
+ // A link or a reload brings back the same buses.
+ const back=connectionFromKey(o.key,new Map(cat.patterns.map(p=>[p.id,p])),new Map(stops.map(s=>[s.id,s])),MONDAY);
+ assert.deepEqual(legFamily(back.first).map(l=>l.pattern.id),legFamily(o.first).map(l=>l.pattern.id));
+ // A tracked bus on the short working is on the leg, and its report names its own journey: the 10:41.
+ const onShort={key:'BNML|V9',operator:'BNML',vehicle:'V9',route:'9',direction:'inbound',journeyRef:'j',destination:'North_End',lat:0,lon:0,
+  observedAtMs:NOW,recordedAt:'',ageSeconds:20,freshness:'fresh',ageWords:'20 s',sourceHash:'h',bearing:null,bearingStatus:'absent',
+  match:{patternId:nineShort.id,patternIndex:0,nearestStop:'S000',evidence:{},scheduled:{departure:'10:40:00',journeys:1,serviceDay:MONDAY}}};
+ assert.deepEqual(busesOnLeg(o.first,[onShort]).map(x=>x.standing),[{kind:'before',stopsAway:1}]);
+ assert.equal(wall(timetabledAtBoard(onShort,o.first,boards.first,rules).atMs),'10:41');
+ assert.equal(timetabledAtBoard({...onShort,match:{...onShort.match,scheduled:{departure:'10:45:00',journeys:1,serviceDay:MONDAY}}},o.first,boards.first,rules),null,
+  'a departure the board does not hold names nothing');
+});
+
+test('a bus whose timetable is known to mislead is left out of a leg; the leg is unchecked if any of its timetables is', () => {
+ const [o]=connectionOptions(near(S[1]),near(T[4]),{...catalogue,patterns:[nine,seven,nineA]},stops,MONDAY);
+ assert.deepEqual(o.first.also.map(l=>l.line),['9A']);
+ const anchor={patterns:{[nineA.id]:{verified:false,reason:'schedule runs 15 min early'},[nine.id]:{verified:true,medianOffsetMinutes:1}}};
+ const trusted=withoutUnreliable(o,anchor);
+ assert.deepEqual(trusted.first.also,[],'its times would sit among the 9’s and mislead');
+ assert.equal(withoutUnreliable(o,{patterns:{}}),o,'nothing left out: the very same option');
+ assert.equal(familyQuality(trusted.first,anchor).kind,'verified');
+ assert.equal(familyQuality(o.first,{patterns:{[nine.id]:{verified:true}}}).kind,'unverified','the 9 checked and the 9A not: the leg is not');
+});
+
+test('the list leads with the journey that arrives soonest by the timetable; at the same arrival, the one leaving later', () => {
+ const timed=(leave,arrive)=>({kind:'timed',rows:[{first:{departMs:leave},second:{departMs:arrive-5,arriveMs:arrive}}]});
+ const [a,b,c]=[{key:'a'},{key:'b'},{key:'c'}];
+ const first={a:timed(100,200),b:timed(110,150),c:{kind:'withheld',leg:1,reason:'x'}};
+ assert.deepEqual(rankConnections([a,b,c],o=>first[o.key]).map(o=>o.key),['b','a','c'],'untimed after the timed, in the planner’s order');
+ const tie={a:timed(100,150),b:timed(120,150),c:timed(90,150)};
+ assert.deepEqual(rankConnections([a,b,c],o=>tie[o.key]).map(o=>o.key),['b','a','c']);
+ assert.equal(rankConnections([a,b,c],o=>first[o.key],2).length,2);
+ // Arriving at a stop 800 m from the destination is not arriving: the walk from it counts.
+ const far={key:'far',walkFromAlightMetres:800},close={key:'close',walkFromAlightMetres:0};
+ const minute=60_000,byStop={far:timed(0,10*minute),close:timed(0,15*minute)};
+ assert.deepEqual(rankConnections([far,close],o=>byStop[o.key]).map(o=>o.key),['close','far'],'800 m × 1.3 at 80 m/min is 13 min: 23 min against 15');
+});
+
+test('on the first bus, the times are the second bus’s from the change, from the soonest the passenger could be there', () => {
+ const [o]=connectionOptions(near(S[1]),near(T[4]),catalogue,stops,MONDAY);
+ const second=board('T001',seven,60,[hms(10,0),hms(10,10),hms(10,30),hms(10,50),hms(11,10)]);
+ const walk=transferWalk(o.transfer,null);
+ const onward=onwardFromChange(o,{board:second,rules,nowMs:NOW,walk,quality:unverified.second});
+ assert.equal(onward.kind,'timed');
+ assert.deepEqual(onward.rows.map(r=>wall(r.departMs)),['10:11','10:31','10:51'],'the 10:01 leaves before anyone off a bus now could walk there');
+ assert.equal(wall(onward.rows[0].arriveMs),'10:14');
+ const early=scheduleQuality(seven.id,{patterns:{[seven.id]:{verified:false,reason:'schedule runs early'}}});
+ assert.deepEqual(onwardFromChange(o,{board:second,rules,nowMs:NOW,walk,quality:early}),{kind:'withheld',reason:'schedule runs early'});
+ assert.equal(onwardFromChange(o,{board:null,rules,nowMs:NOW,walk,quality:unverified.second}).kind,'unavailable');
 });

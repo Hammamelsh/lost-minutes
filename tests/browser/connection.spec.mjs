@@ -23,8 +23,13 @@ const search = (page, label) => page.getByRole('combobox', {name: label});
 const yourStop = page => page.locator('.your-stop-copy strong');
 
 /** The fixture world: catalogue, boards timed from `now`, the moving 256 on the first journey, places and the router. */
-async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, anchor, secondBus = false} = {}) {
-  await servePatterns(page, connectionCatalogue());
+async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, anchor, secondBus = false, direct = false} = {}) {
+  const catalogue = connectionCatalogue();
+  // A 99 straight from Stretford Mall (Stop A) to Trafford Bar (Stop A): a direct bus beside the change.
+  if (direct) catalogue.patterns.push({...catalogue.patterns[0], id: 'FX:99:direct', line: '99', operator: 'BNML', direction: 'outbound',
+    destination: 'Old Trafford', stops: [FX.stopA, FX53.stops[3][0], FX53.stops.at(-1)[0]], metres: [0, 900, 1500], seconds: [0, 180, 300],
+    timings: [[0, 180, 300]], stopCount: 3, stopsInArea: 3, lengthMetres: 1500});
+  await servePatterns(page, catalogue);
   if (anchor) await serveScheduleAnchor(page, anchor);
   await serveMotion(page);
   await serveDepartures(page, {boards: {
@@ -87,6 +92,13 @@ test('From and To give a journey with one change; choosing it shows one card, th
   await expect(option).toHaveAttribute('data-plan-connection', '256|53');
   await expect(option).toContainText('one change at Talbot Court');
   await expect(option).toContainText('Get off at Thomas Street (nr)');
+  // Before it is chosen, it says when its next connection is, by the timetable: the first 256 and when
+  // the 53 it makes reaches Trafford Bar (the walk provisional here, 113 m × 1.3 at 80 m/min).
+  const nextLine = option.locator('[data-plan-next]');
+  await expect(nextLine).toHaveAttribute('data-plan-next', 'timed');
+  await expect(nextLine).toContainText(`Next: 256 ${wall(now + 4 * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(nextLine).toContainText(`at Trafford Bar ${wall(now + 17 * 60_000 + FX53.seconds.at(-1) * 1000)}`);
+  await expect(nextLine).toContainText('by the timetable, not live');
   await option.locator('[data-choose-connection]').click();
   // One card: the steps in order, the first marked as now.
   await expect(card(page)).toHaveAttribute('data-stage', 'before');
@@ -156,8 +168,17 @@ test('the stages move the page’s stop along the journey, survive a reload and 
   await expect(card(page).locator('.journey-step').nth(0)).toContainText('On the 256 towards Piccadilly Gardens');
   await expect(card(page).locator('.journey-step').nth(0).locator('.journey-next')).toContainText('get off at Thomas Street (nr)');
   await expect(card(page).locator('.journey-step').nth(1)).toHaveClass(/tone-soon/);
+  // And the times are the 53's from the change, from the soonest the passenger could walk there: which
+  // 256 they are on is not assumed.
+  await expect(card(page).locator('.journey-times')).toHaveAttribute('data-times', 'onward-timed');
+  await expect(card(page).locator('.journey-times')).toContainText('The next 53 from Talbot Court (nr), by the timetable');
+  await expect(card(page).locator('[data-onward-row]')).toHaveCount(3);
+  await expect(card(page).locator('[data-onward-row]').first()).toContainText(wall(now + 9 * 60_000));
+  await expect(card(page).locator('.journey-row[data-row]')).toHaveCount(0);
   await card(page).locator('[data-stage-to="second"]').click();
   await expect(card(page)).toHaveAttribute('data-stage', 'second');
+  // On the second bus there is nothing more to catch: no times.
+  await expect(card(page).locator('.journey-times')).toHaveCount(0);
   await expect(card(page).locator('.journey-step').nth(0)).toHaveClass(/tone-done/);
   await expect(card(page).locator('.journey-step').nth(2)).toHaveClass(/tone-riding/);
   await expect(yourStop(page)).toContainText('Trafford Bar (Stop A)');
@@ -223,6 +244,23 @@ test('a second bus tracked on the line is said to be one, journey not identified
   await page.getByRole('button', {name: /Exit/}).first().click();
   await expect(card(page)).toHaveAttribute('data-stage', 'before');
   await expect(map(page)).toHaveAttribute('data-journey-focus', 'second');
+});
+
+test('beside a direct bus, journeys with one change fold away under one line, and open on request', async ({page}) => {
+  test.setTimeout(120_000);
+  const now = Date.now();
+  await serveWorld(page, {now, direct: true});
+  await planIt(page);
+  await expect(panel(page).locator('.plan-option:not(.connection)')).toHaveCount(1);
+  await expect(panel(page).locator('.plan-option:not(.connection)')).toHaveAttribute('data-plan-option', '99');
+  await expect(panel(page).locator('[data-plan-no-direct]')).toHaveCount(0);
+  const folded = panel(page).locator('[data-plan-connections]');
+  await expect(folded).toHaveAttribute('data-plan-connections', '1');
+  await expect(folded.locator('summary')).toHaveText('Journeys with one change (1)');
+  await expect(folded.locator('.plan-option.connection')).toBeHidden();
+  await folded.locator('summary').click();
+  await expect(folded.locator('.plan-option.connection')).toBeVisible();
+  await expect(folded.locator('[data-plan-next]')).toContainText(`Next: 256 ${wall(now + 4 * 60_000)}`);
 });
 
 test('a walk the router finds long breaks the connection by the timetable: said, with the next bus offered', async ({page}) => {

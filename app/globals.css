@@ -1810,6 +1810,15 @@ body.above{overflow:hidden}
 .journey-more-time{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
 .plan-option.connection .plan-option-head .route-pill+.plan-then{color:#8aa8b9;font-weight:700}
 .plan-note{margin:0 0 4px;font-size:13px;color:#a7bac5}
+/* A listed journey's next connection by the timetable; journeys with one change folded beside direct buses. */
+.plan-next{margin:2px 0 6px;font-size:13px;line-height:1.5;color:#dbe7ec}
+.plan-next strong{font-variant-numeric:tabular-nums}
+.plan-next small{font-size:12px;color:#a7bac5}
+.plan-next.warn{color:#f6dcb4}
+.plan-connections{margin:6px 0 2px}
+.plan-connections>summary{cursor:pointer;display:flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:#c9d9e0}
+.plan-connections[open]>summary{margin-bottom:4px}
+.journey-rows.onward .journey-row{grid-template-columns:1fr}
 .legend-leg1::before{background:#2b7a80;box-shadow:0 0 0 2px #0b1720}
 .legend-leg2::before{background:transparent;border:2px dashed #8a4fb0;box-sizing:border-box}
 /* The other leg over the map while riding: one line, and the way to it. */

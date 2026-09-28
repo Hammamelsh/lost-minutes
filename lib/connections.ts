@@ -34,8 +34,9 @@ export type Leg={
  pattern:ServicePattern;line:string;operator:string|null;headsign:string;
  board:Stop;boardIndex:number;alight:Stop;alightIndex:number;
  rideStops:number;rideMetres:number|null;
- /** Other lines of the same operator to the same destination between the same two stops (the 23 and
-  *  the 25 to The Trafford Centre from Groby Road): one instruction, whichever comes first. */
+ /** The other buses between the same two stops, in order, on the day: other lines and other variants
+  *  of this one, wherever they go on to (the 263 and the 255 from Davyhulme Road East to Trafford Bar;
+  *  the 86 and its short working). One instruction, whichever comes first (`siblingLegs`). */
  also:Leg[];
 };
 /** Where the passenger gets off the first bus and where they board the second: two boarding points,
@@ -47,13 +48,18 @@ export type ConnectionOption={
 };
 
 export const CONNECTION_RULES={
- maxWalkMetres:900,candidateStops:14,
+ /** Every stop within the walk is a candidate (`candidateStops` only bounds the search; see PLAN_RULES). */
+ maxWalkMetres:900,candidateStops:250,
  /** Two boarding points further apart than this in a straight line are not offered as a change. */
  maxTransferMetres:350,
  /** A bus that passes within this of the start, or of the destination, is direct: no change is made
   *  to it or from it. Beyond this a change can still be the shorter walk. */
  directReachMetres:450,
- options:4,
+ /** Shown: the best few by the timetable (`rankConnections`), out of this many candidates timed. */
+ options:4,candidates:8,
+ /** First buses read for one timing, before the ones that only wait for the same second bus are
+  *  folded into the later one (`timeConnection`). */
+ firstBuses:12,
  walkMetresPerMinute:80,
  /** A provisional walk between two boarding points: the straight line, lengthened for the streets. */
  transferDetour:1.3,
@@ -74,6 +80,43 @@ const metresBetween=(p:ServicePattern,from:number,to:number)=>{
  return typeof a==='number'&&typeof b==='number'?Math.max(0,b-a):null;
 };
 const runsToday=(p:ServicePattern,day:string)=>validOn(p,day)&&runsOn(p.operatingRules as OperatingRule[]|null|undefined,day)!==false;
+
+/** A leg and the other buses between its two stops. */
+export const legFamily=(leg:Leg):Leg[]=>[leg,...leg.also];
+
+/**
+ * The other buses a passenger could equally take between a leg's two stops: every other pattern
+ * running on the day that calls at the boarding stop and later at the alighting stop, whatever its
+ * line, variant or destination, except the other leg's line (riding it there and back is a U-turn),
+ * a first bus that goes on to within a short walk of where the second is left (a direct bus, not a
+ * way to change), and a second bus that passes within a short walk of where the first is boarded (a
+ * loop). Found from the option alone, so a journey chosen from the list and the same journey restored
+ * from its key have the same family. Timing, tracked buses and wording read the whole family: the
+ * next bus is never one variant's next bus (Brook's Bar, 28 September 2026: an 86 variant with no
+ * journeys that morning had been timed while the 86 itself left every ten minutes).
+ */
+function siblingLegs(leg:Leg,today:ServicePattern[],other:Leg,order:'first'|'second',stopById:Map<string,Stop>):Leg[]{
+ const out:Leg[]=[];
+ const within=(id:string,place:Stop)=>{const st=stopById.get(id);return Boolean(st&&straightLineMetres(st,place)<=CONNECTION_RULES.directReachMetres)};
+ for(const p of today){
+  if(p.id===leg.pattern.id)continue;
+  if(p.line===other.line&&(p.operator??'')===(other.operator??''))continue;
+  const i=p.stops.indexOf(leg.board.id);
+  if(i<0)continue;
+  const j=p.stops.indexOf(leg.alight.id,i+1);
+  if(j<0)continue;
+  if(order==='first'&&p.stops.some((id,k)=>k>j&&within(id,other.alight)))continue;
+  if(order==='second'&&p.stops.some((id,k)=>k<i&&within(id,other.board)))continue;
+  out.push({pattern:p,line:p.line,operator:p.operator??null,headsign:p.destination??'?',board:leg.board,boardIndex:i,
+   alight:leg.alight,alightIndex:j,rideStops:j-i,rideMetres:metresBetween(p,i,j),also:[]});
+ }
+ return out.sort((a,b)=>a.line.localeCompare(b.line,'en',{numeric:true})||a.pattern.id.localeCompare(b.pattern.id));
+}
+const withSiblings=(option:ConnectionOption,today:ServicePattern[],stopById:Map<string,Stop>):ConnectionOption=>({...option,
+ first:{...option.first,also:siblingLegs(option.first,today,option.second,'first',stopById)},
+ second:{...option.second,also:siblingLegs(option.second,today,option.first,'second',stopById)}});
+/** Whether one leg's family already carries another leg: the same two stops, and its bus among them. */
+const covers=(a:Leg,b:Leg)=>a.board.id===b.board.id&&a.alight.id===b.alight.id&&legFamily(a).some(l=>l.pattern.id===b.pattern.id);
 
 export const connectionKey=(first:Leg,second:Leg)=>
  `c:${first.pattern.id}|${first.board.id}|${first.alight.id}|${second.pattern.id}|${second.board.id}|${second.alight.id}`;
@@ -128,6 +171,22 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
  }
  if(!secondLegs.size)return [];
  const neighbours=stopGrid(stops);
+ // How near a pattern comes to a place, measured stop by stop: the candidate stops are only the
+ // nearest few, and in a dense centre they miss most of the stops within reach (Piccadilly Gardens,
+ // 28 September 2026: "ride one stop, walk 330 m back to Piccadilly Gardens (Stop H) for the 43").
+ const nearestTo=(p:ServicePattern,point:LatLon,after=-1)=>{
+  let best=Infinity;
+  for(let i=after+1;i<p.stops.length;i++){const st=stopById.get(p.stops[i]);if(st)best=Math.min(best,straightLineMetres(point,st))}
+  return best;
+ };
+ // For a second bus, how near it has come to the start by each of its stops: a loop is passing the
+ // start before the passenger gets off it, not somewhere after.
+ const toStart=new Map<string,number[]>();
+ const startDistanceBy=(p:ServicePattern,upTo:number)=>{
+  let prefix=toStart.get(p.id);
+  if(!prefix){let best=Infinity;prefix=p.stops.map(id=>{const st=stopById.get(id);if(st)best=Math.min(best,straightLineMetres(from,st));return best});toStart.set(p.id,prefix)}
+  return prefix[upTo]??Infinity;
+ };
  const best=new Map<string,ConnectionOption>(),families=new Map<string,ConnectionOption>();
  for(const first of today){
   // Boarded at the origin stop nearest the start that it calls at, and not at its last stop.
@@ -141,7 +200,7 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
   // A first bus that itself reaches a stop about as near the destination as the second would is a
   // direct journey (lib/plan.ts offers it): changing off it is a detour, not a second way.
   const nearEnough=(walk:number)=>Math.max(walk+200,rules.directReachMetres);
-  if(first.stops.some((id,i)=>i>from1.i&&(targets.get(id)?.metres??Infinity)<=nearEnough(0)))continue;
+  if(nearestTo(first,to,from1.i)<=nearEnough(0))continue;
   const service1=serviceKey(first);
   for(let x=from1.i+1;x<first.stops.length;x++){
    const off=stopById.get(first.stops[x]);
@@ -151,14 +210,14 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
     for(const {pattern:second,index:k} of callsAt.get(on.id)??[]){
      if(second.id===first.id||(second.line===first.line&&(second.operator??'')===(first.operator??'')))continue;
      const legs=secondLegs.get(second.id)!;
-     // Likewise a second bus that passes about as near the start as the first bus's stop: riding one
-     // bus to catch another that could have been boarded a street away is a loop, not a change
-     // (Stretford Mall, 28 September 2026: "take the 245 one stop back to the Robin Hood for the 255",
-     // which itself calls at Stretford Mall).
-     if(second.stops.some(id=>(origins.get(id)?.metres??Infinity)<=nearEnough(from1.walk)))continue;
      let alight:{j:number;walkFrom:number}|null=null;
      for(const t of legs.targets)if(t.j>k&&(!alight||t.walkFrom<alight.walkFrom))alight=t;
      if(!alight)continue;
+     // Likewise a second bus that passes about as near the start as the first bus's stop, before the
+     // passenger would get off it: riding one bus to catch another that could have been boarded a
+     // street away is a loop, not a change (Stretford Mall, 28 September 2026: "take the 245 one stop
+     // back to the Robin Hood for the 255", which itself calls at Stretford Mall).
+     if(startDistanceBy(second,alight.j)<=nearEnough(from1.walk))continue;
      const end=stopById.get(second.stops[alight.j]);
      if(!end)continue;
      if(from1.walk+alight.walkFrom>=direct)continue;
@@ -194,7 +253,18 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
    }
   }
  }
- return [...best.values()].sort((a,b)=>a.score-b.score).slice(0,rules.options);
+ // Each option carries every bus between its two pairs of stops. An option a better one already
+ // carries on both legs is the same instruction (the 263 → 53 and the 255 → 53 from the same stops at
+ // the same change); so is one that boards some of the same buses a stop along for the same change
+ // and the same second bus (Sydney Street against Davyhulme Road East, a stop apart). Either is dropped.
+ const kept:ConnectionOption[]=[];
+ const shareBuses=(a:Leg,b:Leg)=>legFamily(a).some(l=>legFamily(b).some(m=>m.pattern.id===l.pattern.id));
+ for(const option of [...best.values()].sort((a,b)=>a.score-b.score).map(o=>withSiblings(o,today,stopById))){
+  if(kept.some(k=>covers(k.second,option.second)&&(covers(k.first,option.first)
+   ||(k.first.alight.id===option.first.alight.id&&shareBuses(k.first,option.first)))))continue;
+  kept.push(option);
+ }
+ return kept.slice(0,rules.candidates);
 }
 
 /**
@@ -217,8 +287,9 @@ export function connectionFromKey(key:string,patternsById:Map<string,ServicePatt
  const first=leg(parts[0],parts[1],parts[2]),second=leg(parts[3],parts[4],parts[5]);
  if(!first||!second)return null;
  const straight=first.alight.id===second.board.id?0:straightLineMetres(first.alight,second.board);
- return {kind:'connection',key,first,second,transfer:{from:first.alight,to:second.board,straightMetres:straight,sameStop:first.alight.id===second.board.id},
-  walkToBoardMetres:0,walkFromAlightMetres:0,score:0};
+ const today=[...patternsById.values()].filter(p=>runsToday(p,day));
+ return withSiblings({kind:'connection',key,first,second,transfer:{from:first.alight,to:second.board,straightMetres:straight,sameStop:first.alight.id===second.board.id},
+  walkToBoardMetres:0,walkFromAlightMetres:0,score:0},today,stopById);
 }
 
 // --------------------------------------------------------------------- the timetable's quality
@@ -237,6 +308,28 @@ export function scheduleQuality(patternId:string,anchor:AnchorFile):ScheduleQual
   words:`its timetable was checked against this service’s own buses${typeof entry.medianOffsetMinutes==='number'?` (they run about ${Math.round(Math.abs(entry.medianOffsetMinutes))} min ${entry.medianOffsetMinutes>=0?'behind':'ahead of'} it at the first stops)`:''}`};
  return {kind:'unreliable',offsetMinutes:entry.medianOffsetMinutes??null,
   words:entry.reason??'its timetable is known not to match where its own buses are'};
+}
+
+/**
+ * A leg's buses with those whose timetable is known not to match its own buses left out: a sibling
+ * on such a timetable would put its misleading times among the others (the inbound 15 serves some
+ * of the 86's stops into town). The leg's own bus is kept, and its timing is withheld with the
+ * reason instead. The same option back when nothing is left out, so identity holds.
+ */
+export function withoutUnreliable(option:ConnectionOption,anchor:AnchorFile):ConnectionOption{
+ const trusted=(l:Leg)=>scheduleQuality(l.pattern.id,anchor).kind!=='unreliable';
+ if(option.first.also.every(trusted)&&option.second.also.every(trusted))return option;
+ return {...option,first:{...option.first,also:option.first.also.filter(trusted)},second:{...option.second,also:option.second.also.filter(trusted)}};
+}
+
+/** What is known of a leg's timetables together: its own bus's, unless that one is checked and
+ *  another bus of the leg is not, when the leg as a whole is unchecked. */
+export function familyQuality(leg:Leg,anchor:AnchorFile):ScheduleQuality{
+ const own=scheduleQuality(leg.pattern.id,anchor);
+ if(own.kind!=='verified')return own;
+ const unchecked=leg.also.map(l=>scheduleQuality(l.pattern.id,anchor)).find(q=>q.kind!=='verified');
+ return unchecked?{kind:'unverified',offsetMinutes:null,
+  words:`its timetable was checked against its own buses, but not every other bus between these stops has been`}:own;
 }
 
 // --------------------------------------------------------------------- the walk between the stops
@@ -263,6 +356,9 @@ export type TimedConnection={
  readyMs:number|null;
  /** Second bus leaves minus first bus arrives; and what is left of it after the walk and the allowance. */
  changeSeconds:number|null;spareSeconds:number|null;
+ /** Earlier first buses that only wait longer for this same second bus, folded into this row: the
+  *  earliest of them, and how many. A passenger already at the stop may take one; they arrive no sooner. */
+ earlier:{departMs:number;line:string;count:number}|null;
 };
 export type ConnectionTiming=
  |{kind:'timed';rows:TimedConnection[];walk:TransferWalk;allowanceSeconds:number;
@@ -296,23 +392,25 @@ export function timeConnection(option:ConnectionOption,input:{
  if(!input.boards.first)return {kind:'unavailable',reason:`no timetable board is published for ${stopWords(option.first.board)}`};
  if(!input.boards.second)return {kind:'unavailable',reason:`no timetable board is published for ${stopWords(option.second.board)}`};
  const {first,second}=option;
- let firsts=departuresOn(input.boards.first,input.rules,first.pattern.id,input.nowMs-60_000,
-  input.nowMs+rules.firstLegWindowMinutes*60_000).slice(0,input.limit??6);
+ // Every first bus of the leg's family from its boarding point, each timed to the change on its own pattern.
+ const firstsIn=(fromMs:number,toMs:number)=>legFamily(first)
+  .flatMap(leg=>departuresOn(input.boards.first,input.rules,leg.pattern.id,fromMs,toMs).map(departure=>({leg,departure})))
+  .sort((a,b)=>a.departure.atMs-b.departure.atMs).slice(0,input.limit??rules.firstBuses);
+ let firsts=firstsIn(input.nowMs-60_000,input.nowMs+rules.firstLegWindowMinutes*60_000);
  // Nothing in the next few hours is not nothing: at eleven at night the next first bus is tomorrow's,
  // and it is shown as tomorrow's (the board does the same).
  const later=!firsts.length;
- if(later)firsts=departuresOn(input.boards.first,input.rules,first.pattern.id,input.nowMs-60_000,
-  input.nowMs+26*3600_000).slice(0,input.limit??6);
- if(!firsts.length)return {kind:'unavailable',reason:`nothing on the ${first.line} is timetabled from ${stopWords(first.board)} in the next day`};
+ if(later)firsts=firstsIn(input.nowMs-60_000,input.nowMs+26*3600_000);
+ if(!firsts.length)return {kind:'unavailable',reason:`nothing on the ${lineNames(first)} is timetabled from ${stopWords(first.board)} in the next day`};
  const rows:TimedConnection[]=[];
- for(const departure of firsts){
-  const arriveMs=atStopMs(departure,first.pattern,first.alightIndex);
-  const row:TimedConnection={first:{departure,departMs:departure.atMs,arriveMs},second:null,readyMs:null,changeSeconds:null,spareSeconds:null};
+ for(const {leg:ridden,departure} of firsts){
+  const arriveMs=atStopMs(departure,ridden.pattern,ridden.alightIndex);
+  const row:TimedConnection={first:{departure,departMs:departure.atMs,arriveMs},second:null,readyMs:null,changeSeconds:null,spareSeconds:null,earlier:null};
   if(arriveMs!==null){
    row.readyMs=arriveMs+Math.round(input.walk.seconds+input.allowanceSeconds)*1000;
-   // The first second bus of any of the leg's lines to leave after the passenger could be there.
+   // The first second bus of any of the leg's buses to leave after the passenger could be there.
    let next:{leg:Leg;departure:ScheduledDeparture}|null=null;
-   for(const leg of [second,...second.also]){
+   for(const leg of legFamily(second)){
     const d=departuresOn(input.boards.second,input.rules,leg.pattern.id,row.readyMs,row.readyMs+rules.secondLegWindowMinutes*60_000)[0];
     if(d&&(!next||d.atMs<next.departure.atMs))next={leg,departure:d};
    }
@@ -324,7 +422,67 @@ export function timeConnection(option:ConnectionOption,input:{
   }
   rows.push(row);
  }
- return {kind:'timed',rows,walk:input.walk,allowanceSeconds:input.allowanceSeconds,later};
+ return {kind:'timed',rows:foldEarlier(rows),walk:input.walk,allowanceSeconds:input.allowanceSeconds,later};
+}
+
+/**
+ * A first bus that leaves earlier only to reach the destination no sooner than a later one (it waits
+ * longer for the same second bus) is not another connection: it is folded into the later row, which
+ * says when the earliest of those leaves. A first bus with no second bus in reach, where a later one
+ * has one, is folded silently. Rows stay in order of leaving, each reaching the destination later
+ * than the one before.
+ */
+function foldEarlier(rows:TimedConnection[]):TimedConnection[]{
+ const end=(r:TimedConnection)=>r.second?(r.second.arriveMs??r.second.departMs):Infinity;
+ const kept:TimedConnection[]=[];   // later rows first
+ for(let i=rows.length-1;i>=0;i--){
+  const row=rows[i],after=kept.at(-1);
+  if(after&&end(after)<Infinity&&end(after)<=end(row)){
+   if(row.second)after.earlier={departMs:row.first.departMs,line:row.first.departure.line,count:(after.earlier?.count??0)+1};
+   continue;
+  }
+  kept.push(row);
+ }
+ return kept.reverse();
+}
+
+/**
+ * The options in the order a passenger would want them: soonest at the destination by the timetable
+ * (the second bus's arrival at its stop, and the walk from it, provisional as every walk here is until
+ * checked), then the one that leaves later, then the planner's own order; those with no time after, in
+ * the planner's order. Taken once, when the boards arrive, so the list does not reorder under a finger.
+ */
+export function rankConnections(options:ConnectionOption[],timingOf:(option:ConnectionOption)=>ConnectionTiming,
+                                limit:number=CONNECTION_RULES.options):ConnectionOption[]{
+ const walkMs=(option:ConnectionOption)=>(option.walkFromAlightMetres??0)*CONNECTION_RULES.transferDetour/CONNECTION_RULES.walkMetresPerMinute*60_000;
+ const end=(option:ConnectionOption,timing:ConnectionTiming)=>{
+  if(timing.kind!=='timed')return null;
+  const row=timing.rows.find(r=>r.second);
+  return row?{arrive:(row.second!.arriveMs??row.second!.departMs)+walkMs(option),leave:row.first.departMs}:null;
+ };
+ return options.map((option,i)=>({option,i,e:end(option,timingOf(option))}))
+  .sort((a,b)=>a.e&&b.e?(a.e.arrive-b.e.arrive||b.e.leave-a.e.leave||a.i-b.i):a.e?-1:b.e?1:a.i-b.i)
+  .slice(0,limit).map(x=>x.option);
+}
+
+/** On the first bus: the second leg's buses from the change, by the timetable, from the soonest the
+ *  passenger could be there (if they got off now). Which first bus they are on is not assumed. */
+export type OnwardTiming=
+ |{kind:'timed';rows:TimedLeg[]}
+ |{kind:'withheld';reason:string}
+ |{kind:'unavailable';reason:string};
+export function onwardFromChange(option:ConnectionOption,input:{board:StopDepartures|null;rules:OperatingRule[]|null;nowMs:number;
+ walk:TransferWalk;quality:ScheduleQuality;limit?:number}):OnwardTiming{
+ if(input.quality.kind==='unreliable')return {kind:'withheld',reason:input.quality.words};
+ if(!input.rules)return {kind:'unavailable',reason:'the timetable’s operating rules could not be read'};
+ if(!input.board)return {kind:'unavailable',reason:`no timetable board is published for ${stopWords(option.second.board)}`};
+ const from=input.nowMs+Math.round(input.walk.seconds)*1000;
+ const rows=legFamily(option.second)
+  .flatMap(leg=>departuresOn(input.board,input.rules,leg.pattern.id,from,from+CONNECTION_RULES.firstLegWindowMinutes*60_000)
+   .map(departure=>({departure,departMs:departure.atMs,arriveMs:atStopMs(departure,leg.pattern,leg.alightIndex)})))
+  .sort((a,b)=>a.departMs-b.departMs).slice(0,input.limit??3);
+ if(!rows.length)return {kind:'unavailable',reason:`no ${lineNames(option.second)} is timetabled from ${stopWords(option.second.board)} in the next three hours`};
+ return {kind:'timed',rows};
 }
 
 // --------------------------------------------------------------------- tracked buses
@@ -356,20 +514,76 @@ export function legStanding(bus:FollowBus,leg:Leg):LegStanding|null{
  return {kind:'past'};
 }
 
-/** The buses tracked on a leg's pattern that have not yet passed its alighting stop, nearest the
- *  boarding point first: what a passenger waiting there can see coming, whether or not any is tied
- *  to a timetabled journey. */
+/** The buses tracked on any of a leg's patterns that have not yet passed its alighting stop, nearest
+ *  the boarding point first: what a passenger waiting there can see coming, whether or not any is
+ *  tied to a timetabled journey. */
 export function busesOnLeg(leg:Leg,buses:FollowBus[]):{bus:FollowBus;standing:LegStanding}[]{
- return buses.map(bus=>({bus,standing:legStanding(bus,leg)}))
-  .filter((x):x is {bus:FollowBus;standing:LegStanding}=>x.standing!==null&&x.standing.kind!=='past')
+ const family=legFamily(leg);
+ return buses.map(bus=>{
+   for(const member of family){const standing=legStanding(bus,member);if(standing)return {bus,standing}}
+   return null;
+  })
+  .filter((x):x is {bus:FollowBus;standing:LegStanding}=>x!==null&&x.standing.kind!=='past')
   .sort((a,b)=>rank(a.standing)-rank(b.standing));
 }
 const rank=(s:LegStanding)=>s.kind==='before'?s.stopsAway:s.kind==='between'?-1:99;
 
+/**
+ * The timetabled departure, from a leg's boarding stop, of the journey a tracked bus reports it is on:
+ * its operator's reported origin departure, on its service day, naming one journey of the leg's buses
+ * (or one shared timing). What lets a tracked bus be said to be "the 06:15" rather than left
+ * unidentified; null where the report does not name one, or the board does not hold it.
+ */
+export function timetabledAtBoard(bus:FollowBus,leg:Leg,board:StopDepartures|null,rules:OperatingRule[]|null):ScheduledDeparture|null{
+ const match=bus.match;
+ if(!board||!rules||!match||!('patternId' in match))return null;
+ const member=legFamily(leg).find(l=>l.pattern.id===match.patternId);
+ const scheduled=match.scheduled;
+ if(!member||!scheduled||!('departure' in scheduled))return null;
+ const day=scheduled.serviceDay;
+ const found=departuresOn(board,rules,member.pattern.id,londonInstant(day,0),londonInstant(day,30*3600))
+  .filter(d=>d.serviceDay===day&&d.originLocal===scheduled.departure&&(scheduled.journeys===1||d.timing===scheduled.timing));
+ return found.length===1?found[0]:null;
+}
+
 // --------------------------------------------------------------------- words
 
-export const legLines=(leg:Leg)=>leg.also.length?`${leg.line} (or the ${leg.also.map(l=>l.line).join(', ')})`:leg.line;
-export const legWords=(leg:Leg)=>`the ${legLines(leg)} towards ${leg.headsign}`;
+/** A leg's lines, each once: "263", "263 or 255", "23, 25 or 250". */
+export function lineNames(leg:Leg):string{
+ const lines=[...new Set(legFamily(leg).map(l=>l.line))];
+ return lines.length>1?`${lines.slice(0,-1).join(', ')} or ${lines.at(-1)}`:lines[0];
+}
+/** A leg's lines for a tight space: "263/255". */
+export const lineShort=(leg:Leg)=>[...new Set(legFamily(leg).map(l=>l.line))].join('/');
+/**
+ * A leg's buses as a passenger reads them, with the destinations on their fronts: "263 (or the 255)
+ * towards Piccadilly Gardens"; "41 towards Middleton Bus Station or Piccadilly Gardens" for one line
+ * whose journeys end in different places; "85 towards Chorlton Bus Station (or the 85A towards
+ * Wintermans Road)" for lines that go on to different places. Lines going to the same places are named
+ * together; the leg's own bus leads.
+ */
+export function legService(leg:Leg):string{
+ const byLine=new Map<string,string[]>();
+ for(const l of legFamily(leg)){
+  const places=byLine.get(l.line)??[];
+  if(!places.includes(l.headsign))places.push(l.headsign);
+  byLine.set(l.line,places);
+ }
+ const byPlaces=new Map<string,{lines:string[];places:string[]}>();
+ for(const [line,places] of byLine){
+  const key=[...places].sort().join('|');
+  const group=byPlaces.get(key)??{lines:[],places};
+  group.lines.push(line);
+  byPlaces.set(key,group);
+ }
+ const either=(words:string[])=>words.length>1?`${words.slice(0,-1).join(', ')} or ${words.at(-1)}`:words[0];
+ const groups=[...byPlaces.values()];
+ if(groups.length===1){const [{lines,places}]=groups;
+  return `${lines[0]}${lines.length>1?` (or the ${lines.slice(1).join(', ')})`:''} towards ${either(places)}`}
+ const said=groups.map(({lines,places})=>`${either(lines)} towards ${either(places)}`);
+ return `${said[0]} (or the ${said.slice(1).join(', or the ')})`;
+}
+export const legWords=(leg:Leg)=>`the ${legService(leg)}`;
 export const stopName=stopWords;
 
 /** One sentence a passenger can follow, in the order they will do it. */

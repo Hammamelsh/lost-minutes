@@ -1,11 +1,14 @@
 """Is the timetable's clock anchored where the bus actually is? Per pattern, from its own reports.
 
 The page shows 'Timetabled at your stop 07:11' as the feed's origin departure plus the pattern's
-scheduled seconds. On 20 September 2026 that was found to be about fifteen minutes early for
-every inbound route-15 journey: the inbound journey key first appears in the feed a median
-14.5 min after its registered departure, standing at the origin, on every day held. Outbound is
-within about two minutes. The registration and the operator's running disagree about when the
-inbound journey starts, and nothing on the page could tell.
+scheduled seconds. On 20 September 2026 inbound route 15 was judged about fifteen minutes early
+by this check. **Withdrawn 28 September 2026**: an artefact. Inbound 15's first 14 stops are
+outside the service area, its road is built through the 47 inside it, and the passages were
+named by the road's stop order as if it were the pattern's, so each was set against the timetable
+of the stop 14 earlier. Named after their own stops, the same passages (21-27 September) put its
+first observed stops a median +2.6 min behind the timetable, as outbound's are (+2.6). The
+journey key "first appearing 14.5 min after its departure" was the bus entering the area we
+collect. Its first stops cannot be observed, so inbound 15 is now unchecked, not unreliable.
 
 So the timetabled line is now shown only for a pattern whose schedule has been checked against
 inferred passages at its first stops: median signed error within ANCHOR_TOLERANCE_MIN on at
@@ -46,6 +49,15 @@ MIN_PASSAGES = 20
 FIRST_STOPS = 10          # the anchor is judged where the journey has just begun
 
 
+def merged_verdicts(existing, read, fresh):
+    """This run's verdicts over the file's: every pattern this run read takes its fresh verdict or none
+    (nothing at its first stops to check: unchecked), and the file's entries for patterns it did not
+    read (another line's) are kept. Until 28 September 2026 a pattern read with nothing to check kept
+    its old verdict."""
+    kept = {pid: entry for pid, entry in existing.items() if pid not in read}
+    return {**kept, **fresh}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--line', default='15')
@@ -78,17 +90,22 @@ def main():
                        'basis': 'median signed error of inferred passages at the first stops against the feed origin departure plus timetable seconds'},
               'notes': ['A pattern absent from this file has not been checked, and its timetabled time is withheld.',
                         'Verified means the timetable clock starts where the bus does, within the tolerance; it says nothing about lateness later on.'],
-              'patterns': dict(existing.get('patterns', {}))}
+              'patterns': {}}
+    fresh = {}
     for pid, errs in errors.items():
         med = statistics.median(errs)
         verified = abs(med) <= ANCHOR_TOLERANCE_MIN and len(errs) >= MIN_PASSAGES
-        result['patterns'][pid] = {'verified': verified, 'medianOffsetMinutes': round(med, 2),
-                                   'p80AbsMinutes': round(ev.pct([abs(e) for e in errs], .8), 2),
-                                   'passages': len(errs), 'days': sorted(days[pid]),
-                                   'reason': None if verified else (
-                                       f'schedule runs {abs(med):.0f} min {"early" if med > 0 else "late"} against the bus’s own reports at its first stops'
-                                       if len(errs) >= MIN_PASSAGES else f'only {len(errs)} passages to check against')}
-        print(f"{pid:34} passages {len(errs):4}  median {med:+6.1f} min  -> {'VERIFIED' if verified else 'withheld: ' + result['patterns'][pid]['reason']}")
+        fresh[pid] = {'verified': verified, 'medianOffsetMinutes': round(med, 2),
+                      'p80AbsMinutes': round(ev.pct([abs(e) for e in errs], .8), 2),
+                      'passages': len(errs), 'days': sorted(days[pid]),
+                      'reason': None if verified else (
+                          f'schedule runs {abs(med):.0f} min {"early" if med > 0 else "late"} against the bus’s own reports at its first stops'
+                          if len(errs) >= MIN_PASSAGES else f'only {len(errs)} passages to check against')}
+        print(f"{pid:34} passages {len(errs):4}  median {med:+6.1f} min  -> {'VERIFIED' if verified else 'withheld: ' + fresh[pid]['reason']}")
+    for pid in sorted(set(patterns) - set(fresh)):
+        print(f'{pid:34} nothing at its first stops to check against -> not checked'
+              + (' (its earlier verdict is dropped)' if pid in existing.get('patterns', {}) else ''))
+    result['patterns'] = merged_verdicts(existing.get('patterns', {}), set(patterns), fresh)
     out_path.write_text(json.dumps(result, indent=1))
     print(f'written {out_path}')
 

@@ -33,7 +33,8 @@ test('each nightly job says its last attempt, who started it, how it ended, its 
   await open(page, [
     job('refresh', {lastAttempt: {startedAt: iso(failedAt), finishedAt: iso(failedAt + 3000), trigger: 'timer', result: 'failed',
       serviceResult: 'exit-code', exitCode: 'exited', exitStatus: '1'}, lastScheduledAttemptAt: iso(failedAt),
-      lastSuccess: {at: iso(lastGood), trigger: 'timer'}, seededFrom: 'journal'}),
+      lastSuccess: {at: iso(lastGood), trigger: 'timer', memoryPeakBytes: 1503238553, memoryMaxBytes: 1572864000, memorySource: 'journal'},
+      seededFrom: 'journal'}),
     job('arrival-eval', {lastAttempt: {startedAt: iso(byHand), finishedAt: iso(byHand + 150_000), trigger: 'manual', result: 'succeeded',
       serviceResult: 'success'}, lastScheduledAttemptAt: iso(timerLast), lastSuccess: {at: iso(byHand + 150_000), trigger: 'manual'}}),
   ]);
@@ -46,6 +47,10 @@ test('each nightly job says its last attempt, who started it, how it ended, its 
   await expect(rebuild).toContainText(`Last attempt${stamp(failedAt)} · scheduled · failed (exit status 1)`);
   await expect(rebuild).toContainText(`Last success${stamp(lastGood)}`);
   await expect(rebuild).toContainText('read from the server’s journal');
+  // How close its last success came to its memory ceiling: 1.4G of 1500M, said to be close, and whence.
+  await expect(rebuild.locator('[data-memory]')).toHaveAttribute('data-memory', 'tight');
+  await expect(rebuild.locator('[data-memory]')).toContainText('1,434 MB of its 1,500 MB ceiling (96%) · close to its ceiling');
+  await expect(rebuild.locator('[data-memory]')).toContainText('last success, from the journal, rounded; page cache included');
   // The evaluation: run by hand an hour ago and succeeded, but its timer has not run for 30 h: overdue,
   // because a run by hand does not stand for the schedule.
   const evaluation = section.locator('[data-job="arrival-eval"]');
@@ -54,6 +59,7 @@ test('each nightly job says its last attempt, who started it, how it ended, its 
   await expect(evaluation).toContainText(`Last attempt${stamp(byHand)} · by hand · succeeded`);
   await expect(evaluation).toContainText(`Last success${stamp(byHand + 150_000)} · by hand`);
   await expect(evaluation).toContainText(`Last scheduled run${stamp(timerLast)} · the next was due and has not run`);
+  await expect(evaluation.locator('[data-memory]')).toHaveText(/not recorded yet/);
 });
 
 test('a job started and never finished, long past its time limit, is "no result recorded", not "running"', async ({page}) => {

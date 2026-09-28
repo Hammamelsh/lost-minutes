@@ -393,3 +393,20 @@ test('6. a connection further by distance than the first eight is still timed, a
  const row=timingOf(lead).rows.find(r=>r.second);
  assert.equal(`${wall(row.first.departMs)} ${wall(row.second.departMs)} ${wall(row.second.arriveMs)}`,'07:20 07:40 07:52');
 });
+
+// ------------------------------------------------------------------ 7. a catalogue built before the flag
+
+test('7. a catalogue that does not yet carry the public-use flag never offers a known closed service; one that does is read by its flag', () => {
+ const now=at(MONDAY,7,0);
+ const old=catalogueOf(LINES);
+ for(const p of old.patterns)delete p.publicUse;
+ const direct=directOptions(ORIGIN,DESTINATION,old,STOPS,MONDAY);
+ const lines=new Set(direct.flatMap(o=>[o.leg.pattern,...o.leg.also.map(l=>l.pattern)]).map(p=>p.line));
+ assert.ok(!lines.has('732'),'BNML 732 is on the known closed list: not offered, flag or no flag');
+ assert.ok(lines.has('734'),'the school 734 is open to the public and is still offered');
+ // The served catalogue carries the flag after its first rebuild: then the flag, not the list, decides.
+ const flagged=catalogueOf(LINES.map(l=>l.line==='732'?{...l,publicUse:true}:l));
+ assert.ok(directOptions(ORIGIN,DESTINATION,flagged,STOPS,MONDAY).some(o=>[o.leg.pattern,...o.leg.also.map(l=>l.pattern)].some(p=>p.line==='732')),
+  'declared open by its own timetable: offered');
+ assert.ok(now>0);
+});

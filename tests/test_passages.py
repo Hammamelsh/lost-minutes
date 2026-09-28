@@ -1,7 +1,7 @@
 """Inferred stop passages: a crossing between two reports, with its uncertainty; not a report near a stop."""
 import unittest
 
-from pipeline.passages import MAX_GAP_S, Track, infer_passages
+from pipeline.passages import MAX_GAP_S, Track, infer_passages, placed_offsets
 
 # A straight road heading east from Stretford, 3 km, a vertex every 50 m; stops at 500, 1500, 2500 m.
 LAT, LON = 53.4487, -2.3095
@@ -75,6 +75,58 @@ class PassageInferenceTests(unittest.TestCase):
         passages, summary = infer_passages('P', STOPS, journey([(0, 0), (600, 60)]), TRACK)
         self.assertEqual(passages, [])
         self.assertEqual(summary['journeysTooFewReports'], 1)
+
+
+
+class PatternStartingOutsideTheAreaTests(unittest.TestCase):
+    """Inbound 15 calls at 14 stops outside the service area before its first inside it; its road is built
+    through the 47 inside only. Read by the pattern's index as they stood, the road's offsets named every
+    passage after the stop 14 earlier, and its timetable, read there, looked 15 minutes early (28 September
+    2026). Here two stops outside come first."""
+    PATTERN = ['O1', 'O2', 'S1', 'S2', 'S3']
+    PLACED = {'S1', 'S2', 'S3'}
+
+    def test_the_offsets_are_put_on_the_patterns_own_stops(self):
+        self.assertEqual(placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED), [None, None, 500.0, 1500.0, 2500.0])
+        # A pattern starting inside the area is unchanged but for the stops after its last placed one.
+        self.assertEqual(placed_offsets(['S1', 'S2', 'S3', 'O1'], [500.0, 1500.0, 2500.0], self.PLACED), [500.0, 1500.0, 2500.0, None])
+
+    def test_a_road_whose_stops_do_not_line_up_is_refused(self):
+        self.assertIsNone(placed_offsets(self.PATTERN, [500.0, 1500.0], self.PLACED))
+
+    def test_each_passage_is_named_after_its_own_stop(self):
+        track = Track(TRACK.points, placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED))
+        reports = journey([(0, 0), (80, 10), (160, 20), (240, 30), (320, 40), (400, 50), (560, 70), (640, 80)])
+        passages, _ = infer_passages('P', self.PATTERN, reports, track)
+        self.assertEqual([(p.stop_id, p.stop_index) for p in passages], [('S1', 2)])
+
+    def test_the_evaluator_reads_the_timetable_at_the_right_stops(self):
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location('evaluate_arrival', Path(__file__).resolve().parents[1] / 'scripts/evaluate-arrival.py')
+        ev = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ev)
+        # Scheduled seconds from the origin: O1 0, O2 600 (both outside), S1 900, S2 960, S3 1020.
+        timing = [0, 600, 900, 960, 1020]
+        track = Track(TRACK.points, placed_offsets(self.PATTERN, [500.0, 1500.0, 2500.0], self.PLACED))
+        self.assertEqual(ev.scheduled_seconds_at(track, timing, 1000.0), 930, 'halfway from S1 to S2')
+        # From 1000 m to S3 (index 4) is 90 scheduled seconds. By the old indexing the road's offsets met the
+        # timetable of the stops two earlier, and this read 900 - 300 = 600 s.
+        self.assertEqual(ev.remaining_eta([(T0, 1000.0)], 0, 4, track, timing), T0 + 90_000)
+
+
+class ScheduleAnchorTests(unittest.TestCase):
+    def test_a_pattern_with_nothing_at_its_first_stops_keeps_no_verdict_from_before(self):
+        """A pattern re-read with no passages at its first stops (all outside the area) is not checked: an
+        earlier verdict for it is dropped, not kept, so the page says unchecked rather than a withdrawn reason."""
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location('schedule_anchor', Path(__file__).resolve().parents[1] / 'scripts/schedule-anchor.py')
+        anchor = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(anchor)
+        existing = {'P:in': {'verified': False, 'reason': 'schedule runs 15 min early'}, 'Q:other-line': {'verified': True}}
+        merged = anchor.merged_verdicts(existing, read={'P:in', 'P:out'}, fresh={'P:out': {'verified': True}})
+        self.assertEqual(merged, {'P:out': {'verified': True}, 'Q:other-line': {'verified': True}})
 
 
 if __name__ == '__main__':

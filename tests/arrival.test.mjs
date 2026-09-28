@@ -1,72 +1,160 @@
-// Estimated minutes on the device: the blended candidate as evaluated, and every reason it withholds.
+// Estimated minutes on the device (lib/arrival.ts): the evaluated estimator, ported exactly, and the page's
+// own gates around it, none of which changes its answer.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {makeTrack} from '../lib/motion.ts';
-import {ARRIVAL_PARAMS,arrivalEstimate,arrivalWords,observedSpeed,placeReports,scheduledSecondsAt} from '../lib/arrival.ts';
+import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {ARRIVAL_DISPLAY,ARRIVAL_MODEL,ARRIVAL_PARAMS,TRAIL_POINTS,TRAIL_SECONDS,arrivalEstimate,arrivalTrack,arrivalWords,blendedEta,
+ cruiseFor,observedSpeed,placeReports,releasedScope,scheduledSecondsAt,withPublication} from '../lib/arrival.ts';
 
-// A straight road east from Stretford, a vertex every 20 m; stops every 500 m; timetable 8 m/s + 10 s a stop.
-const ORIGIN={lat:53.4487,lon:-2.3095}, M_LON=111320*Math.cos(ORIGIN.lat*Math.PI/180);
-const east=m=>[ORIGIN.lon+m/M_LON,ORIGIN.lat];
-const TRACK=makeTrack('P',Array.from({length:161},(_,i)=>east(i*20)),[0,500,1000,1500,2000,2500,3000]);   // 3,200 m: the last stop sits inside the road, not on its floating-point end
-const TIMING=[0,72,144,216,288,360,432];
-const T0=1_800_000_000_000;
-const reports=(offsets,step=20_000)=>offsets.map((m,i)=>({at:T0+i*step,...(([lon,lat])=>({lat,lon}))(east(m))}));
-const RELEASED={released:['inbound'],directions:{inbound:{released:true,p80Abs:2.06}}};
-const base={track:TRACK,patternId:'P',timing:TIMING,stopIndex:5,direction:'inbound',release:RELEASED};
+const read = path => readFileSync(new URL(`../${path}`, import.meta.url));
 
-test('the timetable’s seconds at an offset interpolate between the bracketing stops',()=>{
- assert.equal(scheduledSecondsAt(TRACK,TIMING,0),0);
- assert.equal(scheduledSecondsAt(TRACK,TIMING,250),36);
- assert.equal(scheduledSecondsAt(TRACK,TIMING,1000),144);
- assert.equal(scheduledSecondsAt(TRACK,TIMING,3200),432,'past the last stop: its seconds');
- assert.equal(scheduledSecondsAt(TRACK,[null,null],0),null);
+test('the parameters and the model name are exactly the frozen file’s', () => {
+ const bytes = read('scripts/arrival-params-frozen.json'), frozen = JSON.parse(bytes);
+ assert.equal(ARRIVAL_MODEL, `blended@${createHash('sha256').update(bytes).digest('hex').slice(0, 12)}`);
+ assert.deepEqual({dwell_s: ARRIVAL_PARAMS.dwellS, window_s: ARRIVAL_PARAMS.windowS, standing_below: ARRIVAL_PARAMS.standingBelow,
+  near_m: ARRIVAL_PARAMS.nearM}, frozen.params);
+ assert.deepEqual(ARRIVAL_PARAMS.cruise, frozen.cruise, 'the cruise speeds to the last digit, not rounded');
+ assert.equal(cruiseFor('BNML:99:outbound:x'), 8.0, 'a pattern not listed takes 8.0, as score() does');
+ // The trail a publication carries, as pipeline/live.py writes it: the page's completeness rule reads these.
+ const live = read('pipeline/live.py').toString();
+ assert.match(live, new RegExp(`^TRAIL_SECONDS = ${TRAIL_SECONDS}$`, 'm'));
+ assert.match(live, new RegExp(`^TRAIL_POINTS = ${TRAIL_POINTS}$`, 'm'));
 });
 
-test('speed is read from the reports since the latest jump, and refused when there is too little',()=>{
- const placed=placeReports(TRACK,reports([0,160,320,480,640]));
- assert.equal(placed.length,5);
- assert.ok(Math.abs(observedSpeed(placed,4,ARRIVAL_PARAMS.windowS)-8)<0.05,'8 m/s over four 20 s steps');
- assert.equal(observedSpeed(placed,0,ARRIVAL_PARAMS.windowS),null,'no earlier report');
- const jumped=placeReports(TRACK,reports([0,160,1200,1360,1520]));
- const v=observedSpeed(jumped,4,ARRIVAL_PARAMS.windowS);
- assert.ok(Math.abs(v-8)<0.05,`read only after the jump, got ${v}`);
+// ------------------------------------------------------------------ against the evaluator, on real reports
+
+const sample = JSON.parse(read('tests/fixtures/arrival-parity-sample.json'));
+const index = JSON.parse(read('public/data/shapes/index.json'));
+const shape = JSON.parse(read(`public/data/shapes/${index.patterns[sample.pattern].file}`));
+const inArea = new Set(JSON.parse(read('public/data/stops.json')).stops.map(s => s.id));
+const TRACK = arrivalTrack(shape.polyline6, shape.stopOffsets, sample.patternStops, id => inArea.has(id));
+
+test('the road is measured as the evaluation measures it, its stops on the pattern’s own indices', () => {
+ assert.ok(TRACK);
+ sample.stopOffsets.forEach((offset, j) => assert.equal(TRACK.stopOffsets[j], offset));
+ assert.ok(TRACK.stopOffsets.slice(sample.stopOffsets.length).every(o => o === null), 'the stops outside the area have none');
+ // A road whose placed stops do not number the pattern's stops inside the area is refused, not guessed.
+ assert.equal(arrivalTrack(shape.polyline6, shape.stopOffsets.slice(1), sample.patternStops, id => inArea.has(id)), null);
 });
 
-test('far from the stop the estimate is the timetable’s remaining seconds; near it, observed pace takes over',()=>{
- // At 300 m, 8 m/s: scheduled remaining to stop 5 (2500 m) is 360-43.2 s = 316.8 s; remaining 2200 m > near, so scheduled.
- const far=arrivalEstimate({...base,reports:reports([0,80,160,240,300]),nowMs:T0+4*20_000+5000});
- assert.equal(far.kind,'estimate');
- assert.ok(Math.abs(far.minutes-(316.8-5)/60)<0.02,`scheduled remaining, got ${far.minutes.toFixed(2)} min`);
- assert.equal(far.remainingM,2200);
- // At 2000 m and standing (five reports at the same place: 0 m/s, below standingBelow, so the
- // pattern's cruise fallback of 7 m/s applies), 500 m left: half scheduled, half progress.
- // A bus that had crept 100 m in 80 s would read 1.25 m/s and NOT be standing; that is by design.
- // 2,050 m, not 2,000: a bus standing a hair short of a stop still has that stop ahead and dwells
- // there, in the port as in the Python, so the fixture stands clear of the boundary.
- const nearStanding=arrivalEstimate({...base,reports:reports([2050,2050,2050,2050,2050]),nowMs:T0+4*20_000+5000});
- assert.equal(nearStanding.kind,'estimate');
- const schedRemain=360-scheduledSecondsAt(TRACK,TIMING,2050);            // 64.8 s
- const progRemain=450/7+0*ARRIVAL_PARAMS.dwellS;                       // 64.3 s at the fallback cruise, no stop between
- const w=450/ARRIVAL_PARAMS.nearM;
- const expect=(w*(T0+80_000+schedRemain*1000)+(1-w)*(T0+80_000+progRemain*1000)-(T0+85_000))/60000;
- assert.ok(Math.abs(nearStanding.minutes-expect)<0.02,`blended, got ${nearStanding.minutes.toFixed(2)} vs ${expect.toFixed(2)}`);
+test('on held-out real journeys the page answers as the evaluator did, from the reports up to each moment only', () => {
+ let compared = 0, worst = 0;
+ for (const journey of sample.journeys) {
+  const reports = journey.reports.map(([at, lat, lon]) => ({at, lat, lon}));
+  const placedAll = placeReports(TRACK, reports);
+  const byMoment = new Map();
+  for (const [i, j, eta] of journey.cases) { if (!byMoment.has(i)) byMoment.set(i, []); byMoment.get(i).push([j, eta]); }
+  for (const [i, targets] of byMoment) {
+   const upTo = reports.filter(r => r.at <= placedAll[i][0]);
+   const placed = placeReports(TRACK, upTo);
+   for (const [j, eta] of targets) {
+    const page = blendedEta(placed, placed.length - 1, j, TRACK.stopOffsets, journey.timing, cruiseFor(sample.pattern));
+    assert.notEqual(page, null, 'the evaluator answered, so must the page');
+    worst = Math.max(worst, Math.abs(page - eta));
+    compared++;
+   }
+  }
+ }
+ assert.ok(compared > 6000, `${compared} answers compared`);
+ assert.ok(worst <= 1, `worst difference ${worst} ms: floating-point at the millisecond cut, the page shows minutes`);
 });
 
-test('every withdrawal rule refuses with its reason, and nothing is shown for an unreleased direction',()=>{
- const good=reports([0,160,320,480,640]), now=T0+4*20_000+5000;
- assert.match(arrivalEstimate({...base,reports:good,nowMs:now,release:null}).reason,/not yet released/);
- assert.match(arrivalEstimate({...base,reports:good,nowMs:now,release:{released:['outbound']}}).reason,/not yet released/);
- assert.match(arrivalEstimate({...base,reports:good,nowMs:now+200_000}).reason,/too old/);
- assert.match(arrivalEstimate({...base,reports:reports([2400,2600,2700]),nowMs:T0+45_000}).reason,/at or past your stop/);
- assert.match(arrivalEstimate({...base,reports:good.slice(0,1),nowMs:now}).reason,/too few reports/);
- assert.match(arrivalEstimate({...base,reports:good,nowMs:now,timing:[0,null,null,null,null,null,null]}).reason,/running times/);
- const far=reports([0,160,320]).map(r=>({...r,lat:r.lat+0.003}));   // 330 m off the road
- assert.match(arrivalEstimate({...base,reports:far,nowMs:T0+45_000}).reason,/too few reports/);
+// ------------------------------------------------------------------ the pieces, by hand
+
+test('speed is read from the reports since the latest jump within the window, and refused on too little', () => {
+ const T = 1_800_000_000_000;
+ const placed = [[T, 0], [T + 20_000, 100], [T + 40_000, 200], [T + 60_000, 300]];
+ assert.equal(observedSpeed(placed, 3, 180), 5);
+ assert.equal(observedSpeed(placed, 0, 180), null, 'one report: no speed');
+ assert.equal(observedSpeed([[T, 0], [T + 10_000, 50]], 1, 180), null, 'under 20 s: no speed');
+ assert.equal(observedSpeed([[T, 0], [T + 20_000, 100], [T + 40_000, 2000], [T + 60_000, 2100]], 3, 180), 5, 'from after the jump');
 });
 
-test('the words are a point inside two minutes of p80 and a range beyond it',()=>{
- const e={kind:'estimate',atMs:0,minutes:6.2,lowMinutes:4.14,highMinutes:8.26,method:'blended',reportAgeS:12,remainingM:1800};
- assert.equal(arrivalWords(e),'4–8 min','p80 of 2.06 is a range');
- assert.equal(arrivalWords({...e,lowMinutes:4.7,highMinutes:7.7}),'about 6 min');
- assert.equal(arrivalWords({...e,minutes:0.3,lowMinutes:0,highMinutes:1.8}),'about 1 min','never zero');
+test('the timetable’s seconds interpolate between the stops the road places, skipping the rest', () => {
+ const offsets = [0, 500, null, 1500], timing = [0, 60, 90, 200];
+ assert.equal(scheduledSecondsAt(offsets, timing, 250), 30);
+ assert.equal(scheduledSecondsAt(offsets, timing, 1000), 60 + 140 * 0.5, 'the stop with no offset is skipped');
+ assert.equal(scheduledSecondsAt([0, null], [0, 1], 0), null);
+});
+
+// ------------------------------------------------------------------ what a release covers
+
+const PATTERN = {id: 'BNML:15:outbound:c9291c1aea', operator: 'BNML', line: '15', direction: 'outbound'};
+const SCOPE = {operator: 'BNML', line: '15', direction: 'outbound', patternIds: [PATTERN.id], model: ARRIVAL_MODEL, p80Abs: 2.48};
+
+test('only a scope that names the operator, line, direction, pattern and model releases a pattern', () => {
+ assert.ok(releasedScope({released: [], scopes: [SCOPE]}, PATTERN));
+ assert.equal(releasedScope({released: ['outbound']}, PATTERN), null, 'a direction alone, the old form, releases nothing');
+ for (const [field, value] of [['operator', 'BNSM'], ['line', '15A'], ['direction', 'inbound'], ['model', 'blended@000000000000']])
+  assert.equal(releasedScope({released: [], scopes: [{...SCOPE, [field]: value}]}, PATTERN), null, `another ${field}`);
+ assert.equal(releasedScope({released: [], scopes: [SCOPE]}, {...PATTERN, id: 'BNML:15:outbound:ffffffffff'}), null, 'another variant of the line');
+ assert.equal(releasedScope({released: [], scopes: [SCOPE]}, {id: 'BNML:250:outbound:aaaa', operator: 'BNML', line: '250', direction: 'outbound'}), null,
+  'another outbound service');
+ assert.equal(releasedScope({released: [], scopes: [SCOPE]}, {...PATTERN, id: 'BNML:15:inbound:9c10700c6c', direction: 'inbound'}), null);
+});
+
+// ------------------------------------------------------------------ the journey as the page reads it
+
+const at0 = 1_800_000_000_000;
+const r = (s, lat = 53.44, lon = -2.3) => ({at: at0 + s * 1000, lat, lon});
+
+test('a journey is held complete from where publications reach back unbroken, and starts again after a gap', () => {
+ const trail = s => Array.from({length: TRAIL_POINTS}, (_, k) => r(s - (TRAIL_POINTS - k) * 20));
+ let h = withPublication(null, 'J', r(200), trail(200));
+ assert.equal(h.completeFrom, at0 + 80_000, 'a full trail: complete from its oldest report');
+ h = withPublication(h, 'J', r(220), trail(220));
+ assert.equal(h.completeFrom, at0 + 80_000, 'overlapping: still complete from there');
+ assert.equal(withPublication(h, 'J', r(200), trail(200)), h, 'an older publication changes nothing');
+ const gap = withPublication(h, 'J', r(600), trail(600));
+ assert.equal(gap.completeFrom, at0 + 480_000, 'a gap: complete only from the new publication');
+ assert.equal(withPublication(h, 'K', r(240), trail(240)).key, 'K', 'another journey starts afresh');
+ const short = withPublication(null, 'J', r(100), [r(80), r(60)]);
+ assert.equal(short.completeFrom, at0 + 100_000 - TRAIL_SECONDS * 1000, 'fewer than six: every report of the window is there');
+});
+
+test('the estimate is the evaluator’s answer, and every refusal around it is said', () => {
+ // A real journey from the sample, read as the page would hold it at one of its moments.
+ const journey = sample.journeys[0];
+ const reports = journey.reports.map(([at, lat, lon]) => ({at, lat, lon}));
+ const placedAll = placeReports(TRACK, reports);
+ // A moment with a stop under 1.5 min, one about five and one over twelve minutes ahead, by the evaluator's own answers.
+ const lead = ([k, , e2]) => (e2 - placedAll[k][0]) / 60000;
+ const moments = [...new Set(journey.cases.map(c => c[0]))];
+ const i = moments.find(k => { const cs = journey.cases.filter(c => c[0] === k);
+  return cs.some(c => lead(c) < 1.5) && cs.some(c => lead(c) > 4 && lead(c) < 6) && cs.some(c => lead(c) > 12); });
+ const [, j, eta] = journey.cases.find(c => c[0] === i && lead(c) > 4 && lead(c) < 6);
+ const tNow = placedAll[i][0];
+ const held = reports.filter(x => x.at <= tNow);
+ const history = {key: 'J', reports: held, completeFrom: held[0].at, latest: tNow};
+ const release = {released: [], scopes: [SCOPE]};
+ const ask = (over = {}) => arrivalEstimate({release, pattern: PATTERN, track: TRACK, timing: journey.timing, stopIndex: j, history,
+  nowMs: tNow + 10_000, ...over});
+ const e = ask();
+ assert.equal(e.kind, 'estimate');
+ assert.equal(e.atMs, eta, 'the evaluator’s own millisecond');
+ assert.equal(e.model, ARRIVAL_MODEL);
+ assert.match(arrivalWords(e), /^\d+–\d+ min$/, 'a range: the direction’s 80th-percentile error is over 2 min');
+ const reason = over => ask(over).reason;
+ assert.match(reason({release: {released: ['outbound']}}), /not released/);
+ assert.match(reason({journeyChanged: true}), /another journey/);
+ assert.match(reason({track: null}), /road is not loaded/);
+ assert.match(reason({history: {...history, completeFrom: tNow - 60_000}}), /recent pace/);
+ assert.match(reason({nowMs: tNow + (ARRIVAL_DISPLAY.staleS + 5) * 1000}), /too old/);
+ const offRoad = {...history, reports: [...held.slice(0, -1), {...held[held.length - 1], lat: held[held.length - 1].lat + 0.01}]};
+ assert.match(reason({history: offRoad}), /off its checked road/);
+ // Under two minutes: the same moment, a stop just ahead.
+ const near = journey.cases.find(([k, , e2]) => k === i && (e2 - tNow) / 60000 < 1.5);
+ if (near) assert.match(ask({stopIndex: near[1]}).reason, /under 2 minutes/);
+ // Far enough ahead to be out of range: the same moment, a stop much further on.
+ const far = journey.cases.find(([k, , e2]) => k === i && (e2 - tNow) / 60000 > 12);
+ if (far) assert.match(ask({stopIndex: far[1]}).reason, /more than 10 minutes/);
+ assert.ok(near && far, 'the moment has a stop on each side of the band');
+});
+
+test('minutes are worded to whole minutes: a point within 2 min of error, else a range', () => {
+ const point = {kind: 'estimate', atMs: 0, minutes: 6.4, lowMinutes: 4.4, highMinutes: 8.4, method: 'blended', model: ARRIVAL_MODEL, reportAgeS: 9, remainingM: 1500};
+ assert.equal(arrivalWords(point), 'about 6 min');
+ assert.equal(arrivalWords({...point, lowMinutes: 3.9, highMinutes: 8.9}), '4–9 min');
+ assert.equal(arrivalWords({...point, minutes: 2.1, lowMinutes: 0, highMinutes: 4.6}), '1–5 min', 'never below 1');
 });

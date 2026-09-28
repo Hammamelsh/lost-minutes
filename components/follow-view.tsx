@@ -45,11 +45,12 @@ import {elapsedWords,favouriteKey,favouritesServerSnapshot,favouritesSnapshot,is
         subscribeFavourites,toggleFavourite,type Favourite,type FeedMode,type LiveState} from '@/lib/live';
 import {clock} from '@/lib/replay';
 import {saveTheme,subscribeTheme,themeServerSnapshot,themeSnapshot} from '@/lib/theme';
-import {DEFAULT_WALKING,walkWords,type WalkingConfig} from '@/lib/walking';
+import {DEFAULT_WALKING,distanceWords,walkWords,type WalkingConfig} from '@/lib/walking';
 import {useWalkingConsent,useWalkingRoute} from '@/lib/use-walking';
 import type {Origin} from '@/lib/origin';
 import {scheduledAtStop} from '@/lib/scheduled';
-import {arrivalEstimate,arrivalWords,type ArrivalRelease} from '@/lib/arrival';
+import {arrivalEstimate,arrivalTrack as buildArrivalTrack,arrivalWords,releasedScope,withPublication,
+ type ArrivalRelease,type ArrivalTrack,type JourneyHistory} from '@/lib/arrival';
 import {loadTrack} from '@/lib/motion-view';
 import type {Track} from '@/lib/motion';
 import {describeMotion,motionPreferenceServerSnapshot,motionPreferenceSnapshot,REPOSITION_WORDS,saveMotionPreference,
@@ -107,6 +108,8 @@ function checkTransfer(config:Parameters<typeof fetchWalkingRoute>[0],t:{from:St
  transfersAsked.set(key,request);
  return request;
 }
+/** Each journey's reports as this visit has read them, for the arrival estimate (lib/arrival.ts). */
+const journeyHistories=new Map<string,JourneyHistory>();
 /** How long the list waits for the walks between stops before showing them unchecked, said so. */
 const LIST_WALK_WAIT_MS=6000;
 const checkedWalkOf=(option:ConnectionOption)=>option.transfer.sameStop?null:checkedTransfers.get(transferKey(option.transfer))??null;
@@ -230,7 +233,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  },[]);
  // The chosen bus's road, for the arrival estimate: the same accepted shape the map uses, loaded
  // by pattern id and cached by lib/motion-view, so the estimate and the drawing read one geometry.
- const [arrivalTrack,setArrivalTrack]=useState<{patternId:string;track:Track|null}|null>(null);
+ const [arrivalTrack,setArrivalTrack]=useState<{patternId:string;track:ArrivalTrack|null}|null>(null);
+
  // Which patterns' timetable clocks have been checked against their own buses: fetched once,
  // like the motion evaluation. null until it arrives or if it cannot; a pattern absent is unchecked.
  const [scheduleAnchor,setScheduleAnchor]=useState<{patterns:Record<string,{verified:boolean;reason?:string|null;medianOffsetMinutes?:number}>}|null|undefined>(undefined);
@@ -984,28 +988,46 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // Cheap enough to compute each render, which the card does on the clock anyway.
  // Estimated minutes to your stop: only for a released direction, only from raw reports.
  const arrivalPatternId=shown&&shown.match&&'patternId' in shown.match?shown.match.patternId:null;
+ const arrivalPattern=arrivalPatternId?patternsById.get(arrivalPatternId)??null:null;
+ // Only a pattern a release names exactly is measured at all: nothing is loaded for any other.
+ const arrivalScoped=Boolean(arrivalPattern&&releasedScope(arrivalRelease,arrivalPattern));
  useEffect(()=>{
   // No state write here: a track kept from another pattern is ignored below by its patternId, so
   // nothing needs clearing, and a synchronous setState in an effect cascades renders.
-  if(!arrivalPatternId||!arrivalRelease?.released.length)return;
+  if(!arrivalPattern||!arrivalScoped)return;
   let current=true;
-  loadTrack(arrivalPatternId).then(r=>{if(current)setArrivalTrack({patternId:arrivalPatternId,track:r.track})});
+  const pattern=arrivalPattern;
+  loadTrack(pattern.id).then(r=>{if(!current)return;
+   setArrivalTrack({patternId:pattern.id,track:r.shape?buildArrivalTrack(r.shape.polyline6,r.shape.stopOffsets,pattern.stops,id=>stopById.has(id)):null})});
   return()=>{current=false};
- },[arrivalPatternId,arrivalRelease]);
+ },[arrivalPattern,arrivalScoped,stopById]);
+ // The shown bus's journey as the page has read it, publication by publication: what the estimate may
+ // use, and from when every report of it is held (lib/arrival.ts, JourneyHistory). Each publication of
+ // the bus adds its reports; another journey starts afresh. Merging the same publication twice changes
+ // nothing, so the memo may run again without harm.
+ const arrivalJourney=shown&&!absent?`${shown.operator}|${shown.vehicle}|${shown.route}|${shown.direction}|${shown.journeyRef}|${shown.aimedDeparture??''}`:null;
+ const arrivalHistory=useMemo(()=>{
+  if(!arrivalJourney||!shown||!arrivalScoped)return null;
+  const next=withPublication(journeyHistories.get(arrivalJourney)??null,arrivalJourney,{at:shown.observedAtMs,lat:shown.lat,lon:shown.lon},
+   (shown.trail??[]).map(f=>({at:f.at,lat:f.lat,lon:f.lon})));
+  if(journeyHistories.size>40)journeyHistories.clear();
+  journeyHistories.set(arrivalJourney,next);
+  return next;
+ },[arrivalJourney,shown,arrivalScoped]);
  const arrival=(()=>{
-  if(!shown||!stop||!shown.match||!('patternId' in shown.match)||mode==='archive')return null;
-  const pattern=patternsById.get(shown.match.patternId);
-  if(!pattern||!arrivalTrack||arrivalTrack.patternId!==pattern.id||!arrivalTrack.track)return null;
+  if(!shown||!stop||!shown.match||!('patternId' in shown.match)||mode==='archive'||absent)return null;
+  const pattern=arrivalPattern;
+  if(!pattern||!arrivalScoped)return null;
   const stopIndex=pattern.stops.indexOf(stop.id);
+  // Never minutes for a bus whose last report is nearest your stop or beyond it: the card says where it is.
   if(stopIndex<0||shown.match.patternIndex>=stopIndex)return null;
   const sched=shown.match.scheduled;
   const timing=(sched&&'timing' in sched&&sched.timing!==undefined&&pattern.timings?.[sched.timing])||pattern.seconds;
   if(!timing)return null;
-  const reports=[...(shown.trail??[]).map(f=>({at:f.at,lat:f.lat,lon:f.lon})),{at:shown.observedAtMs,lat:shown.lat,lon:shown.lon}];
   // nowMs is the page clock, 0 before its first tick: then every report reads as in the future and
   // the estimate correctly waits, rather than reading an impure Date.now() in render.
-  return arrivalEstimate({track:arrivalTrack.track,patternId:pattern.id,timing,stopIndex,reports,nowMs,
-   release:arrivalRelease,direction:pattern.direction??''});
+  return arrivalEstimate({release:arrivalRelease,pattern,track:arrivalTrack&&arrivalTrack.patternId===pattern.id?arrivalTrack.track:null,
+   timing,stopIndex,history:arrivalHistory&&arrivalHistory.key===arrivalJourney?arrivalHistory:null,nowMs,journeyChanged:pausedJourney});
  })();
  const timetabled=(()=>{
   if(!shown||!stop||!shown.match||!('patternId' in shown.match))return null;
@@ -1525,7 +1547,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        passed its criteria (none has); the operator's own live board is one tap away. */}
    <p className="board-when" data-board-when>
     <span><strong>Tracked buses</strong> are shown by their last report — stops away and its age, not minutes
-     {arrivalRelease?.released?.length?'; arrival minutes where our estimate has passed its criteria':' (no arrival minutes here yet)'}.
+     {arrivalRelease?.scopes?.length?'; arrival minutes only on the service our estimate has passed its criteria for':' (no arrival minutes here yet)'}.
      The timetabled departures are above.</span>
    </p>
    {emptyTitle
@@ -1648,9 +1670,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
        labelled as the timetable's, because a time at a stop reads as a prediction and is not one. */}
    {/* Estimated minutes: shown only for a direction the criteria released on unseen journeys, computed
        from the bus's own reports on its checked road, labelled as an estimate with the report age. */}
-   {shown&&!absent&&stop&&relevant&&arrival?.kind==='estimate'&&<p className="bus-card-arrival" data-arrival={arrival.minutes.toFixed(1)}>
+   {shown&&!absent&&stop&&relevant&&arrival?.kind==='estimate'&&<p className="bus-card-arrival" data-arrival={arrival.minutes.toFixed(1)} data-arrival-model={arrival.model}>
     <strong>Estimated {arrivalWords(arrival)} to your stop</strong>
-    <span>an estimate from its reports, last {arrival.reportAgeS} s ago · {Math.round(arrival.remainingM/100)*100} m of road left · not a promise</span></p>}
+    <span>an estimate from its reports, last {arrival.reportAgeS} s ago · {distanceWords(arrival.remainingM)} of road left · a pilot on this service only · not a promise</span></p>}
+   {/* On the one service minutes are released for, a bus with none says why, in one quiet line. */}
+   {shown&&!absent&&stop&&relevant&&arrivalScoped&&arrival?.kind==='none'&&<p className="bus-card-arrival none" data-arrival="none">
+    <span>No estimated minutes: {arrival.reason}.</span></p>}
    {shown&&!absent&&stop&&relevant&&timetabled?.kind==='time'&&<p className="bus-card-scheduled" data-scheduled={timetabled.wall}>
     <strong>Timetabled at your stop {timetabled.wall}</strong>
     <span>from the operator’s timetable · not a prediction, and not adjusted for where the bus is</span></p>}

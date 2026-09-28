@@ -25,8 +25,9 @@ export type ScheduledInput = {
  busIndex: number;
  stopIndex: number;
  /** Whether this pattern's timetable clock has been checked against its own buses' passages at
-  *  the first stops (public/data/schedule-anchor.json). Undefined: not checked, so withheld. On
-  *  20 September 2026 inbound route 15 measured fifteen minutes early; nothing on the page could tell. */
+  *  the first stops (public/data/schedule-anchor.json). Undefined: not checked, so withheld. The
+  *  check once judged inbound route 15 fifteen minutes early (20 September 2026); that was the check
+  *  pairing its stops wrongly, withdrawn 28 September (pipeline/passages.py, placed_offsets). */
  anchor?: {verified: boolean; reason?: string | null; medianOffsetMinutes?: number} | null;
 };
 

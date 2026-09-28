@@ -90,6 +90,34 @@ def outcome(env):
             'exitStatus': env.get('EXIT_STATUS') or None}
 
 
+def unit_memory(unit, proc_cgroup='/proc/self/cgroup', cgroup_root='/sys/fs/cgroup'):
+    """The unit's own memory peak and ceiling in bytes, read from inside its cgroup: ExecStopPost runs
+    there, so after the job the peak is the whole run's. Nothing when this is not that unit's cgroup (a
+    run from a shell is in a session's, whose peak is not the job's), or when it cannot be read."""
+    try:
+        group = next(line.split(':', 2)[2] for line in Path(proc_cgroup).read_text().splitlines()
+                     if line.startswith('0::'))
+        if not group.rstrip('/').endswith('/' + unit):
+            return {}
+        base = Path(cgroup_root) / group.strip('/')
+        peak = int((base / 'memory.peak').read_text().split()[0])
+        ceiling = (base / 'memory.max').read_text().strip()
+        return {'memoryPeakBytes': peak, 'memoryMaxBytes': None if ceiling == 'max' else int(ceiling)}
+    except (OSError, ValueError, IndexError, StopIteration):
+        return {}
+
+
+def parse_size(text):
+    """systemd's sizes as the journal and unit files write them: 1.4G, 684.5M, 1500M (powers of 1024)."""
+    if text is None:
+        return None
+    text = str(text).strip()
+    units = {'K': 1024, 'M': 1024 ** 2, 'G': 1024 ** 3, 'T': 1024 ** 4}
+    if text and text[-1].upper() in units:
+        return int(float(text[:-1]) * units[text[-1].upper()])
+    return int(float(text))
+
+
 def start(root, name, now=None, env=None):
     env = os.environ if env is None else env
     now = now or utc_now()
@@ -104,16 +132,17 @@ def start(root, name, now=None, env=None):
     return state
 
 
-def finish(root, name, now=None, env=None):
+def finish(root, name, now=None, env=None, memory=None):
     env = os.environ if env is None else env
     now = now or utc_now()
+    memory = unit_memory(JOBS[name]['unit']) if memory is None else memory
     with _locked(root):
         state = _load(root, name)
         attempt = state.get('lastAttempt') or {'startedAt': None, 'trigger': _trigger(env)}
-        attempt.update({'finishedAt': now, **outcome(env)})
+        attempt.update({'finishedAt': now, **outcome(env), **memory})
         state['lastAttempt'] = attempt
         if attempt['result'] == 'succeeded':
-            state['lastSuccess'] = {'at': now, 'trigger': attempt.get('trigger')}
+            state['lastSuccess'] = {'at': now, 'trigger': attempt.get('trigger'), **memory}
         else:
             state['lastFailure'] = {'at': now, 'trigger': attempt.get('trigger'),
                                     'serviceResult': attempt.get('serviceResult'),
@@ -124,7 +153,8 @@ def finish(root, name, now=None, env=None):
 
 
 def seed(root, name, attempt_at, finished_at, result, success_at=None, success_trigger='timer',
-         trigger='timer', service_result=None, exit_status=None, source='journal'):
+         trigger='timer', service_result=None, exit_status=None, source='journal', success_memory_peak=None,
+         memory_max=None):
     """The record as it stood before the jobs recorded themselves, read from the journal once, and
     marked as read from there."""
     with _locked(root):
@@ -136,6 +166,10 @@ def seed(root, name, attempt_at, finished_at, result, success_at=None, success_t
             state['lastScheduledAttemptAt'] = attempt_at
         if success_at:
             state['lastSuccess'] = {'at': success_at, 'trigger': success_trigger}
+            if success_memory_peak:
+                # The journal rounds ("1.4G"): said to be from there.
+                state['lastSuccess'].update({'memoryPeakBytes': parse_size(success_memory_peak),
+                                             'memoryMaxBytes': parse_size(memory_max), 'memorySource': 'journal'})
         if result != 'succeeded':
             state['lastFailure'] = {'at': finished_at, 'trigger': trigger, 'serviceResult': service_result,
                                     'exitStatus': exit_status}
@@ -165,6 +199,8 @@ def main(argv=None):
     parser.add_argument('--root', default='.')
     parser.add_argument('--attempt'); parser.add_argument('--finished'); parser.add_argument('--result')
     parser.add_argument('--success'); parser.add_argument('--service-result'); parser.add_argument('--exit-status')
+    parser.add_argument('--success-memory-peak', help='the journal\'s "memory peak" for that success, e.g. 1.4G')
+    parser.add_argument('--memory-max', help='the unit\'s MemoryMax, e.g. 1500M')
     args = parser.parse_args(argv)
     if args.command != 'publish' and not args.name:
         parser.error('a job name is needed')
@@ -175,7 +211,8 @@ def main(argv=None):
             finish(args.root, args.name)
         elif args.command == 'seed':
             seed(args.root, args.name, args.attempt, args.finished, args.result, success_at=args.success,
-                 service_result=args.service_result, exit_status=args.exit_status)
+                 service_result=args.service_result, exit_status=args.exit_status,
+                 success_memory_peak=args.success_memory_peak, memory_max=args.memory_max)
         else:
             publish(args.root)
     except OSError as error:            # never the job's failure: said, and left

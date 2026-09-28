@@ -54,7 +54,7 @@ def main():
     all_passages, totals = [], Counter()
     within40_pairs = 0
     for pattern in patterns:
-        track = load_track(pattern['id'])
+        track = load_track(pattern['id'], pattern['stops'])
         journeys = by_dir.get(pattern['direction'], {})
         if track is None:
             print(f"\n{pattern['id']}: no accepted shape; {len(journeys)} journeys in this direction cannot be scored")

@@ -43,3 +43,15 @@ test('the published record is validated: a wrong shape is refused, not half-show
  assert.equal(parseJobs({schemaVersion:1,generatedAt:'x',jobs:[job()]}).jobs.length,1);
  assert.ok(HOUR>0);
 });
+
+test('memory headroom is the last recorded peak against its ceiling, and tight from 85%', async () => {
+ const {memoryHeadroom} = await import('../lib/jobs.ts');
+ const MB = 1048576;
+ const rebuilt = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1434 * MB, memoryMaxBytes: 1500 * MB}});
+ assert.deepEqual(memoryHeadroom(rebuilt), {peakMB: 1434, maxMB: 1500, share: 1434 / 1500, tight: true, from: 'attempt', source: null});
+ const seeded = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'failed'},
+  lastSuccess: {at: 'y', trigger: 'timer', memoryPeakBytes: 700 * MB, memoryMaxBytes: 1500 * MB, memorySource: 'journal'}});
+ assert.equal(memoryHeadroom(seeded).from, 'success');
+ assert.equal(memoryHeadroom(seeded).tight, false);
+ assert.equal(memoryHeadroom(job()), null, 'nothing recorded: nothing claimed');
+});

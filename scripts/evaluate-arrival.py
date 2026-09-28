@@ -19,6 +19,7 @@ criteria (docs/ARRIVAL_RELEASE_CRITERIA.md), fixed before this ran, are checked 
     .venv/bin/python scripts/evaluate-arrival.py [--fit-until 2026-09-14] [--line 15]
 """
 import argparse
+import hashlib
 import json
 import statistics
 import sys
@@ -36,6 +37,7 @@ from pipeline.warehouse import DEFAULT_DB, connect  # noqa: E402
 LONDON = ZoneInfo('Europe/London')
 HORIZONS = [(1, 2), (2, 5), (5, 10), (10, 20)]        # minutes before the inferred passage
 RELEASE_BAND = (2, 10)                                 # the band the criteria are judged in
+SHOWN_BAND = (2, 10)                                   # the predicted minutes a page shows (lib/arrival.ts ARRIVAL_DISPLAY)
 MIN_LEAD_S = 60                                        # a moment less than a minute before is not a prediction
 MAX_SPEED = 20.0                                       # m/s; faster is a jump
 JUMP_SPEED = MAX_SPEED * 1.5
@@ -99,7 +101,8 @@ def scheduled_seconds_at(track, timing, s):
 def remaining_eta(placed, at_index, stop_index, track, timing):
     """Scheduled running time from where the bus is now to the stop: the timetable's clock read
     as a *difference*, so the origin departure and its anchor do not enter at all. The candidate
-    the first evaluation pointed at, and immune to the inbound discrepancy by construction."""
+    the first evaluation pointed at. (It was said to be immune to an inbound discrepancy; that
+    discrepancy was this evaluation's own stop numbering, withdrawn 28 September 2026.)"""
     t_now, s_now = placed[at_index]
     at_stop = timing[stop_index] if stop_index < len(timing) else None
     here = scheduled_seconds_at(track, timing, s_now)
@@ -211,7 +214,7 @@ def score(passages, patterns, dep_info, reports, params, days, cruise_by_pattern
         if day not in days:
             continue
         if pid not in tracks:
-            tracks[pid] = load_track(pid)
+            tracks[pid] = load_track(pid, pattern['stops'])
         track = tracks[pid]
         if track is None:
             continue
@@ -321,7 +324,7 @@ def cruise_speeds(passages, patterns, reports):
     """Typical moving speed per pattern on the fit days: median of observed speeds above 3 m/s."""
     out = {}
     for pid, pattern in patterns.items():
-        track = load_track(pid)
+        track = load_track(pid, pattern['stops'])
         if track is None:
             continue
         speeds = []
@@ -355,6 +358,9 @@ def main():
     cut = datetime.strptime(a.fit_until, '%Y-%m-%d').date()
     fit_days, test_days = {d for d in days if d <= cut}, {d for d in days if d > cut}
     frozen = json.loads(Path(a.params).read_text()) if a.params else None
+    # The model a night's evidence is for: the frozen parameters' own hash, which the page's estimator
+    # names too (lib/arrival.ts ARRIVAL_MODEL). A fitted run is no model anything can be released for.
+    model = 'blended@' + hashlib.sha256(Path(a.params).read_bytes()).hexdigest()[:12] if a.params else 'fitted'
     if frozen:
         # A final evaluation: nothing here is fitted. Every day in this set is held out.
         fit_days, test_days = set(), set(days)
@@ -479,12 +485,28 @@ def main():
                     kept[entry['day']] = entry
         for day, drows in sorted(by_day.items()):
             entry = {'day': day, 'scoredAt': datetime.now(LONDON).isoformat(),
-                     'weekday': datetime.strptime(day, '%Y-%m-%d').weekday() < 5, 'candidate': a.candidate, 'directions': {}}
+                     'weekday': datetime.strptime(day, '%Y-%m-%d').weekday() < 5, 'candidate': a.candidate,
+                     'model': model, 'operator': a.operator, 'line': a.line, 'directions': {}}
             for d in ('inbound', 'outbound'):
-                sub = [r for r in drows if r[10] == d and RELEASE_BAND[0] <= r[3] < RELEASE_BAND[1] and r[idx] is not None]
+                # Every criterion needs its own count: the moments in the band (coverage's denominator),
+                # those with an estimate, and where the timetable's time exists too, both errors.
+                inband = [r for r in drows if r[10] == d and RELEASE_BAND[0] <= r[3] < RELEASE_BAND[1]]
+                sub = [r for r in inband if r[idx] is not None]
+                both = [r for r in sub if r[5] is not None]
+                # What a page would show: it can choose only by its own predicted minutes (the actual
+                # horizon less the error), not by the actual horizon the criteria are read at. Reported
+                # beside the criteria, not one of them (28 September 2026: 1.57 and 3.79 min on the held-out
+                # days where the criteria's own band read 1.20 and 2.48).
+                shown = [r for r in drows if r[10] == d and r[idx] is not None
+                         and SHOWN_BAND[0] <= r[3] - r[idx] <= SHOWN_BAND[1]]
                 entry['directions'][d] = {'journeys': len({(r[0], r[1]) for r in sub}),
                                           'passages': len({(r[0], r[1], r[2]) for r in sub}),
-                                          'absErrorsReleaseBand': [round(abs(r[idx]), 3) for r in sub]}
+                                          'absErrorsReleaseBand': [round(abs(r[idx]), 3) for r in sub],
+                                          'moments': len(inband), 'withEstimate': len(sub),
+                                          'bothCandidateAbs': [round(abs(r[idx]), 3) for r in both],
+                                          'bothScheduledAbs': [round(abs(r[5]), 3) for r in both],
+                                          'patternIds': sorted({r[0] for r in sub}),
+                                          'absErrorsShownBand': [round(abs(r[idx]), 3) for r in shown]}
             kept[day] = entry
         path.write_text(''.join(json.dumps(kept[d]) + '\n' for d in sorted(kept)))
         print(f'nightly file now holds {len(kept)} day(s): {", ".join(sorted(kept))}')

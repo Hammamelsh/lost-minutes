@@ -75,7 +75,8 @@ test('a timetable whose clock is unchecked, or checked and found off, is withhel
  const unchecked=scheduledAtStop({scheduled:one,seconds,busIndex:18,stopIndex:30});
  assert.equal(unchecked.kind,'none');
  assert.match(unchecked.reason,/not been checked against its own buses/);
- // Inbound route 15, 20 September 2026: 15 min early at the first stops, on 290 passages.
+ // A timetable found out of step with its own buses at the first stops (the verdict inbound 15 carried
+ // from 20 to 28 September 2026, since withdrawn as the check's own fault; the mechanism stands).
  const off=scheduledAtStop({scheduled:one,anchor:{verified:false,reason:'schedule runs 15 min early against the bus’s own reports at its first stops',medianOffsetMinutes:15.4},seconds,busIndex:18,stopIndex:30});
  assert.equal(off.kind,'none');
  assert.match(off.reason,/15 min early/);

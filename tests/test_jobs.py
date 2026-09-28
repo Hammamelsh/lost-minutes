@@ -75,5 +75,40 @@ class JobRecordTests(unittest.TestCase):
         self.assertEqual(jobs.main(['start', 'refresh', '--root', str(blocked)]), 1)
 
 
+    def test_the_memory_peak_is_read_from_the_unit_s_own_cgroup_and_only_there(self):
+        proc = self.root / 'cgroup'
+        group = self.root / 'sys' / 'system.slice' / 'lost-minutes-refresh.service'
+        group.mkdir(parents=True)
+        (group / 'memory.peak').write_text('1503238553\n')
+        (group / 'memory.max').write_text('1572864000\n')
+        proc.write_text('0::/system.slice/lost-minutes-refresh.service\n')
+        read = jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys')
+        self.assertEqual(read, {'memoryPeakBytes': 1503238553, 'memoryMaxBytes': 1572864000})
+        (group / 'memory.max').write_text('max\n')
+        self.assertIsNone(jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys')['memoryMaxBytes'])
+        # From a shell the process is in a session's cgroup: that peak is not the job's, and nothing is read.
+        proc.write_text('0::/user.slice/user-1000.slice/session-3.scope\n')
+        self.assertEqual(jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys'), {})
+
+    def test_a_finished_attempt_and_its_success_carry_the_peak_and_the_ceiling(self):
+        jobs.start(self.root, 'refresh', now='2026-09-29T02:41:00+00:00', env=TIMER)
+        jobs.finish(self.root, 'refresh', now='2026-09-29T02:45:10+00:00',
+                    env={**TIMER, 'SERVICE_RESULT': 'success', 'EXIT_CODE': 'exited', 'EXIT_STATUS': '0'},
+                    memory={'memoryPeakBytes': 1_400_000_000, 'memoryMaxBytes': 1_572_864_000})
+        job = self.published()['refresh']
+        self.assertEqual(job['lastAttempt']['memoryPeakBytes'], 1_400_000_000)
+        self.assertEqual(job['lastSuccess']['memoryMaxBytes'], 1_572_864_000)
+
+    def test_a_seeded_success_can_carry_the_journal_s_rounded_peak(self):
+        self.assertEqual(jobs.parse_size('1.4G'), int(1.4 * 1024 ** 3))
+        self.assertEqual(jobs.parse_size('1500M'), 1500 * 1024 ** 2)
+        jobs.seed(self.root, 'refresh', '2026-09-28T02:40:33+00:00', '2026-09-28T02:40:36+00:00', 'failed',
+                  success_at='2026-09-27T02:44:52+00:00', service_result='exit-code', exit_status='1',
+                  success_memory_peak='1.4G', memory_max='1500M')
+        success = self.published()['refresh']['lastSuccess']
+        self.assertEqual(success['memoryPeakBytes'], int(1.4 * 1024 ** 3))
+        self.assertEqual(success['memorySource'], 'journal')
+
+
 if __name__ == '__main__':
     unittest.main()

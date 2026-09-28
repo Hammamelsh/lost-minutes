@@ -29,7 +29,9 @@ const indexSchema=z.object({patterns:z.record(z.object({status:z.string(),reason
 const shapeSchema=z.object({id:z.string(),polyline6:z.string(),
  stopOffsets:z.array(z.number().nullable()).optional()}).passthrough();
 
-export type TrackResult={track:Track|null;reason:string|null};
+/** The road for drawing, and the shape it came from: the arrival estimate measures the same shape by the
+ *  evaluation's own rule (lib/arrival.ts, arrivalTrack), so it keeps the published polyline and offsets. */
+export type TrackResult={track:Track|null;reason:string|null;shape?:{polyline6:string;stopOffsets:(number|null)[]}};
 
 let indexRequest:Promise<z.infer<typeof indexSchema>|null>|null=null;
 const trackRequests=new Map<string,Promise<TrackResult>>();
@@ -62,7 +64,8 @@ export function loadTrack(patternId:string|null|undefined,base='/data/shapes'):P
   const response=await fetch(`${base}/${entry.file}`,{cache:'no-store'}).catch(()=>null);
   if(!response?.ok)return {track:null,reason:'its road geometry could not be loaded'};
   const shape=shapeSchema.parse(await response.json());
-  return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]),reason:null};
+  return {track:makeTrack(patternId,decodePolyline(shape.polyline6,6),shape.stopOffsets??[]),reason:null,
+   shape:{polyline6:shape.polyline6,stopOffsets:shape.stopOffsets??[]}};
  })().catch(()=>({track:null,reason:'its road geometry could not be read'}));
  trackRequests.set(patternId,request);
  return request;

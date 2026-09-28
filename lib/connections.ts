@@ -12,8 +12,9 @@
  * scheduled arrival at the change, the walk, an allowance for getting off and crossing, and the next
  * scheduled departure of the second bus from its boarding point. It is never adjusted for where any
  * bus is. Where a service's timetable is known not to match its own buses (public/data/
- * schedule-anchor.json: inbound 15 runs about 15 minutes ahead of them), no time is constructed from
- * it, and the card says why rather than wearing a "Scheduled" label that hides the fact.
+ * schedule-anchor.json, a verdict that is not "verified"), no time is constructed from it, and the
+ * card says why rather than wearing a "Scheduled" label that hides the fact. (Inbound 15 was judged
+ * so from 20 to 28 September 2026 by a check that paired its stops wrongly; it is unchecked now.)
  *
  * What a tracked bus is: a vehicle the matcher placed on one of the two patterns, tied to a timetabled
  * journey only where the operator's own reported origin departure names it (one journey at that
@@ -86,10 +87,22 @@ const metresBetween=(p:ServicePattern,from:number,to:number)=>{
 };
 const runsToday=(p:ServicePattern,day:string)=>validOn(p,day)&&runsOn(p.operatingRules as OperatingRule[]|null|undefined,day)!==false;
 
+/** Services their own timetable files declare closed to the public (TransXChange `PublicUse` false in
+ *  17 of 1,753 files, read on 28 September 2026). Used only while the served catalogue does not yet
+ *  carry the flag itself: built before the flag existed, it cannot say, and a known scholars' bus must
+ *  not be offered as a journey meanwhile. Once the catalogue carries the flag, the flag decides. */
+export const KNOWN_CLOSED=new Set(['BNGN|817A','BNGN|914','BNML|700B','BNML|716A','BNML|725A','BNML|732','BNML|743B','BNML|761A',
+ 'BNML|856A','BNSM|949A']);
+/** Whether a catalogue says, pattern by pattern, which services are open to the public. */
+export function carriesPublicUse(patterns:Iterable<ServicePattern>){
+ for(const p of patterns)if(p.publicUse!==undefined)return true;
+ return false;
+}
 /** Open to the public, or not declared otherwise. A service its timetable declares closed (a
  *  scholars' bus: BNML 732 was served on 28 September 2026 with nothing to say so) is still matched
- *  and drawn on the map, and is never offered here as a way to travel. */
-export const openToPublic=(p:ServicePattern)=>p.publicUse!==false;
+ *  and drawn on the map, and is never offered here as a way to travel. `flagged`: whether the
+ *  catalogue carries the flag; without it, the known closed services are left out by name. */
+export const openToPublic=(p:ServicePattern,flagged=true)=>flagged?p.publicUse!==false:!KNOWN_CLOSED.has(`${p.operator??''}|${p.line}`);
 
 /**
  * The service days a search at `nowMs` can meet, Europe/London: today's; yesterday's too before
@@ -105,8 +118,10 @@ export function serviceDaysAt(nowMs:number):string[]{
 const londonDateOf=(ms:number)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(ms);
 const runsOnAny=(p:ServicePattern,days:string|string[])=>(Array.isArray(days)?days:[days]).some(day=>runsToday(p,day));
 /** The patterns a search may use on those days: open to the public and running on one of them. */
-export const usablePatterns=(catalogue:PatternCatalogue,days:string|string[])=>
- catalogue.patterns.filter(p=>openToPublic(p)&&runsOnAny(p,days));
+export function usablePatterns(catalogue:PatternCatalogue,days:string|string[]){
+ const flagged=carriesPublicUse(catalogue.patterns);
+ return catalogue.patterns.filter(p=>openToPublic(p,flagged)&&runsOnAny(p,days));
+}
 
 /** A leg and the other buses between its two stops. */
 export const legFamily=(leg:Leg):Leg[]=>[leg,...leg.also];
@@ -309,12 +324,13 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
  */
 export function connectionFromKey(key:string,patternsById:Map<string,ServicePattern>,stopById:Map<string,Stop>,day:string|string[]):ConnectionOption|null{
  if(!key.startsWith('c:'))return null;
+ const flagged=carriesPublicUse(patternsById.values());
  const parts=key.slice(2).split('|');
  if(parts.length!==6)return null;
  const leg=(patternId:string,boardId:string,alightId:string):Leg|null=>{
   const pattern=patternsById.get(patternId),board=stopById.get(boardId),alight=stopById.get(alightId);
   // A link to a service since declared closed, or no longer running, is let go, not shown.
-  if(!pattern||!board||!alight||!openToPublic(pattern)||!runsOnAny(pattern,day))return null;
+  if(!pattern||!board||!alight||!openToPublic(pattern,flagged)||!runsOnAny(pattern,day))return null;
   const i=pattern.stops.indexOf(boardId),j=pattern.stops.indexOf(alightId);
   if(i<0||j<=i)return null;
   return {pattern,line:pattern.line,operator:pattern.operator??null,headsign:pattern.destination??'?',
@@ -323,7 +339,7 @@ export function connectionFromKey(key:string,patternsById:Map<string,ServicePatt
  const first=leg(parts[0],parts[1],parts[2]),second=leg(parts[3],parts[4],parts[5]);
  if(!first||!second)return null;
  const straight=first.alight.id===second.board.id?0:straightLineMetres(first.alight,second.board);
- const today=[...patternsById.values()].filter(p=>openToPublic(p)&&runsOnAny(p,day));
+ const today=[...patternsById.values()].filter(p=>openToPublic(p,flagged)&&runsOnAny(p,day));
  return withSiblings({kind:'connection',key,first,second,transfer:{from:first.alight,to:second.board,straightMetres:straight,sameStop:first.alight.id===second.board.id},
   walkToBoardMetres:0,walkFromAlightMetres:0,score:0},today,stopById);
 }
@@ -348,8 +364,8 @@ export function scheduleQuality(patternId:string,anchor:AnchorFile):ScheduleQual
 
 /**
  * A leg's buses with those whose timetable is known not to match its own buses left out: a sibling
- * on such a timetable would put its misleading times among the others (the inbound 15 serves some
- * of the 86's stops into town). The leg's own bus is kept, and its timing is withheld with the
+ * on such a timetable would put its misleading times among the others (another line serving some
+ * of a leg's stops). The leg's own bus is kept, and its timing is withheld with the
  * reason instead. The same option back when nothing is left out, so identity holds.
  */
 export function withoutUnreliable(option:ConnectionOption,anchor:AnchorFile):ConnectionOption{

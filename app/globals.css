@@ -1835,6 +1835,7 @@ body.above{overflow:hidden}
 .plan-connections[open]>summary{margin-bottom:4px}
 /* A bus that leaves under two minutes after the walk to its stop would be done. */
 .plan-tight,.journey-tight{color:#f2c27a}
+.nightly-jobs-tight{color:#f2c27a}
 .journey-rows.onward .journey-row{grid-template-columns:1fr}
 /* The chosen connection, and a change to it that waits for the passenger to accept. */
 .journey-chosen{margin:0 0 8px}

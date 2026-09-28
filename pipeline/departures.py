@@ -59,7 +59,8 @@ def boards(con, only=None):
     """
     patterns = con.execute("""
         SELECT pattern_id, operator_code, line_name, direction, destination_display,
-               operating_rules, departure_times, valid_from, valid_to, source_file, dataset_sha256
+               operating_rules, departure_times, valid_from, valid_to, source_file, dataset_sha256,
+               public_use
         FROM service_pattern""").fetchall()
     stops_by_pattern = {}
     for pattern_id, sequence, atco, _metres, seconds in con.execute("""
@@ -81,7 +82,7 @@ def boards(con, only=None):
 
     by_stop = {}
     for (pattern_id, operator, line, direction, destination, rules_json, departures_json,
-         valid_from, valid_to, source_file, dataset) in patterns:
+         valid_from, valid_to, source_file, dataset, public_use) in patterns:
         stops = stops_by_pattern.get(pattern_id) or []
         if len(stops) < 2:
             continue
@@ -132,6 +133,8 @@ def boards(con, only=None):
                 'direction': direction, 'destination': destination, 'sequence': sequence,
                 'rules': [shared(rule) for rule in (rules or [])], 'runs': runs,
                 'offsets': offsets,
+                # A board lists what is timetabled to leave; a service closed to the public says so.
+                **({'publicUse': False} if public_use is False else {}),
                 'timetable': {'file': source_file, 'datasetSha256': dataset,
                               'validFrom': str(valid_from) if valid_from else None,
                               'validTo': str(valid_to) if valid_to else None},

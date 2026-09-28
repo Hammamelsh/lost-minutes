@@ -25,7 +25,7 @@ import {validOn} from '@/lib/patterns';
 import {runsOn,type OperatingRule} from '@/lib/service-days';
 import {nearestStops,straightLineMetres,type Stop} from '@/lib/stops';
 import type {FollowBus} from '@/lib/follow';
-import {departuresOn,londonInstant,type ScheduledDeparture,type StopDepartures} from '@/lib/departures';
+import {departuresOn,londonInstant,previousDay,shiftDay,type ScheduledDeparture,type StopDepartures} from '@/lib/departures';
 import {serviceKey} from '@/lib/journey';
 
 export type LatLon={lat:number;lon:number};
@@ -55,8 +55,13 @@ export const CONNECTION_RULES={
  /** A bus that passes within this of the start, or of the destination, is direct: no change is made
   *  to it or from it. Beyond this a change can still be the shorter walk. */
  directReachMetres:450,
- /** Shown: the best few by the timetable (`rankConnections`), out of this many candidates timed. */
- options:4,candidates:8,
+ /** Shown: the best few by the timetable (`rankConnections`), out of this many candidates timed. The
+  *  candidates come in order of walking and riding distance, before any time is read, so the cut
+  *  decides what can be found. On the served catalogue, for Tuesday 29 September at 08:00, 14:00 and
+  *  20:30, timing 8 hid a sooner connection in 34–48 of 194 sampled pairs of places (5 min or more in
+  *  22–37); timing 48, in 1–2 (5 min or more in at most 1), reading a median of 17 boards, 45 at
+  *  most, against 8 (scripts/audit-planner-candidates.mjs --cut). */
+ options:4,candidates:48,
  /** First buses read for one timing, before the ones that only wait for the same second bus are
   *  folded into the later one (`timeConnection`). */
  firstBuses:12,
@@ -81,6 +86,28 @@ const metresBetween=(p:ServicePattern,from:number,to:number)=>{
 };
 const runsToday=(p:ServicePattern,day:string)=>validOn(p,day)&&runsOn(p.operatingRules as OperatingRule[]|null|undefined,day)!==false;
 
+/** Open to the public, or not declared otherwise. A service its timetable declares closed (a
+ *  scholars' bus: BNML 732 was served on 28 September 2026 with nothing to say so) is still matched
+ *  and drawn on the map, and is never offered here as a way to travel. */
+export const openToPublic=(p:ServicePattern)=>p.publicUse!==false;
+
+/**
+ * The service days a search at `nowMs` can meet, Europe/London: today's; yesterday's too before
+ * 04:00, when journeys timed past midnight still belong to it; and tomorrow's from 21:00, when the
+ * next few hours run into it. A pattern is a candidate if it runs on any of them; which of its
+ * journeys actually leave is each journey's own rule, read from the boards.
+ */
+export function serviceDaysAt(nowMs:number):string[]{
+ const day=londonDateOf(nowMs);
+ const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour:'2-digit',hour12:false}).format(nowMs))%24;
+ return [...(hour<4?[previousDay(day)]:[]),day,...(hour>=21?[shiftDay(day,1)]:[])];
+}
+const londonDateOf=(ms:number)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit'}).format(ms);
+const runsOnAny=(p:ServicePattern,days:string|string[])=>(Array.isArray(days)?days:[days]).some(day=>runsToday(p,day));
+/** The patterns a search may use on those days: open to the public and running on one of them. */
+export const usablePatterns=(catalogue:PatternCatalogue,days:string|string[])=>
+ catalogue.patterns.filter(p=>openToPublic(p)&&runsOnAny(p,days));
+
 /** A leg and the other buses between its two stops. */
 export const legFamily=(leg:Leg):Leg[]=>[leg,...leg.also];
 
@@ -96,19 +123,27 @@ export const legFamily=(leg:Leg):Leg[]=>[leg,...leg.also];
  * journeys that morning had been timed while the 86 itself left every ten minutes).
  */
 function siblingLegs(leg:Leg,today:ServicePattern[],other:Leg,order:'first'|'second',stopById:Map<string,Stop>):Leg[]{
- const out:Leg[]=[];
  const within=(id:string,place:Stop)=>{const st=stopById.get(id);return Boolean(st&&straightLineMetres(st,place)<=CONNECTION_RULES.directReachMetres)};
- for(const p of today){
-  if(p.id===leg.pattern.id)continue;
-  if(p.line===other.line&&(p.operator??'')===(other.operator??''))continue;
-  const i=p.stops.indexOf(leg.board.id);
-  if(i<0)continue;
-  const j=p.stops.indexOf(leg.alight.id,i+1);
+ return legsBetween(leg.board,leg.alight,today,leg.pattern.id).filter(({pattern:p,boardIndex:i,alightIndex:j})=>{
+  if(p.line===other.line&&(p.operator??'')===(other.operator??''))return false;
+  if(order==='first'&&p.stops.some((id,k)=>k>j&&within(id,other.alight)))return false;
+  if(order==='second'&&p.stops.some((id,k)=>k<i&&within(id,other.board)))return false;
+  return true;
+ });
+}
+
+/** Every pattern among `patterns` (other than `except`) that calls at `board` and later at `alight`:
+ *  the buses that go between those two stops, each as a leg of its own, in line order. */
+export function legsBetween(board:Stop,alight:Stop,patterns:ServicePattern[],except?:string):Leg[]{
+ const out:Leg[]=[];
+ for(const p of patterns){
+  if(p.id===except)continue;
+  const i=p.stops.indexOf(board.id);
+  if(i<0||i>=p.stops.length-1)continue;
+  const j=p.stops.indexOf(alight.id,i+1);
   if(j<0)continue;
-  if(order==='first'&&p.stops.some((id,k)=>k>j&&within(id,other.alight)))continue;
-  if(order==='second'&&p.stops.some((id,k)=>k<i&&within(id,other.board)))continue;
-  out.push({pattern:p,line:p.line,operator:p.operator??null,headsign:p.destination??'?',board:leg.board,boardIndex:i,
-   alight:leg.alight,alightIndex:j,rideStops:j-i,rideMetres:metresBetween(p,i,j),also:[]});
+  out.push({pattern:p,line:p.line,operator:p.operator??null,headsign:p.destination??'?',board,boardIndex:i,
+   alight,alightIndex:j,rideStops:j-i,rideMetres:metresBetween(p,i,j),also:[]});
  }
  return out.sort((a,b)=>a.line.localeCompare(b.line,'en',{numeric:true})||a.pattern.id.localeCompare(b.pattern.id));
 }
@@ -143,7 +178,7 @@ function stopGrid(stops:Stop[]){
  * option per pair of services; a pair whose walks add up to more than the straight line between the
  * places is not a journey. Two patterns of one line are never a change (a U-turn, or the same bus).
  */
-export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalogue|null,stops:Stop[],day:string,
+export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalogue|null,stops:Stop[],day:string|string[],
                                   rules=CONNECTION_RULES):ConnectionOption[]{
  if(!catalogue)return [];
  const near=(p:LatLon)=>nearestStops(stops,p,rules.candidateStops).filter(n=>n.metres<=rules.maxWalkMetres);
@@ -152,7 +187,7 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
  if(!origins.size||!targets.size)return [];
  const direct=straightLineMetres(from,to);
  const stopById=new Map(stops.map(s=>[s.id,s]));
- const today=catalogue.patterns.filter(p=>runsToday(p,day));
+ const today=usablePatterns(catalogue,day);
  // Second legs: every pattern that reaches a stop near the destination, and every stop of it before
  // its last such stop, at which it could be boarded.
  const secondLegs=new Map<string,{pattern:ServicePattern;targets:{j:number;walkFrom:number}[]}>();
@@ -272,13 +307,14 @@ export function connectionOptions(from:LatLon,to:LatLon,catalogue:PatternCatalog
  * and the day: the patterns must still exist and run, and the stops must still be in their order.
  * Null otherwise, and the page says the plan is no longer available rather than showing a stale one.
  */
-export function connectionFromKey(key:string,patternsById:Map<string,ServicePattern>,stopById:Map<string,Stop>,day:string):ConnectionOption|null{
+export function connectionFromKey(key:string,patternsById:Map<string,ServicePattern>,stopById:Map<string,Stop>,day:string|string[]):ConnectionOption|null{
  if(!key.startsWith('c:'))return null;
  const parts=key.slice(2).split('|');
  if(parts.length!==6)return null;
  const leg=(patternId:string,boardId:string,alightId:string):Leg|null=>{
   const pattern=patternsById.get(patternId),board=stopById.get(boardId),alight=stopById.get(alightId);
-  if(!pattern||!board||!alight||!runsToday(pattern,day))return null;
+  // A link to a service since declared closed, or no longer running, is let go, not shown.
+  if(!pattern||!board||!alight||!openToPublic(pattern)||!runsOnAny(pattern,day))return null;
   const i=pattern.stops.indexOf(boardId),j=pattern.stops.indexOf(alightId);
   if(i<0||j<=i)return null;
   return {pattern,line:pattern.line,operator:pattern.operator??null,headsign:pattern.destination??'?',
@@ -287,7 +323,7 @@ export function connectionFromKey(key:string,patternsById:Map<string,ServicePatt
  const first=leg(parts[0],parts[1],parts[2]),second=leg(parts[3],parts[4],parts[5]);
  if(!first||!second)return null;
  const straight=first.alight.id===second.board.id?0:straightLineMetres(first.alight,second.board);
- const today=[...patternsById.values()].filter(p=>runsToday(p,day));
+ const today=[...patternsById.values()].filter(p=>openToPublic(p)&&runsOnAny(p,day));
  return withSiblings({kind:'connection',key,first,second,transfer:{from:first.alight,to:second.board,straightMetres:straight,sameStop:first.alight.id===second.board.id},
   walkToBoardMetres:0,walkFromAlightMetres:0,score:0},today,stopById);
 }
@@ -341,17 +377,45 @@ export type TransferWalk={basis:'straight'|'route';metres:number;seconds:number}
 export function transferWalk(transfer:Transfer,route:{metres:number;seconds:number}|null|undefined,rules=CONNECTION_RULES):TransferWalk{
  if(route)return {basis:'route',metres:route.metres,seconds:route.seconds};
  if(transfer.sameStop)return {basis:'straight',metres:0,seconds:0};
- const metres=transfer.straightMetres*rules.transferDetour;
+ return estimatedWalk(transfer.straightMetres,rules);
+}
+
+/** Any walk before it is checked: the straight line, lengthened for the streets, at a steady pace.
+ *  Used for the walk to the first stop and from the last, which are never sent to a router
+ *  unasked (one end is where the passenger is, or is going). */
+export function estimatedWalk(straightMetres:number,rules=CONNECTION_RULES):TransferWalk{
+ const metres=Math.max(0,straightMetres)*rules.transferDetour;
  return {basis:'straight',metres,seconds:metres/rules.walkMetresPerMinute*60};
 }
+
+/**
+ * The first moment a bus can be caught at the boarding stop: now plus the walk there. A bus that
+ * leaves before then is not shown as one to take. Under a minute away is at the stop, where a bus
+ * due in the last minute is still shown, as the stop's board shows it.
+ */
+export function readyAtStop(nowMs:number,access:TransferWalk):number{
+ return access.seconds<60?nowMs-60_000:nowMs+Math.round(access.seconds)*1000;
+}
+/** A bus that leaves this soon after the walk to its stop would be done is shown as tight: an
+ *  estimated walk can be longer than its estimate, and this is where that would lose the bus. */
+export const TIGHT_SECONDS=120;
+/** Seconds between the walk to the stop being done and the bus leaving (negative for one due in the
+ *  last minute, shown to someone already at the stop). */
+export const spareAtStop=(departMs:number,nowMs:number,access:TransferWalk)=>Math.round((departMs-nowMs)/1000-access.seconds);
 
 // --------------------------------------------------------------------- timing, from the timetable
 
 export type TimedLeg={departure:ScheduledDeparture;departMs:number;arriveMs:number|null};
 export type TimedConnection={
  first:TimedLeg;
+ /** Seconds between the walk to the first stop being done and the first bus leaving (`spareAtStop`). */
+ boardSpareSeconds:number;
  /** The next scheduled second bus the passenger could reach; null where none is timetabled inside the window. */
  second:TimedLeg|null;
+ /** Every second bus in reach from this first bus inside the window, soonest first (`second` is the
+  *  first of them): a chosen second bus still in reach is still the passenger's, even when a shorter
+  *  walk now makes an earlier one. */
+ reachable:TimedLeg[];
  /** When the passenger could be at the second boarding point: arrival, the walk and the allowance. */
  readyMs:number|null;
  /** Second bus leaves minus first bus arrives; and what is left of it after the walk and the allowance. */
@@ -361,7 +425,11 @@ export type TimedConnection={
  earlier:{departMs:number;line:string;count:number}|null;
 };
 export type ConnectionTiming=
- |{kind:'timed';rows:TimedConnection[];walk:TransferWalk;allowanceSeconds:number;
+ |{kind:'timed';rows:TimedConnection[];
+   /** Every connection before the earlier ones were folded: what a chosen one is looked up in. */
+   all:TimedConnection[];
+   /** The three walks, kept apart: to the first stop, between the stops, from the last stop. */
+   access:TransferWalk;walk:TransferWalk;egress:TransferWalk;allowanceSeconds:number;
    /** True when nothing left within the first window, so the rows are the next day's. */
    later:boolean}
  |{kind:'withheld';leg:1|2;reason:string}
@@ -384,6 +452,8 @@ export function atStopMs(departure:ScheduledDeparture,pattern:ServicePattern,ind
 export function timeConnection(option:ConnectionOption,input:{
  boards:{first:StopDepartures|null;second:StopDepartures|null};rules:OperatingRule[]|null;nowMs:number;
  walk:TransferWalk;allowanceSeconds:number;quality:{first:ScheduleQuality;second:ScheduleQuality};
+ /** The walk to the first stop; none given, the option's own straight line estimated. */
+ access?:TransferWalk;egress?:TransferWalk;
  limit?:number;planRules?:typeof CONNECTION_RULES}):ConnectionTiming{
  const rules=input.planRules??CONNECTION_RULES;
  if(input.quality.first.kind==='unreliable')return {kind:'withheld',leg:1,reason:input.quality.first.words};
@@ -392,37 +462,46 @@ export function timeConnection(option:ConnectionOption,input:{
  if(!input.boards.first)return {kind:'unavailable',reason:`no timetable board is published for ${stopWords(option.first.board)}`};
  if(!input.boards.second)return {kind:'unavailable',reason:`no timetable board is published for ${stopWords(option.second.board)}`};
  const {first,second}=option;
+ const access=input.access??estimatedWalk(option.walkToBoardMetres,rules);
+ const egress=input.egress??estimatedWalk(option.walkFromAlightMetres,rules);
+ const ready=readyAtStop(input.nowMs,access);
  // Every first bus of the leg's family from its boarding point, each timed to the change on its own pattern.
  const firstsIn=(fromMs:number,toMs:number)=>legFamily(first)
   .flatMap(leg=>departuresOn(input.boards.first,input.rules,leg.pattern.id,fromMs,toMs).map(departure=>({leg,departure})))
   .sort((a,b)=>a.departure.atMs-b.departure.atMs).slice(0,input.limit??rules.firstBuses);
- let firsts=firstsIn(input.nowMs-60_000,input.nowMs+rules.firstLegWindowMinutes*60_000);
+ // Only those the passenger can reach the stop for: one leaving before the walk there is done is not
+ // a bus to take, however soon it is (28 September 2026: the list offered a 263 in two minutes to a
+ // passenger five minutes' walk from the stop).
+ let firsts=firstsIn(ready,input.nowMs+rules.firstLegWindowMinutes*60_000);
  // Nothing in the next few hours is not nothing: at eleven at night the next first bus is tomorrow's,
  // and it is shown as tomorrow's (the board does the same).
  const later=!firsts.length;
- if(later)firsts=firstsIn(input.nowMs-60_000,input.nowMs+26*3600_000);
+ if(later)firsts=firstsIn(ready,input.nowMs+26*3600_000);
  if(!firsts.length)return {kind:'unavailable',reason:`nothing on the ${lineNames(first)} is timetabled from ${stopWords(first.board)} in the next day`};
  const rows:TimedConnection[]=[];
  for(const {leg:ridden,departure} of firsts){
   const arriveMs=atStopMs(departure,ridden.pattern,ridden.alightIndex);
-  const row:TimedConnection={first:{departure,departMs:departure.atMs,arriveMs},second:null,readyMs:null,changeSeconds:null,spareSeconds:null,earlier:null};
+  const row:TimedConnection={first:{departure,departMs:departure.atMs,arriveMs},boardSpareSeconds:spareAtStop(departure.atMs,input.nowMs,access),
+   second:null,reachable:[],readyMs:null,changeSeconds:null,spareSeconds:null,earlier:null};
   if(arriveMs!==null){
-   row.readyMs=arriveMs+Math.round(input.walk.seconds+input.allowanceSeconds)*1000;
-   // The first second bus of any of the leg's buses to leave after the passenger could be there.
-   let next:{leg:Leg;departure:ScheduledDeparture}|null=null;
-   for(const leg of legFamily(second)){
-    const d=departuresOn(input.boards.second,input.rules,leg.pattern.id,row.readyMs,row.readyMs+rules.secondLegWindowMinutes*60_000)[0];
-    if(d&&(!next||d.atMs<next.departure.atMs))next={leg,departure:d};
-   }
+   const readyMs=arriveMs+Math.round(input.walk.seconds+input.allowanceSeconds)*1000;
+   row.readyMs=readyMs;
+   // Every second bus of any of the leg's buses to leave after the passenger could be there; the first is the one.
+   row.reachable=legFamily(second)
+    .flatMap(leg=>departuresOn(input.boards.second,input.rules,leg.pattern.id,readyMs,readyMs+rules.secondLegWindowMinutes*60_000)
+     .map(departure=>({departure,departMs:departure.atMs,arriveMs:atStopMs(departure,leg.pattern,leg.alightIndex)})))
+    .sort((a,b)=>a.departMs-b.departMs);
+   const next=row.reachable[0];
    if(next){
-    row.second={departure:next.departure,departMs:next.departure.atMs,arriveMs:atStopMs(next.departure,next.leg.pattern,next.leg.alightIndex)};
-    row.changeSeconds=Math.round((next.departure.atMs-arriveMs)/1000);
-    row.spareSeconds=Math.round((next.departure.atMs-row.readyMs)/1000);
+    row.second=next;
+    row.changeSeconds=Math.round((next.departMs-arriveMs)/1000);
+    row.spareSeconds=Math.round((next.departMs-readyMs)/1000);
    }
   }
   rows.push(row);
  }
- return {kind:'timed',rows:foldEarlier(rows),walk:input.walk,allowanceSeconds:input.allowanceSeconds,later};
+ return {kind:'timed',rows:foldEarlier(rows.map(row=>({...row}))),all:rows,access,walk:input.walk,egress,
+  allowanceSeconds:input.allowanceSeconds,later};
 }
 
 /**
@@ -452,14 +531,18 @@ function foldEarlier(rows:TimedConnection[]):TimedConnection[]{
  * checked), then the one that leaves later, then the planner's own order; those with no time after, in
  * the planner's order. Taken once, when the boards arrive, so the list does not reorder under a finger.
  */
+/** When a timed journey with a change reaches the destination: the soonest second bus's arrival at
+ *  its stop and the walk on (estimated, as every last walk here is), with its first bus's departure. */
+export function connectionArrival(option:ConnectionOption,timing:ConnectionTiming|{kind:'loading'}):{arrive:number;leave:number}|null{
+ if(timing.kind!=='timed')return null;
+ const row=timing.rows.find(r=>r.second);
+ const walkMs=(option.walkFromAlightMetres??0)*CONNECTION_RULES.transferDetour/CONNECTION_RULES.walkMetresPerMinute*60_000;
+ return row?{arrive:(row.second!.arriveMs??row.second!.departMs)+walkMs,leave:row.first.departMs}:null;
+}
+
 export function rankConnections(options:ConnectionOption[],timingOf:(option:ConnectionOption)=>ConnectionTiming,
                                 limit:number=CONNECTION_RULES.options):ConnectionOption[]{
- const walkMs=(option:ConnectionOption)=>(option.walkFromAlightMetres??0)*CONNECTION_RULES.transferDetour/CONNECTION_RULES.walkMetresPerMinute*60_000;
- const end=(option:ConnectionOption,timing:ConnectionTiming)=>{
-  if(timing.kind!=='timed')return null;
-  const row=timing.rows.find(r=>r.second);
-  return row?{arrive:(row.second!.arriveMs??row.second!.departMs)+walkMs(option),leave:row.first.departMs}:null;
- };
+ const end=(option:ConnectionOption,timing:ConnectionTiming)=>connectionArrival(option,timing);
  return options.map((option,i)=>({option,i,e:end(option,timingOf(option))}))
   .sort((a,b)=>a.e&&b.e?(a.e.arrive-b.e.arrive||b.e.leave-a.e.leave||a.i-b.i):a.e?-1:b.e?1:a.i-b.i)
   .slice(0,limit).map(x=>x.option);
@@ -483,6 +566,45 @@ export function onwardFromChange(option:ConnectionOption,input:{board:StopDepart
   .sort((a,b)=>a.departMs-b.departMs).slice(0,input.limit??3);
  if(!rows.length)return {kind:'unavailable',reason:`no ${lineNames(option.second)} is timetabled from ${stopWords(option.second.board)} in the next three hours`};
  return {kind:'timed',rows};
+}
+
+// --------------------------------------------------------------------- a chosen connection
+
+/** A timetabled journey by what names it: its pattern, its origin departure and its service day. */
+export const departureId=(d:ScheduledDeparture)=>`${d.patternId}|${d.originLocal}|${d.serviceDay}`;
+
+/** The connection a passenger chose from the list: that first bus and the second bus it was shown to
+ *  make, with what was said about them, so a change can be told as a change. */
+export type ChosenConnection={first:string;second:string|null;firstLine:string;firstDepartMs:number;
+ secondLine:string|null;secondDepartMs:number|null;arriveMs:number|null};
+export const chosenFrom=(row:TimedConnection):ChosenConnection=>({
+ first:departureId(row.first.departure),second:row.second?departureId(row.second.departure):null,
+ firstLine:row.first.departure.line,firstDepartMs:row.first.departMs,
+ secondLine:row.second?.departure.line??null,secondDepartMs:row.second?.departMs??null,arriveMs:row.second?.arriveMs??null});
+
+export type ChosenStatus=
+ |{kind:'none'}
+ /** The chosen first bus still makes the chosen second bus, by the timetable and the walks as they stand. */
+ |{kind:'held';row:TimedConnection}
+ /** It does not: its first bus can no longer be caught (it has left, or the walk to the stop is now
+  *  too long), or it no longer makes that second bus (the walk between the stops checked longer,
+  *  more time to change asked for). `offer` is what the card offers in its place; nothing is
+  *  replaced until the passenger accepts it. */
+ |{kind:'changed';why:'unreachable'|'missed';offer:TimedConnection|null};
+
+export function chosenStatus(timing:ConnectionTiming|{kind:'loading'},chosen:ChosenConnection|null):ChosenStatus{
+ if(!chosen||timing.kind!=='timed')return {kind:'none'};
+ const same=timing.all.find(row=>departureId(row.first.departure)===chosen.first)??null;
+ // Held while its first bus can be caught and its second bus can still be reached from it: not only
+ // while that second bus is the soonest (a walk checked shorter than its estimate makes an earlier
+ // one, and the passenger's own is no less theirs).
+ const kept=same&&same.first.arriveMs!==null&&same.readyMs!==null&&chosen.second
+  ?same.reachable.find(leg=>departureId(leg.departure)===chosen.second)??null:null;
+ if(same&&kept)return {kind:'held',row:{...same,second:kept,earlier:null,
+  changeSeconds:Math.round((kept.departMs-same.first.arriveMs!)/1000),spareSeconds:Math.round((kept.departMs-same.readyMs!)/1000)}};
+ // Missed: the same first bus, and the second bus it now makes, if any; else the next that works.
+ const soonest=timing.rows.find(row=>row.second)??null;
+ return same?{kind:'changed',why:'missed',offer:same.second?same:soonest}:{kind:'changed',why:'unreachable',offer:soonest};
 }
 
 // --------------------------------------------------------------------- tracked buses

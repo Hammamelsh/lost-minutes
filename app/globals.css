@@ -151,6 +151,16 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ops-card dl>div{display:flex;justify-content:space-between;gap:14px;font-size:13px;line-height:1.6;border-bottom:1px solid #24394699;padding:8px 0}
 .ops-card dl>div:last-child{border-bottom:0}
 .ops-card dt{color:#a2b7c3}
+/* The nightly jobs as they recorded themselves: one card, a row per job. */
+.nightly-jobs{margin:0 0 18px}
+.nightly-jobs-lead{max-width:760px}
+.nightly-jobs-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.nightly-job{border:1px solid #2b4250;border-radius:10px;padding:12px 14px;background:#10202a}
+.nightly-job header{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:4px}
+.nightly-job header strong{font-size:15px;font-weight:600;margin-right:auto}
+.nightly-job>small{display:block;font-size:12px;line-height:1.5;color:#a3b7c3;margin-bottom:6px}
+.nightly-job dd{margin:0;text-align:right}
+.nightly-jobs-note{font-size:12px;line-height:1.5;color:#a3b7c3;margin:8px 0 0}
 .ops-card dd{margin:0;color:#e0eaef;text-align:right;font-variant-numeric:tabular-nums}
 .ops .mono{font-family:var(--font-mono);font-size:12px}
 .ops .mono.wrap{overflow-wrap:anywhere;max-width:290px}
@@ -1817,8 +1827,22 @@ body.above{overflow:hidden}
 .plan-next.warn{color:#f6dcb4}
 .plan-connections{margin:6px 0 2px}
 .plan-connections>summary{cursor:pointer;display:flex;align-items:center;min-height:44px;font-size:14px;font-weight:600;color:#c9d9e0}
+.plan-connections>summary::-webkit-details-marker{display:none}
+/* A flex summary loses the browser's own marker: the page's disclosure chevron says it opens. */
+.plan-connections>summary::before{content:'›';display:inline-block;margin-right:8px;font-size:17px;line-height:1;transition:transform .15s}
+.plan-connections[open]>summary::before{transform:rotate(90deg)}
+@media (prefers-reduced-motion:reduce){.plan-connections>summary::before{transition:none}}
 .plan-connections[open]>summary{margin-bottom:4px}
+/* A bus that leaves under two minutes after the walk to its stop would be done. */
+.plan-tight,.journey-tight{color:#f2c27a}
 .journey-rows.onward .journey-row{grid-template-columns:1fr}
+/* The chosen connection, and a change to it that waits for the passenger to accept. */
+.journey-chosen{margin:0 0 8px}
+.journey-chosen-label{display:block;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#c9f36a;margin:0 0 4px}
+.journey-change{margin:0 0 10px;padding:9px 10px;border-radius:10px;background:#2a2419;border:1px solid #7e6541;color:#f6dcb4;font-size:13px;line-height:1.5}
+.journey-change p{margin:0 0 6px}
+.journey-change-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+.journey-change-actions .action{min-height:44px}
 .legend-leg1::before{background:#2b7a80;box-shadow:0 0 0 2px #0b1720}
 .legend-leg2::before{background:transparent;border:2px dashed #8a4fb0;box-sizing:border-box}
 /* The other leg over the map while riding: one line, and the way to it. */

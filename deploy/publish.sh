@@ -9,9 +9,10 @@
 # Later uploads take effect at once for the site; restart the collector for pipeline changes:
 #   ssh deploy@your-server sudo systemctl restart lost-minutes-collector
 #
-# Before each upload the whole app directory is copied to /srv/lost-minutes/previous, so there is
-# always exactly one release to go back to: deploy/rollback.sh. The server's own live data is never
-# part of either copy.
+# Before each upload the release is copied to /srv/lost-minutes/previous, so there is always exactly
+# one release to go back to: deploy/rollback.sh. The server's own data (data/: the warehouse and the
+# captures) and the virtualenv are not part of it; rollback never restores them. (Until 28 September
+# 2026 the whole directory was copied, 3.9 GB of it the live warehouse and captures.)
 set -euo pipefail
 TARGET="${1:?usage: deploy/publish.sh user@host}"
 cd "$(dirname "$0")/.."
@@ -24,8 +25,7 @@ printf 'commit=%s\nbuiltAt=%s\nuploadedBy=%s\n' \
   "$COMMIT" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git config user.email 2>/dev/null || echo unknown)" > RELEASE
 ssh "$TARGET" 'sudo mkdir -p /srv/lost-minutes/app && sudo chown "$(id -un)" /srv/lost-minutes/app
   if [ -d /srv/lost-minutes/app/out ]; then
-    sudo rm -rf /srv/lost-minutes/previous
-    sudo cp -a /srv/lost-minutes/app /srv/lost-minutes/previous
+    sudo rsync -a --delete --exclude /data/ --exclude /.venv/ /srv/lost-minutes/app/ /srv/lost-minutes/previous/
     echo "kept the running release at /srv/lost-minutes/previous"
   fi'
 # Two writers share public/data: the collector rewrites live.json every 20 s as its own user, and

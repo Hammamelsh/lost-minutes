@@ -3,15 +3,14 @@
 // this journey or for someone else) to a destination, the direct buses our timetable supports,
 // each with its boarding stop and direction, where to get off and both walks; tracked buses by
 // their last report, never minutes; and the hand-offs to a full planner for anything with changes.
-import {useMemo,useState} from 'react';
+import {useState} from 'react';
 import {ArrowLeftRight,Bus,ExternalLink,MapPin,Share2,X} from 'lucide-react';
 import type {Stop} from '@/lib/stops';
-import type {PatternCatalogue} from '@/lib/patterns';
-import type {FollowBus} from '@/lib/follow';
 import type {Place} from '@/lib/places';
 import PlaceSearch from '@/components/place-search';
-import {BEE_NETWORK_PLANNER,directOptions,planText,transitHandoff,type DirectOption} from '@/lib/plan';
-import {CONNECTION_RULES,legService,lineNames,stopName as stopWords,type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
+import {BEE_NETWORK_PLANNER,directArrival,planText,transitHandoff,type DirectOption,type DirectTiming} from '@/lib/plan';
+import {CONNECTION_RULES,TIGHT_SECONDS,connectionArrival,estimatedWalk,legFamily,legService,lineNames,stopName as stopWords,
+ type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
 import {clockWords} from '@/lib/departures';
 import {londonDate} from '@/lib/service-days';
 import {PLACES_ATTRIBUTION} from '@/lib/places';
@@ -22,20 +21,26 @@ export type PlanTo={lat:number;lon:number;label:string;detail?:string};
 const metresWords=(m:number)=>`about ${Math.max(10,Math.round(m/10)*10)} m`;
 const stopName=(s:Stop)=>s.indicator?`${s.name} (${s.indicator})`:s.name;
 
-export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false,
-                                  connections=[],connectionTimes=null,onChooseConnection}:{
- stops:Stop[];patterns:PatternCatalogue|null;day:string;buses:FollowBus[];
+export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false,
+                                  direct=[],directTimes=null,lead='direct',checking=false,connections=[],connectionTimes=null,onChooseConnection}:{
+ stops:Stop[];day:string;
  from:PlanFrom|null;to:PlanTo|null;device:{lat:number;lon:number}|null;
  onUseDevice:()=>void;onChooseFrom:(place:Place)=>void;onSetTo:(place:PlanTo|null)=>void;
  onChoose:(option:DirectOption)=>void;onShowOnMap:()=>void;link:string;chosenKey:string|null;compact?:boolean;
  /** Journeys with one change (lib/connections.ts), worked out by the view, listed after the direct buses
   *  in the order the view put them in by the timetable; with each one's times, or null while the
   *  timetables are being read. */
- connections?:ConnectionOption[];connectionTimes?:Map<string,ConnectionTiming>|null;onChooseConnection?:(option:ConnectionOption)=>void}){
+ connections?:ConnectionOption[];connectionTimes?:Map<string,ConnectionTiming>|null;onChooseConnection?:(option:ConnectionOption)=>void;
+ /** Direct buses, found and put in order by the view like the journeys with one change, with their times. */
+ direct?:DirectOption[];directTimes?:Map<string,DirectTiming>|null;
+ /** Which kind gets there sooner (a change counted as ten minutes) and so leads; the other folds away. */
+ lead?:'direct'|'connections';
+ /** The timetables, and the walks between stops, still being read: no order to show yet. */
+ checking?:boolean}){
  const [editing,setEditing]=useState<'from'|'to'|null>(null);
  const [sharing,setSharing]=useState(false);
  const [copied,setCopied]=useState<'no'|'yes'|'failed'>('no');
- const options=useMemo(()=>from&&to?directOptions(from,to,patterns,stops,day,buses):[],[from,to,patterns,stops,day,buses]);
+ const options=direct;
  const fromLabel=!from?null:from.kind==='device'?'My location':from.label;
  const key=(o:DirectOption)=>`${o.pattern.id}|${o.board.id}|${o.alight.id}`;
  const chosen=options.find(o=>key(o)===chosenKey)??null;
@@ -89,44 +94,56 @@ export default function PlanPanel({stops,patterns,day,buses,from,to,device,onUse
   </div>
 
   {from&&to&&<div className="plan-options" data-plan-options={options.length}>
-   {options.length===0&&connections.length===0&&<p className="empty-state plan-empty" role="status"><strong>No bus journey found within a {900} m walk of both places on today’s timetable, direct or with one change.</strong>
+   {checking&&<p className="plan-note" role="status" data-plan-checking>Finding times: reading the timetables{connections.length?' and checking the walks between stops':''}…</p>}
+   {!checking&&options.length===0&&connections.length===0&&<p className="empty-state plan-empty" role="status"><strong>No bus journey found within a {900} m walk of both places on today’s timetable, direct or with one change.</strong>
     <span>That is what our timetables hold (four operators), not proof that no journey exists: the planners below take the same places.</span></p>}
-   {options.length===0&&connections.length>0&&<p className="plan-note" role="status" data-plan-no-direct>No direct bus within a 900 m walk of both places today; these need one change.</p>}
-   {options.map(o=><article key={key(o)} className={`plan-option${key(o)===chosenKey?' on':''}`} data-plan-option={o.line}>
-    <div className="plan-option-head"><span className="route-pill">{o.line}</span><strong>towards {o.headsign}</strong>
-     <small>{o.rideStops} stop{o.rideStops===1?'':'s'}{o.rideMetres?` · ${(o.rideMetres/1000).toFixed(1)} km by the timetable’s links`:''}</small></div>
-    <ol className="plan-legs">
-     <li>Walk {metresWords(o.walkToBoardMetres)} <em>(straight line)</em> to <strong>{stopName(o.board)}</strong></li>
-     <li>Board the <strong>{o.line}</strong> towards <strong>{o.headsign}</strong></li>
-     <li>Get off at <strong>{stopName(o.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line)</em></li>
-    </ol>
-    <p className="plan-tracked">{o.tracked.length
-     ? <>Tracked: the nearest bus on this route is <strong>{o.tracked[0].stopsAway} stop{o.tracked[0].stopsAway===1?'':'s'}</strong> before your boarding stop, reported {o.tracked[0].ageSeconds??'?'} s ago{o.tracked.length>1?`; ${o.tracked.length-1} more behind it`:''}. No arrival minutes: it is placed by its last report.</>
-     : <>No tracked bus is before your boarding stop right now. That is not “no bus”: check the stop’s live board after choosing.</>}</p>
-    {o.caution&&<p className="plan-caution">Careful: {o.caution}.</p>}
-    <button className="action" onClick={()=>onChoose(o)} data-choose-plan>{key(o)===chosenKey?'Chosen · open the boarding stop':'Choose this bus'}</button>
-   </article>)}
-   {connections.length>0&&(()=>{
-    // Journeys with one change, each with its next connection by the timetable. Beside a direct bus
-    // they are the second choice and fold away; with none they are the answer and stand open.
-    const list=connectionTimes===null
-     ?<p className="plan-note" role="status" data-plan-checking>Reading the timetables for journeys with one change…</p>
-     :connections.map(o=><article key={o.key} className={`plan-option connection${o.key===chosenKey?' on':''}`} data-plan-connection={`${o.first.line}|${o.second.line}`}>
+   {!checking&&options.length===0&&connections.length>0&&<p className="plan-note" role="status" data-plan-no-direct>No direct bus within a 900 m walk of both places today; these need one change.</p>}
+   {!checking&&(()=>{
+    const directCards=options.map(o=>{
+     const access=estimatedWalk(o.walkToBoardMetres),egress=estimatedWalk(o.walkFromAlightMetres);
+     const lines=[...new Set(legFamily(o.leg).map(l=>l.line))];
+     return <article key={key(o)} className={`plan-option${key(o)===chosenKey?' on':''}`} data-plan-option={o.line}>
+      <div className="plan-option-head">{lines.slice(0,3).map(line=><span key={line} className="route-pill">{line}</span>)}
+       <strong>towards {[...new Set(legFamily(o.leg).map(l=>l.headsign))].join(' or ')}</strong>
+       <small>{o.rideStops} stop{o.rideStops===1?'':'s'}{o.rideMetres?` · ${(o.rideMetres/1000).toFixed(1)} km by the timetable’s links`:''}</small></div>
+      <NextDirect option={o} timing={directTimes?.get(o.key)??null} day={day}/>
+      <ol className="plan-legs">
+       <li>Walk {metresWords(o.walkToBoardMetres)} <em>(straight line; about {minutes(access.seconds)} on foot, estimated)</em> to <strong>{stopName(o.board)}</strong></li>
+       <li>Board the <strong>{legService(o.leg)}</strong></li>
+       <li>Get off at <strong>{stopName(o.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line; about {minutes(egress.seconds)}, estimated)</em></li>
+      </ol>
+      <p className="plan-tracked">{o.tracked.length
+       ? <>Tracked: the nearest bus between these stops is <strong>{o.tracked[0].stopsAway} stop{o.tracked[0].stopsAway===1?'':'s'}</strong> before your boarding stop, reported {o.tracked[0].ageSeconds??'?'} s ago{o.tracked.length>1?`; ${o.tracked.length-1} more behind it`:''}. No arrival minutes: it is placed by its last report.</>
+       : <>No tracked bus is before your boarding stop right now. That is not “no bus”: check the stop’s live board after choosing.</>}</p>
+      {o.caution&&<p className="plan-caution">Careful: {o.caution}.</p>}
+      <button className="action" onClick={()=>onChoose(o)} data-choose-plan>{key(o)===chosenKey?'Chosen · open the boarding stop':'Choose this bus'}</button>
+     </article>;
+    });
+    const connectionCards=connectionTimes===null?[]:connections.map(o=><article key={o.key} className={`plan-option connection${o.key===chosenKey?' on':''}`} data-plan-connection={`${o.first.line}|${o.second.line}`}>
       <div className="plan-option-head"><span className="route-pill">{o.first.line}</span><span className="plan-then" aria-hidden="true">→</span><span className="route-pill">{o.second.line}</span>
        <strong>one change at {o.transfer.sameStop?stopWords(o.transfer.to):o.transfer.to.name}</strong>
        <small>{o.first.rideStops+o.second.rideStops} stops</small></div>
       <NextConnection option={o} timing={connectionTimes.get(o.key)??null} day={day}/>
       <ol className="plan-legs">
-       <li>Take the <strong>{legService(o.first)}</strong> from <strong>{stopWords(o.first.board)}</strong> <em>({metresWords(o.walkToBoardMetres)} away, straight line)</em></li>
-       <li>Get off at <strong>{stopWords(o.first.alight)}</strong>{o.transfer.sameStop?', and change there':<>, then walk to <strong>{stopWords(o.transfer.to)}</strong> <em>({metresWords(o.transfer.straightMetres)} in a straight line; the walk is checked once chosen)</em></>}</li>
-       <li>Take the <strong>{legService(o.second)}</strong>, get off at <strong>{stopWords(o.second.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line)</em></li>
+       <li>Take the <strong>{legService(o.first)}</strong> from <strong>{stopWords(o.first.board)}</strong> <em>({metresWords(o.walkToBoardMetres)} away, straight line; about {minutes(estimatedWalk(o.walkToBoardMetres).seconds)} on foot, estimated)</em></li>
+       <li>Get off at <strong>{stopWords(o.first.alight)}</strong>{o.transfer.sameStop?', and change there':<>, then walk to <strong>{stopWords(o.transfer.to)}</strong> <TransferWords option={o} timing={connectionTimes.get(o.key)??null}/></>}</li>
+       <li>Take the <strong>{legService(o.second)}</strong>, get off at <strong>{stopWords(o.second.alight)}</strong>, then walk {metresWords(o.walkFromAlightMetres)} <em>(straight line; about {minutes(estimatedWalk(o.walkFromAlightMetres).seconds)}, estimated)</em></li>
       </ol>
       <button className="action" onClick={()=>onChooseConnection?.(o)} data-choose-connection>{o.key===chosenKey?'Chosen':'Choose this journey'}</button>
      </article>);
-    return options.length>0
-     ?<details className="plan-connections" data-plan-connections={connections.length}>
-       <summary>Journeys with one change ({connections.length})</summary>{list}</details>
-     :list;
+    // When each kind's soonest gets there, for the line a folded kind is summed up in.
+    const soonest=(values:({arrive:number}|null)[])=>values.reduce<number|null>((best,v)=>v&&(best===null||v.arrive<best)?v.arrive:best,null);
+    const soonestDirect=soonest(options.map(o=>{const t=directTimes?.get(o.key);return t?directArrival(t):null}));
+    const soonestChange=soonest(connections.map(o=>{const t=connectionTimes?.get(o.key);return t?connectionArrival(o,t):null}));
+    const at=(ms:number|null)=>ms===null?'':` · soonest there ${clockWords({atMs:ms})}`;
+    if(!options.length)return connectionCards;
+    if(!connections.length)return directCards;
+    return lead==='direct'
+     ?<>{directCards}<details className="plan-connections" data-plan-connections={connections.length}>
+       <summary>Journeys with one change ({connections.length}){at(soonestChange)}</summary>{connectionCards}</details></>
+     :<><p className="plan-note" role="status" data-plan-change-first>A journey with one change gets there sooner than any direct bus.</p>
+       {connectionCards}<details className="plan-connections" data-plan-direct-fold={options.length}>
+       <summary>Direct buses ({options.length}){at(soonestDirect)}</summary>{directCards}</details></>;
    })()}
    <div className="plan-handoffs">
     <a href={transitHandoff(from,to)} target="_blank" rel="noopener noreferrer" data-handoff="google"><ExternalLink size={14} aria-hidden="true"/> Whole journey in Google Maps (transit), with these two places</a>
@@ -164,7 +181,43 @@ function NextConnection({option,timing,day}:{option:ConnectionOption;timing:Conn
  const walkMinutes=Math.round(option.walkFromAlightMetres*CONNECTION_RULES.transferDetour/CONNECTION_RULES.walkMetresPerMinute);
  return <p className="plan-next" data-plan-next="timed">Next: <strong>{row.first.departure.line} {when(row.first.departMs)}</strong>
   {row.earlier?` (or ${row.earlier.count>1?'any from':row.earlier.line===row.first.departure.line?'the':`the ${row.earlier.line} at`} ${when(row.earlier.departMs)})`:''} from {stopWords(option.first.board)}
+  <Tight spare={row.boardSpareSeconds} basis={timing.access.basis}/>
   {arrive!==null?<> · at {option.second.alight.name} <strong>{when(arrive)}</strong></>:<> · then the {row.second!.departure.line} {when(row.second!.departMs)}</>}
   {walkMinutes>=3?` · then about ${walkMinutes} min on foot`:''}
+  <small> · by the timetable, not live</small></p>;
+}
+
+const minutes=(seconds:number)=>`${Math.max(1,Math.round(seconds/60))} min`;
+
+/** A bus that leaves under two minutes after the walk to its stop would be done: said, because the
+ *  walk is estimated and a longer one would lose it. */
+function Tight({spare,basis}:{spare:number;basis:string}){
+ if(spare>=TIGHT_SECONDS)return null;
+ return <small className="plan-tight" data-tight> · tight: under 2 min to spare{basis==='route'?' after the walk':' on an estimated walk'}</small>;
+}
+
+/** The walk between the two stops as the list has it: checked by the router before anything is
+ *  chosen where it could be, else the straight line, lengthened, and said to be unchecked. */
+function TransferWords({option,timing}:{option:ConnectionOption;timing:ConnectionTiming|null}){
+ const walk=timing&&timing.kind==='timed'?timing.walk:null;
+ if(walk&&walk.basis==='route')return <em data-transfer-walk="checked">({minutes(walk.seconds)}, about {Math.max(10,Math.round(walk.metres/10)*10)} m, a checked route)</em>;
+ return <em data-transfer-walk="estimated">({metresWords(option.transfer.straightMetres)} in a straight line, about {minutes(estimatedWalk(option.transfer.straightMetres).seconds)}; not checked)</em>;
+}
+
+/**
+ * A listed direct option's next bus by the timetable, on one line: when it leaves the boarding stop
+ * (one the passenger can walk to in time), when it reaches the stop to get off at, and the walk on.
+ */
+function NextDirect({option,timing,day}:{option:DirectOption;timing:DirectTiming|null;day:string}){
+ if(!timing)return null;
+ if(timing.kind==='withheld')return <p className="plan-next warn" data-plan-next="withheld">No times: the {option.line}’s {timing.reason}.</p>;
+ if(timing.kind==='unavailable')return <p className="plan-next" data-plan-next="unavailable">No times: {timing.reason}.</p>;
+ const row=timing.rows[0];
+ const when=(ms:number)=>`${clockWords({atMs:ms})}${londonDate(ms)!==day?' tomorrow':''}`;
+ const walkOn=Math.round(timing.egress.seconds/60);
+ return <p className="plan-next" data-plan-next="timed">Next: <strong>{row.departure.line} {when(row.departMs)}</strong> from {stopWords(option.board)}
+  <Tight spare={row.spareSeconds} basis={timing.access.basis}/>
+  {row.arriveMs!==null?<> · at {option.alight.name} <strong>{when(row.arriveMs)}</strong></>:''}
+  {walkOn>=3?` · then about ${walkOn} min on foot`:''}
   <small> · by the timetable, not live</small></p>;
 }

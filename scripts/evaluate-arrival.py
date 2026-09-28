@@ -413,9 +413,16 @@ def main():
     result['heldOut']['releaseBand'] = band
     result['candidate'] = a.candidate
     result['label'] = a.label
-    # weekday / weekend
-    wk = [r for r in rows if local_wall(next(p['passed_at_ms'] for p in passages if p['journey_key'] == r[1] and p['stop_id'] == r[2])).weekday() < 5]
-    we = [r for r in rows if r not in wk]
+    # weekday / weekend, each moment by its passage's day, looked up once. This was a scan of every
+    # passage per moment and then a list-membership test per moment: quadratic, and on the server it
+    # ran past the unit's 20-minute limit on 22 and 23 September, once a night's copy of the warehouse
+    # held more than a day of passages. The first passage of a journey at a stop, as before.
+    passed_at = {}
+    for p in passages:
+        passed_at.setdefault((p['journey_key'], p['stop_id']), p['passed_at_ms'])
+    wk, we = [], []
+    for r in rows:
+        (wk if local_wall(passed_at[(r[1], r[2])]).weekday() < 5 else we).append(r)
     for label, sub in (('weekday', wk), ('weekend', we)):
         s = summarise(sub, RELEASE_BAND)
         result['heldOut'][label] = s

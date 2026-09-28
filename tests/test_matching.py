@@ -280,7 +280,7 @@ TXC = """<?xml version="1.0"?>
     <WorkingDays><DateRange><StartDate>2026-09-01</StartDate><EndDate>2026-10-23</EndDate></DateRange></WorkingDays>
   </ServicedOrganisation></ServicedOrganisations>
   <Operators><Operator id="O1"><NationalOperatorCode>{operator}</NationalOperatorCode></Operator></Operators>
-  <Services><Service><ServiceCode>SVC{line}</ServiceCode>
+  <Services><Service><ServiceCode>SVC{line}</ServiceCode>{public_use}
     <Lines><Line id="L1"><LineName>{line}</LineName></Line></Lines>
     <OperatingPeriod><StartDate>2026-08-30</StartDate><EndDate>2031-08-30</EndDate></OperatingPeriod>
     <OperatingProfile><RegularDayType><DaysOfWeek><MondayToFriday/></DaysOfWeek></RegularDayType></OperatingProfile>
@@ -316,9 +316,10 @@ def link(a, b, metres, run_time=None):
 
 
 def txc(operator='TST', line='142', stops=('S1', 'S2', 'S3', 'S4', 'S5'), distances=(300, 250, 400, 100),
-        run_times=(None, None, None, None)):
+        run_times=(None, None, None, None), public_use=None):
     pairs = list(zip(stops, stops[1:], distances, run_times))
-    return TXC.format(operator=operator, line=line,
+    declared = '' if public_use is None else f'<PublicUse>{"true" if public_use else "false"}</PublicUse>'
+    return TXC.format(operator=operator, line=line, public_use=declared,
                       links1=''.join(link(*p) for p in pairs[:2]),
                       links2=''.join(link(*p) for p in pairs[2:])).encode()
 
@@ -349,6 +350,13 @@ class RunTimeTests(unittest.TestCase):
         found = extract_patterns(txc(run_times=('PT1M', None, 'PT2M', 'PT1M')), 't.xml', 'sha', None, None)[0]
         self.assertEqual([s[2] for s in found['stops']], [0, 60, None, None, None])
         self.assertEqual([s[1] for s in found['stops']], [0, 300, 550, 950, 1050], 'time and distance are judged apart')
+
+    def test_the_service_s_public_use_is_read_and_undeclared_stays_unknown(self):
+        from pipeline.patterns import extract_patterns
+        closed = extract_patterns(txc(public_use=False), 't.xml', 'sha', None, None)[0]
+        open_ = extract_patterns(txc(public_use=True), 't.xml', 'sha', None, None)[0]
+        undeclared = extract_patterns(txc(), 't.xml', 'sha', None, None)[0]
+        self.assertEqual((closed['publicUse'], open_['publicUse'], undeclared['publicUse']), (False, True, None))
 
     def test_every_journey_departure_is_recorded_on_its_pattern_with_repeats_kept(self):
         from pipeline.patterns import extract_patterns
@@ -541,6 +549,54 @@ class CoverageSelectionTests(unittest.TestCase):
         published = self.build(max_lines=3)
         self.assertEqual(sorted(published['supportedLines']), ['L14', 'L15', 'L16'])
         self.assertEqual(published['coverage']['cap'], 3)
+
+    def test_a_service_closed_to_the_public_is_published_as_such_on_its_patterns_and_boards(self):
+        # A scholars' bus is still a bus on the road, matched and drawn; the catalogue says it is
+        # closed, so no planner offers it. BNML 732 was served on 28 September 2026 without it.
+        folder = self.root / 'data/live-capture/timetables'
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for line in self.LINES:
+                stops = tuple(f'{line}S{i}' for i in range(5))
+                archive.writestr(f'TST_{line}_TSTPC1_20260830_20310830_{line.lower()}-uuid.xml',
+                                 txc(line=line, stops=stops, public_use=False if line == 'L3' else True if line == 'L4' else None))
+        for old in folder.glob('*.bin.gz'):
+            old.unlink()
+        (folder / ('c' * 64 + '.bin.gz')).write_bytes(gzip.compress(buffer.getvalue()))
+        published = self.build()
+        use = {p['line']: p['publicUse'] for p in published['patterns']}
+        self.assertEqual((use['L3'], use['L4'], use['L5']), (False, True, None), 'closed, open, undeclared')
+        from pipeline.departures import boards
+        from pipeline.warehouse import connect
+        con = connect(self.db)
+        try:
+            by_stop, _ = boards(con)
+        finally:
+            con.close()
+        self.assertEqual(by_stop['L3S0'][0].get('publicUse'), False)
+        self.assertNotIn('publicUse', by_stop['L4S0'][0], 'only a closed service is marked on a board')
+
+    def test_a_refused_build_leaves_the_warehouse_patterns_as_well_as_the_catalogue(self):
+        from pipeline.patterns import PatternBuildRefused
+        from pipeline.warehouse import connect
+        self.build()
+        before = (self.root / 'public/data/patterns.json').read_text()
+        con = connect(self.db)
+        try:
+            count = con.execute('SELECT count(*) FROM service_pattern').fetchone()[0]
+            # Twelve of the sixteen lines stop being observed: the build would publish four.
+            con.execute("DELETE FROM observation WHERE route NOT IN ('L13', 'L14', 'L15', 'L16')")
+        finally:
+            con.close()
+        with self.assertRaises(PatternBuildRefused):
+            self.build()
+        self.assertEqual((self.root / 'public/data/patterns.json').read_text(), before)
+        con = connect(self.db)
+        try:
+            self.assertEqual(con.execute('SELECT count(*) FROM service_pattern').fetchone()[0], count,
+                             'the matcher reads these tables: they must not shrink either')
+        finally:
+            con.close()
 
     def test_all_valid_files_and_named_lines_are_selectable(self):
         self.assertIn('UNSEEN', self.build(coverage='all')['supportedLines'])

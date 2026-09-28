@@ -1,0 +1,4 @@
+{
+ "approved": [],
+ "note": "A direction of the arrival estimate that passes the criteria (docs/ARRIVAL_RELEASE_CRITERIA.md) is shown to passengers only once it is listed here, for example \"approved\": [\"outbound\"]. Held on 28 September 2026: the pass that repaired the nightly evaluation was asked to add no estimator, and the first full scoring (8 nights, 20-27 September) passed outbound route 15, which the page had never shown. The owner decides; removing --approval from lost-minutes-arrival-eval.service restores the automatic release agreed on 20 September."
+}

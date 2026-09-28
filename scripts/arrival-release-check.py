@@ -9,6 +9,13 @@ public/data/arrival-release.json, which the page reads: a direction passes only 
 says so, and nothing is shown until then.
 
     .venv/bin/python scripts/arrival-release-check.py [--nightly data/evaluation/arrival-nightly.jsonl]
+        [--approval deploy/arrival-release-approval.json]
+
+With --approval, a direction that passes is released only once that file lists it; until then it is
+written as passed and awaiting approval, and the page shows nothing for it. Without it, a direction
+that passes is released at once, as agreed on 20 September. The nightly unit passes it from
+28 September 2026: the pass that repaired the evaluation was asked to add no estimator, and the first
+full scoring passed a direction the page had never shown (docs/ARRIVAL_RELEASE_CRITERIA.md).
 """
 import argparse
 import json
@@ -34,7 +41,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--nightly', default=str(ROOT / 'data/evaluation/arrival-nightly.jsonl'))
     ap.add_argument('--out', default=str(ROOT / 'public/data/arrival-release.json'))
+    ap.add_argument('--approval', default=None, help='a JSON file whose "approved" list names the directions the owner has '
+                                                        'agreed may be shown once they pass; without it, passing is enough')
     a = ap.parse_args()
+    approval = json.loads(Path(a.approval).read_text()) if a.approval else None
+    approved = set(approval.get('approved') or []) if approval else None
     path = Path(a.nightly)
     # One entry per day, the latest scoring of that day winning, and only days after the amendment
     # (docs/ARRIVAL_RELEASE_CRITERIA.md, 20 September 2026): development days count toward nothing.
@@ -47,7 +58,8 @@ def main():
     nights = [latest[d] for d in sorted(latest)]
     verdict = {'schemaVersion': 1, 'generatedAt': datetime.now(LONDON).isoformat(), 'nights': len(nights),
                'days': [n.get('day') for n in nights], 'unseenFrom': UNSEEN_FROM,
-               'thresholds': THRESHOLDS, 'directions': {}, 'released': []}
+               'thresholds': THRESHOLDS, 'directions': {}, 'released': [], 'awaitingApproval': [],
+               'approval': ({'file': a.approval, 'approved': sorted(approved)} if approval else None)}
     for direction in ('inbound', 'outbound'):
         errs, journeys, passages, weekdays = [], 0, 0, 0
         for night in nights:
@@ -65,15 +77,21 @@ def main():
                   'passages>=150': passages >= THRESHOLDS['minPassages'],
                   'weekdayNights>=1': weekdays >= 1}
         ok = all(checks.values())
+        held = ok and approved is not None and direction not in approved
         verdict['directions'][direction] = {'moments': len(errs), 'journeys': journeys, 'passages': passages, 'weekdayNights': weekdays,
-                                            'medianAbs': med, 'p80Abs': p80, 'checks': checks, 'released': ok}
-        if ok:
+                                            'medianAbs': med, 'p80Abs': p80, 'checks': checks, 'passed': ok,
+                                            'released': ok and not held}
+        if held:
+            verdict['awaitingApproval'].append(direction)
+        elif ok:
             verdict['released'].append(direction)
         print(f'{direction:9} nights {sum(1 for n in nights if direction in n.get("directions", {}))}  journeys {journeys:3}  passages {passages:4}  '
               f'moments {len(errs):6}  median {med if med is None else round(med, 2)}  p80 {p80 if p80 is None else round(p80, 2)}  -> '
-              + ('RELEASE' if ok else 'not yet: ' + ', '.join(k for k, v in checks.items() if not v)))
+              + (('PASSED, awaiting the owner\'s approval' if held else 'RELEASE') if ok
+                 else 'not yet: ' + ', '.join(k for k, v in checks.items() if not v)))
     Path(a.out).write_text(json.dumps(verdict, indent=1))
-    print(f'written {a.out}: released {verdict["released"] or "nothing"}')
+    print(f'written {a.out}: released {verdict["released"] or "nothing"}'
+          + (f'; passed and awaiting approval {verdict["awaitingApproval"]}' if verdict['awaitingApproval'] else ''))
 
 
 if __name__ == '__main__':

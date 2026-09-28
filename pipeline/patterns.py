@@ -30,6 +30,7 @@ import json
 import re
 import sys
 import zipfile
+import zlib
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -107,7 +108,8 @@ CREATE TABLE IF NOT EXISTS service_pattern (
     version_revision    TEXT,      -- the file's RevisionNumber
     journey_count       INTEGER,
     distances_known     BOOLEAN,
-    departure_times     TEXT       -- JSON list of HH:MM:SS scheduled departures from the first stop
+    departure_times     TEXT,      -- JSON list of HH:MM:SS scheduled departures from the first stop
+    public_use          BOOLEAN    -- the service's PublicUse: false is not open to the public; NULL undeclared
 );
 
 CREATE TABLE IF NOT EXISTS service_pattern_stop (
@@ -125,7 +127,9 @@ MIGRATIONS = [f'ALTER TABLE service_pattern ADD COLUMN IF NOT EXISTS {column}' f
     'operating_rules TEXT', 'version_modified TEXT', 'version_revision TEXT',
     'journey_count INTEGER', 'distances_known BOOLEAN',
     # Scheduled departures from the first stop, JSON list of HH:MM:SS, recorded from 20 September 2026.
-    'departure_times TEXT')] + [
+    'departure_times TEXT',
+    # Whether the service is open to the public (TransXChange PublicUse), from 28 September 2026.
+    'public_use BOOLEAN')] + [
     # Scheduled seconds per stop, from the links' RunTime, recorded from 20 September 2026.
     'ALTER TABLE service_pattern_stop ADD COLUMN IF NOT EXISTS seconds_from_start INTEGER']
 
@@ -144,7 +148,7 @@ def _iso(value):
     return value.isoformat() if isinstance(value, date) else (str(value) if value else None)
 
 
-def newest_snapshots(directory=TIMETABLE_DIR):
+def newest_snapshots(directory=TIMETABLE_DIR, allow_shrink=False):
     """One snapshot per preserved dataset: the newest copy of each.
 
     The collector re-downloads the timetable datasets while it runs, so this directory
@@ -161,8 +165,14 @@ def newest_snapshots(directory=TIMETABLE_DIR):
     A snapshot that cannot be read as a gzipped zip is skipped and named, never fatal: on
     27 September 2026 a BODS error page had been stored here as though it were a timetable, and
     opening it stopped the nightly rebuild outright.
+
+    A readable snapshot holding fewer than half the timetable files of the dataset's previous one is
+    not taken in its place unless `allow_shrink` says a withdrawal is expected: a response that is a
+    valid zip but badly incomplete must not replace the last valid catalogue, and a withdrawal and a
+    failed export look the same from here. It is named, as the build's own shrink guard names its
+    refusals.
     """
-    newest, skipped, unreadable = {}, [], []
+    history, skipped, unreadable = {}, [], []
     for archive_path in sorted(Path(directory).glob('*.bin.gz')):
         try:
             body = gzip.decompress(archive_path.read_bytes())
@@ -172,27 +182,31 @@ def newest_snapshots(directory=TIMETABLE_DIR):
                     match = FILENAME.match(Path(member.filename).name)
                     if match:
                         operators[match['operator']] += 1
-        except (OSError, EOFError, zipfile.BadZipFile):
+        except (OSError, EOFError, zipfile.BadZipFile, zlib.error):
             skipped.append(archive_path.name)
             unreadable.append(archive_path.name)
             continue
         if not operators:
             skipped.append(archive_path.name)
             continue
-        group = operators.most_common(1)[0][0]
-        stamp = archive_path.stat().st_mtime
-        held = newest.get(group)
-        if held is None or stamp > held[0]:
-            if held is not None:
-                skipped.append(held[1].name)
-            newest[group] = (stamp, archive_path)
-        else:
-            skipped.append(archive_path.name)
-    return {'datasets': {group: path for group, (_, path) in sorted(newest.items())},
-            'supersededOrUnreadable': sorted(skipped), 'unreadable': sorted(unreadable)}
+        group, members = operators.most_common(1)[0][0], sum(operators.values())
+        history.setdefault(group, []).append((archive_path.stat().st_mtime, archive_path, members))
+    chosen, shrunk = {}, []
+    for group, copies in history.items():
+        copies.sort(key=lambda copy: (copy[0], copy[1].name))
+        pick = copies[-1]
+        if not allow_shrink and len(copies) > 1 and pick[2] < copies[-2][2] * KEEP_FRACTION:
+            shrunk.append({'dataset': group, 'refused': pick[1].name, 'files': pick[2],
+                           'kept': copies[-2][1].name, 'keptFiles': copies[-2][2]})
+            pick = copies[-2]
+        chosen[group] = pick[1]
+        skipped.extend(copy[1].name for copy in copies if copy[1] != pick[1])
+    return {'datasets': {group: path for group, path in sorted(chosen.items())},
+            'supersededOrUnreadable': sorted(skipped), 'unreadable': sorted(unreadable),
+            'shrunk': shrunk}
 
 
-def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DAYS):
+def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DAYS, allow_shrink=False):
     """What each preserved dataset offers from `today` to `today` + `horizon_days`, from the
     member names alone. A file is taken when its declared validity touches that window, so a
     registration that begins in a few days is parsed now and marked as not yet in force."""
@@ -200,7 +214,7 @@ def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DA
     horizon = today + timedelta(days=max(0, horizon_days))
     entries, unrecognised = [], []
     expired = beyond = 0
-    snapshots = newest_snapshots(directory)
+    snapshots = newest_snapshots(directory, allow_shrink=allow_shrink)
     for archive_path in snapshots['datasets'].values():
         sha = archive_path.stem.split('.')[0]
         body = gzip.decompress(archive_path.read_bytes())
@@ -228,6 +242,7 @@ def survey_datasets(directory=TIMETABLE_DIR, today=None, horizon_days=HORIZON_DA
             'datasetsRead': sorted(snapshots['datasets']),
             'snapshotsSuperseded': len(snapshots['supersededOrUnreadable']),
             'snapshotsUnreadable': snapshots['unreadable'],
+            'snapshotsRefusedAsShrunk': snapshots['shrunk'],
             'filesExpired': expired, 'filesBeyondHorizon': beyond,
             # Kept under its old name for readers of earlier coverage summaries.
             'notValidOnDate': expired + beyond,
@@ -356,6 +371,11 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
     service_code = _text(service, 'ServiceCode') or None
     operator_code = next((e.text.strip() for e in root.iter('NationalOperatorCode') if e.text),
                          next((e.text.strip() for e in root.iter('OperatorCode') if e.text), None))
+    # A service the operator declares closed to the public (a scholars' bus, say) is still a bus on
+    # the road and is still matched and drawn; it is never offered to a passenger as a way to travel.
+    # Undeclared is kept as unknown, not read as open.
+    declared_public = _text(service, 'PublicUse').lower()
+    public_use = True if declared_public == 'true' else False if declared_public == 'false' else None
     period = service.find('OperatingPeriod') if service is not None else None
     declared_from, declared_to = _text(period, 'StartDate'), _text(period, 'EndDate')
     calendars = serviced_calendars(root)
@@ -439,6 +459,7 @@ def extract_patterns(xml_bytes, source_file, dataset_sha, valid_from, valid_to):
             'rules': _unique(known) if known else None, 'journeys': len(running),
             # Every departure time, kept with repeats: two journeys at one time are two journeys.
             'departures': sorted(departures_by_pattern.get(journey.get('id'), [])),
+            'publicUse': public_use,
         })
     return patterns
 
@@ -476,6 +497,8 @@ def deduplicate(patterns):
                            'timings': [timing],
                            'timedDepartures': [(t, 0, rule) for t, rule in (pattern.get('departures') or [])]}
             continue
+        # Open to the public if any service over these stops is; closed only if every one says so.
+        kept['publicUse'] = _either_public(kept.get('publicUse'), pattern.get('publicUse'))
         if kept.get('rules') is not None and pattern.get('rules') is not None:
             kept['rules'] = _unique(kept['rules'] + pattern['rules'])
         else:
@@ -504,6 +527,14 @@ def deduplicate(patterns):
             [t, timing_index, keys.get(json.dumps(rule, sort_keys=True), -1)]
             for t, timing_index, rule in kept['timedDepartures']]
     return list(merged.values())
+
+
+def _either_public(a, b):
+    if a is True or b is True:
+        return True
+    if a is False and b is False:
+        return False
+    return None
 
 
 def pattern_key(pattern):
@@ -537,13 +568,26 @@ def load(con, run_id, patterns, stops_in_area):
                                  'departures': [list(d) for d in pattern.get('timedDepartures') or []],
                                  # Which rule in `operating_rules` each departure runs on; -1 where
                                  # the file gave the journey no profile we could read.
-                                 'departureFields': ['time', 'timing', 'rule']})))
+                                 'departureFields': ['time', 'timing', 'rule']}),
+                     pattern.get('publicUse')))
         for sequence, stop in enumerate(pattern['stops']):
             # A stop is (atco, metres) from an older caller or (atco, metres, seconds) from the
             # parser; a missing third element is an unknown scheduled time, never zero.
             atco, metres = stop[0], stop[1]
             secs = stop[2] if len(stop) > 2 else None
             stop_rows.append((pattern_id, sequence, atco, metres, secs))
+    # One transaction: a failure part-way leaves the previous patterns, not half of the new ones.
+    con.execute('BEGIN TRANSACTION')
+    try:
+        _replace_patterns(con, rows, stop_rows)
+        con.execute('COMMIT')
+    except Exception:
+        con.execute('ROLLBACK')
+        raise
+    return len(rows), len(stop_rows)
+
+
+def _replace_patterns(con, rows, stop_rows):
     con.execute('DELETE FROM service_pattern_stop')
     con.execute('DELETE FROM service_pattern')
     con.executemany(
@@ -551,10 +595,9 @@ def load(con, run_id, patterns, stops_in_area):
         ' service_code, operator_code, direction, destination_display, stop_count,'
         ' stops_in_area, total_distance_m, valid_from, valid_to, has_repeated_stop,'
         ' first_seen_run_id, first_seen_at, operating_rules, version_modified, version_revision,'
-        ' journey_count, distances_known, departure_times)'
-        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?,?)', rows)
+        ' journey_count, distances_known, departure_times, public_use)'
+        ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, now(),?,?,?,?,?,?,?)', rows)
     con.executemany('INSERT INTO service_pattern_stop VALUES (?,?,?,?,?)', stop_rows)
-    return len(rows), len(stop_rows)
 
 
 def supported_lines(con):
@@ -574,7 +617,8 @@ def build_published(con, coverage=None):
         SELECT pattern_id, line_name, direction, destination_display, stop_count,
                stops_in_area, total_distance_m, has_repeated_stop, dataset_sha256,
                source_file, valid_from, valid_to, operator_code, service_code, operating_rules,
-               version_modified, version_revision, journey_count, distances_known, departure_times
+               version_modified, version_revision, journey_count, distances_known, departure_times,
+               public_use
         FROM service_pattern
         WHERE stops_in_area >= {MIN_STOPS_IN_AREA}
         ORDER BY operator_code, line_name, direction, stop_count DESC""").fetchall()
@@ -609,6 +653,8 @@ def build_published(con, coverage=None):
             # Distinct per-stop scheduled seconds among the journeys merged into this pattern;
             # each departure names its timing in the warehouse, and the matcher checks they agree.
             'timings': _timings(row[19]),
+            # False: the timetable says the service is not open to the public; null: not declared.
+            'publicUse': row[20] if row[20] is not None else None,
         })
     services = sorted({f"{p['operator'] or ''}|{p['line']}" for p in patterns})
     return {
@@ -687,7 +733,7 @@ def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=No
           today=None, allow_shrink=False):
     root = Path(root)
     today = today or datetime.now(LONDON).date()
-    survey = survey_datasets(root / TIMETABLE_DIR, today)
+    survey = survey_datasets(root / TIMETABLE_DIR, today, allow_shrink=allow_shrink)
     entries = survey['entries']
     con = connect(db_path or root / DEFAULT_DB)
     try:
@@ -725,6 +771,26 @@ def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=No
             collected.extend(extract_patterns(xml, entry['member'], entry['sha256'],
                                               entry['validFrom'], entry['validTo']))
         distinct = deduplicate(collected)
+        # The shrink guard runs before anything is written. It used to run after the warehouse's
+        # pattern tables had been replaced, so a refused build left the published catalogue in place
+        # while the live matcher, which reads those tables, worked from the shrunken set.
+        target = root / PATTERNS_TARGET
+        previous = _published_now(target)
+        kept = len(previous['patterns']) if previous and previous.get('patterns') else 0
+        floor = shrink_floor(kept, explicit=bool(lines or max_lines), allow_shrink=allow_shrink)
+        would_publish = sum(1 for p in distinct
+                            if sum(1 for atco, *_ in p['stops'] if atco in stops_in_area) >= MIN_STOPS_IN_AREA)
+        if kept and would_publish < floor:
+            finish_run(con, run_id, 'refused', error_class='catalogue_would_shrink',
+                       error_detail=f'{would_publish} patterns is below the floor of {floor}')
+            log(json.dumps({'refused': 'catalogue_would_shrink',
+                            'wouldPublish': would_publish, 'alreadyPublished': kept,
+                            'floor': floor, 'keptGeneratedAt': previous.get('generatedAt'),
+                            'snapshotsUnreadable': survey['snapshotsUnreadable'],
+                            'snapshotsRefusedAsShrunk': survey['snapshotsRefusedAsShrunk'],
+                            'note': 'the published catalogue and the warehouse patterns were left '
+                                    'unchanged; pass --allow-shrink if the reduction is real'}))
+            raise PatternBuildRefused(would_publish, kept, floor)
         loaded, stop_rows = load(con, run_id, distinct, stops_in_area)
         finish_run(con, run_id, 'succeeded')
         summary = {
@@ -733,6 +799,8 @@ def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=No
             'servicesSelected': len(selected), 'filesParsed': files,
             'datasetsRead': survey['datasetsRead'],
             'snapshotsSuperseded': survey['snapshotsSuperseded'],
+            'snapshotsUnreadable': survey['snapshotsUnreadable'],
+            'snapshotsRefusedAsShrunk': survey['snapshotsRefusedAsShrunk'],
             'filesNotValidOnDate': survey['notValidOnDate'],
             'filesExpiredBeforeDate': survey['filesExpired'],
             'filesBeyondHorizon': survey['filesBeyondHorizon'],
@@ -742,20 +810,6 @@ def build(root=ROOT, db_path=None, lines=None, coverage='observed', max_lines=No
                 {'operator': op, 'line': line, 'observations': n} for op, line, n in without[:20]],
         }
         published = build_published(con, summary)
-        target = root / PATTERNS_TARGET
-        previous = _published_now(target)
-        kept = len(previous['patterns']) if previous and previous.get('patterns') else 0
-        floor = shrink_floor(kept, explicit=bool(lines or max_lines), allow_shrink=allow_shrink)
-        if kept and len(published['patterns']) < floor:
-            finish_run(con, run_id, 'refused', error_class='catalogue_would_shrink',
-                       error_detail=f"{len(published['patterns'])} patterns is below the floor "
-                                    f'of {floor}')
-            log(json.dumps({'refused': 'catalogue_would_shrink',
-                            'wouldPublish': len(published['patterns']), 'alreadyPublished': kept,
-                            'floor': floor, 'keptGeneratedAt': previous.get('generatedAt'),
-                            'note': 'the published catalogue was left unchanged; '
-                                    'pass --allow-shrink if the reduction is real'}))
-            raise PatternBuildRefused(len(published['patterns']), kept, floor)
         atomic_json(target, published)
         log(json.dumps({**{k: v for k, v in summary.items()
                            if k != 'observedServicesWithoutTimetableExamples'},

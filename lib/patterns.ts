@@ -33,6 +33,9 @@ const patternSchema = z.object({
  /** Distinct per-stop scheduled seconds among the journeys merged into this pattern; a
   *  scheduled journey names which one it runs. Absent from older catalogues. */
  timings:z.array(z.array(z.number().nullable())).optional(),
+ /** The service's TransXChange PublicUse: false is not open to the public (a scholars' bus), and is
+  *  never offered as a way to travel; null or absent is undeclared. From 28 September 2026. */
+ publicUse:z.boolean().nullable().optional(),
 });
 
 const catalogueSchema = z.object({

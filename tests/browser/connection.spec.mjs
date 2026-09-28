@@ -2,10 +2,11 @@
 //
 // FIXTURE: the 256 along its recorded road to Thomas Street, a 113 m walk to Talbot Court, the 53
 // along Talbot Road to Trafford Bar. The boards are invented around the moment the test starts, the
-// walking router is mocked (a short walk, or a long one that breaks the connection), and the moving
-// 256 is tied to the first timetabled journey by its reported departure. Chromium, both sizes.
+// walking router is mocked (a short walk, or a long one that breaks the connection, answered at once
+// or late), and the moving 256 is tied to the first timetabled journey by its reported departure.
+// Chromium, both sizes.
 import {test, expect} from '@playwright/test';
-import {FX, FX53, boardOrigins, connectionCatalogue, departureBoard, movingLive, serveDepartures, serveLive,
+import {FX, FX53, boardOrigins, connectionCatalogue, departureBoard, fastConfig, movingLive, serveDepartures, serveLive,
   serveMotion, servePatterns, serveScheduleAnchor, waitForPaint} from './fixtures.mjs';
 
 const START = {postcode: FX53.start.postcode, latitude: FX53.start.latitude, longitude: FX53.start.longitude, admin_district: 'Trafford', admin_ward: 'Stretford'};
@@ -23,17 +24,22 @@ const search = (page, label) => page.getByRole('combobox', {name: label});
 const yourStop = page => page.locator('.your-stop-copy strong');
 
 /** The fixture world: catalogue, boards timed from `now`, the moving 256 on the first journey, places and the router. */
-async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, anchor, secondBus = false, direct = false} = {}) {
+async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, walkDelayMs = 0, routerTimeoutSeconds = null, anchor,
+                                  secondBus = false, direct = null} = {}) {
   const catalogue = connectionCatalogue();
-  // A 99 straight from Stretford Mall (Stop A) to Trafford Bar (Stop A): a direct bus beside the change.
+  // A 99 straight from Stretford Mall (Stop A) to Trafford Bar (Stop A), five minutes' ride: a direct
+  // bus beside the change, leaving Stop A at `direct` minutes from now.
   if (direct) catalogue.patterns.push({...catalogue.patterns[0], id: 'FX:99:direct', line: '99', operator: 'BNML', direction: 'outbound',
     destination: 'Old Trafford', stops: [FX.stopA, FX53.stops[3][0], FX53.stops.at(-1)[0]], metres: [0, 900, 1500], seconds: [0, 180, 300],
     timings: [[0, 180, 300]], stopCount: 3, stopsInArea: 3, lengthMetres: 1500});
   await servePatterns(page, catalogue);
   if (anchor) await serveScheduleAnchor(page, anchor);
   await serveMotion(page);
+  const stopA = departureBoard({nowMs: now, atMinutes: [4, 14, 26]});
+  if (direct) stopA.services.push(...departureBoard({nowMs: now, atMinutes: direct, line: '99', destination: 'Old Trafford',
+    direction: 'outbound', sequence: 0, patternId: 'FX:99:direct', offset: 0}).services);
   await serveDepartures(page, {boards: {
-    [FX.stopA]: departureBoard({nowMs: now, atMinutes: [4, 14, 26]}),
+    [FX.stopA]: stopA,
     [FX53.board]: departureBoard({stop: FX53.board, nowMs: now, atMinutes: [9, 17, 30], line: '53', destination: 'Trafford Bar',
       operator: 'BNSM', direction: 'outbound', sequence: 0, patternId: 'FX:53:main', offset: 0}),
   }});
@@ -50,6 +56,12 @@ async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, anchor
         patternDirection: 'outbound', patternDestination: 'Trafford Bar', evidence: live.vehicles[0].match.evidence}});
     return live;
   }]);
+  // The router's time limit is runtime configuration (8 s by default); a check of an answer that comes
+  // after the list's 6 s wait sets it longer, so that the order of events is certain, not a race.
+  if (routerTimeoutSeconds) await page.route('**/data/config.json*', route => route.fulfill({json: {...fastConfig(),
+    walking: {provider: 'osrm', baseUrl: 'https://routing.openstreetmap.de/routed-foot', profile: 'foot', name: 'routing.openstreetmap.de',
+      operator: 'FOSSGIS e.V.', attribution: 'Walking route: OSRM foot profile on routing.openstreetmap.de (FOSSGIS e.V.), OpenStreetMap data',
+      maxStraightLineMetres: 3000, minSecondsBetweenRequests: 10, timeoutSeconds: routerTimeoutSeconds, inaccurateMetres: 200}}}));
   await page.route('**/api.postcodes.io/postcodes/**', route => route.fulfill({json: {status: 200, result: START}}));
   await page.route('**/api.postcodes.io/postcodes?**', route => route.fulfill({json: {status: 200, result: [START]}}));
   await page.route('**/photon.komoot.io/**', route => {
@@ -57,9 +69,10 @@ async function serveWorld(page, {now, walk = {metres: 150, seconds: 110}, anchor
     route.fulfill({json: q.includes('trafford') ? TRAFFORD_BAR : q.includes('salford') ? SALFORD_QUAYS : {features: []}});
   });
   const walks = [];
-  await page.route('**/routed-foot/**', route => {
+  await page.route('**/routed-foot/**', async route => {
     const url = new URL(route.request().url());
     walks.push(url.pathname);
+    if (walkDelayMs) await new Promise(resolve => setTimeout(resolve, walkDelayMs));
     const [a, b] = url.pathname.split('/').pop().split(';').map(p => p.split(',').map(Number));
     route.fulfill({json: {code: 'Ok', routes: [{distance: walk.metres, duration: walk.seconds,
       geometry: {type: 'LineString', coordinates: [a, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 0.0002], b]}}],
@@ -92,8 +105,11 @@ test('From and To give a journey with one change; choosing it shows one card, th
   await expect(option).toHaveAttribute('data-plan-connection', '256|53');
   await expect(option).toContainText('one change at Talbot Court');
   await expect(option).toContainText('Get off at Thomas Street (nr)');
+  // The walk between the stops was checked before the list was shown, and the list says so.
+  await expect(option.locator('[data-transfer-walk]')).toHaveAttribute('data-transfer-walk', 'checked');
+  await expect(option.locator('[data-transfer-walk]')).toContainText('(2 min, about 150 m, a checked route)');
   // Before it is chosen, it says when its next connection is, by the timetable: the first 256 and when
-  // the 53 it makes reaches Trafford Bar (the walk provisional here, 113 m × 1.3 at 80 m/min).
+  // the 53 it makes reaches Trafford Bar, with that checked walk (110 s) and 2 min to change.
   const nextLine = option.locator('[data-plan-next]');
   await expect(nextLine).toHaveAttribute('data-plan-next', 'timed');
   await expect(nextLine).toContainText(`Next: 256 ${wall(now + 4 * 60_000)} from Stretford Mall (Stop A)`);
@@ -115,10 +131,15 @@ test('From and To give a journey with one change; choosing it shows one card, th
   await expect(yourStop(page)).toContainText('Stretford Mall (Stop A)');
   await expect(page.locator('.service-chip.on')).toContainText('to Piccadilly Gardens');
   await expect(panel(page)).toHaveCount(0);
-  // The walk between the stops was asked of the router once, as two stop positions, and is now checked.
+  // The walk between the stops was asked of the router once, by the list, as two stop positions; the
+  // card has the answer without asking again.
   await expect(card(page).locator('[data-transfer]')).toHaveAttribute('data-transfer', 'route');
   await expect(card(page).locator('[data-transfer]')).toContainText('2 min walk');
   expect(walks.length, 'one request for the change, none for the passenger').toBe(1);
+  // The connection shown is the one chosen, and it holds.
+  await expect(card(page).locator('[data-chosen]')).toContainText(`${wall(now + 4 * 60_000)}`);
+  await expect(card(page).locator('[data-chosen]')).toContainText(`${wall(now + 17 * 60_000)}`);
+  await expect(card(page).locator('[data-change]')).toHaveCount(0);
   expect(walks[0], 'from Thomas Street (rounded) to Talbot Court (the stop itself)').toMatch(/\/-2\.30*,53\.453;-2\.29832,53\.45315$/);
   // The times, and what they are: the first 256, when it reaches the change, the 53 it makes.
   await expect(card(page)).toHaveAttribute('data-timing', 'timed');
@@ -249,44 +270,114 @@ test('a second bus tracked on the line is said to be one, journey not identified
   await expect(map(page)).toHaveAttribute('data-journey-focus', 'second');
 });
 
-test('beside a direct bus, journeys with one change fold away under one line, and open on request', async ({page}) => {
+test('beside a direct bus that gets there sooner, journeys with one change fold away under one line, and open on request', async ({page}) => {
   test.setTimeout(120_000);
   const now = Date.now();
-  await serveWorld(page, {now, direct: true});
+  await serveWorld(page, {now, direct: [5, 20, 35]});
   await planIt(page);
-  await expect(panel(page).locator('.plan-option:not(.connection)')).toHaveCount(1);
-  await expect(panel(page).locator('.plan-option:not(.connection)')).toHaveAttribute('data-plan-option', '99');
+  const direct = panel(page).locator('.plan-option:not(.connection)');
+  await expect(direct).toHaveCount(1);
+  await expect(direct).toHaveAttribute('data-plan-option', '99');
+  // Timed from its own stop's board, as the journeys with one change are: the 99 at +5 is there at +10.
+  await expect(direct.locator('[data-plan-next]')).toHaveAttribute('data-plan-next', 'timed');
+  await expect(direct.locator('[data-plan-next]')).toContainText(`Next: 99 ${wall(now + 5 * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(direct.locator('[data-plan-next]')).toContainText(wall(now + 10 * 60_000));
   await expect(panel(page).locator('[data-plan-no-direct]')).toHaveCount(0);
+  await expect(panel(page).locator('[data-plan-change-first]')).toHaveCount(0);
   const folded = panel(page).locator('[data-plan-connections]');
   await expect(folded).toHaveAttribute('data-plan-connections', '1');
-  await expect(folded.locator('summary')).toHaveText('Journeys with one change (1)');
+  // The fold says when its soonest gets there: the 53 at +17 reaches Trafford Bar at +23, and a short walk on.
+  await expect(folded.locator('summary')).toHaveText(/^Journeys with one change \(1\) · soonest there \d\d:\d\d$/);
+  const soonest = (await folded.locator('summary').innerText()).slice(-5);
+  expect([wall(now + 23 * 60_000), wall(now + 24 * 60_000)]).toContain(soonest);
   await expect(folded.locator('.plan-option.connection')).toBeHidden();
   await folded.locator('summary').click();
   await expect(folded.locator('.plan-option.connection')).toBeVisible();
   await expect(folded.locator('[data-plan-next]')).toContainText(`Next: 256 ${wall(now + 4 * 60_000)}`);
 });
 
-test('a walk the router finds long breaks the connection by the timetable: said, with the next bus offered', async ({page}) => {
+test('a direct bus that serves both stops but leaves too late does not lead: the journey with one change does, and says why', async ({page}) => {
   test.setTimeout(120_000);
   const now = Date.now();
-  await serveWorld(page, {now, walk: {metres: 900, seconds: 720}});
+  // The 99's next is in an hour (there at +65); the 256 and the 53 get there at +23, sooner even with
+  // a change counted as ten minutes.
+  await serveWorld(page, {now, direct: [60, 90]});
   await planIt(page);
-  await panel(page).locator('[data-choose-connection]').click();
+  await expect(panel(page).locator('[data-plan-change-first]')).toContainText('A journey with one change gets there sooner than any direct bus.');
+  const options = panel(page).locator('.plan-options > .plan-option');
+  await expect(options.first()).toHaveAttribute('data-plan-connection', '256|53');
+  const fold = panel(page).locator('[data-plan-direct-fold]');
+  await expect(fold).toHaveAttribute('data-plan-direct-fold', '1');
+  await expect(fold.locator('summary')).toHaveText(`Direct buses (1) · soonest there ${wall(now + 65 * 60_000)}`);
+  await expect(fold.locator('.plan-option')).toBeHidden();
+  await fold.locator('summary').click();
+  await expect(fold.locator('[data-plan-option="99"] [data-plan-next]')).toContainText(`Next: 99 ${wall(now + 60 * 60_000)}`);
+});
+
+test('a long walk between the stops, checked before the list is shown, is in the times offered: nothing chosen has to change', async ({page}) => {
+  test.setTimeout(120_000);
+  const now = Date.now();
+  const walks = await serveWorld(page, {now, walk: {metres: 900, seconds: 720}});
+  await planIt(page);
+  const option = panel(page).locator('.plan-option.connection');
+  await expect(option.locator('[data-transfer-walk]')).toHaveAttribute('data-transfer-walk', 'checked');
+  await expect(option.locator('[data-transfer-walk]')).toContainText('(12 min, about 900 m, a checked route)');
+  // By hand: the 256 at +4 is at Thomas Street at +7:03; 12 min and 2 min to change make +21:03, so
+  // the 53 at +17 cannot be made and the +30 is the one, at Trafford Bar at +36.
+  await expect(option.locator('[data-plan-next]')).toContainText(`Next: 256 ${wall(now + 4 * 60_000)}`);
+  await expect(option.locator('[data-plan-next]')).toContainText(`at Trafford Bar ${wall(now + 36 * 60_000)}`);
+  await option.locator('[data-choose-connection]').click();
   await expect(card(page).locator('[data-transfer]')).toHaveAttribute('data-transfer', 'route');
   await expect(card(page).locator('[data-transfer]')).toContainText('12 min walk');
-  await expect(page.locator('[data-walk-note]')).toContainText(`The walk between the stops is 12 min by a checked route, so the ${wall(now + 17 * 60_000)} 53 cannot be reached by the timetable; the next is the ${wall(now + 30 * 60_000)}.`);
-  await expect(card(page).locator('.journey-row').first()).toContainText(`${wall(now + 30 * 60_000)}`);
-  await expect(card(page).locator('.journey-row').first()).toContainText('23 min to change');
-  // The note is about choosing the connection: on the first bus the card's times are the 53s from the
-  // change, and the note beside them would answer another question.
-  await card(page).locator('[data-stage-to="first"]').click();
-  await expect(card(page)).toHaveAttribute('data-stage', 'first');
+  const chosen = card(page).locator('[data-chosen]');
+  await expect(chosen).toContainText(`${wall(now + 4 * 60_000)}`);
+  await expect(chosen).toContainText(`${wall(now + 30 * 60_000)}`);
+  await expect(chosen).toContainText('23 min to change');
+  await expect(card(page).locator('[data-change]')).toHaveCount(0);
   await expect(page.locator('[data-walk-note]')).toHaveCount(0);
-  await card(page).locator('[data-stage-to="before"]').click();
-  await expect(page.locator('[data-walk-note]')).toBeVisible();
+  expect(walks.length, 'the card used the list’s answer').toBe(1);
   // Another option is one control away.
   await card(page).locator('[data-other-options]').click();
   await expect(panel(page).locator('.plan-option.connection')).toHaveCount(1);
+});
+
+test('a walk checked only after the choice, that breaks it, is checked before any time is confirmed, and the change is the passenger’s to accept', async ({page}) => {
+  test.setTimeout(150_000);
+  const now = Date.now();
+  // The router answers after 12 s: twice what the list waits (6 s), so the list is provisional and
+  // the choice is made before the answer.
+  const walks = await serveWorld(page, {now, walk: {metres: 900, seconds: 720}, walkDelayMs: 12_000, routerTimeoutSeconds: 30});
+  await planIt(page);
+  await expect(panel(page).locator('[data-plan-checking]')).toContainText('checking the walks between stops');
+  const option = panel(page).locator('.plan-option.connection');
+  await expect(option.locator('[data-transfer-walk]')).toHaveAttribute('data-transfer-walk', 'estimated', {timeout: 15_000});
+  await expect(option.locator('[data-transfer-walk]')).toContainText('not checked');
+  // By the estimate (113 m × 1.3 at 80 m/min, 110 s), the 256 at +4 makes the 53 at +17.
+  await expect(option.locator('[data-plan-next]')).toContainText(`at Trafford Bar ${wall(now + 23 * 60_000)}`);
+  await option.locator('[data-choose-connection]').click();
+  // The card confirms nothing until the walk it depends on is checked, and says that is what it waits for.
+  await expect(card(page).locator('[data-times-loading]')).toHaveAttribute('data-times-loading', 'walk');
+  await expect(card(page).locator('[data-times-loading]')).toContainText('Checking the walk between the stops before giving times');
+  await expect(card(page).locator('[data-chosen]')).toHaveCount(0);
+  // The router's answer: 12 min. The choice is not replaced; the change is said, with the offer.
+  const change = card(page).locator('[data-change]');
+  await expect(change).toHaveAttribute('data-change', 'missed', {timeout: 20_000});
+  await expect(change).toContainText(`Your 256 at ${wall(now + 4 * 60_000)} no longer makes the 53 at ${wall(now + 17 * 60_000)}.`);
+  await expect(change).toContainText('with the walk between the stops checked at 12 min and 2 min to change');
+  await expect(change.locator('[data-offer]')).toContainText(`It makes the 53 at ${wall(now + 30 * 60_000)} instead, at Trafford Bar ${wall(now + 36 * 60_000)}.`);
+  await expect(card(page).locator('[data-chosen]')).toHaveCount(0);
+  await expect(card(page).locator('.journey-row')).toHaveCount(0);
+  // Accepting it is the passenger's act: the offer becomes their connection, and the notice goes.
+  await change.locator('[data-accept-change]').click();
+  await expect(card(page).locator('[data-change]')).toHaveCount(0);
+  await expect(card(page).locator('[data-chosen]')).toContainText(wall(now + 30 * 60_000));
+  await expect(card(page).locator('[data-chosen]')).toContainText('23 min to change');
+  // It survives a reload, as the choice it now is.
+  await page.reload();
+  await waitForPaint(page);
+  await expect(card(page).locator('[data-chosen]')).toContainText(wall(now + 30 * 60_000), {timeout: 30_000});
+  await expect(card(page).locator('[data-change]')).toHaveCount(0);
+  expect(walks.length, 'the list and the card shared one request, and the reload one more').toBeLessThanOrEqual(2);
 });
 
 test('a timetable known to run ahead of its buses gives the journey without times, and says why', async ({page}) => {

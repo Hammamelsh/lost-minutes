@@ -4,7 +4,7 @@
 // shared; the return is recomputed; New journey clears it. The two place providers are mocked
 // here (postcodes.io, Photon); the stop catalogue is the real one. Chromium, both sizes.
 import {test, expect} from '@playwright/test';
-import {journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {departureBoard, journeyLive, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const M32 = {postcode: 'M32 8LZ', latitude: 53.443649, longitude: -2.307795, admin_district: 'Trafford', admin_ward: 'Longford'};
 const OLD_TRAFFORD = {features: [
@@ -24,9 +24,13 @@ const panel = page => page.locator('.plan-panel');
 const field = (page, which) => panel(page).locator(`[data-field="${which}"]`);
 const search = (page, label) => page.getByRole('combobox', {name: label});
 
+const wall = ms => new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false}).format(ms);
+
 async function open(page, opts) {
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
+  // Stretford Mall (Stop A)'s board: the 256 at +4, +14 and +26 minutes from the moment the check starts.
+  await serveDepartures(page, {board: departureBoard({nowMs: opts?.now ?? Date.now()})});
   await servePlaces(page, opts);
   await page.goto('/');
   await waitForPaint(page);
@@ -36,7 +40,8 @@ async function open(page, opts) {
 
 test('a fixed start and a destination give the direct bus with its legs; choosing it opens the boarding stop, filtered', async ({page}) => {
   test.setTimeout(150_000); // the phone profile runs the same journey slower
-  await open(page);
+  const now = Date.now();
+  await open(page, {now});
   // No location permission was given: planning works from a postcode.
   await field(page, 'from').locator('[data-plan-from]').click();
   await search(page, 'Starting point').fill('M32 8LZ');
@@ -53,10 +58,22 @@ test('a fixed start and a destination give the direct bus with its legs; choosin
   const option = panel(page).locator('.plan-option').first();
   await expect(option).toContainText('256');
   await expect(option).toContainText('towards Piccadilly Gardens');
-  await expect(option.locator('.plan-legs li').nth(0)).toContainText(/Walk about \d+0 m \(straight line\) to Stretford Mall \(Stop A\)/);
+  await expect(option.locator('.plan-legs li').nth(0)).toContainText(/Walk about \d+0 m \(straight line; about \d+ min on foot, estimated\) to Stretford Mall \(Stop A\)/);
   await expect(option.locator('.plan-legs li').nth(2)).toContainText('Get off at Sydney Street');
-  await expect(option).toContainText('Tracked: the nearest bus on this route is');
-  await expect(option).not.toContainText(/\d+ min\b/);
+  await expect(option).toContainText('Tracked: the nearest bus between these stops is');
+  // A tracked bus is still placed by its report, never given minutes to arrive.
+  await expect(option).toContainText('No arrival minutes: it is placed by its last report');
+  // The next bus is the timetable's, said to be, and one the passenger can walk to the stop for:
+  // worked out here from the walk the option states (straight line × 1.3 at 80 m a minute).
+  const walked = Number(/Walk about (\d+) m/.exec(await option.locator('.plan-legs li').nth(0).innerText())[1]);
+  const walkMinutes = walked * 1.3 / 80;
+  // The page timed it at some moment since the check began; the bus it can reach must not depend on which.
+  const reachableAt = elapsedMinutes => [4, 14, 26].find(m => m >= elapsedMinutes + (walkMinutes < 1 ? -1 : walkMinutes));
+  const reachable = reachableAt(0);
+  expect(reachableAt((Date.now() - now) / 60_000), 'the fixture sits on a boundary: move its departures').toBe(reachable);
+  await expect(option.locator('[data-plan-next]')).toHaveAttribute('data-plan-next', 'timed');
+  await expect(option.locator('[data-plan-next]')).toContainText(`Next: 256 ${wall(now + reachable * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(option.locator('[data-plan-next]')).toContainText('by the timetable, not live');
   await expect(panel(page).locator('[data-handoff="google"]')).toHaveAttribute('href', /travelmode=transit/);
   await expect(panel(page).locator('[data-handoff="bee"]')).toContainText('does not take the places from a link');
   expect(await page.evaluate(() => location.search)).toMatch(/to=53\.4488/);

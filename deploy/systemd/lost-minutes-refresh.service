@@ -12,6 +12,9 @@ EnvironmentFile=/etc/lost-minutes/collector.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 # The warehouse has one writer. The collector stops for the rebuild (a gap of a few minutes a
 # night, recorded as a run boundary) and is always started again, even if the rebuild fails.
+# Each attempt records itself for the Operations view (pipeline/jobs.py): its start here, its result
+# after the collector is started again. "-": a failure to record never fails the job.
+ExecStartPre=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs start refresh
 ExecStartPre=+/bin/systemctl stop lost-minutes-collector.service
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.patterns build
 # The stops' scheduled departure boards, from the catalogue just rebuilt: about 2,700 small files
@@ -24,6 +27,7 @@ ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
 # could notice. The evaluation then reads the copy and leaves collection alone.
 ExecStart=/bin/cp -f /srv/lost-minutes/app/data/warehouse/lost-minutes.duckdb /srv/lost-minutes/app/data/evaluation/snapshot.duckdb
 ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
+ExecStopPost=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs finish refresh
 TimeoutStartSec=30min
 # Measured peak 853 MB on 18 September 2026 (`/usr/bin/time -v`), in 3 min 05 s. This runs with the
 # collector stopped, so the two footprints never add up.

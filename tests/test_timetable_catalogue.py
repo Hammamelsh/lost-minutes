@@ -80,6 +80,26 @@ class SnapshotTests(unittest.TestCase):
             self.assertEqual([e['line'] for e in survey['entries']], ['15'])
             self.assertEqual([p[:8] for p in survey['snapshotsUnreadable']], ['cccccccc', 'dddddddd'])
 
+    def test_a_valid_zip_holding_a_fraction_of_its_dataset_does_not_replace_the_last_one(self):
+        # A zip is not a timetable because it opens: an export that lost most of its files looks,
+        # from here, exactly like a withdrawal, and must not quietly replace the last valid one.
+        today = date(2026, 9, 28)
+        later = today + timedelta(days=365)
+        with TemporaryDirectory() as directory:
+            full = [name('BNML', str(n), today, later, f'f{n}') for n in range(10)]
+            dataset(directory, 'a' * 8, full, mtime=1_000_000)
+            dataset(directory, 'b' * 8, full[:3], mtime=2_000_000)
+            snapshots = newest_snapshots(directory)
+            self.assertTrue(snapshots['datasets']['BNML'].name.startswith('a'), 'the full one is kept')
+            self.assertEqual(snapshots['shrunk'], [{'dataset': 'BNML', 'refused': 'b' * 8 + '.bin.gz', 'files': 3,
+                                                    'kept': 'a' * 8 + '.bin.gz', 'keptFiles': 10}])
+            self.assertEqual(len(survey_datasets(directory, today)['entries']), 10)
+            # Said to be real: the smaller one is taken.
+            self.assertTrue(newest_snapshots(directory, allow_shrink=True)['datasets']['BNML'].name.startswith('b'))
+            # A newer snapshot a little smaller than the last is an ordinary revision, and is taken.
+            dataset(directory, 'c' * 8, full[:7], mtime=3_000_000)
+            self.assertTrue(newest_snapshots(directory)['datasets']['BNML'].name.startswith('c'))
+
     def test_a_registration_starting_within_the_horizon_is_read_but_marked_not_in_force(self):
         today = date(2026, 9, 17)
         with TemporaryDirectory() as directory:

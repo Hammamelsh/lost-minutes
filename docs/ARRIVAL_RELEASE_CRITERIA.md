@@ -92,3 +92,29 @@ direction passed would be choosing the threshold to fit the result. So:
 
 Nothing else above is changed.
 
+
+## 28 September 2026: the first full scoring passes outbound 15, and the release waits for the owner
+
+The nightly evaluation had not completed since 21 September. It ran past its 20-minute limit on 22
+and 23 September (a weekday split that was quadratic in the scoring moments), and failed on
+24–28 September on the stored departures' new shape. Both are fixed. Scored here on the server's own
+copy of 27 September, with the frozen parameters, eight nights (20–27 September, 536 journeys,
+1,133,843 scoring moments, 1 min 14 s):
+
+| direction | nights | journeys | passages | median | p80 | criteria |
+|---|---|---|---|---|---|---|
+| inbound | 8 | 280 | 11,932 | 1.77 | 3.37 | not met |
+| outbound | 8 | 263 | 11,293 | 1.19 | 2.46 | **met** |
+| outbound, 21–27 September only | 7 | 253 | 10,891 | 1.20 | 2.48 | met |
+
+(Absolute minutes at 2–10 min ahead, pooled per day as `scripts/arrival-release-check.py` pools them.)
+
+The page has never shown an estimate, and the pass that repaired the evaluation was asked to add no
+estimator. So the release is **held for the owner**: the nightly unit now passes
+`--approval deploy/arrival-release-approval.json`, a direction that passes is written as *passed,
+awaiting approval*, and nothing is shown until the owner lists it in that file (or removes the flag,
+which restores the automatic release agreed on 20 September). For that decision:
+- the pooled nights include 20 September, a day the development evaluation also drew on (the same
+  journeys were captured on this machine and on the server); without it the verdict is the same;
+- the page's estimator (`lib/arrival.ts`) is a port of the evaluated one, tested on synthetic roads
+  (`tests/arrival.test.mjs`), and has not been compared with it on the same real moments.

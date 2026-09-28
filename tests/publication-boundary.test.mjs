@@ -41,3 +41,22 @@ test('a deploy never sends the tests, the probes or local evidence', () => {
  for (const path of ['/outputs/', '/data/', 'test-results/', 'playwright-report/', '/tests/'])
   assert.ok(exclude.includes(path), `deploy/rsync-exclude.txt leaves out ${path}`);
 });
+
+test('a deploy never replaces or deletes what the server writes itself', () => {
+ // Each of these is written on the server (the collector, the status job, the nightly rebuild, the
+ // arrival evaluation, the jobs' own record); the upload runs with --delete, so any left out of the
+ // exclude list is removed or overwritten by the next deploy (arrival-release.json, 21 September 2026).
+ const exclude = readFileSync('deploy/rsync-exclude.txt', 'utf8').split('\n').map(l => l.trim());
+ for (const path of ['public/data/live.json', 'public/data/config.json', 'public/data/operations.json',
+   'public/data/patterns.json', 'public/data/arrival-release.json', 'public/data/jobs.json',
+   'public/data/departures/', 'public/data/departures.json', 'public/data/departure-rules.json'])
+  assert.ok(exclude.includes(path), `deploy/rsync-exclude.txt would let a deploy replace or delete ${path}`);
+});
+
+test('a rollback leaves alone exactly what a deploy leaves alone', () => {
+ // The same list, read by both: a rollback that named only the collector's files would put back the
+ // nightly catalogue of the deploy's day and delete the jobs' record (28 September 2026).
+ const rollback = readFileSync('deploy/rollback.sh', 'utf8');
+ assert.match(rollback, /--exclude-from="\$APP\/deploy\/rsync-exclude\.txt"/);
+ assert.match(rollback, /--exclude '\/data\/'/);
+});

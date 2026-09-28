@@ -9,9 +9,10 @@ import StopSearch from '@/components/stop-search';
 import PlanPanel,{type PlanTo} from '@/components/plan-panel';
 import JourneyCard,{type JourneyStage,type TransferState} from '@/components/journey-card';
 import {readPlanLink,withPlan} from '@/lib/plan-link';
-import type {DirectOption} from '@/lib/plan';
-import {busOnJourney,busesOnLeg,connectionFromKey,connectionOptions,connectionSentence,familyQuality,legFamily,legService,lineShort,
- onwardFromChange,rankConnections,timeConnection,timetabledAtBoard,transferWalk,withoutUnreliable,
+import {directArrival,directOptions,rankDirect,timeDirect,type DirectOption,type DirectTiming} from '@/lib/plan';
+import {busOnJourney,busesOnLeg,chosenFrom,chosenStatus,departureId,connectionArrival,connectionFromKey,connectionOptions,connectionSentence,estimatedWalk,
+ familyQuality,legFamily,legService,lineShort,onwardFromChange,rankConnections,serviceDaysAt,timeConnection,timetabledAtBoard,transferWalk,
+ withoutUnreliable,type ChosenConnection,type TimedConnection,
  CONNECTION_RULES,stopName as journeyStopName,type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
 import {loadDepartureRules,loadStopDepartures,type StopDepartures} from '@/lib/departures';
 import type {OperatingRule} from '@/lib/service-days';
@@ -83,14 +84,50 @@ const NOT_COMING:Record<string,string>={
  maybe:'May call at your stop',unknown:'Not confirmed for your stop',
 };
 
-/** A listed journey with one change, timed as the list shows it: the timetables, a provisional walk
- *  (the straight line, lengthened; checked once the journey is chosen) and the usual allowance. */
+/** Walks between two stops already asked of the router in this visit, by stop pair: asked once
+ *  each (two public stop positions, nothing about the passenger), shared by the list and the card,
+ *  so choosing a journey whose walk the list checked never asks again. */
+const checkedTransfers=new Map<string,WalkingRoute>();
+const transferKey=(t:{from:{id:string};to:{id:string}})=>`${t.from.id}>${t.to.id}`;
+// A request still running is shared, not sent again (the card awaits the list's), and requests are
+// spaced a second apart: the router's own usage policy.
+const transfersAsked=new Map<string,Promise<WalkingRoute|WalkingProblem>>();
+let routerFreeAt=0;
+function checkTransfer(config:Parameters<typeof fetchWalkingRoute>[0],t:{from:Stop;to:Stop}):Promise<WalkingRoute|WalkingProblem>{
+ const key=transferKey(t);
+ const known=checkedTransfers.get(key);
+ if(known)return Promise.resolve(known);
+ const asked=transfersAsked.get(key);
+ if(asked)return asked;
+ const wait=Math.max(0,routerFreeAt-Date.now());
+ routerFreeAt=Date.now()+wait+1000;
+ const request=new Promise(resolve=>setTimeout(resolve,wait))
+  .then(()=>fetchWalkingRoute(config,{lat:t.from.lat,lon:t.from.lon},{id:t.to.id,lat:t.to.lat,lon:t.to.lon}))
+  .then(value=>{if(value.kind==='route')checkedTransfers.set(key,value);transfersAsked.delete(key);return value});
+ transfersAsked.set(key,request);
+ return request;
+}
+/** How long the list waits for the walks between stops before showing them unchecked, said so. */
+const LIST_WALK_WAIT_MS=6000;
+const checkedWalkOf=(option:ConnectionOption)=>option.transfer.sameStop?null:checkedTransfers.get(transferKey(option.transfer))??null;
+
+/** A listed journey with one change, timed as the list shows it: the timetables, the walk between
+ *  the stops as checked (else the straight line, lengthened, and said to be), the usual allowance,
+ *  and the walk to the first stop estimated from the start. */
 function timeListed(option:ConnectionOption,boards:Map<string,StopDepartures|null>,rules:OperatingRule[]|null,nowMs:number,
                     anchor:Parameters<typeof familyQuality>[1]):ConnectionTiming{
  return timeConnection(option,{boards:{first:boards.get(option.first.board.id)??null,second:boards.get(option.second.board.id)??null},rules,nowMs,
-  walk:transferWalk(option.transfer,null),allowanceSeconds:CONNECTION_RULES.allowanceSeconds,
+  walk:transferWalk(option.transfer,checkedWalkOf(option)),allowanceSeconds:CONNECTION_RULES.allowanceSeconds,
   quality:{first:familyQuality(option.first,anchor),second:familyQuality(option.second,anchor)}});
 }
+/** A listed direct bus, timed the same way from its boarding stop's board. */
+function timeDirectListed(option:DirectOption,boards:Map<string,StopDepartures|null>,rules:OperatingRule[]|null,nowMs:number,
+                          anchor:Parameters<typeof familyQuality>[1]):DirectTiming{
+ return timeDirect(option,{board:boards.get(option.board.id)??null,rules,nowMs,quality:familyQuality(option.leg,anchor)});
+}
+/** A change counted as this much time when direct buses and journeys with one change are compared:
+ *  a direct bus arriving up to ten minutes later still leads. */
+const CHANGE_WORTH_MS=10*60_000;
 
 // Why the detailed map gave way to the simple one, in plain words.
 const FALLBACK:Record<string,string>={
@@ -300,7 +337,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const [journeyFocus,setJourneyFocus]=useState<'whole'|'first'|'second'>('whole');
  const [moreTime,setMoreTime]=useState(false);
  // A chosen journey's key waiting for the catalogue, from a link or this tab's store.
- const [pendingPlan,setPendingPlan]=useState<{key:string;stage:JourneyStage;moreTime:boolean}|null>(null);
+ const [pendingPlan,setPendingPlan]=useState<{key:string;stage:JourneyStage;moreTime:boolean;chosen?:ChosenConnection|null}|null>(null);
+ // The connection the passenger chose from the list: that first bus and the second bus it was shown to
+ // make. Kept until they accept another; a check that no longer supports it is shown as a change to
+ // accept, never put in its place (lib/connections.ts, chosenStatus).
+ const [chosenConnection,setChosenConnection]=useState<ChosenConnection|null>(null);
  const [legBoards,setLegBoards]=useState<{key:string;first:StopDepartures|null;second:StopDepartures|null;rules:OperatingRule[]|null}|null>(null);
  const [legTracks,setLegTracks]=useState<{key:string;first:Track|null;second:Track|null}|null>(null);
  const [transferResult,setTransferResult]=useState<{key:string;value:WalkingRoute|WalkingProblem}|null>(null);
@@ -309,10 +350,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // starting point in a link is a fixed place someone chose, and is taken up as one, once.
  useEffect(()=>{
   const linked=readPlanLink(window.location.search);
-  let kept:PlanTo|null=null,keptPlan:{key:string;stage:JourneyStage;moreTime:boolean}|null=null;
+  let kept:PlanTo|null=null,keptPlan:{key:string;stage:JourneyStage;moreTime:boolean;chosen?:ChosenConnection|null}|null=null;
   try{const raw=sessionStorage.getItem(DESTINATION_KEY);if(raw){const t=JSON.parse(raw);if(t&&Number.isFinite(t.lat)&&Number.isFinite(t.lon)&&t.label)kept=t}}catch{/* nothing kept */}
   try{const raw=sessionStorage.getItem(JOURNEY_PLAN_KEY);if(raw){const t=JSON.parse(raw);
-   if(t&&typeof t.key==='string'&&['before','first','second'].includes(t.stage))keptPlan={key:t.key,stage:t.stage,moreTime:Boolean(t.moreTime)}}}catch{/* nothing kept */}
+   if(t&&typeof t.key==='string'&&['before','first','second'].includes(t.stage))keptPlan={key:t.key,stage:t.stage,moreTime:Boolean(t.moreTime),
+    chosen:t.chosen&&typeof t.chosen.first==='string'&&Number.isFinite(t.chosen.firstDepartMs)?t.chosen:null}}}catch{/* nothing kept */}
   const timer=setTimeout(()=>{
    if(linked.to)setDestinationState(linked.to);else if(kept)setDestinationState(kept);
    if(linked.from&&onChooseOrigin&&!origin)onChooseOrigin({lat:linked.from.lat,lon:linked.from.lon},linked.from.label);
@@ -336,38 +378,76 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const planFrom=useMemo(()=>origin?origin.kind==='device'?{kind:'device' as const,lat:origin.lat,lon:origin.lon,accuracyMetres:origin.accuracyMetres}:{kind:'chosen' as const,lat:origin.lat,lon:origin.lon,label:origin.label}:null,[origin]);
  // Journeys with one change between the places, from the catalogue: found here so that the planner
  // lists them and the chosen one can be shown, timed and followed.
- const connections=useMemo(()=>planFrom&&destination?connectionOptions(planFrom,destination,patterns,stops,day)
-  .map(o=>withoutUnreliable(o,scheduleAnchor)):[],[planFrom,destination,patterns,stops,day,scheduleAnchor]);
- // Each candidate timed from its two boarding points' boards, read once when the candidates change,
- // and the list put in order by the timetable then: soonest at the destination first. The order holds
- // while the list is open, so nothing moves under a finger; the times on it follow the clock.
- const candidateKey=connections.map(o=>o.key).join(',');
+ // The service days a search now can meet (a journey timed past midnight belongs to the day before;
+ // late in the evening the next buses are the next day's), judged on the hour.
+ const hourTick=Math.floor(nowMs/3600_000);
+ const searchDays=useMemo(()=>hourTick>0?serviceDaysAt(hourTick*3600_000):[day],[hourTick,day]);
+ const connections=useMemo(()=>planFrom&&destination?connectionOptions(planFrom,destination,patterns,stops,searchDays)
+  .map(o=>withoutUnreliable(o,scheduleAnchor)):[],[planFrom,destination,patterns,stops,searchDays,scheduleAnchor]);
+ // Direct buses, found here beside the journeys with one change so both are timed from the same
+ // boards on the same clock: a bus that serves both stops but does not leave in time is not a better
+ // answer than one that does (28 September 2026: a school 734 above the 23).
+ const directCandidates=useMemo(()=>planFrom&&destination?directOptions(planFrom,destination,patterns,stops,searchDays,buses)
+  .map(o=>({...o,leg:{...o.leg,also:o.leg.also.filter(l=>familyQuality({...l,also:[]},scheduleAnchor).kind!=='unreliable')}})):[],
+  [planFrom,destination,patterns,stops,searchDays,buses,scheduleAnchor]);
+ // Every candidate timed from its boarding points' boards, read once when the candidates change; the
+ // walks between the stops of the journeys with one change checked before any is chosen, where the
+ // router allows, one request a second; then the list put in order by the timetable: soonest at the
+ // destination first. The order holds while the list is open, so nothing moves under a finger; the
+ // times on it follow the clock.
+ const candidateKey=[...directCandidates.map(o=>o.key),...connections.map(o=>o.key)].join(',');
  const anchorSettled=scheduleAnchor!==undefined;
- const [planTimes,setPlanTimes]=useState<{key:string;order:string[];at:number;boards:Map<string,StopDepartures|null>;rules:OperatingRule[]|null}|null>(null);
+ const routerOff=walking.provider==='none'||!walking.baseUrl;
+ const [planTimes,setPlanTimes]=useState<{key:string;at:number;boards:Map<string,StopDepartures|null>;rules:OperatingRule[]|null;
+  directOrder:string[];connectionOrder:string[];lead:'direct'|'connections'}|null>(null);
  useEffect(()=>{
-  if(!connections.length||!anchorSettled)return;
+  if(!candidateKey||!anchorSettled)return;
   let current=true;
-  const key=candidateKey,candidates=connections;
-  const ids=[...new Set(candidates.flatMap(o=>[o.first.board.id,o.second.board.id]))];
-  Promise.all([Promise.all(ids.map(id=>loadStopDepartures(id).then(board=>[id,board] as const))),loadDepartureRules()]).then(([pairs,rules])=>{
+  const key=candidateKey,candidates=connections,directs=directCandidates;
+  const ids=[...new Set([...directs.map(o=>o.board.id),...candidates.flatMap(o=>[o.first.board.id,o.second.board.id])])];
+  (async()=>{
+   const [pairs,rules]=await Promise.all([Promise.all(ids.map(id=>loadStopDepartures(id).then(board=>[id,board] as const))),loadDepartureRules()]);
    if(!current)return;
+   const boards=new Map(pairs);
    // On the page's own quarter-minute clock, as the times shown are: a bus leaving in the moment
    // between two clocks was ranked gone and shown still to come (served, 28 September 2026, 08:27).
-   const boards=new Map(pairs),at=Math.floor(Date.now()/15_000)*15_000;
-   setPlanTimes({key,boards,rules,at,order:rankConnections(candidates,o=>timeListed(o,boards,rules,at,scheduleAnchor)).map(o=>o.key)});
-  });
+   const at=Math.floor(Date.now()/15_000)*15_000;
+   if(!routerOff&&candidates.length){
+    const provisional=rankConnections(candidates,o=>timeListed(o,boards,rules,at,scheduleAnchor));
+    const pending=[...new Map(provisional.filter(o=>!o.transfer.sameStop&&!checkedTransfers.has(transferKey(o.transfer)))
+     .map(o=>[transferKey(o.transfer),o.transfer] as const)).values()];
+    // All asked (spaced a second apart), and waited for together up to a limit: a slow router
+    // leaves the rest unchecked and said so, and a choice made meanwhile awaits the same request.
+    const deadline=Date.now()+LIST_WALK_WAIT_MS;
+    await Promise.race([Promise.all(pending.map(t=>checkTransfer(walking,t))),
+     new Promise(resolve=>setTimeout(resolve,Math.max(0,deadline-Date.now())))]);
+    if(!current)return;
+   }
+   const connectionOrder=rankConnections(candidates,o=>timeListed(o,boards,rules,at,scheduleAnchor));
+   const directOrder=rankDirect(directs,o=>timeDirectListed(o,boards,rules,at,scheduleAnchor));
+   // Which kind leads: the one that gets there sooner, a change counted as ten minutes. The other
+   // folds away under one line that says when its soonest gets there.
+   const soonest=(values:({arrive:number}|null)[])=>values.reduce<number|null>((best,v)=>v&&(best===null||v.arrive<best)?v.arrive:best,null);
+   const bestDirect=soonest(directOrder.map(o=>directArrival(timeDirectListed(o,boards,rules,at,scheduleAnchor))));
+   const bestChange=soonest(connectionOrder.map(o=>connectionArrival(o,timeListed(o,boards,rules,at,scheduleAnchor))));
+   const lead=bestDirect===null?(directOrder.length&&bestChange===null?'direct':'connections')
+    :bestChange!==null&&bestChange+CHANGE_WORTH_MS<bestDirect?'connections':'direct';
+   setPlanTimes({key,at,boards,rules,lead,directOrder:directOrder.map(o=>o.key),connectionOrder:connectionOrder.map(o=>o.key)});
+  })().catch(()=>{/* a board or the rules that cannot be read leave the list saying so */});
   return()=>{current=false};
   // eslint-disable-next-line react-hooks/exhaustive-deps
- },[candidateKey,anchorSettled]);
+ },[candidateKey,anchorSettled,routerOff]);
  const planReady=planTimes!==null&&planTimes.key===candidateKey;
- const listedConnections=useMemo(()=>planReady?planTimes!.order.map(k=>connections.find(o=>o.key===k)).filter((o):o is ConnectionOption=>Boolean(o))
+ const listedConnections=useMemo(()=>planReady?planTimes!.connectionOrder.map(k=>connections.find(o=>o.key===k)).filter((o):o is ConnectionOption=>Boolean(o))
   :connections.slice(0,CONNECTION_RULES.options),[planReady,planTimes,connections]);
+ const listedDirect=useMemo(()=>planReady?planTimes!.directOrder.map(k=>directCandidates.find(o=>o.key===k)).filter((o):o is DirectOption=>Boolean(o))
+  :directCandidates.slice(0,5),[planReady,planTimes,directCandidates]);
  function clearJourneyPlan(){
-  setChosenJourney(null);setStage('before');setJourneyFocus('whole');setMoreTime(false);setPendingPlan(null);
+  setChosenJourney(null);setStage('before');setJourneyFocus('whole');setMoreTime(false);setPendingPlan(null);setChosenConnection(null);
   try{sessionStorage.removeItem(JOURNEY_PLAN_KEY)}catch{}
  }
- function rememberJourneyPlan(key:string,at:JourneyStage,more:boolean){
-  try{sessionStorage.setItem(JOURNEY_PLAN_KEY,JSON.stringify({key,stage:at,moreTime:more}))}catch{}
+ function rememberJourneyPlan(key:string,at:JourneyStage,more:boolean,chosen:ChosenConnection|null=chosenConnection){
+  try{sessionStorage.setItem(JOURNEY_PLAN_KEY,JSON.stringify({key,stage:at,moreTime:more,chosen}))}catch{}
  }
  // The stop the passenger needs next is the page's stop: where the first bus is boarded, then where
  // it is left (the change), then where the second bus is left. The board, the walk guide and the
@@ -382,9 +462,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   setView(v=>v==='ride'?v:'2d');setFollow(false);setBusOpen(false);setPlanOpen(false);setSheet('half');
   setJourneyFocus(at==='second'?'second':at==='first'?'first':'whole');setFitRequest(n=>n+1);
  }
- function chooseConnection(option:ConnectionOption){
-  setChosenJourney(option);setChosenPlan(option.key);setStage('before');setMoreTime(false);
-  rememberJourneyPlan(option.key,'before',false);
+ function chooseConnection(option:ConnectionOption,shown?:ConnectionTiming|null){
+  // The connection the list showed for it is the one chosen: that first bus, that second bus.
+  const row=shown&&shown.kind==='timed'?shown.rows.find(r=>r.second)??null:null;
+  const chosen=row?chosenFrom(row):null;
+  setChosenJourney(option);setChosenPlan(option.key);setStage('before');setMoreTime(false);setChosenConnection(chosen);
+  rememberJourneyPlan(option.key,'before',false,chosen);
   goToLeg(option,'before');
   setTimeout(()=>scrollTo('.journey-card'),0);
  }
@@ -396,7 +479,21 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  }
  function setMoreTimeKept(value:boolean){
   setMoreTime(value);
-  if(chosenJourney)rememberJourneyPlan(chosenJourney.key,stage,value);
+  // Asked for by the passenger: the connection is chosen again at once, the soonest that the new
+  // allowance allows, and said as the one they are on.
+  let chosen=chosenConnection;
+  if(chosenJourney&&journeyQuality&&legBoards&&legBoards.key===chosenJourney.key&&transfer&&transfer.key===chosenJourney.key){
+   const again=timingFor(chosenJourney,value);
+   const row=again&&again.kind==='timed'?again.rows.find(r=>r.second)??null:null;
+   if(row)chosen=chosenFrom(row);
+  }
+  setChosenConnection(chosen);
+  if(chosenJourney)rememberJourneyPlan(chosenJourney.key,stage,value,chosen);
+ }
+ function acceptConnection(row:TimedConnection){
+  const chosen=chosenFrom(row);
+  setChosenConnection(chosen);
+  if(chosenJourney)rememberJourneyPlan(chosenJourney.key,stage,moreTime,chosen);
  }
  // A chosen journey from a link or this tab, once the catalogue is here: rebuilt from its key and
  // checked against today, or said to be no longer available.
@@ -407,11 +504,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(!pendingPlan||!patterns||!stops.length||!clockRunning)return;
   // Off the render path, as the destination's restore is.
   const timer=setTimeout(()=>{
-   const option=connectionFromKey(pendingPlan.key,patternsById,stopById,day);
+   const option=connectionFromKey(pendingPlan.key,patternsById,stopById,searchDays);
    setPendingPlan(null);
    if(!option){setChangeNote('The journey with a change you had chosen is not in today’s timetable any more, so it was let go.');clearJourneyPlan();return}
    setChosenJourney(option);setChosenPlan(option.key);setStage(pendingPlan.stage);setMoreTime(pendingPlan.moreTime);
-   rememberJourneyPlan(option.key,pendingPlan.stage,pendingPlan.moreTime);
+   setChosenConnection(pendingPlan.chosen??null);
+   rememberJourneyPlan(option.key,pendingPlan.stage,pendingPlan.moreTime,pendingPlan.chosen??null);
    // The tab's own stop is restored by the page; a link's is not, so the leg's stop is opened.
    if(!stop)goToLeg(option,pendingPlan.stage);
    else setJourneyFocus(pendingPlan.stage==='second'?'second':pendingPlan.stage==='first'?'first':'whole');
@@ -439,11 +537,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(!chosenJourney||chosenJourney.transfer.sameStop||transferOff)return;
   const key=chosenJourney.key,t=chosenJourney.transfer;
   let current=true;
-  const controller=new AbortController();
-  fetchWalkingRoute(walking,{lat:t.from.lat,lon:t.from.lon},{id:t.to.id,lat:t.to.lat,lon:t.to.lon},{signal:controller.signal}).then(value=>{
-   if(current)setTransferResult({key,value});
-  });
-  return()=>{current=false;controller.abort()};
+  // Checked by the list before the journey was chosen, or being checked: not asked again.
+  checkTransfer(walking,t).then(value=>{if(current)setTransferResult({key,value})});
+  return()=>{current=false};
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[journeyKey,walking,transferOff]);
  // The walk as it stands: the same stop; the router off; checking; or its answer for this journey.
@@ -465,14 +561,34 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // The listed journeys' times on the page's clock, once their boards are in; null while they are read.
  const connectionTimes=useMemo(()=>planReady?new Map(listedConnections.map(o=>[o.key,timeListed(o,planTimes!.boards,planTimes!.rules,Math.max(timingTick*15_000,planTimes!.at),scheduleAnchor)] as const)):null,
   [planReady,planTimes,listedConnections,timingTick,scheduleAnchor]);
- const journeyTiming=useMemo<ConnectionTiming|{kind:'loading'}|null>(()=>{
-  if(!chosenJourney||!journeyQuality)return null;
-  if(!legBoards||legBoards.key!==chosenJourney.key||!transfer||transfer.key!==chosenJourney.key||transfer.state.status==='checking')return {kind:'loading'};
+ const directTimes=useMemo(()=>planReady?new Map(listedDirect.map(o=>[o.key,timeDirectListed(o,planTimes!.boards,planTimes!.rules,Math.max(timingTick*15_000,planTimes!.at),scheduleAnchor)] as const)):null,
+  [planReady,planTimes,listedDirect,timingTick,scheduleAnchor]);
+ // The walk to the first stop: the walk guide's own checked route when the passenger asked for one to
+ // that stop, else the straight line from the start, estimated; with no start known, none counted.
+ const accessWalk=useMemo(()=>{
+  if(!chosenJourney)return undefined;
+  if(walkRoute&&walkRoute.stopId===chosenJourney.first.board.id)return {basis:'route' as const,metres:walkRoute.metres,seconds:walkRoute.seconds};
+  return planFrom?estimatedWalk(straightLineMetres(planFrom,chosenJourney.first.board)):undefined;
+ },[chosenJourney,walkRoute,planFrom]);
+ function timingFor(journey:ConnectionOption,more:boolean):ConnectionTiming|null{
+  if(!journeyQuality||!legBoards||!transfer)return null;
   const route=transfer.state.status==='route'?transfer.state.route:null;
-  return timeConnection(chosenJourney,{boards:{first:legBoards.first,second:legBoards.second},rules:legBoards.rules,nowMs:timingTick*15_000,
-   walk:transferWalk(chosenJourney.transfer,route),allowanceSeconds:CONNECTION_RULES.allowanceSeconds+(moreTime?CONNECTION_RULES.moreTimeSeconds:0),
-   quality:journeyQuality});
- },[chosenJourney,journeyQuality,legBoards,transfer,timingTick,moreTime]);
+  return timeConnection(journey,{boards:{first:legBoards.first,second:legBoards.second},rules:legBoards.rules,nowMs:timingTick*15_000,
+   walk:transferWalk(journey.transfer,route),allowanceSeconds:CONNECTION_RULES.allowanceSeconds+(more?CONNECTION_RULES.moreTimeSeconds:0),
+   quality:journeyQuality,access:accessWalk});
+ }
+ // Times wait for the walk between the stops to be checked (as long as the router's own time limit),
+ // so that a connection is confirmed once, on the walk as it is, not shown and then taken back.
+ const journeyTiming=useMemo<ConnectionTiming|{kind:'loading';walk?:boolean}|null>(()=>{
+  if(!chosenJourney||!journeyQuality)return null;
+  if(!legBoards||legBoards.key!==chosenJourney.key||!transfer||transfer.key!==chosenJourney.key)return {kind:'loading'};
+  if(transfer.state.status==='checking')return {kind:'loading',walk:true};
+  return timingFor(chosenJourney,moreTime);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[chosenJourney,journeyQuality,legBoards,transfer,timingTick,moreTime,accessWalk]);
+ // Whether the chosen connection still holds, before the first bus: held, or a change to accept.
+ const connectionChoice=useMemo(()=>stage==='before'&&journeyTiming?chosenStatus(journeyTiming,chosenConnection):{kind:'none' as const},
+  [stage,journeyTiming,chosenConnection]);
  // What checking the walk changed: the second bus the straight line allowed against the one the
  // checked route allows, for the next first bus. Said in the card while it is so, so a tighter change
  // is never a surprise.
@@ -527,8 +643,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // The buses on either leg, drawn a size stronger with the stop's own; and the one the current leg
  // could be ridden along with: the bus tied to the next timetabled journey, else the nearest coming.
  const legBuses=useMemo(()=>chosenJourney?{first:busesOnLeg(chosenJourney.first,buses),second:busesOnLeg(chosenJourney.second,buses)}:null,[chosenJourney,buses]);
- const nextRow=journeyTiming&&journeyTiming.kind==='timed'?journeyTiming.rows[0]??null:null;
- const boundFirst=nextRow?busOnJourney(nextRow.first.departure,buses):null;
+ // The connection the page follows: the chosen one while it holds; while a change waits for the
+ // passenger, only the first bus they chose, where it can still be caught, and nothing of the offer;
+ // with none chosen, the next by the timetable.
+ const nextRow=connectionChoice.kind==='held'?connectionChoice.row:connectionChoice.kind==='changed'?null
+  :journeyTiming&&journeyTiming.kind==='timed'?journeyTiming.rows[0]??null:null;
+ const keptFirst=connectionChoice.kind==='changed'&&connectionChoice.why==='missed'&&journeyTiming?.kind==='timed'&&chosenConnection
+  ?journeyTiming.all.find(r=>departureId(r.first.departure)===chosenConnection.first)?.first??null:null;
+ const boundFirst=nextRow?busOnJourney(nextRow.first.departure,buses):keptFirst?busOnJourney(keptFirst.departure,buses):null;
  const boundSecond=nextRow?.second?busOnJourney(nextRow.second.departure,buses):null;
  // A leg's tracked bus to show or ride: before the passenger has boarded that leg, the one coming to
  // its stop (a bus already past it cannot be caught); once on it, the one already on its way.
@@ -1266,10 +1388,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     onMoreTime={setMoreTimeKept} onEnd={newJourney} onOtherOptions={()=>{setPlanOpen(true);sheetTo('full')}}
     rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}
     roads={journeyOverlay?{first:journeyOverlay.legs[0].onRoad,second:journeyOverlay.legs[1].onRoad}:undefined}
-    onward={onwardTiming} trackedTime={trackedTime}/>}
+    onward={onwardTiming} trackedTime={trackedTime} chosen={chosenConnection} choice={connectionChoice} onAccept={acceptConnection}/>}
   {/* What the checked walk changed is about choosing the connection: said before the first bus, not
       beside the onward times once on it, which answer another question. */}
-  {chosenJourney&&walkNote&&stage==='before'&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
+  {/* With a connection chosen, the card itself says what the checked walk changed and offers what
+      works; the note is for a journey opened from a link, where nothing was chosen. */}
+  {chosenJourney&&walkNote&&stage==='before'&&!chosenConnection&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
   {/* Where am I, where is my stop, and how do I walk there? The stop's name has the whole width;
       its actions sit on their own row beneath it. */}
   {showStopBlock&&(stop
@@ -1624,12 +1748,14 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   {/* Planning: a start (this device or a fixed place, which is the same origin the walk uses), a
       destination, and the direct buses the timetable supports between them. */}
   {stops.length>0&&mode!=='archive'&&(panelMode==='plan'||(!chosenJourney&&(inStop||panelMode==='home')&&(chosenPlan||destination)))
-   &&<PlanPanel stops={stops} patterns={patterns} day={day} buses={buses}
+   &&<PlanPanel stops={stops} day={day}
     from={planFrom}
     to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
     onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
     link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}
-    connections={listedConnections} connectionTimes={connectionTimes} onChooseConnection={chooseConnection}/>}
+    direct={listedDirect} directTimes={directTimes} lead={planTimes?.lead??'direct'} checking={Boolean(candidateKey)&&!planReady}
+    connections={listedConnections} connectionTimes={connectionTimes}
+    onChooseConnection={o=>chooseConnection(o,connectionTimes?.get(o.key)??null)}/>}
   {panelMode==='home'&&(buses.length>0||choice)&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">{choice?`Route ${routeNumber(route)}`:'Or follow a route'}<small>{choice?'directions, stops and buses':'without choosing a stop'}</small>
     {choice&&<button className="text-action filter-clear" onClick={()=>{setChoice(null);setDirKey(null)}} data-clear-route>Clear route</button>}</h3>

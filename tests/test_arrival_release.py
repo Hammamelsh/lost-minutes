@@ -16,12 +16,16 @@ def entry(day, journeys, passages, errs, scored_at='2026-09-21T04:10:00+01:00'):
 
 
 class ReleaseCheckTests(unittest.TestCase):
-    def run_check(self, entries):
+    def run_check(self, entries, approval=None):
         with tempfile.TemporaryDirectory() as tmp:
             nightly = Path(tmp) / 'nightly.jsonl'
             nightly.write_text(''.join(json.dumps(e) + '\n' for e in entries))
             out = Path(tmp) / 'release.json'
-            subprocess.run([sys.executable, str(ROOT / 'scripts/arrival-release-check.py'), '--nightly', str(nightly), '--out', str(out)],
+            extra = []
+            if approval is not None:
+                (Path(tmp) / 'approval.json').write_text(json.dumps(approval))
+                extra = ['--approval', str(Path(tmp) / 'approval.json')]
+            subprocess.run([sys.executable, str(ROOT / 'scripts/arrival-release-check.py'), '--nightly', str(nightly), '--out', str(out), *extra],
                            check=True, capture_output=True)
             return json.loads(out.read_text())
 
@@ -54,6 +58,28 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertTrue(v['directions']['outbound']['released'])
         self.assertEqual(v['released'], ['outbound'])
         self.assertFalse(v['directions']['inbound']['released'], 'no inbound evidence, no inbound release')
+
+
+    def test_with_an_approval_file_a_passing_direction_waits_for_the_owner(self):
+        days = [entry(f'2026-09-{21 + i}', 6, 40, [1.0] * 40) for i in range(4)]
+        held = self.run_check(days, approval={'approved': []})
+        self.assertTrue(held['directions']['outbound']['passed'])
+        self.assertFalse(held['directions']['outbound']['released'], 'passed is not shown until approved')
+        self.assertEqual(held['released'], [])
+        self.assertEqual(held['awaitingApproval'], ['outbound'])
+        agreed = self.run_check(days, approval={'approved': ['outbound']})
+        self.assertEqual(agreed['released'], ['outbound'])
+        self.assertEqual(agreed['awaitingApproval'], [])
+        # Approval releases nothing that has not passed.
+        early = self.run_check(days[:1], approval={'approved': ['outbound', 'inbound']})
+        self.assertEqual(early['released'], [])
+
+    def test_the_shipped_approval_file_reads(self):
+        approval = json.loads((ROOT / 'deploy/arrival-release-approval.json').read_text())
+        self.assertIsInstance(approval['approved'], list)
+        self.assertTrue(set(approval['approved']) <= {'inbound', 'outbound'})
+        unit = (ROOT / 'deploy/systemd/lost-minutes-arrival-eval.service').read_text()
+        self.assertIn('--approval deploy/arrival-release-approval.json', unit)
 
 
 if __name__ == '__main__':

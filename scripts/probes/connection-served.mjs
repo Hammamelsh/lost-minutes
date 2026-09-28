@@ -3,6 +3,8 @@
 // Real data, read-only, phone emulation. Frames and a record go to outputs/probes/connection-served/.
 //
 //   node scripts/probes/connection-served.mjs [--base https://lost-minutes.duckdns.org/] [--from "hillingdon road"] [--to mediacityuk] [--label name]
+//     [--direct] [--desktop]
+// --direct chooses the first direct bus instead and stops there; --desktop uses a 1280 × 900 window.
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {chromium} from '@playwright/test';
@@ -11,13 +13,14 @@ import {launchOptions} from '../../tests/browser/browser-env.mjs';
 const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); return i > 0 ? process.argv[i + 1] : fallback; };
 const BASE = arg('base', 'https://lost-minutes.duckdns.org/');
 const FROM = arg('from', 'hillingdon road'), TO = arg('to', 'mediacityuk');
+const DIRECT = process.argv.includes('--direct'), DESKTOP = process.argv.includes('--desktop');
 const OUT = join('outputs', 'probes', 'connection-served', arg('label', new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')));
 mkdirSync(OUT, {recursive: true});
 const record = {base: BASE, from: FROM, to: TO, at: new Date().toISOString(), steps: []};
 const note = (what, extra = {}) => { record.steps.push({what, at: new Date().toISOString(), ...extra}); console.log(what, JSON.stringify(extra).slice(0, 400)); };
 
 const browser = await chromium.launch(launchOptions());
-const ctx = await browser.newContext({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
+const ctx = await browser.newContext({...(DESKTOP ? {viewport: {width: 1280, height: 900}} : {viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true, deviceScaleFactor: 2}),
   serviceWorkers: 'block', timezoneId: 'Europe/London', locale: 'en-GB'});
 const page = await ctx.newPage();
 const errors = [];
@@ -37,15 +40,39 @@ await page.getByRole('combobox', {name: 'Starting point'}).fill(FROM);
 await pick(FROM);
 await page.getByRole('combobox', {name: 'Destination'}).fill(TO);
 await pick(TO);
-await page.locator('.plan-option').first().waitFor({timeout: 20_000}).catch(() => {});
+// The list waits a few seconds for the walks between stops; how long it said it was checking is recorded.
+const asked = Date.now();
+const checking = await page.locator('[data-plan-checking]').first().waitFor({timeout: 5_000}).then(() => true).catch(() => false);
+await page.locator('.plan-option').first().waitFor({timeout: 25_000}).catch(() => {});
+note('list shown', {saidChecking: checking, afterMs: Date.now() - asked});
 await page.waitForTimeout(800);
 await shot('1-options');
 const options = await page.locator('.plan-option').allInnerTexts();
 note('options', {direct: await page.locator('.plan-option:not(.connection)').count(), connections: await page.locator('.plan-option.connection').count(),
-  folded: await page.locator('[data-plan-connections]').count(),
+  lead: await page.locator('[data-plan-change-first]').count() ? 'connections' : 'direct',
+  foldedConnections: await page.locator('[data-plan-connections]').count(), foldedDirect: await page.locator('[data-plan-direct-fold]').count(),
+  folds: (await page.locator('.plan-connections > summary').allInnerTexts()).map(t => t.replace(/\s+/g, ' ')),
   next: (await page.locator('[data-plan-next]').allInnerTexts()).map(t => t.replace(/\s+/g, ' ')),
+  transferWalks: await page.locator('[data-transfer-walk]').evaluateAll(list => list.map(e => `${e.dataset.transferWalk}: ${e.textContent.trim()}`)),
+  tight: await page.locator('.plan-panel [data-tight]').count(),
   first: options[0]?.replace(/\s+/g, ' ').slice(0, 300)});
+if (DIRECT) {
+  const open = page.locator('[data-plan-direct-fold] > summary');
+  if (await open.count()) await open.click();
+  const choose = page.locator('.plan-option:not(.connection) [data-choose-plan]').first();
+  if (!(await choose.count())) { note('no direct bus offered'); await browser.close(); process.exit(0); }
+  await choose.click();
+  await page.waitForTimeout(2500);
+  await shot('2-direct-chosen');
+  note('direct chosen', {stop: await text('.your-stop-copy strong'), summary: await text('[data-plan-summary]'), filter: await text('.service-chip.on')});
+  note('page errors', {errors});
+  await browser.close();
+  writeFileSync(join(OUT, 'record.json'), JSON.stringify(record, null, 1));
+  console.log(`written ${OUT}`);
+  process.exit(0);
+}
 if (!(await page.locator('[data-choose-connection]').count())) { note('no connection offered'); await browser.close(); process.exit(0); }
+if (await page.locator('[data-plan-connections] > summary').count()) await page.locator('[data-plan-connections] > summary').click();
 await page.locator('[data-choose-connection]').first().click();
 await page.locator('.journey-card').waitFor();
 // Let the boards, the roads and the walk arrive, and a couple of publications land.
@@ -55,6 +82,8 @@ const readCard = async () => ({stage: await page.locator('.journey-card').getAtt
   transfer: await page.locator('.journey-card [data-transfer]').getAttribute('data-transfer'),
   tracked: await page.locator('.journey-card [data-tracked]').evaluateAll(list => list.map(e => `${e.dataset.tracked}: ${e.textContent.trim()}`)),
   rows: await page.locator('.journey-card .journey-row').allInnerTexts().then(r => r.map(x => x.replace(/\s+/g, ' '))),
+  chosen: await text('.journey-card [data-chosen]'), change: await text('.journey-card [data-change]'),
+  loading: await text('.journey-card [data-times-loading]'), tight: await page.locator('.journey-card [data-tight]').count(),
   basis: await text('.journey-card [data-basis]'), withheld: await text('.journey-card [data-times-withheld]'), walkNote: await text('[data-walk-note]'),
   stop: await text('.your-stop-copy strong'), map: await page.locator('.vector-map').getAttribute('data-journey'), focus: await page.locator('.vector-map').getAttribute('data-journey-focus'),
   fleet: await page.locator('.vector-map').getAttribute('data-fleet'), camera: await page.locator('.vector-map').getAttribute('data-camera')});

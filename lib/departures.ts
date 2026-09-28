@@ -31,6 +31,8 @@ const serviceSchema=z.object({
  runs:z.array(z.array(z.number())),
  timetable:z.object({file:z.string().nullable(),datasetSha256:z.string().nullable(),
   validFrom:z.string().nullable(),validTo:z.string().nullable()}).partial().optional(),
+ /** False on a service its timetable declares closed to the public; absent otherwise. */
+ publicUse:z.boolean().optional(),
 });
 const boardSchema=z.object({schemaVersion:z.number(),stop:z.string(),generatedAt:z.string(),
  services:z.array(serviceSchema)});
@@ -67,12 +69,21 @@ const SECONDS_IN_DAY=86_400;
 const LONDON=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour12:false,
  year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-/** Europe/London's offset from UTC at that instant, in milliseconds. */
+/** Europe/London's offset from UTC at that instant, in milliseconds. It changes only at 01:00 UTC on
+ *  the clock-change Sundays, so it is worked out once per UTC hour: a board or a planner turns
+ *  thousands of timetabled times into instants, and the formatter was most of what that cost
+ *  (28 September 2026: 32 ms to time one journey with a change at the median, 163 ms at worst). */
+const offsets=new Map<number,number>();
 function offsetAt(ms:number):number{
- const parts=Object.fromEntries(LONDON.formatToParts(ms).map(part=>[part.type,part.value]));
- const asUtc=Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day),
-  Number(parts.hour)%24,Number(parts.minute),Number(parts.second));
- return asUtc-Math.floor(ms/1000)*1000;
+ const hour=Math.floor(ms/3_600_000);
+ const known=offsets.get(hour);
+ if(known!==undefined)return known;
+ const parts=Object.fromEntries(LONDON.formatToParts(hour*3_600_000).map(part=>[part.type,part.value]));
+ const offset=Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day),
+  Number(parts.hour)%24,Number(parts.minute),Number(parts.second))-hour*3_600_000;
+ if(offsets.size>20_000)offsets.clear();
+ offsets.set(hour,offset);
+ return offset;
 }
 
 /**
@@ -101,8 +112,20 @@ export const previousDay=(iso:string)=>shiftDay(iso,-1);
 
 const label=(value:string|null|undefined)=>(value??'').replace(/_/g,' ').trim();
 
-/** Every departure of one service on one service day, as instants. */
+/** Every departure of one service on one service day, as instants, worked out once per service, day
+ *  and rules: the planners ask the same board the same question for every bus they time. The lists
+ *  are shared, so they are never changed by a caller. */
+const expanded=new WeakMap<StopBoardService,Map<string,{rules:OperatingRule[];out:ScheduledDeparture[]}>>();
 function departuresOf(service:StopBoardService,rules:OperatingRule[],day:string):ScheduledDeparture[]{
+ let byDay=expanded.get(service);
+ if(!byDay){byDay=new Map();expanded.set(service,byDay)}
+ const known=byDay.get(day);
+ if(known&&known.rules===rules)return known.out;
+ const out=expandDepartures(service,rules,day);
+ byDay.set(day,{rules,out});
+ return out;
+}
+function expandDepartures(service:StopBoardService,rules:OperatingRule[],day:string):ScheduledDeparture[]{
  const out:ScheduledDeparture[]=[];
  const shared=new Map<number,number>();
  for(const run of service.runs){

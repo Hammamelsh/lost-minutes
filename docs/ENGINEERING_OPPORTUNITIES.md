@@ -49,6 +49,15 @@ for real-feed checks. The bespoke harness pages are gone.
 
 ---
 
+**Recurrence, 28 September 2026.** Building the journey-with-a-change view, three throwaway
+specs were written in one night to see what a failing browser check could not say: one to catch
+`pageerror` (an "Invalid time value" from a fixture's departure string), one to dump
+`sessionStorage` around a reload (a restore refused because the page clock read 1970), one to log a
+promise's result (a road shape's stop offsets dropping the last stop). Each took under a minute to
+write and a rebuild to run; each was deleted after. A standing debug spec that captures page
+errors, console, storage and the map's diagnostic attributes on failure would have answered all
+three from the first failing run. Status: `observed`, four sessions now.
+
 ## 2. The vector map did not render, and the first diagnosis blamed the wrong thing
 
 **Problem and evidence.** The 12 September entry here said headless WebGL could not paint

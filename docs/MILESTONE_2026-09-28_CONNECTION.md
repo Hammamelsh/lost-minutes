@@ -102,7 +102,33 @@ passenger has tried it (`docs/CONNECTION_WALKTHROUGH.md` is for that).
 
 ## 3. Real data
 
-*[filled after the daytime check on the served site]*
+All on the served site (`scripts/probes/connection-served.mjs`, `outputs/connection/*.mjs`), phone
+emulation, read-only, the server's own catalogue and boards.
+
+- **The journey to try: Hillingdon Road (Stretford) → MediaCityUK.** No direct bus; four journeys
+  with one change, best first: the 253 towards Piccadilly Gardens from Sydney Street (nr) to Trafford
+  Bar (Stop A), a walk to Trafford Bar (by), the 53 towards Salford Shopping Centre to MediaCityUK
+  (at); then the 263, the 255, and the 255 → 30 via Deansgate. At 03:35: the card timed
+  (07:55 → 08:07 at Trafford Bar · 53 08:27 · 20 min to change · MediaCityUK 08:37, the next
+  08:19 → 09:08), the walk checked by the router (3 min, about 200 m), both legs and the walk on
+  the map, the frame unchanged across two more publications, each focus moving the camera, the
+  stages moving the stop (Trafford Bar (Stop A), then MediaCityUK (at)), a reload keeping the
+  journey at the stage it was left, no page errors. No tracked bus at that hour, said so twice.
+  *[daytime: tracked buses, bindings, the ride and the focus switch — to add]*
+- **A known timing-quality exclusion, real:** the inbound 15 from Hillingdon Road (opp) to
+  Manchester Royal Infirmary (Stop D), then the 53 to MediaCityUK, opened by link
+  (`outputs/connection/served-inbound15.png`). The card gives the steps and the stop, and "No
+  times for the 15: schedule runs 15 min early against the bus’s own reports at its first stops. A
+  time from this timetable would mislead, so none is shown; its stops and order still hold", with
+  the official board for the stop below.
+- **Outside the timetables held, real:** Hillingdon Road → Bolton Interchange gives "No bus journey
+  found within a 900 m walk of both places on today’s timetable, direct or with one change. That is
+  what our timetables hold (four operators), not proof that no journey exists", and the two
+  external planners (`outputs/connection/served-outside.png`). Inside the stop area every one of the
+  816 stops with no held pattern lies within 900 m of one that has, so a real destination inside
+  it is never refused outright for coverage alone; the fixture covers that case.
+- **Before:** the same journey on the previous release read "No direct bus found … Journeys with a
+  change are not planned here" (`outputs/connection/before-planner.png`).
 
 ## 4. Fixtures, and what each failure case shows
 
@@ -133,7 +159,16 @@ quality verdicts and the binding rule.
 
 ## 5. Verification
 
-*[filled: Node, lint, typecheck, the full browser gate on the candidate, the served checks]*
+- Node 286 (10 new), typecheck, lint (no errors), the build.
+- `connection.spec`: 12 of 12 on the final build (6 checks × desktop and phone).
+- The full browser gate on the candidate `f27d6ea`, before two cosmetic edits (a doubled stop label
+  on the map, *Share* on the card): **432 passed, 50 skipped by design, none failed, 1.4 h**. After
+  the edits, the four specs they touch (connection, journey, attribution, map): 54 passed, 18
+  skipped, none failed; after the card's tones were corrected (§6), `connection.spec` 12 of 12.
+- Deployed as `f27d6ea`, then `d0ad985`; the served page chunk and stylesheet byte-identical to the
+  local build's; `/preview/` still 401; no `photo3d` in the served config. CI green on both.
+- The served checks in §3.
+- Emulation only; no real passenger has tried it; `docs/CONNECTION_WALKTHROUGH.md` is the test.
 
 ## 6. Found on the way
 
@@ -145,6 +180,11 @@ quality verdicts and the binding rule.
   the index is off, never wrong, but worth a fix of its own.
 - Fixture buses need an ISO instant as `aimedDeparture`, as the feed gives, or the evidence panel
   throws.
+- The starting-point search lists "My location" first, so a probe that took the first option asked
+  for the device's position and left the start empty; the probes pick the place by name.
+- On the served site, at the stage "on the first bus", the card struck through the whole first step
+  (including "get off at Trafford Bar") and marked two steps *now*; the ridden leg now reads "On the
+  253 …" with getting off as the next action, and only a finished leg is struck through.
 
 ## 7. Limitations, plainly
 
@@ -159,4 +199,18 @@ quality verdicts and the binding rule.
 
 ## 8. Watch both
 
-*[filled: what was tried, measured, and decided]*
+Two simultaneous ride views were not built. What was measured instead, so the decision rests on a
+number rather than an assumption: the built site itself in one frame riding a bus, then two such
+frames side by side, each map reporting its own frame interval (`data-frame-ms`, the median of its
+last 90 frames; `scripts/probes/two-maps.mjs`, SwiftShader on this machine).
+
+| | one map | two maps, each |
+|---|---|---|
+| desktop 1280 × 900 | 18.7 ms | 38.5 and 38.3 ms |
+| phone width 390 × 844, stacked | 16.7 ms | 33.2 and 32.9 ms |
+
+A second full map halves the frame rate of both on this renderer, and on a phone each view would
+also have half the screen. That is an upper bound for two full MapLibre maps, not a measurement of
+any phone's GPU, which remains unmeasured. A cheaper second view (the fleet's drawn frames redrawn
+on a canvas, as the view from above does) was not tried. The single map with the ride's focus
+switch is what shipped; Watch both stays optional and unbuilt.

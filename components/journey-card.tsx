@@ -31,7 +31,7 @@ function standingWords(standing:LegStanding,leg:Leg,at:'board'|'alight'):string{
  return `past ${stopName(leg.alight)}`;
 }
 
-export default function JourneyCard({option,timing,quality,stage,transfer,buses,nowMs,moreTime,onStage,onFocus,onMoreTime,onEnd,onOtherOptions,rideable,onRide,onShare,shareState='idle'}:{
+export default function JourneyCard({option,timing,quality,stage,transfer,buses,nowMs,moreTime,onStage,onFocus,onMoreTime,onEnd,onOtherOptions,rideable,onRide,onShare,shareState='idle',roads}:{
  option:ConnectionOption;timing:ConnectionTiming|{kind:'loading'};quality:{first:ScheduleQuality;second:ScheduleQuality};
  stage:JourneyStage;transfer:TransferState;buses:FollowBus[];nowMs:number;moreTime:boolean;
  onStage:(stage:JourneyStage)=>void;onFocus:(focus:'whole'|'first'|'second')=>void;onMoreTime:(value:boolean)=>void;
@@ -40,6 +40,8 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
  rideable?:FollowBus|null;onRide?:(bus:FollowBus)=>void;
  /** Share the instructions and a link that carries the journey, never a location. */
  onShare?:()=>void;shareState?:'idle'|'copied'|'failed';
+ /** Whether each leg is drawn on a checked road, or stop to stop; undefined while the roads load. */
+ roads?:{first:boolean;second:boolean};
 }){
  const {first,second,transfer:change}=option;
  const rows=timing.kind==='timed'?timing.rows:[];
@@ -155,6 +157,9 @@ export default function JourneyCard({option,timing,quality,stage,transfer,buses,
     <li>A bus is named as “on this journey” only where its operator reports the departure time of that very timetabled journey. Otherwise a tracked bus of the line is said to be one, and which journey it is on is left open.</li>
     <li>Tracked positions are last reports, in stops and an age. They do not say the change will be made.</li>
     <li>The walk between the two boarding points is asked of routing.openstreetmap.de once, as two public stop positions; nothing about you is sent. Accessibility of the change (crossings, steps) is not known here.</li>
+    {roads&&<li data-roads={`${roads.first?'road':'stops'},${roads.second?'road':'stops'}`}>On the map, {roads.first&&roads.second?'both legs are drawn on their checked roads'
+     :!roads.first&&!roads.second?`neither leg has a checked road here, so both are drawn stop to stop, straight between stops, which is not the road`
+     :`the ${roads.first?first.line:second.line} is drawn on its checked road and the ${roads.first?second.line:first.line} stop to stop, straight between stops, which is not the road`}.</li>}
     <li><label className="journey-more-time"><input type="checkbox" checked={moreTime} onChange={e=>onMoreTime(e.target.checked)} data-more-time/> More time to change (adds 5 min to the allowance)</label></li>
     <li>Now {clockWords({atMs:nowMs})}.</li>
    </ul>

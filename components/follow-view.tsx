@@ -1175,7 +1175,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     stage={stage} transfer={transfer&&transfer.key===chosenJourney.key?transfer.state:{status:'checking'}} buses={buses} nowMs={nowMs} moreTime={moreTime}
     onStage={moveStage} onFocus={f=>{setJourneyFocus(f);setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'})}}
     onMoreTime={setMoreTimeKept} onEnd={newJourney} onOtherOptions={()=>{setPlanOpen(true);sheetTo('full')}}
-    rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}/>}
+    rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}
+    roads={journeyOverlay?{first:journeyOverlay.legs[0].onRoad,second:journeyOverlay.legs[1].onRoad}:undefined}/>}
   {chosenJourney&&walkNote&&panelMode!=='plan'&&<p className="follow-hint warn" role="status" data-walk-note>{walkNote}</p>}
   {/* Where am I, where is my stop, and how do I walk there? The stop's name has the whole width;
       its actions sit on their own row beneath it. */}

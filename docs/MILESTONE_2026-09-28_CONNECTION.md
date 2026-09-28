@@ -335,6 +335,10 @@ Found on the server during the deploys, not by this feature (`ee3f4d0`; opportun
   failing on an empty median. Run locally on a copy of the warehouse, with its own passage audit:
   170,079 moments from 135 journeys, 3,963 passages, 2 min 34 s, still not released. Its next run is
   03:10 UTC on 29 September.
+- **CI failed once on the records' push**: a Python test aged its fixture report from the module's
+  import, leaving every earlier test fifteen seconds (45 s against the 60 s "fresh" limit); the
+  evaluation's new test in the module before it used them up on CI's slower runner. The report is
+  now aged from when the test runs, and passes twenty seconds after import; CI green on `35949cb`.
 
 ## 7. Limitations, plainly
 

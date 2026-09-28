@@ -160,7 +160,11 @@ class LiveCollectionTests(unittest.TestCase):
         con.close()
 
     def test_every_published_position_is_labelled_observed_and_aged(self):
-        self.run_collector([siri_document([bus(at(-45))])], cycles=1)
+        # Aged from now, not from when the module was imported: 45 s against the 60 s "fresh" limit
+        # left fifteen seconds for every test run before this one, and a slower CI runner used them
+        # up on 28 September 2026 ('ageing' != 'fresh').
+        when = (datetime.now(timezone.utc) - timedelta(seconds=45)).strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        self.run_collector([siri_document([bus(when)])], cycles=1)
         vehicle = self.live()['vehicles'][0]
         self.assertEqual(vehicle['positionKind'], 'observed')
         self.assertGreaterEqual(vehicle['ageSeconds'], 45)

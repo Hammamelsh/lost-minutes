@@ -238,6 +238,9 @@ test('a second bus tracked on the line is said to be one, journey not identified
   // Still riding, now the 53, at the second leg, with the plan intact.
   await expect(map(page)).toHaveAttribute('data-ride', /following|entering/, {timeout: 15_000});
   await expect(page.locator('.ride-card')).toHaveAttribute('data-vehicle', 'FX-53');
+  // The journey's own second bus, whichever stop the page is on: not "a selected bus that does not serve your stop".
+  await expect(page.locator('.ride-card .ride-card-eyebrow')).toHaveAttribute('data-journey-leg', '2');
+  await expect(page.locator('.ride-card .ride-card-eyebrow')).toHaveText('Your second bus · from Talbot Court (nr)');
   await expect(page.locator('.ride-card .ride-next-leg')).toContainText('Then: get off at Trafford Bar (Stop A)');
   await expect(page.locator('.ride-card .ride-next-leg')).toContainText('First bus: 256, reported');
   // The focus moved; the stage did not: the passenger has not said they changed buses.

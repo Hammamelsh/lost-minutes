@@ -647,7 +647,17 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // One name for the bus shown, the same on the card, the strip and the map's legend: a suggestion;
  // the bus chosen for your stop, or a chosen bus now missing or on another journey; or a bus chosen
  // with no stop, or one not coming to it.
+ // A bus on either leg of the journey with a change is the passenger's own, whichever stop the page is
+ // on: never "does not serve your stop" (served, 28 September 2026: the ride switched to the second bus
+ // and called it a selected bus that does not serve your stop).
+ const journeyLeg=(()=>{
+  const id=shown?.match&&'patternId' in shown.match?shown.match.patternId:null;
+  if(!chosenJourney||!id)return null;
+  return legFamily(chosenJourney.first).some(l=>l.pattern.id===id)?1:legFamily(chosenJourney.second).some(l=>l.pattern.id===id)?2:null;
+ })();
+ const legNoun=journeyLeg===1?'Your first bus':journeyLeg===2?'Your second bus':null;
  const busNoun=selectionKind==='suggested'?'Suggested bus'
+  :legNoun&&!relevant?legNoun
   :absent||selection.kind==='new_journey'||relevant&&stop?'Your bus':'Selected bus';
  const effectiveView:MapView=view==='ride'&&!shown?'2d':view;
  const riding=effectiveView==='ride';
@@ -987,7 +997,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // yours" is the same fact twice, and a passenger reads the repetition as two different claims.
  // The activity line is kept where it says more: that the bus appears to be standing there, or
  // where the progress line names a different stop or is missing altogether.
- const progressText=stop&&prog&&relevant?prog.text:stop&&!relevant?NOT_COMING[cardStanding??'unknown']:null;
+ const progressText=stop&&prog&&relevant?prog.text:stop&&!relevant?(legNoun??NOT_COMING[cardStanding??'unknown']):null;
  const activityAdds=activityLine!==null&&(activity?.kind==='stopped'||!progressText
   ||!progressText.includes(name(activity?.kind==='near'?activity.stop:'')));
  // A report can be old while the feed is perfectly well: the vehicle stopped reporting, which is
@@ -1007,7 +1017,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   <div className="ride-card-head">
    <span className="route-badge">{shown.route}</span>
    <div>{recording&&<small className="ride-card-eyebrow recording" data-ride-recording-label>Recording · {recording.date}</small>}
-    {!relevant&&!recording&&<small className="ride-card-eyebrow">Selected bus · {(NOT_COMING[cardStanding??'unknown']||'not coming to your stop').toLowerCase()}</small>}
+    {!relevant&&!recording&&(legNoun&&chosenJourney
+     ?<small className="ride-card-eyebrow" data-journey-leg={journeyLeg}>{legNoun} · from {journeyStopName(journeyLeg===1?chosenJourney.first.board:chosenJourney.second.board)}</small>
+     :<small className="ride-card-eyebrow">Selected bus · {(NOT_COMING[cardStanding??'unknown']||'not coming to your stop').toLowerCase()}</small>)}
     <strong>to {destinationLabel(shown.destination)}</strong>{!motionWords&&<small>{ageText(shown)}</small>}</div>
   </div>
   {absent&&<p className="ride-status-line warn">No current report · shown at its last report, not moved on</p>}

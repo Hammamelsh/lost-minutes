@@ -4,7 +4,11 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 28 September 2026 (journeys with one change, planned from the timetables held, timed only as
+Last updated: 28 September 2026, afternoon (direct buses timed and ordered by arrival like journeys with
+one change, the walks between stops checked before the list and a later answer offered rather than
+substituted, a planner regression set, and the nightly jobs recording themselves in Operations, the
+evaluation's timeouts fixed and its first release held for the owner: `53f2232`). Before that, the same
+morning (journeys with one change, planned from the timetables held, timed only as
 the timetable allows, followed leg by leg on one map with one card, and both planners searching the whole
 walk they state: `e3c760b`). Before that, 27 September, evening (the map's credit back on every phone,
 whole, readable and linked, and a phone on its side fitted to its screen with a full-screen ride:
@@ -14,6 +18,37 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **28 September, afternoon — the planner's correctness and the nightly jobs' reliability**
+  (`docs/MILESTONE_2026-09-28_RELIABILITY.md`).
+  - **Direct buses timed**: every public bus between an option's two stops, from the stop's board by
+    each journey's own operating rule, from when the passenger could be there; ordered by arrival
+    with the last walk; one pair of stops per pattern (a per-line choice by distance had lost a usable
+    variant in 5 of 773 sampled pairs of places, now none of 2,573). School services by their own
+    rules; a service closed to the public (TransXChange `PublicUse`, BNML 732) never offered.
+  - **The same fault in journeys with one change**: timing only the 8 nearest by distance hid a
+    sooner connection in 34–48 of 194 pairs of places; 48 are timed now (1–2 of 194), made affordable
+    by caching London's offset per hour and a service's expanded departures (0.55 ms a connection,
+    from 32 ms).
+  - **Walks**: to the first stop and from the last estimated and counted; a bus under 2 min after an
+    estimated walk is *tight*; the walk between stops checked before the list is shown; a later
+    answer that breaks a chosen connection is shown with *Use this*, never substituted; a connection
+    holds while its second bus stays reachable.
+  - **Regression set**: `tests/planner-regression.test.mjs`, ten cases with an independent oracle.
+  - **Nightly jobs**: each records its attempts (`pipeline/jobs.py`); Operations shows last attempt,
+    last success, failed and overdue. Invalid timetable responses never replace the last valid
+    catalogue (rejected, skipped, refused if much smaller, refused before writing). The rebuild,
+    validated here on the server's own inputs, reproduced the served catalogue exactly (587 patterns)
+    plus the new flag. The evaluation's timeouts were a quadratic step (1 min 14 s now on a week).
+  - **Held for the owner**: the first full scoring passes outbound 15 (median 1.19 min, p80 2.46);
+    the nightly job now publishes it as *awaiting approval* and shows nothing until
+    `deploy/arrival-release-approval.json` lists it.
+  - **Corrected**: the software renderer's frame times bound nothing on a phone, in either direction.
+  - **Verified:** Node 306, Python 155; the full gate 443 passed, 50 skipped, 1 failed (a motion check
+    that started as this machine woke from a 61-minute sleep; 24 of 24 on rerun); the planner specs
+    26 of 26 on the final build; served byte-identical, both journeys walked on real buses, the
+    evaluation run by hand on the server (2 min 44 s, 684.5M). **Deployed as `53f2232`** (`ab98f8c`
+    kept for rollback). **Next unattended runs: 29 September, 02:43 and 03:12 UTC.** Emulation only.
 
 - **28 September — follow both legs of your journey** (`docs/MILESTONE_2026-09-28_CONNECTION.md`,
   `docs/CONNECTION_WALKTHROUGH.md`).

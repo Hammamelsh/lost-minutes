@@ -20,10 +20,14 @@ interchange (about 3 minutes), and the 53 to MediaCityUK.
 1. Open the site. Tap **Plan** (top right of the map).
 2. Tap the **From** box, type `hillingdon road`, and choose **Hillingdon Road (nr)**.
 3. In **To**, type `mediacityuk` and choose **MediaCityUK (at)**.
-4. The site lists journeys, soonest there first. Each one says when its next connection leaves and
-   arrives by the timetable ("Next: 255 06:42 from Davyhulme Road East (nr) · at MediaCityUK
-   07:03"), which bus to take first, where to get off, where to walk to, and which bus to take next.
+4. The site checks the walks between the stops for a few seconds ("Finding times …"), then lists
+   journeys, soonest there first. Each one says when its next connection leaves and arrives by the
+   timetable ("Next: 255 06:42 from Davyhulme Road East (nr) · at MediaCityUK 07:03"), which bus to
+   take first, where to get off, where to walk to (with the walk's minutes and whether they were
+   checked), and which bus to take next. A departure you would only just reach says "tight".
    Tap **Choose this journey** on the first one.
+5. If the card ever says your connection no longer works ("Your 255 at … no longer makes the 53 at
+   …"), it offers the next that does. Nothing changes until you tap **Use this**.
 
 ## Then, without anyone's help, try to answer these
 
@@ -67,6 +71,14 @@ identified", or "No tracked bus … yet · that is not ‘no bus’", and the ma
   the change is not known.
 - Tap **Share**. The text and link name the journey and the destination, never your location.
 - Tap **End** to finish.
+
+## A second journey: a direct bus
+
+**From Hillingdon Road (Stretford) to Withington Community Hospital.** Direct buses are listed with
+their next departure by the timetable, like the journeys with one change, and whichever kind gets
+there sooner comes first; the other kind folds under one line with its soonest arrival. On a
+school-day morning a school service may be offered where it is the sooner; it is a public bus on
+school days only.
 
 ## What to report back
 

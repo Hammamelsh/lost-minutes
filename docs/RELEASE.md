@@ -4,12 +4,58 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`e3c760b`**, deployed 28 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`53f2232`**, deployed 28 September 2026, afternoon (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 28 September, afternoon: the planner's correctness and the nightly jobs' reliability
+
+**Deployed: `ab98f8c`, then `53f2232`** (the planner's age wording, and a smaller release kept for
+rollback), with `ab98f8c` kept for `deploy/rollback.sh`. The account and the evidence are in
+`docs/MILESTONE_2026-09-28_RELIABILITY.md`.
+
+**What a passenger sees.**
+- **Direct buses have times**: "Next: 23 08:09 from Norwood Road (nr) · at Mersey Road 08:33 · by the
+  timetable, not live", every bus between the two stops counted, and the list in order of arrival at
+  the destination, the last walk included. Whichever kind gets there sooner leads, a change counted
+  as ten minutes; the other folds under one line with its soonest arrival ("Direct buses (1) ·
+  soonest there 11:36"), with a chevron that says it opens.
+- **A school service is offered when it runs** and leads only where it is sooner; a service closed to
+  the public is never offered (from the first nightly rebuild after this deploy).
+- **Walks said apart**: to the first stop (estimated, and "tight" when a bus leaves under 2 min after
+  it), between the stops (checked before the list is shown, a few seconds at most, else "not
+  checked"), and from the last stop (estimated, counted in the arrival).
+- **A choice is never replaced**: if a walk checked after choosing breaks the connection, the card
+  says "Your 256 at 10:33 no longer makes the 53 at 10:46 …", offers the one that works, and changes
+  nothing until **Use this**.
+- **Journeys with one change are found more often**: 48 candidates are timed where 8 were, which had
+  hidden a sooner connection in about one sampled pair of places in five.
+- **Operations shows the nightly jobs**: each one's last attempt (scheduled or by hand, and how it
+  ended), its last success, and whether a scheduled run is overdue.
+
+**Not changed, deliberately:** no estimator shown (the first full scoring passes outbound 15; its
+release is held for the owner in `deploy/arrival-release-approval.json`); no second map; no redesign.
+
+**Also in this release:**
+- **The nightly jobs record themselves**, and the arrival evaluation's timeouts (a quadratic step since
+  22 September) are fixed: by hand on the server it took 2 min 44 s at a 684.5M peak. The timetable
+  rebuild, run here on the server's own inputs, reproduced the served catalogue exactly. Both run
+  unattended from 29 September, 02:43 and 03:12 UTC; Operations will show each result.
+- **A deploy and a rollback leave every file the server writes alone** (the jobs' record and the
+  nightly outputs had not been protected by the rollback), and the release kept for rollback no longer
+  copies the warehouse (111 MB, from 4.1 GB).
+
+**Verified.**
+- Node: 306 tests, 10 of them the planner regression set. Python: 155. Typecheck; lint with no errors.
+- The full browser gate: 443 passed, 50 skipped by design, 1 failed, a motion check that started as
+  this machine woke from a 61-minute sleep (it read a report as 3,765 s old); `motion.spec` then 24 of
+  24 on the same build. `plan.spec` and `connection.spec` 26 of 26 on `53f2232`.
+- Served: byte-identical builds, `/preview/` 401, no imagery key; both journeys walked on real buses at
+  both sizes (section 7 of the record); Operations read at both sizes; the collector's process
+  unchanged through both deploys. Emulation only.
 
 ## 28 September: follow both legs of your journey
 
@@ -58,7 +104,8 @@ rule (it reads them by position now). Both run again at 02:41 and 03:10 UTC on 2
 
 **Not built, deliberately:** no new estimator (nothing has passed the arrival criteria; nothing
 withheld before is shown now); no two-change journeys; no accessibility claims (not in the data);
-Watch both (a second map halved both maps' frame rate on this renderer: the record has the numbers).
+Watch both (a second map halved both maps' frame rate on this renderer, SwiftShader on this
+machine's CPU; that bounds nothing on a phone in either direction: the record has the numbers).
 
 **Verified.**
 - Node: 290 tests (14 on connections: the refusals measured stop by stop, a leg's family and its

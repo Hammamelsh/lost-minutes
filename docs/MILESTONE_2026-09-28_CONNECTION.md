@@ -351,10 +351,12 @@ Found on the server during the deploys, not by this feature (`ee3f4d0`; opportun
   measurement.
 - The list's times use the provisional walk; the walk is checked once a journey is chosen, and the
   card then says what changed. At Trafford Bar the straight 50 m was 230 m by the router, which moved
-  the first connection from the 06:56 53 to the 07:16 (§3).
+  the first connection from the 06:56 53 to the 07:16 (§3). *Resolved the same afternoon: the walks
+  are checked before the list is shown, and a later answer is offered, never substituted
+  (`docs/MILESTONE_2026-09-28_RELIABILITY.md`).*
 - Direct buses in the list carry no time and keep their order by walking and riding distance, so
   the wider search can put a school service first (the 734 before the 23 at Norwood Road). Backlog
-  37a.
+  37a. *Resolved the same afternoon: direct buses are timed and ordered by arrival (same record).*
 - A first bus that overshoots and a second that brings the passenger back (the 103 past Withington
   to Moor End, then the 43) is not refused; ranked by arrival it falls behind the direct buses and
   is folded away beside them. Backlog 37a.
@@ -373,8 +375,11 @@ last 90 frames; `scripts/probes/two-maps.mjs`, SwiftShader on this machine).
 | phone width 390 × 844, stacked | 16.7 ms | 33.2 and 32.9 ms |
 
 A second full map halves the frame rate of both on this renderer, and on a phone each view would
-also have half the screen. That is an upper bound for two full MapLibre maps, not a measurement of
-any phone's GPU, which remains unmeasured. A cheaper second view (the fleet's drawn frames redrawn
+also have half the screen. *Corrected the same afternoon:* this first said the figures were "an upper
+bound for two full MapLibre maps". They are not a bound on a phone in either direction. SwiftShader
+draws on this machine's CPU; a phone's GPU may draw faster, while its slower CPU, a device pixel ratio
+of 2 or 3, heat and power saving may make each frame slower. The figures show the relative cost of a
+second map on this renderer, about double, and what a phone does remains unmeasured. A cheaper second view (the fleet's drawn frames redrawn
 on a canvas, as the view from above does) was not tried. The single map with the ride's focus
 switch is what shipped; Watch both stays optional and unbuilt.
 

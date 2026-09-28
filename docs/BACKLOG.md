@@ -462,19 +462,25 @@ the whole column, not the credit.
   arrival, because no per-bus timetabled time is trusted where the clock is unverified (574 of 576
   patterns). A verified clock with a bound bus could offer "running about N min late": an evaluation
   first, never a release by default.
-- **Direct buses in the list carry no time** and keep their order by walking and riding distance. With
-  every stop within the walk searched, a school service can come first (Hillingdon Road → Withington
-  Community Hospital, 28 September, 06:55: the 734 above the 23 from the same stop). Time them from
-  the boards as the journeys with one change are, the whole family between the two stops, and order
-  them by arrival.
+- ~~Direct buses in the list carry no time~~ — done the same afternoon: timed from the boards, every
+  bus between the two stops, ordered by arrival with the last walk; one pair of stops per pattern, so
+  no variant is lost before timing (`docs/MILESTONE_2026-09-28_RELIABILITY.md`).
+- **The connection search keeps one first bus per pair of services before timing.** Keyed per pattern
+  it would find a further first-bus variant in 22 of 393 sampled pairs of places, and narrow the
+  services among the timed candidates in 26: a trade-off, left as it is until the candidates are
+  chosen some other way than by distance.
+- **Beyond the 48 connections timed**, 1–2 of 194 sampled pairs of places still had a sooner one
+  (`scripts/audit-planner-candidates.mjs --cut 48`). The cut was 8 until 28 September (34–48 of 194).
 - **An overshoot is not refused**: a first bus carried past the destination and a second bringing the
   passenger back (Piccadilly Gardens → Withington Golf Club: the 103 to Moor End, then the 43). Ranked
   by arrival it falls behind the direct buses and is folded beside them; a rule would refuse a second
   leg that heads back towards the first leg's route.
-- **The list's times use the provisional walk** (the straight line × 1.3); a walk the router finds
-  longer moves the connection after it is chosen, and the card says so (Trafford Bar: 50 m straight,
-  230 m by the router, the 06:56 53 becoming the 07:16). Checking the walks of the listed options
-  would take one router request each.
+- ~~The list's times use the provisional walk~~ — done the same afternoon: the listed options' walks
+  between stops are checked before the list is shown (up to 6 s, a second apart), and an answer after
+  the choice is offered with *Use this*, never substituted.
+- **The walks to the first stop and from the last are estimates** (the straight line × 1.3); a bus
+  under 2 min after the walk is marked tight. Checking them would send the passenger's start to the
+  router, which this page does only for the walk guide, on request.
 - Watch both: see the milestone record.
 
 ## 38. A road shape's stop offsets are read by the pattern's stop index
@@ -487,6 +493,20 @@ drawing a journey's legs (the fixture's last stop, at the shape's exact length, 
 measure their stops onto the road instead. Not changed in `arrival.ts`: no direction is released, so
 nothing shown is affected; fix with a per-stop offset array (null where unplaced) when the estimator
 is next worked on.
+
+## 39. The nightly rebuild's memory peak is growing with the warehouse
+
+The server's journal gives the rebuild of 27 September a **1.4G memory peak** over 4 min 12 s, against
+the unit's `MemoryMax=1500M` (systemd's figure for the unit's cgroup, which counts page cache: the
+unit also copies the 0.9 GB warehouse for the evaluation). The rebuild's own resident peak, measured
+here on a copy of that warehouse with the server's settings (`LM_DB_MEMORY_LIMIT=1GB`, two threads,
+`MALLOC_ARENA_MAX=2`), is **1.12 GB**; it was 853 MB on 18 September. Page cache is reclaimed before
+the ceiling kills anything; resident memory is not, and it grows with the warehouse. A kill would fail
+the rebuild safely (the last catalogue stays, Operations says so), but nightly. The likely costs are
+the selection of observed services, which scans every observation, and the parse of 662 TransXChange
+files; not yet separated. Measure them apart, and if it is the scan, keep a small table of observed
+services the collector maintains. Until then read the peak after each run
+(`journalctl -u lost-minutes-refresh | grep 'memory peak'`).
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

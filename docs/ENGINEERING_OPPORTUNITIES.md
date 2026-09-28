@@ -1432,6 +1432,17 @@ reads a `generatedAt` inside the file. Not researched further.
 **Next cheap step.** After each deploy, print the served catalogue's `generatedAt` and services
 beside the local one's; after each refresh, the same. Status: exclusion done; the print is not.
 
+**Recurrence, 28 September 2026.** The nightly jobs' new record, `public/data/jobs.json`, was written
+on the server and not excluded, so the next `rsync --delete` would have removed it; caught before the
+deploy by reading the exclude list, as `arrival-release.json` had not been on 21 September. Nine files
+the server writes now share `public/data` with files the deploy sends, told apart only by that list.
+`tests/publication-boundary.test.mjs` now fails if any of the nine is missing from it. The same day,
+`deploy/rollback.sh` was found protecting only the collector's three files: a rollback would have
+deleted the jobs' record and put back the deploy day's catalogue over a later rebuild. It now reads the
+same exclude list (tested). The structural answer is still one owner per directory: the server's own
+files served from a root the deploy and the rollback never touch (a second `root` in the Caddyfile's
+`/data` handler). Status: guarded by tests; not separated.
+
 ## 42. Evidence checks that assumed a workflow the host never ran
 
 **Problem and evidence.** The Operations view on the live site showed **2 checks UNBALANCED** —
@@ -2118,6 +2129,17 @@ interface would not help; a count per invariant would.
 sampled stop pairs, and run it before a planner change is deployed. Status: `observed` (the four
 faults fixed with unit tests; the audit not written).
 
+**28 September, afternoon: part built, and it found three more.** `scripts/audit-planner-candidates.mjs`
+checks, over sampled pairs of real places against the served catalogue, that no usable direct pattern
+is missing from the candidates (brute force), and, given the boards and a moment, how often a
+connection beyond the timed cut would get there sooner. It found: a direct variant lost to a per-line
+choice made by distance (5 of 773 pairs); 34–48 of 194 pairs where timing only the first 8
+connections hid a sooner one (1–2 at 48, now the rule); and, while measuring, that timing one
+connection cost 32 ms at the median in `departuresOn` (0.55 ms now). `tests/planner-regression.test.mjs`
+holds the faults as ten cases with an independent oracle. Still not built: the loop and order
+invariants over real data, and a habit of running the audit before a planner change is deployed.
+Status: `script built`.
+
 ## 68. Nightly units that fail are seen only by someone who happens to look
 
 **Problem and evidence.** Two of the server's nightly units failed with nobody told, found on
@@ -2147,3 +2169,12 @@ acting on a failure; the prepared dead man's switch is the existing way to reach
 interface exists already (Operations).
 
 **Next cheap step.** Add the two units' last results to the health check's output. Status: `observed`.
+
+**Built, 28 September, afternoon, differently from the step above.** Rather than the health unit
+reading `systemctl show`, each nightly unit records its own attempts (`pipeline/jobs.py` from
+`ExecStartPre` and `ExecStopPost`, with systemd's `SERVICE_RESULT`, `EXIT_STATUS` and `TRIGGER_UNIT`),
+into `public/data/jobs.json`, and Operations shows each job's last attempt, last success and whether a
+*scheduled* run is overdue. A unit that never starts writes nothing, which is why overdue is judged
+from the age of the last scheduled attempt. Reaching a person is still the dead man's switch, off
+until the owner approves an account. Status: `small fix built`; the first unattended nights are
+29 September, 02:40 and 03:10 UTC.

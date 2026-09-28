@@ -190,8 +190,15 @@ result without the phone.
       live" line reads at arm's length, and the soonest is first; choose it; the card reads in order
       on the phone's own screen, and the six questions in the walkthrough can be answered from it.
       *unchecked*
-- [ ] A destination with a direct bus (Withington Community Hospital from Hillingdon Road): the direct
-      buses lead, and "Journeys with one change" opens with one thumb. *unchecked*
+- [ ] A destination with a direct bus (Withington Community Hospital from Hillingdon Road): each direct
+      bus has its "Next: … · at … · by the timetable, not live" line; whichever kind gets there sooner
+      leads, and the other's fold ("Journeys with one change" or "Direct buses", with its chevron)
+      opens with one thumb. *unchecked*
+- [ ] While the list says "Finding times: … checking the walks between stops…", it clears within a few
+      seconds on mobile data; a "tight" departure reads as a warning, not as a promise. *unchecked*
+- [ ] A changed connection ("Your 256 at … no longer makes the 53 at …"): the offer and **Use this**
+      are reachable and legible with one thumb, and nothing changes until it is pressed. (To provoke
+      one: choose a connection with the walk not yet checked, on a slow connection.) *unchecked*
 - [ ] The two legs, the numbered stops and the walk are readable on the map by day; the second leg's
       dashes and the "2" disc tell it from the first without colour. *unchecked*
 - [ ] Walking Trafford Bar (opp) → Trafford Bar (by): the card's minutes and metres (3 min, about

@@ -80,10 +80,27 @@ def _load(root, name):
         return {}
 
 
-def _trigger(env):
-    """'timer' when systemd's timer started the run, else 'manual' (a person, or a test)."""
+TIMER_FRESH_SECONDS = 600
+
+
+def _trigger(env, now=None):
+    """'timer' when systemd's timer started the run, else 'manual' (a person, or a test). systemd 259 keeps a
+    unit's last activation details, so a run started by hand after a timer's still carries TRIGGER_UNIT naming the
+    timer, with that timer's old elapse time: on 29 September a run started by hand at 16:17 UTC was recorded as
+    the 03:12 timer's, and moved "last scheduled run" with it. A run is the timer's only if the timer elapsed in
+    the ten minutes before it started; without an elapse time (an older systemd), TRIGGER_UNIT alone decides."""
     unit = env.get('TRIGGER_UNIT', '')
-    return 'timer' if unit.endswith('.timer') else 'manual'
+    if not unit.endswith('.timer'):
+        return 'manual'
+    elapsed_us = env.get('TRIGGER_TIMER_REALTIME_USEC')
+    if not elapsed_us:
+        return 'timer'
+    try:
+        started = datetime.fromisoformat(now).timestamp() if now else datetime.now(timezone.utc).timestamp()
+        since = started - int(elapsed_us) / 1e6
+    except (TypeError, ValueError):
+        return 'manual'
+    return 'timer' if -60 <= since <= TIMER_FRESH_SECONDS else 'manual'
 
 
 def outcome(env):
@@ -156,7 +173,7 @@ def start(root, name, now=None, env=None):
     now = now or utc_now()
     with _locked(root):
         state = _load(root, name)
-        attempt = {'startedAt': now, 'trigger': _trigger(env), 'finishedAt': None, 'result': 'running'}
+        attempt = {'startedAt': now, 'trigger': _trigger(env, now), 'finishedAt': None, 'result': 'running'}
         state['lastAttempt'] = attempt
         if attempt['trigger'] == 'timer':
             state['lastScheduledAttemptAt'] = now
@@ -212,7 +229,7 @@ def finish(root, name, now=None, env=None, memory=None):
     memory = unit_memory(JOBS[name]['unit']) if memory is None else memory
     with _locked(root):
         state = _load(root, name)
-        attempt = state.get('lastAttempt') or {'startedAt': None, 'trigger': _trigger(env)}
+        attempt = state.get('lastAttempt') or {'startedAt': None, 'trigger': _trigger(env, now)}
         attempt.update({'finishedAt': now, **outcome(env), **memory})
         state['lastAttempt'] = attempt
         if attempt['result'] == 'succeeded':

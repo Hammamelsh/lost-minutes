@@ -127,6 +127,21 @@ class JobRecordTests(unittest.TestCase):
         jobs.start(self.root, 'refresh', now='2026-10-01T02:43:00+00:00', env={})
         self.assertNotIn('residentPeakBytes', json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())['lastAttempt'])
 
+    def test_a_run_started_by_hand_after_a_timer_s_is_not_the_timer_s(self):
+        # systemd 259 hands a hand-started run the timer's stale activation: TRIGGER_UNIT and the old elapse time.
+        from datetime import datetime
+        elapsed = int(datetime.fromisoformat('2026-09-29T03:12:02+00:00').timestamp() * 1e6)
+        stale = {'TRIGGER_UNIT': 'lost-minutes-arrival-eval.timer', 'TRIGGER_TIMER_REALTIME_USEC': str(elapsed)}
+        self.assertEqual(jobs._trigger(stale, '2026-09-29T03:12:02.448+00:00'), 'timer', 'the timer, as it fires')
+        self.assertEqual(jobs._trigger(stale, '2026-09-29T16:17:39+00:00'), 'manual', 'by hand, thirteen hours on')
+        jobs.start(self.root, 'arrival-eval', now='2026-09-29T03:12:02+00:00', env=stale)
+        jobs.start(self.root, 'arrival-eval', now='2026-09-29T16:17:39+00:00', env=stale)
+        state = json.loads((Path(self.root) / 'data/jobs/arrival-eval.json').read_text())
+        self.assertEqual(state['lastAttempt']['trigger'], 'manual')
+        self.assertEqual(state['lastScheduledAttemptAt'], '2026-09-29T03:12:02+00:00', 'a run by hand moves no schedule')
+        self.assertEqual(jobs._trigger({'TRIGGER_UNIT': 'x.timer', 'TRIGGER_TIMER_REALTIME_USEC': 'garbled'}, '2026-09-29T03:12:02+00:00'), 'manual')
+        self.assertEqual(jobs._trigger({}, '2026-09-29T03:12:02+00:00'), 'manual')
+
     def test_a_step_is_recorded_by_what_it_runs(self):
         py = '/srv/lost-minutes/app/.venv/bin/python'
         self.assertEqual(jobs.step_label([py, '-m', 'pipeline.patterns', 'build']), 'pipeline.patterns build')

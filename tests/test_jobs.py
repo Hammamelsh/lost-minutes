@@ -86,6 +86,16 @@ class JobRecordTests(unittest.TestCase):
         self.assertEqual(read, {'memoryPeakBytes': 1503238553, 'memoryMaxBytes': 1572864000})
         (group / 'memory.max').write_text('max\n')
         self.assertIsNone(jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys')['memoryMaxBytes'])
+        # What the kernel did about it: a ceiling reached by page cache it took back reads apart from one that killed.
+        self.assertNotIn('memoryEvents', jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys'))
+        (group / 'memory.events').write_text('low 0\nhigh 0\nmax 37\noom 0\noom_kill 0\noom_group_kill 0\n')
+        (group / 'memory.pressure').write_text('some avg10=0.00 avg60=0.12 avg300=0.03 total=412337\n'
+                                              'full avg10=0.00 avg60=0.10 avg300=0.02 total=398001\n')
+        read = jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys')
+        self.assertEqual(read['memoryEvents'], {'atCeiling': 37, 'oom': 0, 'oomKills': 0})
+        self.assertEqual(read['memoryStallSeconds'], {'some': 0.412, 'full': 0.398})
+        (group / 'memory.pressure').write_text('garbled\n')
+        self.assertNotIn('memoryStallSeconds', jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys'))
         # From a shell the process is in a session's cgroup: that peak is not the job's, and nothing is read.
         proc.write_text('0::/user.slice/user-1000.slice/session-3.scope\n')
         self.assertEqual(jobs.unit_memory('lost-minutes-refresh.service', proc, self.root / 'sys'), {})

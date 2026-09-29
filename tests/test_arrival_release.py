@@ -12,8 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pipeline import arrival_display as ad  # noqa: E402
+from pipeline import arrival_protocol  # noqa: E402
 
 MODEL = 'blended@9a626129f782'
+DIGEST = arrival_protocol.VERSIONS['display-1']['sourceDigest']
 PATTERN = 'BNML:15:outbound:c9291c1aea'
 SCOPE = {'operator': 'BNML', 'line': '15', 'direction': 'outbound', 'patternIds': [PATTERN], 'model': MODEL,
          'protocol': 'display-1'}
@@ -36,7 +38,7 @@ def journey(key, errors, timetable_errors=None, eligible=None, shown=None, passa
 def entry(day, errors=(0.2, -0.3, 0.8, 1.1, -0.9, 2.0), journeys=4, split=None, **over):
     """A day of display moments: `journeys` journeys, each with these errors (minutes, bus later positive)."""
     js = [journey(f'{day}|{k}', list(errors)) for k in range(journeys)]
-    e = {'day': day, 'protocol': 'display-1', 'model': MODEL, 'stopMapping': 2, 'operator': 'BNML', 'line': '15',
+    e = {'day': day, 'protocol': 'display-1', 'model': MODEL, 'stopMapping': 2, 'sourceDigest': DIGEST, 'operator': 'BNML', 'line': '15',
          'weekday': date.fromisoformat(day).weekday() < 5,
          'split': split or ('confirmation' if day >= '2026-09-29' else 'revision'),
          'directions': {'outbound': {'patternIds': [PATTERN], 'journeys': js}}}
@@ -79,15 +81,20 @@ class ReleaseCheckTests(unittest.TestCase):
         self.assertEqual(v['scopes'], [])
         self.assertEqual([p['direction'] for p in v['awaitingApproval']], ['outbound'])
         self.assertEqual(v['released'], [])
-        # A bare direction approves nothing; the exact scope does, and carries the validated interval.
+        # A bare direction approves nothing, nor does the exact scope without the results it approves; with them
+        # cited, it is released, carrying the validated interval.
         self.assertEqual(self.run_check(entries, {'approved': ['outbound']})['scopes'], [])
-        scopes = self.run_check(entries, {'approved': [SCOPE]})['scopes']
+        self.assertEqual(self.run_check(entries, {'approved': [SCOPE]})['scopes'], [])
+        digest = block['confirmation']['digest']
+        self.assertEqual(v['awaitingApproval'][0]['confirmationDigest'], digest)
+        scopes = self.run_check(entries, {'approved': [{**SCOPE, 'confirmationDigest': digest}]})['scopes']
         self.assertEqual(len(scopes), 1)
         self.assertEqual(scopes[0]['interval']['low'], -1.15)
         self.assertEqual(scopes[0]['interval']['high'], 5.75)
         self.assertEqual(scopes[0]['protocol'], 'display-1')
         for field, value in (('model', 'blended@000000000000'), ('protocol', 'display-0'), ('line', '15A')):
-            self.assertEqual(self.run_check(entries, {'approved': [{**SCOPE, field: value}]})['scopes'], [], field)
+            self.assertEqual(self.run_check(entries, {'approved': [{**SCOPE, 'confirmationDigest': digest, field: value}]})['scopes'],
+                             [], field)
 
     def test_every_criterion_is_read(self):
         cases = {
@@ -117,6 +124,47 @@ class ReleaseCheckTests(unittest.TestCase):
         v = self.run_check(entries, {'approved': [SCOPE]})
         self.assertEqual(sorted(v['skipped']), WINDOW)
         self.assertFalse(v['confirmation']['complete'])
+        self.assertTrue(v['invalid'], 'and the window, scored under something else, is no longer untouched')
+
+    def test_an_approval_written_before_the_results_approves_nothing(self):
+        # Written ahead with a guess, or citing other results: a pass is not released by it.
+        entries = [entry(d) for d in WINDOW]
+        guessed = {**SCOPE, 'confirmationDigest': '0' * 64}
+        self.assertEqual(self.run_check(entries, {'approved': [guessed]})['scopes'], [])
+        other = [entry(d, errors=(0.2, -0.3, 0.8, 1.1, -0.9, 1.9)) for d in WINDOW]
+        other_digest = arrival_protocol.confirmation_digest(other, 'display-1', 'outbound')
+        self.assertNotEqual(other_digest, arrival_protocol.confirmation_digest(entries, 'display-1', 'outbound'),
+                            'one error in one journey changes the digest')
+        self.assertEqual(self.run_check(entries, {'approved': [{**SCOPE, 'confirmationDigest': other_digest}]})['scopes'], [])
+
+    def test_a_window_day_also_scored_under_another_version_makes_the_window_invalid(self):
+        # Every day passes as the frozen version, but one was also scored under a changed model: not untouched.
+        entries = [entry(d) for d in WINDOW] + [entry(WINDOW[2], model='blended@111111111111')]
+        v = self.run_check(entries)
+        block = v['directions']['outbound']
+        self.assertTrue(block['status'].startswith('invalid:'), block['status'])
+        self.assertIn(WINDOW[2], block['status'])
+        self.assertNotIn('checks', block)
+        self.assertEqual((v['scopes'], v['awaitingApproval']), ([], []))
+
+    def test_changed_code_under_the_same_version_makes_every_verdict_invalid(self):
+        # The defining files, one changed by a comment: a changed model or display cannot pass as the frozen one.
+        entries = [entry(d) for d in WINDOW]
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel in arrival_protocol.DEFINING_FILES:
+                target = Path(tmp) / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / rel).read_bytes())
+            with open(Path(tmp) / 'pipeline/arrival_display.py', 'a') as f:
+                f.write('# changed\n')
+            display, out = Path(tmp) / 'display.jsonl', Path(tmp) / 'release.json'
+            display.write_text(''.join(json.dumps(e) + '\n' for e in entries))
+            subprocess.run([sys.executable, str(ROOT / 'scripts/arrival-release-check.py'), '--display', str(display), '--out', str(out),
+                            '--source-root', tmp], check=True, capture_output=True)
+            v = json.loads(out.read_text())
+        self.assertTrue(v['directions']['outbound']['status'].startswith('invalid:'))
+        self.assertIn('a change to the model or the display is a new version', v['directions']['outbound']['status'])
+        self.assertEqual(v['awaitingApproval'], [])
 
     def test_the_shipped_approval_file_approves_nothing_and_the_unit_reads_it(self):
         approval = json.loads((ROOT / 'deploy/arrival-release-approval.json').read_text())

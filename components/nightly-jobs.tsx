@@ -46,12 +46,19 @@ export default function NightlyJobs(){
      <div><dt>Last attempt</dt><dd>{last?.startedAt?<>{stamp(last.startedAt,false)} · {by(last.trigger)} · {judged.status==='failed'?failureWords(last):status.words}</>:'none recorded'}</dd></div>
      <div><dt>Last success</dt><dd>{job.lastSuccess?<>{stamp(job.lastSuccess.at,false)}{job.lastSuccess.trigger==='manual'?' · by hand':''}</>:'none recorded'}</dd></div>
      <div><dt>Last scheduled run</dt><dd>{job.lastScheduledAttemptAt?stamp(job.lastScheduledAttemptAt,false):'none recorded'}{judged.overdue?' · the next was due and has not run':''}</dd></div>
-     {(()=>{const m=memoryHeadroom(job);const n=(x:number)=>x.toLocaleString('en-GB');
-      return <div data-memory={m?(m.tight?'tight':'ok'):'none'} data-memory-basis={m?.basis}><dt>Memory at its peak</dt><dd>{m
-      ?<>{n((m.basis==='resident'?m.residentMB:m.unitMB)!)} MB{m.basis==='resident'?' resident':''}{m.maxMB?` of its ${n(m.maxMB)} MB ceiling (${Math.round((m.share??0)*100)}%)`:''}
-       {m.tight?<strong className="nightly-jobs-tight"> · close to its ceiling</strong>:''}
+     {(()=>{const m=memoryHeadroom(job);const n=(x:number)=>x.toLocaleString('en-GB');const pc=(x:number|null)=>x===null?'':` (${Math.round(x*100)}%)`;
+      // Two figures, never merged: the whole job with the page cache it filled, and its largest single process.
+      // What the kernel did says which kind of peak it was (lib/jobs.ts memoryHeadroom).
+      const kernel=m?[m.atCeiling===null?null:m.atCeiling>0?`held at its ceiling ${n(m.atCeiling)} time${m.atCeiling===1?'':'s'}, the kernel taking back page cache`:'never held at its ceiling',
+       m.oomKills===null&&m.oom===null?null:m.outOfMemory?null:'no OOM',
+       m.stallSeconds===null?null:`waited on memory ${m.stallSeconds<0.1?'under 0.1':m.stallSeconds.toFixed(1)} s`].filter(Boolean):[];
+      return <div data-memory={m?(m.outOfMemory?'oom':m.tight?'tight':'ok'):'none'}><dt>Memory at its peak</dt><dd>{m
+      ?<>{m.unitMB!==null&&<span data-memory-unit>Whole job {n(m.unitMB)} MB{m.maxMB?` of its ${n(m.maxMB)} MB ceiling`:''}{pc(m.unitShare)}, page cache included</span>}
+       {m.residentMB!==null&&<span data-memory-resident>{m.unitMB!==null?'; largest':'Largest'} single process {n(m.residentMB)} MB resident{m.maxMB?pc(m.residentShare):''}</span>}
+       {m.outOfMemory?<strong className="nightly-jobs-tight" data-memory-oom> · out of memory{m.oomKills?`: ${n(m.oomKills)} process${m.oomKills===1?'':'es'} killed`:''}</strong>
+        :m.tight?<strong className="nightly-jobs-tight"> · close to its ceiling</strong>:''}
        <small> · {m.from==='attempt'?'last attempt':'last success'}{m.source==='journal'?', from the journal, rounded':''}
-        {m.basis==='resident'?(m.unitMB?`; the unit’s total, page cache included: ${n(m.unitMB)} MB`:''):'; page cache included'}</small></>
+        {kernel.length?<span data-memory-kernel>; {kernel.join(', ')}</span>:''}</small></>
       :'not recorded yet'}</dd></div>})()}
     </dl>
     {job.seededFrom==='journal'&&<p className="nightly-jobs-note">Attempts before 28 September 2026 were read from the server’s journal; each run records itself from then.</p>}

@@ -5,12 +5,18 @@
  */
 import {z} from 'zod';
 
+/** What the kernel did about a unit's memory in a run (pipeline/jobs.py memory_pressure): held at its ceiling,
+ *  OOM events and kills, and seconds its processes waited on memory. Recorded from 29 September 2026. */
+const pressureSchema={
+ memoryEvents:z.object({atCeiling:z.number(),oom:z.number(),oomKills:z.number()}).partial().nullable().optional(),
+ memoryStallSeconds:z.object({some:z.number(),full:z.number()}).partial().nullable().optional(),
+};
 const attemptSchema=z.object({
  startedAt:z.string().nullable(),finishedAt:z.string().nullable().optional(),
  trigger:z.enum(['timer','manual']).nullable().optional(),result:z.string(),
  serviceResult:z.string().nullable().optional(),exitCode:z.string().nullable().optional(),exitStatus:z.string().nullable().optional(),
  memoryPeakBytes:z.number().nullable().optional(),memoryMaxBytes:z.number().nullable().optional(),
- residentPeakBytes:z.number().nullable().optional(),
+ residentPeakBytes:z.number().nullable().optional(),...pressureSchema,
 });
 const jobSchema=z.object({
  name:z.string(),unit:z.string(),title:z.string(),does:z.string().optional(),schedule:z.string(),
@@ -18,7 +24,7 @@ const jobSchema=z.object({
  lastAttempt:attemptSchema.nullable().optional(),lastScheduledAttemptAt:z.string().nullable().optional(),
  lastSuccess:z.object({at:z.string(),trigger:z.string().nullable().optional(),memoryPeakBytes:z.number().nullable().optional(),
   memoryMaxBytes:z.number().nullable().optional(),memorySource:z.string().nullable().optional(),
-  residentPeakBytes:z.number().nullable().optional()}).nullable().optional(),
+  residentPeakBytes:z.number().nullable().optional(),...pressureSchema}).nullable().optional(),
  lastFailure:z.object({at:z.string().nullable(),trigger:z.string().nullable().optional(),
   serviceResult:z.string().nullable().optional(),exitStatus:z.string().nullable().optional()}).nullable().optional(),
  seededFrom:z.string().nullable().optional(),
@@ -41,30 +47,38 @@ export function failureWords(attempt:{serviceResult?:string|null;exitStatus?:str
 }
 
 /**
- * How close a run came to its memory ceiling, against its MemoryMax. Two figures, from the last attempt that
- * recorded either, else the last success:
- *  - resident: the largest resident set of any of its steps (pipeline/jobs.py `step`), the memory that could
- *    get it killed, and what `tight` is judged on when it is known;
- *  - unit: the unit's own cgroup peak, which also counts page cache the kernel reclaims before it would stop
- *    anything, and which a job reading the 0.9 GB warehouse fills towards its ceiling whatever it needs.
- * `tight` from 85%: the rebuild of 27 September read 1.4G of 1500M as a unit, 1.11 GB of it resident (backlog 39).
+ * A run's memory, as two figures that are never merged, from the last attempt that recorded either, else the last
+ * success:
+ *  - unit: the whole job's own cgroup peak, every process and the page cache it filled. Reading or copying the
+ *    1.15 GB warehouse fills page cache towards the ceiling whatever the job needs, and the kernel takes it back
+ *    before it would stop anything, so a unit at its ceiling is not by itself a job short of memory;
+ *  - resident: the largest resident set of any single process of its steps (pipeline/jobs.py `step`). It is not
+ *    the whole job's use: steps run one after another, and a step's other processes are not in it.
+ * What tells the two situations apart is what the kernel did (recorded from 29 September 2026): how often the unit
+ * was held at its ceiling, its OOM events and kills, and how long its processes waited on memory.
+ * `tight` from 85% of the ceiling, on the resident figure where it is known, else the unit's (the rebuild of
+ * 27 September read 1.4G of 1500M as a unit, 1.11 GB of it in one process; backlog 39). An OOM is always said.
  */
-export type MemoryHeadroom={residentMB:number|null;unitMB:number|null;maxMB:number|null;share:number|null;tight:boolean;
- basis:'resident'|'unit';from:'attempt'|'success';source:string|null};
+export type MemoryHeadroom={residentMB:number|null;unitMB:number|null;maxMB:number|null;
+ residentShare:number|null;unitShare:number|null;
+ atCeiling:number|null;oom:number|null;oomKills:number|null;stallSeconds:number|null;
+ tight:boolean;outOfMemory:boolean;from:'attempt'|'success';source:string|null};
 export function memoryHeadroom(job:NightlyJob):MemoryHeadroom|null{
  const mb=(bytes:number)=>Math.round(bytes/1048576);
  const a=job.lastAttempt,s=job.lastSuccess;
- const pick=a&&(a.residentPeakBytes||a.memoryPeakBytes)
-  ?{resident:a.residentPeakBytes??null,unit:a.memoryPeakBytes??null,max:a.memoryMaxBytes??null,from:'attempt' as const,source:null}
-  :s&&(s.residentPeakBytes||s.memoryPeakBytes)
-   ?{resident:s.residentPeakBytes??null,unit:s.memoryPeakBytes??null,max:s.memoryMaxBytes??null,from:'success' as const,source:s.memorySource??null}
-   :null;
- if(!pick)return null;
- const basis=pick.resident?'resident' as const:'unit' as const;
- const peak=(pick.resident??pick.unit)!;
- const share=pick.max?peak/pick.max:null;
- return {residentMB:pick.resident?mb(pick.resident):null,unitMB:pick.unit?mb(pick.unit):null,maxMB:pick.max?mb(pick.max):null,
-  share,tight:share!==null&&share>=0.85,basis,from:pick.from,source:pick.source};
+ const run=a&&(a.residentPeakBytes||a.memoryPeakBytes)?{...a,from:'attempt' as const,source:null}
+  :s&&(s.residentPeakBytes||s.memoryPeakBytes)?{...s,from:'success' as const,source:s.memorySource??null}:null;
+ if(!run)return null;
+ const max=run.memoryMaxBytes??null,resident=run.residentPeakBytes??null,unit=run.memoryPeakBytes??null;
+ const share=(x:number|null)=>x!==null&&max?x/max:null;
+ const residentShare=share(resident),unitShare=share(unit);
+ const events=run.memoryEvents??null,stall=run.memoryStallSeconds??null;
+ const oom=events?.oom??null,oomKills=events?.oomKills??null;
+ const outOfMemory=(oom??0)>0||(oomKills??0)>0||(run.from==='attempt'&&a?.serviceResult==='oom-kill');
+ const judged=residentShare??unitShare;
+ return {residentMB:resident?mb(resident):null,unitMB:unit?mb(unit):null,maxMB:max?mb(max):null,residentShare,unitShare,
+  atCeiling:events?.atCeiling??null,oom,oomKills,stallSeconds:stall?.some??null,
+  tight:judged!==null&&judged>=0.85,outOfMemory,from:run.from,source:run.source};
 }
 
 export type JobJudgement={

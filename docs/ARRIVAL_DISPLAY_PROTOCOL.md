@@ -109,6 +109,31 @@ not an option.
     Until then it is reported as collecting.
   - Nothing is released by a pass: the owner decides (`deploy/arrival-release-approval.json`).
 
+## Versions, the window and approval (added 29 September 2026, before the first confirmation day was scored)
+
+Nothing that decides a number changed with this: the fixed revision input scores identically.
+
+- **A version is the code that defines it.** `pipeline/arrival_protocol.py` pins `display-1` to:
+  - its model, stop mapping and window;
+  - a SHA-256 of the files that define the model and what a page would show: the frozen parameters, the
+    estimator, the scoring, this protocol's code, the live match, the passages, the stop mapping and the page's
+    own `lib/arrival.ts`.
+
+  `tests/test_arrival_protocol.py` fails when any of those files changes under the same name.
+- **A change is a new version.** A change to the model or the display is a new protocol version with its own
+  confirmation window. That window must be frozen before it opens, and must start after every day any earlier
+  version scored.
+- **The window is untouched.** The nightly scoring keeps one record of a day per version and never replaces
+  another version's. It scores a confirmation day once, and records the digest of the code it ran. The release
+  check calls a version invalid, and proposes nothing, in either case:
+  - its code here is not the frozen code;
+  - a day of its window was scored under anything else.
+- **Results approve nothing.** A passing direction is proposed with `confirmationDigest`, the SHA-256 of its
+  window's own results. It is released only when `deploy/arrival-release-approval.json` names the scope field for
+  field and cites that digest. The digest exists only once the results do, so an approval written beforehand
+  approves nothing.
+- **6 October is a results date.** The confirmation's results are read then; nothing is released by them.
+
 ## Revision results under this protocol, for the record (21–26 September)
 
 These decide nothing and are not confirmation. The six full days held on the server's copy (five

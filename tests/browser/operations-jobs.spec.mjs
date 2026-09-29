@@ -49,8 +49,9 @@ test('each nightly job says its last attempt, who started it, how it ended, its 
   await expect(rebuild).toContainText('read from the server’s journal');
   // How close its last success came to its memory ceiling: 1.4G of 1500M, said to be close, and whence.
   await expect(rebuild.locator('[data-memory]')).toHaveAttribute('data-memory', 'tight');
-  await expect(rebuild.locator('[data-memory]')).toContainText('1,434 MB of its 1,500 MB ceiling (96%) · close to its ceiling');
-  await expect(rebuild.locator('[data-memory]')).toContainText('last success, from the journal, rounded; page cache included');
+  await expect(rebuild.locator('[data-memory]')).toContainText('Whole job 1,434 MB of its 1,500 MB ceiling (96%), page cache included · close to its ceiling');
+  await expect(rebuild.locator('[data-memory]')).toContainText('last success, from the journal, rounded');
+  await expect(rebuild.locator('[data-memory-resident]')).toHaveCount(0);   // not recorded then, so not claimed
   // The evaluation: run by hand an hour ago and succeeded, but its timer has not run for 30 h: overdue,
   // because a run by hand does not stand for the schedule.
   const evaluation = section.locator('[data-job="arrival-eval"]');
@@ -82,17 +83,25 @@ test('with no job record published, the view says so in place and the rest of Op
   await expect(page.getByRole('tab', {name: 'Operations'})).toHaveAttribute('aria-selected', 'true');
 });
 
-test('with its steps’ resident peaks recorded, a job is judged on them, and the unit’s total with page cache is said beside', async ({page}) => {
-  // The rebuild of 30 September onwards records each step's own resident peak (pipeline/jobs.py step): here the
-  // 654 MB measured at DuckDB's 512 MB limit, against a unit total that page cache takes near the ceiling.
+test('the whole job and its largest process are said apart, with what the kernel did, and an OOM is always said', async ({page}) => {
+  // The rebuild of 29 September: the whole job at its ceiling with page cache, its largest process 599 MB resident.
+  // Neither stands for the other; the kernel's own account says the ceiling was page cache it took back.
   const now = Date.now(), MB = 1048576;
   await open(page, [job('refresh', {lastAttempt: {startedAt: iso(now - 2 * HOUR), finishedAt: iso(now - 2 * HOUR + 60_000), trigger: 'timer',
-    result: 'succeeded', serviceResult: 'success', memoryPeakBytes: 1450 * MB, memoryMaxBytes: 1500 * MB, residentPeakBytes: 654 * MB},
-  lastScheduledAttemptAt: iso(now - 2 * HOUR), lastSuccess: {at: iso(now - 2 * HOUR + 60_000), trigger: 'timer'}}), job('arrival-eval', {})]);
+    result: 'succeeded', serviceResult: 'success', memoryPeakBytes: 1500 * MB, memoryMaxBytes: 1500 * MB, residentPeakBytes: 599 * MB,
+    memoryEvents: {atCeiling: 37, oom: 0, oomKills: 0}, memoryStallSeconds: {some: 0.41, full: 0.39}},
+  lastScheduledAttemptAt: iso(now - 2 * HOUR), lastSuccess: {at: iso(now - 2 * HOUR + 60_000), trigger: 'timer'}}),
+  job('arrival-eval', {lastAttempt: {startedAt: iso(now - HOUR), finishedAt: iso(now - HOUR + 60_000), trigger: 'timer',
+    result: 'failed', serviceResult: 'oom-kill', memoryPeakBytes: 1500 * MB, memoryMaxBytes: 1500 * MB, residentPeakBytes: 1400 * MB,
+    memoryEvents: {atCeiling: 120, oom: 1, oomKills: 1}}, lastScheduledAttemptAt: iso(now - HOUR)})]);
   const memory = page.locator('[data-job="refresh"] [data-memory]');
   await expect(memory).toHaveAttribute('data-memory', 'ok');
-  await expect(memory).toHaveAttribute('data-memory-basis', 'resident');
-  await expect(memory).toContainText('654 MB resident of its 1,500 MB ceiling (44%)');
-  await expect(memory).toContainText('the unit’s total, page cache included: 1,450 MB');
+  await expect(memory.locator('[data-memory-unit]')).toHaveText('Whole job 1,500 MB of its 1,500 MB ceiling (100%), page cache included');
+  await expect(memory.locator('[data-memory-resident]')).toHaveText('; largest single process 599 MB resident (40%)');
+  await expect(memory.locator('[data-memory-kernel]')).toHaveText('; held at its ceiling 37 times, the kernel taking back page cache, no OOM, waited on memory 0.4 s');
   await expect(memory).not.toContainText('close to its ceiling');
+  const killed = page.locator('[data-job="arrival-eval"] [data-memory]');
+  await expect(killed).toHaveAttribute('data-memory', 'oom');
+  await expect(killed.locator('[data-memory-oom]')).toHaveText(' · out of memory: 1 process killed');
+  await expect(page.locator('[data-job="arrival-eval"]')).toContainText('failed: out of memory');
 });

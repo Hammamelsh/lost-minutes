@@ -17,6 +17,21 @@ Status words: **unchecked** (nobody has held a phone), **passed**, **failed** (w
       first map paint: ____ s. (Emulation: 2–4 s on a fast connection; a slow tile is waited for up
       to 40 s and the simple map is offered after 3 s.)
 
+## Five minutes, if that is all there is (29 September 2026)
+
+On mobile data, in daylight, on the served site. One minute each; write what was seen beside each.
+
+- [ ] **A shared bus link.** On the site, choose any moving bus, then Share, and open the link in a new tab. Is the
+      map drawn within about 3 s, and is no "Drawing the map…" note left over it? *unchecked*
+- [ ] **The ride.** Ride along. Does the bus move steadily, without hops, for a minute? Drag the map, then
+      **Return to bus**: does it glide back? *unchecked*
+- [ ] **The front view**, where offered. Choose Front view. Does the view settle into the street without a lurch
+      at the end of its glide? Then Outside view. *unchecked*
+- [ ] **The sheet.** Leave the ride, and drag the sheet to full and back. Search a stop with the keyboard open:
+      are the matches above the keyboard? Turn the phone on its side and back. *unchecked*
+- [ ] **Operations** (Behind the data). Do both nightly jobs read *scheduled · succeeded*, each with its whole job
+      and its largest single process? Does Back return you to your bus? *unchecked*
+
 ## Location and the walk (needs a real GPS fix)
 
 - [ ] **Buses near me** on a street: the nearest stops are the right ones, on the right side of the

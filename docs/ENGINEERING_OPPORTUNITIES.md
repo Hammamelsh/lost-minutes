@@ -2276,6 +2276,12 @@ needed.
 **Next cheap step.** Run the passage audit and the rebuild each five times on the server's copy and compare.
 Status: `observed`.
 
+**29 September, the reproduction.** `scripts/probes/duckdb-inprocess.py` is a first version of the script: a fixed
+input, one trial per fresh process, any interpreter, results judged by SHA-256. It ran the failing evaluation 131
+times without a failure (backlog 43). Rebuilding the failing run needed its code, which had never been committed
+and was recovered from the session record. So a result that is recorded should keep the exact code that produced
+it, which the arrival scoring now does (`sourceDigest`). Status: `script built; the failure not reproduced`.
+
 
 ## 72. A camera step no sample from outside the page can see
 

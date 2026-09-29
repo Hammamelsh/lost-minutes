@@ -44,24 +44,31 @@ test('the published record is validated: a wrong shape is refused, not half-show
  assert.ok(HOUR>0);
 });
 
-test('memory headroom is the last recorded peak against its ceiling, and tight from 85%', async () => {
+test('memory is two figures never merged, the whole job and its largest process, with what the kernel did', async () => {
  const {memoryHeadroom} = await import('../lib/jobs.ts');
  const MB = 1048576;
  const rebuilt = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1434 * MB, memoryMaxBytes: 1500 * MB}});
- assert.deepEqual(memoryHeadroom(rebuilt), {residentMB: null, unitMB: 1434, maxMB: 1500, share: 1434 / 1500, tight: true,
-  basis: 'unit', from: 'attempt', source: null});
- // With its steps' resident peaks recorded, those are what closeness is judged on; the unit's total, page cache
- // and all, is still said beside them.
- const stepped = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1434 * MB,
-  memoryMaxBytes: 1500 * MB, residentPeakBytes: 654 * MB}});
+ assert.deepEqual(memoryHeadroom(rebuilt), {residentMB: null, unitMB: 1434, maxMB: 1500, residentShare: null, unitShare: 1434 / 1500,
+  atCeiling: null, oom: null, oomKills: null, stallSeconds: null, tight: true, outOfMemory: false, from: 'attempt', source: null});
+ // The rebuild of 29 September: the whole job at its ceiling, page cache and all; its largest process 599 MB. Both
+ // are kept, and closeness is judged on the process: the page cache is what the kernel takes back first.
+ const stepped = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'succeeded', memoryPeakBytes: 1500 * MB,
+  memoryMaxBytes: 1500 * MB, residentPeakBytes: 599 * MB,
+  memoryEvents: {atCeiling: 37, oom: 0, oomKills: 0}, memoryStallSeconds: {some: 0.41, full: 0.39}}});
  const m = memoryHeadroom(stepped);
- assert.equal(m.basis, 'resident');
- assert.equal(m.residentMB, 654);
- assert.equal(m.unitMB, 1434);
- assert.equal(m.tight, false, '654 of 1,500 is not close');
+ assert.equal(m.residentMB, 599);
+ assert.equal(m.unitMB, 1500);
+ assert.equal(m.unitShare, 1);
+ assert.equal(m.tight, false, '599 of 1,500 in one process is not close');
+ assert.deepEqual([m.atCeiling, m.oom, m.oomKills, m.stallSeconds, m.outOfMemory], [37, 0, 0, 0.41, false]);
+ // An OOM is always said, whatever the peaks read.
+ const killed = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'failed', serviceResult: 'oom-kill',
+  memoryPeakBytes: 1500 * MB, memoryMaxBytes: 1500 * MB, residentPeakBytes: 700 * MB, memoryEvents: {atCeiling: 90, oom: 1, oomKills: 1}}});
+ assert.equal(memoryHeadroom(killed).outOfMemory, true);
  const seeded = job({lastAttempt: {startedAt: 'x', trigger: 'timer', result: 'failed'},
   lastSuccess: {at: 'y', trigger: 'timer', memoryPeakBytes: 700 * MB, memoryMaxBytes: 1500 * MB, memorySource: 'journal'}});
  assert.equal(memoryHeadroom(seeded).from, 'success');
  assert.equal(memoryHeadroom(seeded).tight, false);
+ assert.equal(memoryHeadroom(seeded).atCeiling, null, 'not recorded then: not claimed');
  assert.equal(memoryHeadroom(job()), null, 'nothing recorded: nothing claimed');
 });

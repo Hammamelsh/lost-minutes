@@ -97,7 +97,8 @@ def outcome(env):
 def unit_memory(unit, proc_cgroup='/proc/self/cgroup', cgroup_root='/sys/fs/cgroup'):
     """The unit's own memory peak and ceiling in bytes, read from inside its cgroup: ExecStopPost runs
     there, so after the job the peak is the whole run's. Nothing when this is not that unit's cgroup (a
-    run from a shell is in a session's, whose peak is not the job's), or when it cannot be read."""
+    run from a shell is in a session's, whose peak is not the job's), or when it cannot be read. With it,
+    what the kernel did about that memory (`memory_pressure`)."""
     try:
         group = next(line.split(':', 2)[2] for line in Path(proc_cgroup).read_text().splitlines()
                      if line.startswith('0::'))
@@ -106,9 +107,37 @@ def unit_memory(unit, proc_cgroup='/proc/self/cgroup', cgroup_root='/sys/fs/cgro
         base = Path(cgroup_root) / group.strip('/')
         peak = int((base / 'memory.peak').read_text().split()[0])
         ceiling = (base / 'memory.max').read_text().strip()
-        return {'memoryPeakBytes': peak, 'memoryMaxBytes': None if ceiling == 'max' else int(ceiling)}
+        return {'memoryPeakBytes': peak, 'memoryMaxBytes': None if ceiling == 'max' else int(ceiling),
+                **memory_pressure(base)}
     except (OSError, ValueError, IndexError, StopIteration):
         return {}
+
+
+def memory_pressure(base):
+    """What the kernel did about a unit's memory during its run, from the unit's own cgroup: how often it was
+    held at its ceiling (the kernel reclaiming, page cache first), its OOM events and OOM kills
+    (`memory.events`), and how long its processes waited on memory (`memory.pressure`, `some` for any of them,
+    `full` for all at once, in seconds). The unit's peak alone cannot tell a ceiling reached by page cache the
+    kernel took back from one that stalled or killed the job. Anything unreadable is left out, never guessed."""
+    found = {}
+    try:
+        events = dict(line.split()[:2] for line in (base / 'memory.events').read_text().splitlines() if line.strip())
+        found['memoryEvents'] = {'atCeiling': int(events.get('max', 0)), 'oom': int(events.get('oom', 0)),
+                                 'oomKills': int(events.get('oom_kill', 0))}
+    except (OSError, ValueError):
+        pass
+    try:
+        stalls = {}
+        for line in (base / 'memory.pressure').read_text().splitlines():
+            kind, *fields = line.split()
+            total = dict(field.split('=', 1) for field in fields).get('total')
+            if total is not None:
+                stalls[kind] = round(int(total) / 1e6, 3)
+        if stalls:
+            found['memoryStallSeconds'] = stalls
+    except (OSError, ValueError):
+        pass
+    return found
 
 
 def parse_size(text):

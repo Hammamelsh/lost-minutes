@@ -514,7 +514,16 @@ build: 1,107–1,117 MB resident. At `LM_DB_MEMORY_LIMIT=512MB` the same inputs 
 byte-identical catalogue, 5 s sooner; capping glibc's arenas made no difference. The unit's ceiling is
 unchanged, and the peak no longer grows with the warehouse. Each step's resident peak is now recorded and
 shown in Operations beside the unit's total, which counts page cache
-(`docs/MILESTONE_2026-09-29_CORRECTIONS.md` §4). Kept below for the record:
+(`docs/MILESTONE_2026-09-29_CORRECTIONS.md` §4).
+
+**The first scheduled run on it (29 September):** no OOM event in its journal. Its largest single process, the
+timetable build, peaked at 599 MB resident. The whole job, with the page cache the 1.15 GB warehouse copy
+filled, reached its 1,500 MB ceiling; the kernel takes that cache back first. The 599 MB is one process, not the
+job's use.
+
+How much the job waited on memory then is unknown: a unit's counters go with its cgroup. From 30 September
+each run records them (`memory.events`, `memory.pressure`), and Operations says both figures by name
+(`docs/MILESTONE_2026-09-29_CLOSEOUT.md` §3). Kept below for the record:
 
 
 The server's journal gives the rebuild of 27 September a **1.4G memory peak** over 4 min 12 s, against
@@ -578,26 +587,33 @@ yet scored by the current model (the nightly file is already keyed by day and mo
 pooled errors compactly (a fine histogram per direction keeps the quantiles to 0.01 min). Until then,
 Operations shows each night's peak against its ceiling.
 
-## 43. The DuckDB extension corrupts memory in a Python 3.14 process that also computes heavily
+## 43. Failures with DuckDB and heavy Python computation in one process: seen once, not reproduced
 
-**Evidence (28 September 2026).** The display evaluation, reading a warehouse copy with DuckDB 1.5.5 on
-Python 3.14.4 and then scoring in the same process, failed at random in 4 of 17 runs: a float met where a
-range iterator was expected, "'float' object is not an iterator", `max` not found as a builtin, and a
-segmentation fault. The failures always came inside pure-Python arithmetic, with the connection open or
-closed first. With DuckDB never loaded, 12 of 12 runs succeeded, byte-identical. The successful in-process
-runs agreed with them too, so no wrong number was seen, but a corruption that can crash can also mislead.
+**Seen (28 September 2026).** The display evaluation read a warehouse copy with DuckDB 1.5.5 on Python 3.14.4 and
+scored in the same process. It failed at random in 4 of 17 runs: a float where a range iterator was expected,
+"'float' object is not an iterator", `max` not found as a builtin, and a segmentation fault. With DuckDB never
+loaded, 12 of 12 ran identically.
 
-**Mitigated where it was found:** the evaluation reads the warehouse in one process and scores in another,
-behind a guard that stops any use of DuckDB (`scripts/extract-arrival-inputs.py`,
-`scripts/evaluate-arrival-display.py`).
+**Investigated (29 September; `docs/MILESTONE_2026-09-29_CLOSEOUT.md` §2).**
+- The exact failing code, on the same input, the same interpreter build and extension, ran 131 times in fresh
+  processes without one failure or wrong result:
+  - as it ran;
+  - under the debug allocator;
+  - with the CPUs saturated;
+  - on DuckDB 1.5.6;
+  - on Python 3.12.
+- The results were byte-identical everywhere.
+- 4 in 17 against 0 in 12 is itself weak evidence, about 1 in 10 by chance.
+- DuckDB is implicated by association, not shown as the cause.
 
-**Still exposed:** every other job that computes in a process with DuckDB loaded. That means the collector,
-the rebuild, the passage audit and the anchor, and the old evaluator, which is no longer nightly. None has
-failed this way, and their repeated outputs have matched, but that is not proof.
+**Kept:** the evaluation's two processes (`scripts/extract-arrival-inputs.py`, `scripts/evaluate-arrival-display.py`
+behind a guard). No dependency change, since there is no failure to verify one against.
 
-**Next, cheap:** run the reproduction against a DuckDB release with Python 3.14 fixes, or Python 3.13,
-before changing a dependency. It is the owner's decision. `docs/MILESTONE_2026-09-29_CORRECTIONS.md` §3
-has the runs.
+**Still exposed:** the jobs that compute with DuckDB loaded (the collector, the rebuild, the passage audit, the
+anchor). Their crashes are loud and recorded; a silent wrong value would not be caught, and none has been seen.
+
+**Next:** run `scripts/probes/duckdb-inprocess.py` before any Python or DuckDB change, and again if a nightly job
+ever fails without a cause.
 
 ## 44. A shared bus link sometimes says "Drawing the map…" for 25 s over a drawn map — fixed 29 September 2026
 

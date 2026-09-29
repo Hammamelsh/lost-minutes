@@ -8,7 +8,10 @@ with an error rather than running.
 
 Each extracted day not yet scored under this protocol, model and stop mapping is scored once and kept in the
 nightly file; a night costs a day, not the whole warehouse. Days before CONFIRMATION_FROM are `revision` (seen
-while the approach was being chosen); from it they are `confirmation`, untouched until scored here.
+while the approach was being chosen); from it they are `confirmation`, untouched until scored here. Each day's
+record carries the digest of the code it was scored with (pipeline/arrival_protocol.py), a day is kept once for
+each version that scored it, so no version's record is ever replaced by another's, and a confirmation day is
+scored once.
 
     .venv/bin/python scripts/evaluate-arrival-display.py --inputs data/evaluation/arrival-display-inputs.pkl \\
         [--out data/evaluation/arrival-display-nightly.jsonl] [--rescore]
@@ -38,6 +41,7 @@ from zoneinfo import ZoneInfo  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from pipeline import arrival_display as ad  # noqa: E402
+from pipeline import arrival_protocol  # noqa: E402
 from pipeline.match import match_vehicle  # noqa: E402
 from pipeline.passages import infer_passages, load_track  # noqa: E402
 from pipeline.patterns import _departure_info  # noqa: E402
@@ -54,7 +58,7 @@ ev = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ev)
 
 
-def score_day(day, data, inputs, patterns, tracks, dep_info, params, cruise_by, model):
+def score_day(day, data, inputs, patterns, tracks, dep_info, params, cruise_by, model, source_digest=None):
     """One service day's entry: every journey whose first passage falls on it, scored display moment by moment."""
     matchable = inputs['matchable']
     cache, reports = {}, defaultdict(list)
@@ -65,7 +69,7 @@ def score_day(day, data, inputs, patterns, tracks, dep_info, params, cruise_by, 
             cache[ck] = match_vehicle({'operator': inputs['operator'], 'route': inputs['line'], 'direction': direction,
                                        'destination': destination, 'lat': lat, 'lon': lon}, matchable, sday)
         reports[(direction, f'{vehicle}|{aimed}')].append((t, lat, lon, retrieved, cache[ck]))
-    entry = {'day': day, 'protocol': ad.PROTOCOL, 'model': model, 'stopMapping': MAPPING_VERSION,
+    entry = {'day': day, 'protocol': ad.PROTOCOL, 'model': model, 'stopMapping': MAPPING_VERSION, 'sourceDigest': source_digest,
              'operator': inputs['operator'], 'line': inputs['line'], 'scoredAt': datetime.now(LONDON).isoformat(),
              'weekday': datetime.fromisoformat(day).weekday() < 5,
              'split': 'confirmation' if day >= CONFIRMATION_FROM else 'revision', 'directions': {}}
@@ -107,14 +111,17 @@ def main():
     frozen = json.loads(frozen_bytes)
     model = 'blended@' + hashlib.sha256(frozen_bytes).hexdigest()[:12]
     out = Path(a.out)
-    kept = {}
+    digest = arrival_protocol.source_digest()
+    mine = (ad.PROTOCOL, model, MAPPING_VERSION, digest)
+    kept = {}                      # (day, what it was scored under) -> its record: one per version, none replaced
     if out.exists():
         for line in out.read_text().splitlines():
             if line.strip():
                 e = json.loads(line)
-                kept[e['day']] = e
-    same = lambda e: (e.get('protocol'), e.get('model'), e.get('stopMapping')) == (ad.PROTOCOL, model, MAPPING_VERSION)
-    todo = [d for d in sorted(inputs['days']) if a.rescore or d not in kept or not same(kept[d])]
+                kept[(e['day'], arrival_protocol.identity(e))] = e
+    # Scored under this protocol, model and stop mapping already, with or without the digest it was recorded with.
+    done = {d for (d, ident) in kept if ident[:3] == mine[:3]}
+    todo = [d for d in sorted(inputs['days']) if d not in done or (a.rescore and d < CONFIRMATION_FROM)]
     if not todo:
         print(json.dumps({'scored': [], 'note': 'nothing extracted that is not already scored under this protocol'}))
         return
@@ -123,15 +130,16 @@ def main():
     tracks = {pid: load_track(pid, p['stops']) for pid, p in patterns.items()}
     dep_info = {pid: _departure_info(text) for pid, text in inputs['depInfo']}
     for day in todo:
-        entry = score_day(day, inputs['days'][day], inputs, patterns, tracks, dep_info, frozen['params'], frozen['cruise'], model)
-        kept[day] = entry
+        entry = score_day(day, inputs['days'][day], inputs, patterns, tracks, dep_info, frozen['params'], frozen['cruise'], model,
+                          digest)
+        kept[(day, mine)] = entry
         print(json.dumps({'day': day, 'split': entry['split'],
                           'journeys': {d: len(v['journeys']) for d, v in entry['directions'].items()},
                           'displayMoments': {d: sum(sum(c for _, c in j['signed']) for j in v['journeys'])
                                              for d, v in entry['directions'].items()}}))
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(''.join(json.dumps(kept[d]) + '\n' for d in sorted(kept)))
-    print(f'{out} now holds {len(kept)} day(s)')
+    out.write_text(''.join(json.dumps(kept[k]) + '\n' for k in sorted(kept, key=lambda k: (k[0], json.dumps(k[1])))))
+    print(f"{out} now holds {len({d for d, _ in kept})} day(s), {len(kept)} record(s)")
 
 
 if __name__ == '__main__':

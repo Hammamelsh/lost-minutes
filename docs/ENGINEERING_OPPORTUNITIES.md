@@ -2277,10 +2277,11 @@ needed.
 Status: `observed`.
 
 **29 September, the reproduction.** `scripts/probes/duckdb-inprocess.py` is a first version of the script: a fixed
-input, one trial per fresh process, any interpreter, results judged by SHA-256. It ran the failing evaluation 131
-times without a failure (backlog 43). Rebuilding the failing run needed its code, which had never been committed
+input, one trial per fresh process, any interpreter, results judged by SHA-256. It ran the recovered failing
+evaluation in 131 trials across seven configurations without a failure, on the inputs still available (backlog
+43). Rebuilding the failing run needed its code, which had never been committed
 and was recovered from the session record. So a result that is recorded should keep the exact code that produced
-it, which the arrival scoring now does (`sourceDigest`). Status: `script built; the failure not reproduced`.
+it, which the arrival scoring now does (`sourceDigest`). Status: `script built; not reproduced with the recovered code and available inputs, cause unresolved`.
 
 
 ## 72. A camera step no sample from outside the page can see

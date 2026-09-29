@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43's failures not reproduced in 131 trials, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -30,10 +30,12 @@ journey change and fixed, and the view from above kept private behind a password
 
 - **29 September, afternoon — a bounded reliability close-out** (`docs/MILESTONE_2026-09-29_CLOSEOUT.md`).
   - **Shared links by day:** 48 served loads with 602 buses in the publication, all drawn in 2.1–3.1 s.
-  - **Backlog 43, not reproduced:** the exact failing evaluator on the same input and runtime ran 131 times in
-    fresh processes, as run, under the debug allocator, contended, on DuckDB 1.5.6 and on Python 3.12, without
-    one failure or wrong result. The association of 28 September (4 in 17 against 0 in 12) was weak in itself
-    (p ≈ 0.10). Containment kept; no dependency changed; the probe is `scripts/probes/duckdb-inprocess.py`.
+  - **Backlog 43, not reproduced with the recovered code and the available fixed inputs; cause unresolved.**
+    - The snapshot it failed on was rewritten that evening and is not available.
+    - The recovered failing evaluator ran in 131 fresh-process trials across seven configurations without a failure
+      or a wrong result: as run, under the debug allocator, contended, on DuckDB 1.5.6, and on Python 3.12.
+    - DuckDB remains suspected from one evening's runs, not shown to be the cause.
+    - Containment kept; no dependency changed; the probe is `scripts/probes/duckdb-inprocess.py`.
   - **Memory:**
     - Operations names the whole job's total, page cache included, and its largest single process's resident
       set, and never merges them.

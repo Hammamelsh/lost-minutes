@@ -19,9 +19,9 @@ confirmation results are read, not a release date.
 
 - **Shared links by day:** 48 served loads of four bus links, with 602 buses in the publication, were drawn in
   2.1–3.1 s. None was stuck.
-- **Backlog 43:** the evaluation that failed on 28 September, run 131 times on the same input and runtime (and
-  on DuckDB 1.5.6 and Python 3.12), never failed. DuckDB is implicated by association, not shown as the cause.
-  The two-process containment stays, and no dependency changed.
+- **Backlog 43:** not reproduced with the recovered code and the fixed inputs still available (the snapshot it
+  failed on is not), across 131 trials in seven configurations, DuckDB 1.5.6 and Python 3.12 among them; the cause
+  is unresolved. The two-process containment stays, and no dependency changed.
 - **Memory, both figures:**
   - Operations names the whole job, page cache included, and its largest single process, and never merges
     them.

@@ -31,11 +31,15 @@ No failure, so nothing to fix.
 random: 4 of 17 runs, with a builtin not found, objects of the wrong type, and a segmentation fault. With DuckDB
 never loaded, 0 of 12 failed. The evaluation has run in two processes since.
 
-**Reproduced on a fixed input, one trial per fresh process** (`scripts/probes/duckdb-inprocess.py`). Each trial's
-result is judged by its exit and by the SHA-256 of what it scored, so a silent wrong answer counts as a failure too.
-- **The input:**
-  - the warehouse copy the failures ran on, its SHA-256 `8df90238…` as held since 20:37 UTC on 28 September
-    (the evening's later runs rewrote it, so its state at 19:09 cannot be recovered);
+**Tried again on recovered code and the fixed inputs still available, one trial per fresh process**
+(`scripts/probes/duckdb-inprocess.py`). Each trial's result is judged by its exit and by the SHA-256 of what it
+scored, so a silent wrong answer counts as a failure too.
+- **The input, and what was not available:**
+  - **The warehouse snapshot the failures actually ran on is not available.** The same file was rewritten by the
+    evening's later runs (it changed at 20:37 UTC on 28 September), so its state at 19:09 cannot be recovered.
+  - The trials used that file as held since 20:37 (SHA-256 `8df90238…`), in a working copy.
+  - The rest was unchanged: the extracted inputs `339e1710…`, the passages the evaluator then read, the
+    catalogue `31d5453e…`, and the frozen parameters `9a626129…`;
   - the extracted inputs `339e1710…`, the passages the evaluator then read, the catalogue `31d5453e…`, and the
     frozen parameters `9a626129…`;
   - seven service days, 20–26 September.
@@ -55,16 +59,19 @@ result is judged by its exit and by the SHA-256 of what it scored, so a silent w
 | today's extraction then scoring, in one process | 3.14.4, DuckDB 1.5.5 | as run | 20 | 0 | 0 |
 | split, DuckDB never loaded (production) | 3.14.4, DuckDB 1.5.5 | as run | 11 | 0 | 0 |
 
-All 131 scored the same, byte for byte, on every runtime.
+The 131 trials are seven configurations, not one repeated 131 times. The most in any single configuration
+was 40. All of them scored the same, byte for byte, on every runtime.
 
 **What the evidence says.**
-- **Not reproduced.** The code, the interpreter, the extension and the input that failed on 28 September, run
-  131 times, did not fail once, loaded or contended.
-- **The association was weak in itself.** 4 failures in 17 with DuckDB against 0 in 12 without would fall that
-  way by chance about 1 time in 10 (p ≈ 0.10).
-- **So DuckDB is implicated by association on one evening, not shown to be the cause.** The symptoms (a builtin
-  not found, a wrong type, a segmentation fault) are those of memory corrupted by native code. Which code did it,
-  and what that evening had that today does not, is unknown.
+- **Not reproduced with the recovered code and the available fixed inputs; the cause is unresolved.** None of the
+  seven configurations failed or gave a wrong result. That does not show the failure cannot recur:
+  - the snapshot it ran on is not the one tried;
+  - whatever else that evening had is unknown.
+- **DuckDB remains suspected, not shown to be the cause.** On 28 September, failures came only in runs with it
+  loaded (4 of 17, against 0 of 12 without). That is one evening's observation, too few runs to establish a
+  cause.
+- **The symptoms** (a builtin not found, a wrong type, a segmentation fault) are those of memory corrupted by
+  native code. Which code, and what that evening had, is unknown.
 - **DuckDB 1.5.6's release notes** have nothing on Python 3.14, reference counting or memory: its Python notes
   name a numpy deprecation and an alias.
 

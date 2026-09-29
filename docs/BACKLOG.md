@@ -587,7 +587,7 @@ yet scored by the current model (the nightly file is already keyed by day and mo
 pooled errors compactly (a fine histogram per direction keeps the quantiles to 0.01 min). Until then,
 Operations shows each night's peak against its ceiling.
 
-## 43. Failures with DuckDB and heavy Python computation in one process: seen once, not reproduced
+## 43. Failures with DuckDB and heavy Python computation in one process: not reproduced, cause unresolved
 
 **Seen (28 September 2026).** The display evaluation read a warehouse copy with DuckDB 1.5.5 on Python 3.14.4 and
 scored in the same process. It failed at random in 4 of 17 runs: a float where a range iterator was expected,
@@ -595,16 +595,18 @@ scored in the same process. It failed at random in 4 of 17 runs: a float where a
 loaded, 12 of 12 ran identically.
 
 **Investigated (29 September; `docs/MILESTONE_2026-09-29_CLOSEOUT.md` §2).**
-- The exact failing code, on the same input, the same interpreter build and extension, ran 131 times in fresh
-  processes without one failure or wrong result:
+- **Not reproduced with the recovered code and the available fixed inputs; the cause is unresolved.** The
+  warehouse snapshot the failures ran on is not available: the same file was rewritten later that evening.
+- The recovered failing code, on the inputs still held and the same interpreter build and extension, ran in
+  131 fresh-process trials across seven configurations without one failure or wrong result:
   - as it ran;
   - under the debug allocator;
   - with the CPUs saturated;
   - on DuckDB 1.5.6;
   - on Python 3.12.
 - The results were byte-identical everywhere.
-- 4 in 17 against 0 in 12 is itself weak evidence, about 1 in 10 by chance.
-- DuckDB is implicated by association, not shown as the cause.
+- DuckDB remains suspected, from one evening's runs (failures only with it loaded, 4 of 17 against 0 of 12), not
+  shown to be the cause.
 
 **Kept:** the evaluation's two processes (`scripts/extract-arrival-inputs.py`, `scripts/evaluate-arrival-display.py`
 behind a guard). No dependency change, since there is no failure to verify one against.

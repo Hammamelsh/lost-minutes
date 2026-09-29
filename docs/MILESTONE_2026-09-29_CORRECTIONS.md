@@ -174,7 +174,8 @@ unchanged at 1500M.
 **Operations now shows what can kill a job.** Each step records its own resident peak
 (`python -m pipeline.jobs step`), shown first, with the unit's total beside it. That total includes page
 cache, which reading or copying the warehouse (1.15 GB on 28 September) fills towards the ceiling whatever the
-job needs: the scheduled rebuild of 29 September reached it exactly, at 599 MB resident.
+job needs: the scheduled rebuild of 29 September reached it exactly, while its largest single process peaked at
+599 MB resident.
 
 **The evaluation's growth, solved rather than proposed:**
 - a day is scored once, and a night costs the new days;
@@ -204,7 +205,8 @@ job needs: the scheduled rebuild of 29 September reached it exactly, at 599 MB r
 - **The closed service.** On 29 September its 4 trips along its own stops are offered by no planner, and would
   all be offered were it declared open (`scripts/probes/closed-served.mjs`, on the served catalogue).
 - **Memory.**
-  - 599 MB resident at its peak, in the timetable build, of the 1,500 MB ceiling (40%). By hand on 28
+  - The whole job, page cache included, reached its 1,500 MB ceiling. Its largest single process, the timetable
+    build, peaked at 599 MB resident (40% of the ceiling): one process, not the job's whole use. By hand on 28
     September at the same DuckDB limit it was 654 MB; the last scheduled success before, on 27 September,
     showed 1.4 GB for the unit's total.
   - The unit's own total, page cache included, reached the ceiling itself (1,500 MB) as the warehouse was
@@ -222,8 +224,8 @@ and **succeeded**:
 - **What it scored.** It extracted the two complete days not yet scored, 27 and 28 September, from the copy the
   rebuild had just made, and scored them as revision days, which decide nothing. The nightly file holds 16
   days.
-- **Memory.** 418 MB resident at its peak, in the passage audit, of the 1,500 MB ceiling (28%); the unit's
-  total was 598 MB.
+- **Memory.** The whole job, page cache included, peaked at 598 MB; its largest single process, the passage
+  audit, at 418 MB resident (28% of the ceiling).
 - **Its steps:** extraction 2.0 s, scoring 21.3 s (DuckDB never loaded), passage audit 35.6 s, schedule anchor
   2.2 s, release check 1.8 s.
 - **The verdict:** collecting, 0 of 7 confirmation days. Nothing is released, and nothing awaits approval.

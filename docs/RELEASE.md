@@ -4,12 +4,46 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`e86b401`**, deployed 29 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`b507302`**, deployed 29 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 29 September, afternoon: a bounded reliability close-out
+
+**Deployed: `9d77718`, then `b507302`**, with `9d77718` kept for `deploy/rollback.sh`. The account is
+`docs/MILESTONE_2026-09-29_CLOSEOUT.md`. Arrival predictions stay off in both directions; 6 October is when the
+confirmation results are read, not a release date.
+
+- **Shared links by day:** 48 served loads of four bus links, with 602 buses in the publication, were drawn in
+  2.1–3.1 s. None was stuck.
+- **Backlog 43:** the evaluation that failed on 28 September, run 131 times on the same input and runtime (and
+  on DuckDB 1.5.6 and Python 3.12), never failed. DuckDB is implicated by association, not shown as the cause.
+  The two-process containment stays, and no dependency changed.
+- **Memory, both figures:**
+  - Operations names the whole job, page cache included, and its largest single process, and never merges
+    them.
+  - From 30 September each run also records how often it was held at its ceiling, its OOM events, and its
+    waits on memory.
+  - No OOM touched the scheduled runs.
+- **Results approve nothing:**
+  - an approval must cite the SHA-256 of the confirmation results it approves;
+  - a version is pinned to the code that defines it, so a change to the model or the display is a new version
+    with its own untouched window;
+  - a window scored under anything else is invalid.
+- **What a passenger sees:** nothing new; the Operations memory row is reworded.
+
+**Verified.**
+- Node 320, Python 185; the full browser gate on `9d77718`'s build 462 passed, 50 skipped, none failed (1.3 h).
+- Served byte-identical, the code the gated build's but for its stamp; the preview locked; the collector
+  untouched.
+- The deployed defining files' digest is the pinned one.
+- Two evaluation runs by hand succeeded, the first to record the kernel's side of memory.
+- **Found on the way:** a run started by hand was recorded as the timer's, from systemd's stale activation
+  details. Fixed (`b507302`) and verified, and the record corrected.
+- Emulation only.
 
 ## 29 September: the correction carried through, the stop mapping made explicit, the evaluation made honest
 
@@ -56,7 +90,8 @@ Otherwise nothing changes:
 
 **Operations.**
 - **The rebuild's memory peak.** It was DuckDB's buffer pool. At a 512 MB DuckDB limit the rebuild peaked at
-  654 MB resident instead of 1.11 GB, with a byte-identical catalogue; the 1500M ceiling is unchanged.
+  654 MB resident in its one process instead of 1.11 GB, with a byte-identical catalogue; the 1500M ceiling is
+  unchanged.
 - **Each job's steps now record their resident peak**, shown first, with the unit's total (page cache
   included) beside it. Each step is also timed. So is the rebuild's copy of the warehouse for the evaluation:
   1.15 GB now, and the one cost that still grows with the history kept.
@@ -68,10 +103,11 @@ recorded as manual. The first scheduled runs under the new units, on 29 Septembe
 - **the timetable rebuild, 02:44–02:47 UTC:** succeeded.
   - It skipped one unreadable stored response.
   - `publicUse` is on all 587 patterns, and BNML 732 is closed and offered on no trip.
-  - 599 MB resident (40%); collection paused 2 min 33 s.
+  - The whole job, page cache included, reached its 1,500 MB ceiling; its largest single process peaked at
+    599 MB resident. No OOM event (close-out, 29 September); collection paused 2 min 33 s.
 - **the arrival evaluation, 03:12–03:13 UTC:** succeeded in 1 min 4 s.
   - It scored 27 and 28 September as revision days.
-  - 418 MB resident (28%).
+  - The whole job, page cache included, peaked at 598 MB; its largest single process at 418 MB resident.
   - Still collecting, 0 of 7 confirmation days; nothing released.
 
 **Verified.**

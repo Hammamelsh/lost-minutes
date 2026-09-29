@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43's failures not reproduced in 131 trials, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -27,6 +27,32 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **29 September, afternoon — a bounded reliability close-out** (`docs/MILESTONE_2026-09-29_CLOSEOUT.md`).
+  - **Shared links by day:** 48 served loads with 602 buses in the publication, all drawn in 2.1–3.1 s.
+  - **Backlog 43, not reproduced:** the exact failing evaluator on the same input and runtime ran 131 times in
+    fresh processes, as run, under the debug allocator, contended, on DuckDB 1.5.6 and on Python 3.12, without
+    one failure or wrong result. The association of 28 September (4 in 17 against 0 in 12) was weak in itself
+    (p ≈ 0.10). Containment kept; no dependency changed; the probe is `scripts/probes/duckdb-inprocess.py`.
+  - **Memory:**
+    - Operations names the whole job's total, page cache included, and its largest single process's resident
+      set, and never merges them.
+    - Each run records `memory.events` and `memory.pressure` from 30 September.
+    - The server's journals show no OOM in any nightly run; the only OOM kills are the two on record.
+  - **Approval:**
+    - `pipeline/arrival_protocol.py` pins `display-1` to the code that defines it, checked in CI;
+    - the nightly scoring keeps every version's record and scores a window day once;
+    - a window scored under anything else is invalid;
+    - an approval must cite `confirmationDigest`, which exists only once the results do.
+  - **Found on the way:** a nightly job started by hand was recorded as the timer's (systemd 259 keeps the
+    last activation), moving "last scheduled run". It now counts as the timer's only if the timer elapsed in the
+    ten minutes before; the record is corrected.
+  - **Verified:**
+    - Node 320, Python 185; the full gate on `9d77718`'s build 462 passed, 50 skipped, none failed.
+    - Served byte-identical, the preview locked, the collector untouched; the server's defining files match the
+      pin.
+    - Two runs by hand recorded the kernel's side of memory: never at the ceiling, no OOM, no waits.
+    - **Deployed as `b507302`** (`9d77718` kept for rollback). Emulation only.
 
 - **29 September, early — the correction carried through, and the evaluation made honest**
   (`docs/MILESTONE_2026-09-29_CORRECTIONS.md`, `docs/STOP_MAPPING.md`, `docs/ARRIVAL_DISPLAY_PROTOCOL.md`).
@@ -84,9 +110,11 @@ journey change and fixed, and the view from above kept private behind a password
       collector untouched.
     - **Deployed as `e86b401`** (`af9a959` kept for rollback).
     - The scheduled runs of 29 September both succeeded on their timers:
-      - the rebuild: 599 MB resident (40%); `publicUse` on all 587 patterns, BNML 732 offered on no trip;
+      - the rebuild: the whole job at its 1,500 MB ceiling with page cache, its largest process 599 MB resident,
+        no OOM; `publicUse` on all 587 patterns, BNML 732 offered on no trip;
         collection paused 2 min 33 s;
-      - the evaluation: 418 MB (28%); 27–28 September scored as revision; 0 of 7 confirmation days.
+      - the evaluation: the whole job 598 MB with page cache, its largest process 418 MB resident; 27–28
+        September scored as revision; 0 of 7 confirmation days.
     - Emulation only.
 
 - **28 September, evening — the arrival pilot checked, and not enabled; inbound 15's stops renumbered**

@@ -4,7 +4,12 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 28 September 2026, evening (the outbound-15 arrival pilot checked against the owner's four
+Last updated: 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
+arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
+the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
+day at a time, away from DuckDB; a shared bus link no longer left saying "Drawing the map…" over a drawn map:
+`a5e43cc`, `af9a959`, then `e86b401`). Before that, 28 September 2026, evening (the outbound-15 arrival pilot checked against the owner's four
 conditions and not enabled; the page's estimator made the evaluated one to the millisecond; inbound 15's
 stops found numbered 14 out in the evaluation, and "its timetable runs 15 minutes early" withdrawn from the
 page; closed services left out by name until the catalogue carries the flag; each nightly job's memory
@@ -22,6 +27,67 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **29 September, early — the correction carried through, and the evaluation made honest**
+  (`docs/MILESTONE_2026-09-29_CORRECTIONS.md`, `docs/STOP_MAPPING.md`, `docs/ARRIVAL_DISPLAY_PROTOCOL.md`).
+  - **Predictions stay off in both directions** (the owner's decision); nothing approved.
+  - **The inbound-15 finding withdrawn** wherever it stood as current, with dated corrections. The TfGM drafts
+    now say it must not be raised. The 20 September "traced end to end" account was the bus outside the area
+    we collect, about 6 min late, not a 16-minute stand.
+  - **Every consumer of the positional stop mapping traced**:
+    - only the passage inference (and through it the evaluation, the anchor and so the planners' timing) and
+      the unreleased page estimate paired by position;
+    - stop progress, upcoming stops, timing, shared road and route drawing did not.
+  - **Version 2 stop mapping**:
+    - each shape names every stop by its index, code and offset; clipped routes and repeated stops are exact;
+    - a reader refuses a mapping that disagrees with its pattern;
+    - old and new files are refused rather than mixed;
+    - 560 shapes mapped from their stored routing requests, all 15,960 stops within 15.7 m of the road at
+      their offsets; 284 had been misread.
+  - **The uncertainty display corrected**: ±2.48 min withdrawn; a range only as the protocol's validated
+    interval, rounded outwards.
+  - **The protocol**, frozen and pushed before its first confirmation day:
+    - the estimate judged on the page's own moments: report held, 5-s clock ticks, the live match, 2–10
+      predicted minutes;
+    - signed errors, coverage, interval coverage, and results by journey;
+    - thresholds unchanged.
+    - **Revision days fail** (21–26 September):
+      - outbound median 1.70 and p80 4.00 min, the estimate running early (72.8% of moments late);
+      - inbound shown on 2.1% of moments (an unsettled branch on weekdays).
+
+      With 27–28 September added by the nightly run: 1.65, 3.90 and 7%. Inbound is not approved.
+    - Confirmation 29 September to 5 October, collected nightly, read once.
+  - **The rebuild's memory**: DuckDB's buffer pool, not the timetables, set its peak. At a 512 MB DuckDB limit
+    it fell from 1.11 GB to 654 MB resident, with an identical catalogue. Each step's resident peak is now
+    recorded and shown first in Operations.
+  - **The evaluation's growth**: scored a day at a time from at most 14 days, the old full re-score removed.
+  - **DuckDB corrupts memory here**: 4 of 17 runs with it loaded failed at random, 0 of 12 without. The
+    scoring now runs away from it (backlog 43).
+  - **Smoothness, checked on the served site**: the drawing is unchanged in this pass, and the fleet's tick is
+    0.2–1.1 ms at the median, as before.
+    - **Found and fixed**: a shared bus link sometimes said "Drawing the map…" for 24 s over a drawn map (6 of
+      21 loads). The map now counts as drawn once it is framed, at rest, and its basemap is in, whatever the
+      buses are doing: 0 of 25 real-data loads stuck, against 3 of 25 on the served build (backlog 44).
+    - A first version counted the opening city view, and the browser gate caught it.
+    - Found by the gate: the glide into the front view ended where the bus had been as it began, and the
+      first frame after it stepped the camera 7.96–9.30 m. Its lead was an estimate's speed, always zero
+      since the ride draws from reports. It is now led by the drawn speed: 0.44–0.82 m, measured in the page
+      (`data-front-handover`).
+    - Found by the gate at 23:55: the planner's summary of a folded list gave a time after midnight bare,
+      while its rows said "tomorrow". One helper now words them all (`clockOn`), and four checks no longer
+      depend on the time of day they run.
+  - **Verified:**
+    - Node 320, Python 176, and `deploy/validate.sh`.
+    - The full gate on `e86b401`: 462 passed, 50 skipped, none failed (1.3 h), after four gates that each found
+      something.
+    - Served byte-identical, the code the gated build's but for the build stamp, the preview locked, the
+      collector untouched.
+    - **Deployed as `e86b401`** (`af9a959` kept for rollback).
+    - The scheduled runs of 29 September both succeeded on their timers:
+      - the rebuild: 599 MB resident (40%); `publicUse` on all 587 patterns, BNML 732 offered on no trip;
+        collection paused 2 min 33 s;
+      - the evaluation: 418 MB (28%); 27–28 September scored as revision; 0 of 7 confirmation days.
+    - Emulation only.
 
 - **28 September, evening — the arrival pilot checked, and not enabled; inbound 15's stops renumbered**
   (`docs/MILESTONE_2026-09-28_ARRIVAL_PILOT.md`).

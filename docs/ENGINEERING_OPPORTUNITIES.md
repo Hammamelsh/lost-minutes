@@ -2276,3 +2276,54 @@ needed.
 **Next cheap step.** Run the passage audit and the rebuild each five times on the server's copy and compare.
 Status: `observed`.
 
+
+## 72. A camera step no sample from outside the page can see
+
+**Problem and evidence.** From 25 September 2026 the glide into the front view ended where the bus had been as
+it began, and the first frame after it stepped the camera 7.96–9.30 m. The front-view check sampled
+`data-camera` every 200 ms from Playwright, and that attribute is written only when a camera move ends. On
+the desktop profile the step fell in the same frame as the glide's end, so no sample could see it. On the
+phone profile it fell one frame later, and it was caught only when a sample happened to span it: 31 m/s
+against a 28 m/s limit, in the gate of 29 September. It was traced by recording every animation frame in
+the page, then by an in-page diagnostic of the handover (`data-front-handover`, `components/city-map.tsx`).
+Earlier camera faults took the same kind of frame-by-frame investigation: backlog 23, and the route-43 spin of
+24 September.
+
+**Who hits it, workaround.** Anyone checking the smoothness of a map camera or a drawn vehicle through
+attributes sampled from outside. The workaround is a hand-written recorder per investigation, and a
+diagnostic per transition.
+
+**Recurrence and effort.** At least three camera faults in a week, each taking an hour or more to trace.
+Unknown elsewhere.
+
+**Small fix, script, tool or product.** A small reusable capability: an in-page frame recorder that hooks
+the map's own render event and keeps a ring buffer of every rendered frame's camera, drawn position and ride
+state, which a check reads after an action and judges frame by frame. MapLibre has the event (`render`);
+Playwright's tracing records screenshots, not the camera. No visual interface is needed beyond a plot of
+per-frame steps, which would help.
+
+**Next cheap step.** Put the recorder behind a query flag in the built page, and run the ride and front-view
+checks through it once. Status: `observed`.
+
+## 73. Checks that pass or fail by the time of day they run
+
+**Problem and evidence.** On 28 September 2026 at 23:55 London time, a gate reached a planner check whose
+fixture bus left 14 minutes later. The page rightly said "00:09 tomorrow", and the check, which built its
+expected text from the bare clock time, failed (`tests/browser/plan.spec.mjs`). Three connection checks had
+the same flaw, and the page itself gave one summary time without "tomorrow" while its rows had it (fixed with
+`clockOn`, `lib/departures.ts`). The departure board's own clock-change and midnight cases were already held
+by Node tests; the browser checks were not.
+
+**Who hits it, workaround.** Anyone running the gate late in the evening, or on a clock-change weekend. The
+workaround is to notice the time and rerun.
+
+**Recurrence and effort.** Once observed; the gate takes 1.3–1.4 h, so any start after about 22:30 crosses
+midnight. Unknown for the October clock change (25 October 2026).
+
+**Small fix, script, tool or product.** A script: run the time-dependent specs with the page's and the
+fixtures' clocks pinned near midnight and near both clock changes (Playwright's `page.clock`), as part of the
+gate. The capability, running a UI suite at chosen instants, is reusable; Playwright provides the clock, and
+what is missing is fixtures that take their "now" from the same place. No visual interface is needed.
+
+**Next cheap step.** Run `plan.spec` and `connection.spec` once with every clock at 23:50 London time, and
+once at 00:50 on 25 October. Status: `observed`.

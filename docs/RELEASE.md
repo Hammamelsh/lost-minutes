@@ -4,12 +4,86 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`cd14ab3`**, deployed 28 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`e86b401`**, deployed 29 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 29 September: the correction carried through, the stop mapping made explicit, the evaluation made honest
+
+**Deployed:**
+- `a5e43cc`: the corrections and the evaluation;
+- `af9a959`: when the map counts as drawn, "tomorrow" in the planner, and the timed nightly steps;
+- `e86b401`: the front view's entrance.
+
+`af9a959` is kept for `deploy/rollback.sh`. The account is `docs/MILESTONE_2026-09-29_CORRECTIONS.md`.
+
+**Arrival predictions stay off in both directions.** The approval file names nothing.
+
+**What a passenger sees.** Three small changes:
+- a shared bus link no longer says "Drawing the map…" for 24 s over a map already drawn. That had happened on
+  6 of 21 loads of one bus link on the served site (backlog 44);
+- entering the front view on a moving bus no longer ends with the camera stepping about 8–9 m. The first frame
+  after the glide now lands 0.44–0.82 m from it;
+- late at night the planner's summary of a folded list says "tomorrow" for a time after midnight, as its rows
+  already did.
+
+Otherwise nothing changes:
+- no minutes are shown anywhere;
+- the drawing, the ride and the planners are as they were;
+- road-shape files are about 400 bytes larger compressed, fetched one bus at a time, and the shape index grew
+  278 bytes.
+
+**Behind it:**
+- **The inbound-15 finding is withdrawn** wherever it stood as current, and the TfGM drafts say it must not
+  be raised.
+- **Every road stop is named by an explicit, versioned mapping** (`docs/STOP_MAPPING.md`). It was
+  recovered for all 560 shapes from their own routing requests and checked against geometry; 284 shapes had
+  been misread by position.
+- **The arrival evaluation is frozen on the moments a page would show it**
+  (`docs/ARRIVAL_DISPLAY_PROTOCOL.md`). Both directions fail on the revision days:
+
+  | window | outbound median / p80 | inbound shown |
+  |---|---|---|
+  | 21–26 September | 1.70 / 4.00 min | 2.1% of moments |
+  | 20–28 September, by the nightly run | 1.65 / 3.90 min | 7% of moments |
+
+  The confirmation, 29 September to 5 October, is collected nightly, read once, and would still wait for the
+  owner.
+- **A range, if ever shown, is only the protocol's validated interval.** The ±2.48 min is withdrawn.
+
+**Operations.**
+- **The rebuild's memory peak.** It was DuckDB's buffer pool. At a 512 MB DuckDB limit the rebuild peaked at
+  654 MB resident instead of 1.11 GB, with a byte-identical catalogue; the 1500M ceiling is unchanged.
+- **Each job's steps now record their resident peak**, shown first, with the unit's total (page cache
+  included) beside it. Each step is also timed. So is the rebuild's copy of the warehouse for the evaluation:
+  1.15 GB now, and the one cost that still grows with the history kept.
+- **The nightly evaluation scores a day at a time** from at most 14 days, in a process that never loads
+  DuckDB. With DuckDB loaded, 4 of 17 runs failed at random (backlog 43).
+
+**Scheduled and controlled, told apart.** The controlled evaluation (by hand, 21:49 UTC on 28 September) is
+recorded as manual. The first scheduled runs under the new units, on 29 September, are recorded as the timer's:
+- **the timetable rebuild, 02:44–02:47 UTC:** succeeded.
+  - It skipped one unreadable stored response.
+  - `publicUse` is on all 587 patterns, and BNML 732 is closed and offered on no trip.
+  - 599 MB resident (40%); collection paused 2 min 33 s.
+- **the arrival evaluation, 03:12–03:13 UTC:** succeeded in 1 min 4 s.
+  - It scored 27 and 28 September as revision days.
+  - 418 MB resident (28%).
+  - Still collecting, 0 of 7 confirmation days; nothing released.
+
+**Verified.**
+- **Suites:** Node 320, Python 176, typecheck, lint, and `deploy/validate.sh`.
+- **The full browser gate on `e86b401`:** 462 passed, 50 skipped by design, none failed (1.3 h). The four gates
+  before it each found something; the record's section 6 has them.
+- **Each deploy:**
+  - served byte-identical to its local build;
+  - its code the gated build's, but for the build stamp;
+  - `/preview/` locked;
+  - the collector untouched (PID 282438).
+- Emulation only.
 
 ## 28 September, evening: the arrival pilot checked and not enabled; inbound 15 renumbered
 

@@ -634,7 +634,7 @@ alone, at the opening city view, before the page framed the chosen stop:
 - *Fixture, 120 moving buses in view:* drawn in 2.3–2.4 s, against 3.0–3.2 s at the first `idle`
   (`tests/browser/paint.spec.mjs`).
 - *Map-start, access, paint and fleet specs:* 42 passed, 12 skipped by design.
-- *Real data* (`outputs/probes/smoothness/paint-compare.mjs`), two live bus links, 25 loads each way:
+- *Real data* (`scripts/probes/paint-compare.mjs`), two live bus links, 25 loads each way:
 
   | build | not drawn within 20 s | drawn in |
   |---|---|---|

@@ -251,7 +251,7 @@ During this pass the owner asked for no lag, no issues, and the page kept smooth
 - the map's only change is the one below.
 
 **The served site before and after the deploy of `a5e43cc`** (REAL data, Chromium phone emulation,
-`outputs/probes/smoothness/served-timings.mjs`):
+`scripts/probes/served-timings.mjs`):
 - the fleet's tick: 0.2 ms at the median before; 0.2–1.1 ms after, 0.5 ms with 37–38 buses in view at Piccadilly
   Gardens;
 - the ride's frame interval: 21.8–23.1 ms before, 20.1–21.8 ms after;
@@ -271,7 +271,7 @@ During this pass the owner asked for no lag, no issues, and the page kept smooth
   would have withdrawn the simple-map offer while the stop's tiles were still coming. That gate was stopped
   at 74 passed and 2 failed.
 - **Measured on the refined rule.** Real data, two live bus links, 25 loads each way
-  (`outputs/probes/smoothness/paint-compare.mjs`):
+  (`scripts/probes/paint-compare.mjs`):
 
   | build | not drawn within 20 s | drawn in |
   |---|---|---|
@@ -307,7 +307,7 @@ During this pass the owner asked for no lag, no issues, and the page kept smooth
   passes (24, 2 skipped).
 - **Not affected:** the outside view already eases its catch-up over 280 ms.
 - **On the served site after the deploy of `e86b401`** (02:05–02:08 UTC, REAL data, night buses 142, 43 and 103,
-  eight entries into the front view): the first frame after the glide landed 0.29–0.86 m from its end on the
+  eight entries into the front view, `scripts/probes/front-handover-served.mjs`): the first frame after the glide landed 0.29–0.86 m from its end on the
   phone and 0.00–0.77 m on desktop.
 
 **Found by the gate, fixed: a time after midnight said two ways in the planner.**

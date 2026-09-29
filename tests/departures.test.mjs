@@ -4,8 +4,9 @@
 // These are the cases a browser check cannot choose the moment for, so they are settled here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {clockWords, countdownWords, londonInstant, minutesUntil, nextDepartures, previousDay,
+import {clockOn, clockWords, countdownWords, londonInstant, minutesUntil, nextDepartures, previousDay,
   serviceDayOf} from '../lib/departures.ts';
+import {londonDate} from '../lib/service-days.ts';
 
 const WEEK = [{days: [0, 1, 2, 3, 4, 5, 6]}];
 /** A board whose one service leaves the origin at the given seconds and reaches this stop `offset`
@@ -96,4 +97,17 @@ test('the board carries the origin departure, which is what a vehicle reports', 
   const [row] = nextDepartures(board([36_000], {offset: 900}), WEEK, now);
   assert.equal(row.originLocal, '10:00:00', 'the origin, not the time at this stop');
   assert.equal(clockWords(row), '10:15', 'and the time at this stop is the origin plus its run time');
+});
+
+test('a time on a later London date is said as tomorrow\'s, wherever the planner gives one', () => {
+  // 23:55 BST on 28 September 2026 is 22:55 UTC; the bus 14 minutes later is at 00:09 on the 29th.
+  const now = Date.parse('2026-09-28T22:55:00Z'), day = londonDate(now);
+  assert.equal(day, '2026-09-28');
+  assert.equal(clockOn(now + 14 * 60_000, day), '00:09 tomorrow');
+  assert.equal(clockOn(now + 4 * 60_000, day), '23:59', 'the same London date is said bare');
+  // After midnight the same bus is today's, and on the clock-change morning London's date still decides.
+  assert.equal(clockOn(now + 14 * 60_000, londonDate(now + 10 * 60_000)), '00:09');
+  const autumn = Date.parse('2026-10-24T23:30:00Z');            // 00:30 BST on the 25th, the night the clocks go back
+  assert.equal(clockOn(autumn + 60 * 60_000, londonDate(autumn)), '01:30', 'an hour later, before the clocks go back at 01:00 UTC: still the 25th');
+  assert.equal(clockOn(autumn + 3 * 60 * 60_000, londonDate(autumn)), '02:30', 'and after it, 02:30 GMT: still the 25th');
 });

@@ -225,6 +225,10 @@ export function countdownWords(departure:{atMs:number},nowMs:number):string{
 export const clockWords=(departure:{atMs:number})=>new Intl.DateTimeFormat('en-GB',
  {timeZone:'Europe/London',hour:'2-digit',minute:'2-digit',hour12:false}).format(departure.atMs);
 
+/** A clock time said against a London date `day`: "00:09 tomorrow" when it falls on a later one, as the planner
+ *  says every time it gives (at 23:55, the bus at 00:09 is tomorrow's). */
+export const clockOn=(atMs:number,day:string)=>`${clockWords({atMs})}${londonDate(atMs)!==day?' tomorrow':''}`;
+
 const boardCache=new Map<string,Promise<StopDepartures|null>>();
 let rulesRequest:Promise<OperatingRule[]|null>|null=null;
 

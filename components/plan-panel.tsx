@@ -11,8 +11,7 @@ import PlaceSearch from '@/components/place-search';
 import {BEE_NETWORK_PLANNER,directArrival,planText,transitHandoff,type DirectOption,type DirectTiming} from '@/lib/plan';
 import {CONNECTION_RULES,TIGHT_SECONDS,connectionArrival,estimatedWalk,legFamily,legService,lineNames,stopName as stopWords,
  type ConnectionOption,type ConnectionTiming} from '@/lib/connections';
-import {clockWords} from '@/lib/departures';
-import {londonDate} from '@/lib/service-days';
+import {clockOn} from '@/lib/departures';
 import {PLACES_ATTRIBUTION} from '@/lib/places';
 
 export type PlanFrom={kind:'device';lat:number;lon:number;accuracyMetres?:number}|{kind:'chosen';lat:number;lon:number;label:string};
@@ -135,7 +134,8 @@ export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChoose
     const soonest=(values:({arrive:number}|null)[])=>values.reduce<number|null>((best,v)=>v&&(best===null||v.arrive<best)?v.arrive:best,null);
     const soonestDirect=soonest(options.map(o=>{const t=directTimes?.get(o.key);return t?directArrival(t):null}));
     const soonestChange=soonest(connections.map(o=>{const t=connectionTimes?.get(o.key);return t?connectionArrival(o,t):null}));
-    const at=(ms:number|null)=>ms===null?'':` · soonest there ${clockWords({atMs:ms})}`;
+    // Said as the rows under it say their times: at 23:50, the soonest at 00:40 is tomorrow's.
+    const at=(ms:number|null)=>ms===null?'':` · soonest there ${clockOn(ms,day)}`;
     if(!options.length)return connectionCards;
     if(!connections.length)return directCards;
     return lead==='direct'
@@ -172,7 +172,7 @@ function NextConnection({option,timing,day}:{option:ConnectionOption;timing:Conn
  if(timing.kind==='withheld')return <p className="plan-next warn" data-plan-next="withheld">No times: the {timing.leg===1?option.first.line:option.second.line}’s {timing.reason}.</p>;
  if(timing.kind==='unavailable')return <p className="plan-next" data-plan-next="unavailable">No times: {timing.reason}.</p>;
  const row=timing.rows.find(r=>r.second)??null;
- const when=(ms:number)=>`${clockWords({atMs:ms})}${londonDate(ms)!==day?' tomorrow':''}`;
+ const when=(ms:number)=>clockOn(ms,day);
  if(!row){const first=timing.rows[0];
   return <p className="plan-next" data-plan-next="no-second">Next {first.first.departure.line} {when(first.first.departMs)}, but no {lineNames(option.second)} is timetabled within 90 min of it reaching the change.</p>}
  const arrive=row.second!.arriveMs;
@@ -213,7 +213,7 @@ function NextDirect({option,timing,day}:{option:DirectOption;timing:DirectTiming
  if(timing.kind==='withheld')return <p className="plan-next warn" data-plan-next="withheld">No times: the {option.line}’s {timing.reason}.</p>;
  if(timing.kind==='unavailable')return <p className="plan-next" data-plan-next="unavailable">No times: {timing.reason}.</p>;
  const row=timing.rows[0];
- const when=(ms:number)=>`${clockWords({atMs:ms})}${londonDate(ms)!==day?' tomorrow':''}`;
+ const when=(ms:number)=>clockOn(ms,day);
  const walkOn=Math.round(timing.egress.seconds/60);
  return <p className="plan-next" data-plan-next="timed">Next: <strong>{row.departure.line} {when(row.departMs)}</strong> from {stopWords(option.board)}
   <Tight spare={row.spareSeconds} basis={timing.access.basis}/>

@@ -643,6 +643,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const map=useRef<MapLibreMap|null>(null);
  const [ready,setReady]=useState(false);
  const [painted,setPainted]=useState(false);
+ // Whether the page has made its first framing (the camera effect below, once the map is ready). Until it has,
+ // the map is not counted as drawn by its basemap alone: the view it would be counted at is not the one the page
+ // is about to show.
+ const framed=useRef(false);
  const [model,setModel]=useState<BusModel|null>(null);
  const [modelFailed,setModelFailed]=useState(false);
  const [track,setTrack]=useState<(TrackResult&{patternId:string})|null>(null);
@@ -1030,6 +1034,24 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     if(tileErrors>0&&tilesLoaded===0){onUnavailable('tiles_failed');return}
     paint();
    });
+   // The map is drawn once the page's first framing has been made, the camera has come to rest there, and the
+   // basemap's own tiles for that view are in, whatever else is updating. MapLibre's first "idle" also waits on
+   // every bus source and every label fade: on the served site a shared bus link sometimes never reached it
+   // before the 25 s fallback, and said "Drawing the map… slow" over a drawn map for 24 s (28 September 2026,
+   // backlog 44). Counting the opening city view as drawn, before the framing, took the note and its offer of
+   // the simple map away while the stop's own tiles could still be slow (a first version, 28 September). The diagnostics a check
+   // reads are written at that frame, as they are at idle. Failures and the fallbacks above are unchanged.
+   const basemapDrawn=()=>{
+    if(shown||cancelled){instance.off('render',basemapDrawn);return}
+    if(framed.current&&!instance.isMoving()&&tilesLoaded>0&&instance.getSource('openmaptiles')
+     &&instance.isSourceLoaded('openmaptiles')){
+     instance.off('render',basemapDrawn);
+     clearTimeout(firstFrame);
+     busPoints.current();stopPoints.current();
+     paint();
+    }
+   };
+   instance.on('render',basemapDrawn);
    // Diagnostic, not a feature: the camera as text, written straight to the element so a
    // moving camera does not re-render the page on every frame.
    instance.on('moveend',()=>{
@@ -1959,6 +1981,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   if(!ready)return;
   userMoved.current=false;
   fitLatest.current();
+  framed.current=true;
  },[ready,fitRequest,stopId,originEpoch,haveBuses]);
  // A walking route that arrives is framed once, unless the passenger has taken the camera.
  const walkKey=walk?`${walk.path.length}|${walk.path[0]?.join(',')}|${walk.path[walk.path.length-1]?.join(',')}`:'';

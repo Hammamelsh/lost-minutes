@@ -599,6 +599,50 @@ failed this way, and their repeated outputs have matched, but that is not proof.
 before changing a dependency. It is the owner's decision. `docs/MILESTONE_2026-09-29_CORRECTIONS.md` §3
 has the runs.
 
+## 44. A shared bus link sometimes says "Drawing the map…" for 25 s over a drawn map — fixed 29 September 2026
+
+**The fault (28 September 2026, the served site, 390 px emulation, one route-42 bus by link).**
+- **How often:** of 21 loads, 6 counted the map as painted at 26.9–27.1 s, one at 8.2 s, and 14 at 2.8–3.4 s.
+- **Where the 26.9 s comes from:** "ready" at about 2.7 s, plus the 25 s fallback that stands in for MapLibre's
+  first `idle`.
+- **What the passenger saw meanwhile:** a pill saying the detailed map was slow, offering the simple map, over a
+  map already drawn and working.
+- **Stop links** painted in about 3 s every time.
+- **What it was not:**
+  - aborted tiles: the slow loads had none or two, like the fast ones;
+  - slow requests: none took over 3 s;
+  - this release: the map's code had not changed.
+- **The cause:** `idle` also waits on every bus source and every label fade, and the fleet's buses update many
+  times a second.
+
+**Fixed** (`components/city-map.tsx`). The map now also counts as drawn at the first rendered frame at which all
+of these hold, whatever the buses and labels are doing:
+- the page's first framing has been made;
+- the camera is at rest;
+- the basemap's own tiles for that view are all in, with at least one arrived.
+
+The failures and fallbacks are unchanged, and the diagnostics a check reads are written at that frame, as they
+are at idle.
+
+**A first version was wrong and was caught by the browser gate.** It counted the map as drawn by its basemap
+alone, at the opening city view, before the page framed the chosen stop:
+- two fleet checks read a camera still on its way and failed;
+- on a slow network it would have taken away the note, and its offer of the simple map, while the stop's own
+  tiles were still coming.
+
+**Measured on the refined rule:**
+- *Fixture, 120 moving buses in view:* drawn in 2.3–2.4 s, against 3.0–3.2 s at the first `idle`
+  (`tests/browser/paint.spec.mjs`).
+- *Map-start, access, paint and fleet specs:* 42 passed, 12 skipped by design.
+- *Real data* (`outputs/probes/smoothness/paint-compare.mjs`), two live bus links, 25 loads each way:
+
+  | build | not drawn within 20 s | drawn in |
+  |---|---|---|
+  | served build | 3 of 25 | 2.1–2.8 s otherwise |
+  | this build, fed the served site's own data | 0 of 25 | 1.2–2.1 s |
+
+After the deploy the served count is in `docs/MILESTONE_2026-09-29_CORRECTIONS.md`.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

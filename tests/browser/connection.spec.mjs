@@ -16,6 +16,9 @@ const SALFORD_QUAYS = {features: [{properties: {name: 'Salford Quays', osm_key: 
   geometry: {coordinates: [-2.2950, 53.4720]}}]};
 const londonDay = ms => new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit'}).format(ms);
 const wall = ms => new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false}).format(ms);
+// A time after London's midnight is said as tomorrow's by the planner's list (lib/departures.ts, clockOn). Until
+// 29 September 2026 these checks expected the bare time and could fail in a gate's last half hour before midnight.
+const departs = (ms, now) => `${wall(ms)}${londonDay(ms) !== londonDay(now) ? ' tomorrow' : ''}`;
 
 const panel = page => page.locator('.plan-panel');
 const card = page => page.locator('.journey-card');
@@ -112,7 +115,7 @@ test('From and To give a journey with one change; choosing it shows one card, th
   // the 53 it makes reaches Trafford Bar, with that checked walk (110 s) and 2 min to change.
   const nextLine = option.locator('[data-plan-next]');
   await expect(nextLine).toHaveAttribute('data-plan-next', 'timed');
-  await expect(nextLine).toContainText(`Next: 256 ${wall(now + 4 * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(nextLine).toContainText(`Next: 256 ${departs(now + 4 * 60_000, now)} from Stretford Mall (Stop A)`);
   await expect(nextLine).toContainText(`at Trafford Bar ${wall(now + 17 * 60_000 + FX53.seconds.at(-1) * 1000)}`);
   await expect(nextLine).toContainText('by the timetable, not live');
   await option.locator('[data-choose-connection]').click();
@@ -280,15 +283,15 @@ test('beside a direct bus that gets there sooner, journeys with one change fold 
   await expect(direct).toHaveAttribute('data-plan-option', '99');
   // Timed from its own stop's board, as the journeys with one change are: the 99 at +5 is there at +10.
   await expect(direct.locator('[data-plan-next]')).toHaveAttribute('data-plan-next', 'timed');
-  await expect(direct.locator('[data-plan-next]')).toContainText(`Next: 99 ${wall(now + 5 * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(direct.locator('[data-plan-next]')).toContainText(`Next: 99 ${departs(now + 5 * 60_000, now)} from Stretford Mall (Stop A)`);
   await expect(direct.locator('[data-plan-next]')).toContainText(wall(now + 10 * 60_000));
   await expect(panel(page).locator('[data-plan-no-direct]')).toHaveCount(0);
   await expect(panel(page).locator('[data-plan-change-first]')).toHaveCount(0);
   const folded = panel(page).locator('[data-plan-connections]');
   await expect(folded).toHaveAttribute('data-plan-connections', '1');
   // The fold says when its soonest gets there: the 53 at +17 reaches Trafford Bar at +23, and a short walk on.
-  await expect(folded.locator('summary')).toHaveText(/^Journeys with one change \(1\) · soonest there \d\d:\d\d$/);
-  const soonest = (await folded.locator('summary').innerText()).slice(-5);
+  await expect(folded.locator('summary')).toHaveText(/^Journeys with one change \(1\) · soonest there \d\d:\d\d( tomorrow)?$/);
+  const soonest = /(\d\d:\d\d)( tomorrow)?$/.exec(await folded.locator('summary').innerText())[1];
   expect([wall(now + 23 * 60_000), wall(now + 24 * 60_000)]).toContain(soonest);
   await expect(folded.locator('.plan-option.connection')).toBeHidden();
   await folded.locator('summary').click();
@@ -308,7 +311,7 @@ test('a direct bus that serves both stops but leaves too late does not lead: the
   await expect(options.first()).toHaveAttribute('data-plan-connection', '256|53');
   const fold = panel(page).locator('[data-plan-direct-fold]');
   await expect(fold).toHaveAttribute('data-plan-direct-fold', '1');
-  await expect(fold.locator('summary')).toHaveText(`Direct buses (1) · soonest there ${wall(now + 65 * 60_000)}`);
+  await expect(fold.locator('summary')).toHaveText(`Direct buses (1) · soonest there ${departs(now + 65 * 60_000, now)}`);
   await expect(fold.locator('.plan-option')).toBeHidden();
   await fold.locator('summary').click();
   await expect(fold.locator('[data-plan-option="99"] [data-plan-next]')).toContainText(`Next: 99 ${wall(now + 60 * 60_000)}`);

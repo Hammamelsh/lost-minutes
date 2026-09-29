@@ -23,9 +23,11 @@ ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /srv/lost-minutes/app/.venv/bin/python -m pipeline.departures publish
 ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /srv/lost-minutes/app/.venv/bin/python -m pipeline.run status
 # A consistent copy of the warehouse for the arrival evaluation, taken here because the collector
-# is already stopped for the rebuild: measured 0.16 s to copy 50 MB, so it adds nothing a passenger
-# could notice. The evaluation then reads the copy and leaves collection alone.
-ExecStart=/bin/cp -f /srv/lost-minutes/app/data/warehouse/lost-minutes.duckdb /srv/lost-minutes/app/data/evaluation/snapshot.duckdb
+# is already stopped for the rebuild. The evaluation then reads the copy and leaves collection alone.
+# It was measured at 0.16 s for 50 MB; the warehouse was 1.15 GB on 28 September 2026 and grows with
+# the history kept, so the copy is timed as a step like the others (the rebuild's whole pause was
+# 4 min 10 s to 4 min 29 s on 25-27 September).
+ExecStart=/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs step refresh -- /bin/cp -f /srv/lost-minutes/app/data/warehouse/lost-minutes.duckdb /srv/lost-minutes/app/data/evaluation/snapshot.duckdb
 ExecStopPost=+/bin/systemctl start lost-minutes-collector.service
 ExecStopPost=-/srv/lost-minutes/app/.venv/bin/python -m pipeline.jobs finish refresh
 TimeoutStartSec=30min

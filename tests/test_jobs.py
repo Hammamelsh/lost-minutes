@@ -109,12 +109,23 @@ class JobRecordTests(unittest.TestCase):
         attempt = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())['lastAttempt']
         self.assertGreaterEqual(attempt['residentPeakBytes'], 60 * 1024 * 1024)
         self.assertEqual([s['exitStatus'] for s in attempt['steps']], [0, 3])
+        self.assertTrue(all(isinstance(s['seconds'], float) and s['seconds'] >= 0 for s in attempt['steps']), 'each step is timed')
         jobs.finish(self.root, 'refresh', now='2026-09-30T02:45:00+00:00', env={'SERVICE_RESULT': 'success'}, memory={})
         state = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())
         self.assertEqual(state['lastSuccess']['residentPeakBytes'], attempt['residentPeakBytes'])
         # A new attempt starts without the last one's peak.
         jobs.start(self.root, 'refresh', now='2026-10-01T02:43:00+00:00', env={})
         self.assertNotIn('residentPeakBytes', json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())['lastAttempt'])
+
+    def test_a_step_is_recorded_by_what_it_runs(self):
+        py = '/srv/lost-minutes/app/.venv/bin/python'
+        self.assertEqual(jobs.step_label([py, '-m', 'pipeline.patterns', 'build']), 'pipeline.patterns build')
+        self.assertEqual(jobs.step_label([py, '-m', 'pipeline.run', '--db', 'x']), 'pipeline.run')
+        self.assertEqual(jobs.step_label([py, 'scripts/extract-arrival-inputs.py', '--line', '15', '--db', 'data/evaluation/snapshot.duckdb',
+                                          '--out', 'data/evaluation/arrival-display-inputs.pkl']), 'extract-arrival-inputs.py')
+        self.assertEqual(jobs.step_label(['/bin/cp', '-f', 'a', 'b']), 'cp')
+        self.assertEqual(jobs.step_label([py, '-m']), 'python')
+        self.assertEqual(jobs.step_label([]), '?')
 
     def test_a_seeded_success_can_carry_the_journal_s_rounded_peak(self):
         self.assertEqual(jobs.parse_size('1.4G'), int(1.4 * 1024 ** 3))

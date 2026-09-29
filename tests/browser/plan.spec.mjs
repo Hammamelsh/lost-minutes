@@ -25,6 +25,11 @@ const field = (page, which) => panel(page).locator(`[data-field="${which}"]`);
 const search = (page, label) => page.getByRole('combobox', {name: label});
 
 const wall = ms => new Intl.DateTimeFormat('en-GB', {timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false}).format(ms);
+// A departure after London's midnight is said as tomorrow's, as the page says it (components/plan-panel.tsx). Until
+// 29 September 2026 this check expected the bare time, and failed when a gate reached it in the half hour before
+// midnight: at 23:55 the fixture's bus at 00:09 was, rightly, "00:09 tomorrow".
+const londonDay = ms => new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/London'}).format(ms);
+const departs = (ms, now) => `${wall(ms)}${londonDay(ms) !== londonDay(now) ? ' tomorrow' : ''}`;
 
 async function open(page, opts) {
   await servePatterns(page);
@@ -74,7 +79,7 @@ test('a fixed start and a destination give the direct bus with its legs; choosin
   const reachable = reachableAt(0);
   expect(reachableAt((Date.now() - now) / 60_000), 'the fixture sits on a boundary: move its departures').toBe(reachable);
   await expect(option.locator('[data-plan-next]')).toHaveAttribute('data-plan-next', 'timed');
-  await expect(option.locator('[data-plan-next]')).toContainText(`Next: 256 ${wall(now + reachable * 60_000)} from Stretford Mall (Stop A)`);
+  await expect(option.locator('[data-plan-next]')).toContainText(`Next: 256 ${departs(now + reachable * 60_000, now)} from Stretford Mall (Stop A)`);
   await expect(option.locator('[data-plan-next]')).toContainText('by the timetable, not live');
   await expect(panel(page).locator('[data-handoff="google"]')).toHaveAttribute('href', /travelmode=transit/);
   await expect(panel(page).locator('[data-handoff="bee"]')).toContainText('does not take the places from a link');

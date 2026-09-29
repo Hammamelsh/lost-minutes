@@ -29,6 +29,7 @@ import os
 import resource
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,20 +136,38 @@ def start(root, name, now=None, env=None):
     return state
 
 
+def step_label(argv):
+    """What a step runs, for the record: a module and its subcommand (`pipeline.patterns build`), else a script's
+    name (`extract-arrival-inputs.py`), else the program. Never raises: a label is not worth a failed job."""
+    try:
+        if '-m' in argv[:-1]:
+            k = argv.index('-m')
+            rest = [a for a in argv[k + 2:k + 3] if not a.startswith('-')]
+            return ' '.join([argv[k + 1], *rest])
+        for a in argv[1:]:
+            if a.endswith(('.py', '.mjs', '.js', '.sh')):
+                return os.path.basename(a)
+        return os.path.basename(argv[0])
+    except Exception:  # noqa: BLE001
+        return '?'
+
+
 def step(root, name, argv, run=subprocess.run):
     """Run one step of a nightly job and add its resident peak to the running attempt. The unit's own peak
     (memory.peak, read by `finish`) counts page cache, which the kernel reclaims before it kills anything, and
     which a job reading a large warehouse fills to near its ceiling whatever its real need; a step's largest
     resident set is the memory that could get it killed. The step's exit status is the job's, unchanged, and a
     failure to record never becomes a failure of the job."""
+    began = time.monotonic()
     code = run(argv).returncode
+    seconds = round(time.monotonic() - began, 1)
     peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * 1024     # the largest child, in kB on Linux
     try:
         with _locked(root):
             state = _load(root, name)
             attempt = state.get('lastAttempt') or {'startedAt': None, 'result': 'running'}
             attempt['residentPeakBytes'] = max(attempt.get('residentPeakBytes') or 0, peak)
-            attempt.setdefault('steps', []).append({'command': ' '.join(os.path.basename(a) for a in argv[-3:]),
+            attempt.setdefault('steps', []).append({'command': step_label(argv), 'seconds': seconds,
                                                     'residentPeakBytes': peak, 'exitStatus': code})
             state['lastAttempt'] = attempt
             atomic_json(_state_path(root, name), state)

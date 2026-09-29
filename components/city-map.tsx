@@ -632,6 +632,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  // and eased back to straight ahead on release. Following never stops for it: a passenger turning
  // their head is still on the bus. `down` is the primary pointer's last x while it is held.
  const look=useRef({offset:0,down:null as number|null,lastT:0});
+ // Where the glide into the front view ended, until the first frame placed after it: the metres between them,
+ // and the milliseconds, are written as data-front-handover, a diagnostic that says whether the glide ended where
+ // the frames begin.
+ const frontHandover=useRef<{lat:number;lon:number;at:number}|null>(null);
  // The frame loop parks when nothing is left to draw (line ~1024: it re-arms only while `more`).
  // A held head-turn on a standing bus draws nothing new, so the loop idled and the turn was never
  // painted; measured 20 September: listener attached and firing, attribute stale. The pointer
@@ -1741,7 +1745,16 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     root.current?.setAttribute('data-look',`${lk.offset.toFixed(1)},${lk.down===null?'up':'held'},${state.frontBearing===null?'null':state.frontBearing.toFixed(1)}`);
     const front=input.track&&aim?frontCamera(instance,input.track,{...v,velocity:v.velocity},0,turned):null;
     if(!front)leaveFront.current?.('Front view ended: the bus’s latest position is off its checked road, so it is shown from outside.');
-    else if(!prefersReducedMotion()||t-state.lastFront>=3000){state.lastFront=t;instance.jumpTo(front)}
+    else if(!prefersReducedMotion()||t-state.lastFront>=3000){
+     state.lastFront=t;instance.jumpTo(front);
+     const ended=frontHandover.current;
+     if(ended){
+      frontHandover.current=null;
+      const c=instance.getCenter();
+      root.current?.setAttribute('data-front-handover',`${Math.hypot((c.lat-ended.lat)*111195,
+       (c.lng-ended.lon)*111195*Math.cos(ended.lat*Math.PI/180)).toFixed(2)},${Math.round(performance.now()-ended.at)}`);
+     }
+    }
    }else{
     // The ride's own heading, and only while the ride is actually on. `input.view` is set from a
     // React effect, so for a frame or two after the ride is left it still says 'ride'; the ref is
@@ -2018,12 +2031,15 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
 
  // The ride-along's framing, from the drawn state. Outside: above and behind the bus, turned to
  // its heading. Front: the passenger's eye (frontCamera), led by how far a moving bus will have
- // gone by the end of the glide, so the glide ends where the next frame begins.
+ // gone by the end of the glide, so the glide ends where the next frame begins. The lead is the
+ // drawn bus's own speed, which changes gradually. Until 29 September 2026 it was an estimate's
+ // speed, and the ride has drawn every bus from its reports since 25 September: the glide ended
+ // where the bus had been as it began, and the first frame after it stepped the camera about 8 m on
+ // (7.96-9.30 m on a bus drawn at 7 m/s, on both profiles; 0.44-0.82 m since; tests/browser/ride.spec.mjs).
  const rideFraming=useCallback((instance:MapLibreMap,leadSeconds=0):CameraOptions&{center:LngLatLike}=>{
   const v=visualRef.current,s=inputs.current.selected,track=inputs.current.track;
   if(ride.current.camera==='front'&&track&&v){
-   const e=estimateRef.current;
-   const lead=e?.mode==='estimated'&&!e.held&&(e.speed??0)>0?(e.speed??0)*leadSeconds:0;
+   const lead=Math.max(0,v.velocity)*leadSeconds;
    const front=frontCamera(instance,track,{...v,velocity:v.velocity},lead);
    if(front?.center)return front as CameraOptions&{center:LngLatLike};
   }
@@ -2043,6 +2059,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   if(!instance||viewRef.current!=='ride')return;
   const token=++r.transition;
   instance.stop();
+  frontHandover.current=null;
   // Entering is the one glide a passenger watches from the start; a return is to a framing they
   // have already seen. Both are over well inside the two seconds the checks allow.
   const duration=fast?450:as==='entering'?1100:900;
@@ -2070,6 +2087,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   arrived.then(result=>{
    if(result==='stale')return;
    if(result==='short'){instance.stop();instance.jumpTo(rideFraming(instance))}
+   if(r.camera==='front'){const c=instance.getCenter();frontHandover.current={lat:c.lat,lon:c.lng,at:performance.now()}}
    settle();
   });
  },[rideFraming,setRide,kick]);

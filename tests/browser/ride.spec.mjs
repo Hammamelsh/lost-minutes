@@ -806,6 +806,62 @@ test('front view: a report 60 m further on than the last is ridden through smoot
   expect(fastest, `the eye never jumped (fastest ${fastest.toFixed(1)} m/s)`).toBeLessThan(28);
 });
 
+// 29 September 2026. The glide into the front view ends where the frames after it begin. It was led by an
+// estimate's speed, and the ride has drawn every bus from its reports since 25 September, so on a moving bus the
+// glide ended where the bus had been when it began, and the first frame after it stepped the camera on about 6 m,
+// with a jolt of zoom and tilt: the check above read 31 m/s between two samples on the phone profile of the
+// gate of 29 September, at its first sample after the switch.
+// Every frame across the switch is recorded in the page; after the glide no frame may step the camera more than a
+// moving bus could.
+test('front view: the glide into it hands over to the frames after it without a step', async ({page}) => {
+  test.setTimeout(90_000);
+  await openAtStopA(page, underWay({wobble: 0}));
+  await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 20_000});
+  await ride(page).click();
+  await expect(map(page)).toHaveAttribute('data-ride', 'following', {timeout: 5000});
+  await page.waitForTimeout(1500);                     // moving at its reports' pace before the switch
+  await page.evaluate(() => {
+    const el = document.querySelector('.vector-map');
+    const frames = window.__frames = [];
+    const t0 = performance.now();
+    const step = t => {
+      frames.push({t, camera: el.getAttribute('data-camera'), ride: el.getAttribute('data-ride'),
+        shown: el.getAttribute('data-display')});
+      if (t - t0 < 4500) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+  await page.getByRole('button', {name: 'Front view'}).click();
+  await expect(map(page)).toHaveAttribute('data-ride-camera', 'front');
+  await page.waitForTimeout(4800);
+  const frames = await page.evaluate(() => window.__frames);
+  const at = f => { const [zoom, lat, lon, pitch] = (f.camera || '0,0,0,0').split(',').map(Number); return {zoom, lat, lon, pitch}; };
+  // From the first frame after the glide: the ride following again, the camera placed frame by frame.
+  const start = frames.findIndex((f, i) => i > 0 && frames[i - 1].ride !== 'following' && f.ride === 'following');
+  expect(start, 'the glide ended and the ride followed again').toBeGreaterThan(0);
+  let worst = {metres: 0, zoom: 0, pitch: 0, speed: 0, at: null};
+  for (let i = start + 1; i < frames.length; i++) {
+    const a = at(frames[i - 1]), b = at(frames[i]), dt = Math.max(0.001, (frames[i].t - frames[i - 1].t) / 1000);
+    const metres = metresApart(a, b);
+    if (metres / dt > worst.speed) worst = {...worst, metres, speed: metres / dt, at: (frames[i].t - frames[start].t) / 1000};
+    worst.zoom = Math.max(worst.zoom, Math.abs(b.zoom - a.zoom));
+    worst.pitch = Math.max(worst.pitch, Math.abs(b.pitch - a.pitch));
+  }
+  // Where the glide ended against the first frame placed after it, measured in the page itself (data-front-handover):
+  // on the desktop profile the two fall in one frame, where no sample from outside can tell them apart.
+  const [handover, afterMs] = ((await map(page).getAttribute('data-front-handover')) || 'NaN,NaN').split(',').map(Number);
+  test.info().annotations.push({type: 'front-entrance', description: JSON.stringify({...worst, handover, afterMs})});
+  console.log(`front entrance, ${test.info().project.name}: the first frame ${handover.toFixed(2)} m from where the glide ended, ${afterMs} ms after it; `
+    + `worst step after it ${worst.metres.toFixed(2)} m (${worst.speed.toFixed(1)} m/s); zoom ${worst.zoom.toFixed(3)}, tilt ${worst.pitch.toFixed(2)}°; ${frames.length} frames`);
+  expect(afterMs, 'the frames took over at once').toBeLessThan(250);
+  // A bus drawn at 7 m/s goes 0.12 m in a frame; its speed changes by at most 1 m/s² over the 0.9 s glide.
+  expect(handover, 'the glide ended where the first frame after it began').toBeLessThan(1.5);
+  // A 12 m/s bus moves 0.2 m in a 16 ms frame and 1.2 m in a 100 ms stall: nothing a bus does reaches 40 m/s.
+  expect(worst.speed, `after the glide the camera stepped ${worst.metres.toFixed(2)} m in one frame (${JSON.stringify(worst)})`).toBeLessThan(40);
+  expect(worst.zoom, 'and its zoom never jolted').toBeLessThan(0.05);
+  expect(worst.pitch, 'nor its tilt').toBeLessThan(0.8);
+});
+
 test.describe('reduced motion', () => {
   test.use({reducedMotion: 'reduce'});
   test('goes straight to the bus, and Return to bus is a jump', async ({page}) => {

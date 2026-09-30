@@ -40,7 +40,7 @@ import {londonDate} from '@/lib/service-days';
 import {readSheetHeights,SHEET_PEEK,useSheetViewport} from '@/lib/use-sheet-viewport';
 import {bearingWords,savedStopsServerSnapshot,savedStopsSnapshot,saveStops,stopPlace,straightLineMetres,
         subscribeSavedStops,toggleSavedStop,type Stop} from '@/lib/stops';
-import {destinationLabel,directionLabel,routeId,routeNumber,routesByRecency,type FollowBus} from '@/lib/follow';
+import {destinationLabel,directionLabel,goneQuiet,routeId,routeNumber,routesByRecency,type FollowBus} from '@/lib/follow';
 import {elapsedWords,favouriteKey,favouritesServerSnapshot,favouritesSnapshot,isFavourite,saveFavourites,
         subscribeFavourites,toggleFavourite,type Favourite,type FeedMode,type LiveState} from '@/lib/live';
 import {clock} from '@/lib/replay';
@@ -1147,8 +1147,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // A report can be old while the feed is perfectly well: the vehicle stopped reporting, which is
  // what MF74NNL did at 20:44:48 on 22 September 2026 and what the card then showed for six minutes
  // in the same colours as a fresh one. It is its own state now, said in words and marked on the card.
- const quiet=mode==='live'&&shown&&!absent&&shown.freshness!=='fresh'&&shown.ageSeconds!==null
-  &&Number.isFinite(shown.ageSeconds)?Math.round(shown.ageSeconds):null;
+ // Judged by how old the report was when the feed was last read, not by its age on this clock, which our own
+ // publication's delay pushed past a minute every cycle for buses reporting every 20-30 s (goneQuiet).
+ const quiet=mode==='live'&&shown&&!absent&&policy?goneQuiet(shown,policy):null;
  const quietWords=quiet===null?null
   :`This bus has not reported for ${elapsedWords(quiet)}. Live positions are arriving normally, so it `
    +'is this vehicle that has gone quiet — it is drawn where it last reported, not moved on.';

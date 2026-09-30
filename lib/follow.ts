@@ -10,6 +10,10 @@ export type FollowBus = {
  key:string;operator:string;route:string;direction:string;journeyRef:string;vehicle:string;
  destination:string;lat:number;lon:number;observedAtMs:number;recordedAt:string;
  retrievedAt?:string;ageSeconds:number|null;freshness:Freshness|null;ageWords:string;
+ /** How old the report already was when the collector last read the feed (the publication's own
+  *  `ageSeconds`): what a bus's reporting is judged by, since it is untouched by how long our
+  *  publication then took to reach the page (goneQuiet). Null for a recording or the archive. */
+ publishedAgeSeconds?:number|null;
  sourceHash:string;
  /** Where the timetable places this bus, or why it could not be placed. Carried through
   *  from the published state so the map, the card and the list all say the same thing. */
@@ -61,6 +65,7 @@ export function busFromVehicle(v:LiveVehicle,policy:LiveState['freshness']['poli
   direction:v.direction,journeyRef:v.journeyRef,destination:v.destination??'',
   lat:v.lat,lon:v.lon,observedAtMs:v.observedAtMs,recordedAt:v.recordedAt,
   ageSeconds:age,freshness:freshnessOf(age,policy),ageWords:ageWords(age),
+  publishedAgeSeconds:Number.isFinite(v.ageSeconds)?v.ageSeconds:null,
   sourceHash:v.sourceHash,match:v.match,
   bearing:usableBearing(v.bearing,v.bearingStatus),bearingStatus:v.bearingStatus??'not_captured',
   aimedDeparture:v.aimedDeparture??null,retrievedAtMs:v.retrievedAtMs??null,
@@ -111,4 +116,22 @@ export function routesByRecency(buses:FollowBus[]):{id:string;count:number;newes
   else map.set(id,{id,count:1,newestMs:bus.observedAtMs});
  }
  return Array.from(map.values()).sort((a,b)=>b.newestMs-a.newestMs);
+}
+
+/**
+ * Whether a bus has gone quiet while the feed is well: the seconds to say ("No report for …"), or null.
+ *
+ * Judged by how old its report already was when the collector last read the feed, never by its age on this
+ * device's clock. A publication reaches the site 23–25 s after the feed is read (measured on the server,
+ * 30 September 2026) and a phone asks for one every 10–20 s, so a bus reporting every 20–30 s reads 40–75 s old
+ * on the page in the ordinary course; judged by that, every such bus "went quiet" once a cycle, and on the
+ * owner's phone a V1 and an X43, both reporting every 20–30 s, each said "No report for 62s". The seconds said
+ * are still the report's true age now.
+ */
+export function goneQuiet(bus:Pick<FollowBus,'ageSeconds'|'publishedAgeSeconds'>,
+                          policy:Pick<LiveState['freshness']['policy'],'observationFreshSeconds'>):number|null{
+ const atRead=bus.publishedAgeSeconds;
+ if(atRead===null||atRead===undefined||!Number.isFinite(atRead)||atRead<=policy.observationFreshSeconds)return null;
+ const now=bus.ageSeconds!==null&&Number.isFinite(bus.ageSeconds)?bus.ageSeconds:atRead;
+ return Math.round(Math.max(now,atRead));
 }

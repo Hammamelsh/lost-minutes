@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {busesFromArchive,busesFromLive,destinationLabel,directionLabel,routeId,routeNumber,
+import {busesFromArchive,busesFromLive,destinationLabel,directionLabel,goneQuiet,routeId,routeNumber,
         routesByRecency} from '../lib/follow.ts';
 
 const POLICY={observationFreshSeconds:60,observationAgeingSeconds:150,
@@ -69,4 +69,24 @@ test('archive buses carry absolute times and no relative age',()=>{
  assert.equal(bus.ageSeconds,null,'a recording from another day has no "minutes ago"');
  assert.equal(bus.freshness,null);
  assert.equal(bus.ageWords,'');
+});
+
+test('a bus has gone quiet by how old its report was when the feed was read, not by its age on this clock',()=>{
+ // The owner's phone, 30 September 2026: a V1 and an X43, each reporting every 20-30 s, both said "No report for
+ // 62s". Their reports were about 15 s old when the collector read the feed; the publication reached the site
+ // 23-25 s later and the phone had last asked some 20 s before that.
+ const read=15,onThisClock=62;
+ const [bus]=busesFromLive(state([vehicle(read)]),NOW,NOW,NOW+(onThisClock-read)*1000);
+ assert.equal(Math.round(bus.ageSeconds),onThisClock,'the report is 62 s old now');
+ assert.equal(bus.publishedAgeSeconds,read,'and was 15 s old when the feed was read');
+ assert.equal(bus.freshness,'ageing','on this clock it has left the fresh band, as before');
+ assert.equal(goneQuiet(bus,POLICY),null,'but it has not gone quiet: it was reporting normally');
+ // One that had not reported for over a minute when the feed was read has gone quiet, said at its age now.
+ const [silent]=busesFromLive(state([vehicle(75)]),NOW,NOW,NOW+20_000);
+ assert.equal(goneQuiet(silent,POLICY),95);
+ // At the threshold itself, still fresh; a recording or the archive is never judged.
+ assert.equal(goneQuiet({ageSeconds:80,publishedAgeSeconds:60},POLICY),null);
+ assert.equal(goneQuiet({ageSeconds:61,publishedAgeSeconds:61},POLICY),61);
+ assert.equal(goneQuiet({ageSeconds:null,publishedAgeSeconds:null},POLICY),null);
+ assert.equal(goneQuiet({ageSeconds:120},POLICY),null);
 });

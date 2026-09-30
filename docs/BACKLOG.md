@@ -661,7 +661,7 @@ alone, at the opening city view, before the page framed the chosen stop:
 
 After the deploy the served count is in `docs/MILESTONE_2026-09-29_CORRECTIONS.md`.
 
-## 45. The ride's bus hidden inside a building — fixed 29 September 2026 (evening)
+## 45. The ride's bus hidden inside a building — first answer wrong (30 September), replaced by a rising camera
 
 **Reported from the owner's phone, on the served site (`b507302`).** A screenshot on the night map:
 - an X41 "to Arrival Stand" ridden near Victoria Station Approach and Long Millgate;
@@ -711,6 +711,87 @@ The frames are in `outputs/probes/x41/frames/`:
 **Not measured:** how often a real ride's camera stands in a building across the fleet. Emulation only; the
 owner's phone is the check that matters.
 
+**That answer was wrong, and the owner's phone showed it (30 September, `2347c6c`).** Two screenshots, a V1 on
+Deansgate at night and an X43 by the Irwell by day, each with the bus visible and the city around it empty, and
+"Doesn't look done to me…". Measured on the served site, the same live bus ridden on both builds at once:
+- *The fade emptied the city.* With the served build every building was faded for 131 of 150 s on a live V1
+  (and 93 of 120 s, and 44 of 120 s on an X43, in earlier rides).
+- *Most of those fades were false.* MapLibre's query at the bus's own point finds any building drawn over that
+  point: in front of the bus, beside it, or beyond it, since it does not test depth. On a V1 in plain view at
+  Chapel Street it said "hidden" for 17 s (frame `outputs/probes/owner-0930/local-v1-night/t090.png`).
+- *Nothing measured whether a building actually stood between the camera and the bus.*
+
+**Replaced: the camera looks down over the buildings instead** (`lib/sightline.ts`, `components/city-map.tsx`).
+- *What is measured.* Every 250 ms, the buildings drawn between the bus and the foot of the screen, with their
+  heights and undersides. They are remembered while the bus is within 250 m of them, because once the camera has
+  risen, a building behind it is off the screen.
+- *The rule.* The front half of the bus, 3 m ahead of its centre, must be seen from 2 m up (its upper body and
+  roof), along three lines: its centre and both its sides. Where such a line crosses a footprint, that building's
+  nearest face and height give the steepest pitch that clears it, less 2°. A raised structure (a bridge or an
+  overhang) that the line passes beneath hides nothing.
+- *The camera.* It eases to that pitch at up to 45° a second, never steeper than 20°, and back to the ride's
+  framing at 8° a second once the bus is past, so it does not bob at every corner. Return to bus frames at the
+  same pitch.
+- *The last resort.* The buildings fade only where no tilt can show the bus:
+  - it stands inside a footprint that reaches down to the street (a covered stand, or a bus drawn inside a
+    block), where the camera keeps the ride's framing, since no tilt helps;
+  - or a building is too tall for the steepest view.
+
+  This is decided by the geometry alone, never by the point query, and the fade lifts 800 ms after the bus is
+  clear.
+- *Unchanged:* the front view; the buses' bodies drawn beneath the building layer.
+- *The camera's position* comes from MapLibre's public values (`cameraAt`, shared with `data-eye`), because the
+  transform is not exposed at run time.
+- *Diagnostics:* `data-ride-pitch-cap`, `data-sight-binding` (the face's distance, the building's height and a
+  corner), `data-bus-inside-building`, `data-sight-obstacles`, `data-sight-ms` (0.7–1.1 ms a check at the median on
+  live rides), `data-buildings-opacity`, `data-bus-occluded` (now: faded).
+
+**The first version of the rise was wrong too, and the gate caught it.** It aimed at the bus's middle from 1.5 m
+up.
+- At the journey fixture's stop, Stretford Mall, a 5 m building stands 1.8 m behind the bus's centre: the bus's
+  own rear end is against it.
+- That sent the ride's camera to 24°, and `journey.spec`'s check of the ride's framing failed.
+- A bus standing against a shop at a stop is common, and a camera diving to the top view at each one is no
+  better than the fade. The target is now the front half, from 2 m up.
+- A bus inside a block also no longer dives as it fades.
+
+**Verified.**
+- `tests/sightline.test.mjs` (10 cases, Node):
+  - an open street constrains nothing;
+  - a 30 m building 20 m behind the bus lowers the pitch just enough, and at that pitch it no longer asks;
+  - buildings beside the road, beyond the camera, or ahead of the bus constrain nothing;
+  - a low wall leaves the pitch as it was;
+  - a camera inside a building is taken out of it;
+  - a bus inside a footprint says so, and one in a courtyard does not;
+  - a corner crossing only one side's sight line counts;
+  - Stretford: the rear against a 5 m building leaves the camera at 50° or more;
+  - aiming at the centre asks for more than aiming ahead;
+  - a bridge the line passes under is neither around the bus nor in the way, and a lower deck in the line is
+    climbed over.
+- `tests/browser/occlusion.spec.mjs` (FIXTURE, the station's own tiles), 8 of 8 on both profiles, with
+  `journey.spec`, 32 of 32. The share of a box along the bus in its own colours (lime body or pale roof) was first
+  scored on saved frames: 5.7% with the bus hidden in the station on `b507302`, against 49–57% seen.
+
+  | case | pitch | city | bus colours in its box |
+  |---|---|---|---|
+  | behind the station, day | 22.4–24.0° | solid (0.88) | 59–60% |
+  | the same, night, the theme switched while risen | 24.2–25.1° | solid (0.78) | 50% |
+  | inside the station's footprint | 60°, the framing kept | faded (0.3) | 45% |
+  | an open road | 60° | solid | — |
+
+- **Live, on real buses in the centre** (`scripts/probes/paired-ride.mjs`; frames in
+  `outputs/probes/owner-0930/` and `outputs/probes/paired-ride/`, not in Git):
+  - The same V1 on both builds at once for 150 s: served, the city faded 131 s; new, 0 s, the camera at 60°
+    throughout (nothing stood between).
+  - Three more on the final build, 120 s each:
+    - a 10 standing 80 s at a stand by Shudehill, the camera at 42° over the building behind it, then back to 60°;
+    - a 35 on Deansgate and a 143 on Oxford Street at the ride's framing for 109 and 101 s. Each was faded for
+      about 36 s while it was drawn inside a block (reports arriving late, the bus repositioned 26–385 m); every
+      warning on their cards was a repositioning.
+
+**Left as it is:** a bus drawn inside a block. It is drawn between reports that arrive late, straight across the
+block, and fading is the honest way to show that. The cure is in the drawing, not the camera.
+
 ## 46. Both nightly runs recorded as "by hand", and Operations calling both jobs overdue — fixed 30 September 2026
 
 **Found** on 30 September, checking that night's scheduled runs. Both succeeded on their timers, and both were
@@ -755,6 +836,46 @@ own last-fired moments written into the two records under the lock, with a dated
 assistant's permission rule for writes on the server, and is left for the owner; the exact command is in the
 release record. Until then, or until the next scheduled runs (1 October, about 02:43 and 03:12 UTC) record
 themselves under the deployed fix and move "last scheduled run", Operations reads **overdue** on both jobs.
+
+## 47. "No report for 62s · this bus has gone quiet" said of buses reporting every 20–30 s — fixed 30 September 2026
+
+**From the owner's phone.** A V1 and an X43, ridden within the same minute (16:08 UTC), both said "No report for
+62s · the feed is live, this bus has gone quiet".
+
+**It was false.** The server's raw captures for 16:06:30–16:09:30 show the X43 the owner opened by link
+(SK70BWF) and every V1 near Deansgate reporting every 20–30 s, none silent for more than 31 s. Reproduced on the
+served site: on two live rides the warning stood for 60 and 83 of 120 s, from the first second.
+
+**The cause: our own publication's delay, judged as the bus's silence.**
+- `build_live` stamps a publication as it starts, and the file lands 23–25 s later (four cycles timed on the
+  server: stamped 16:19:32, written 16:19:55; 16:20:00 at 16:20:25; 16:20:30 at 16:20:53; 16:20:57 at 16:21:22).
+- A report is therefore 35–45 s old when the file reaches the site, and a phone asks every 10–20 s.
+- A bus reporting normally therefore reads 40–75 s old on the page in the ordinary course. The card called a bus
+  quiet as soon as that age left the 60 s "fresh" band.
+- The age shown is true (it is measured against the server's clock). Only the judgement was wrong.
+
+**Fixed** (`goneQuiet` in `lib/follow.ts`, used by the bus card):
+- A bus has gone quiet only if its report was already more than 60 s old when the collector last read the feed
+  (the publication's own `ageSeconds`), which no delay of ours or poll of the phone's can move.
+- The seconds it says are still the report's true age now.
+- `tests/follow.test.mjs` holds the owner's case: 15 s old at the read and 62 s old on the phone is not quiet.
+  Buses silent at the read are, and a recording is never judged.
+- Live, the same V1 ridden on both builds at once: the warning stood 99 of 150 s on the served build, 0 on the new.
+
+**Not changed:** the other judgements from the same clock use the 150 s "stale" band, which the delay moves far
+less (an old report, a faded marker, stop activity).
+
+## 48. A publication takes 23–25 s to build, so every position a passenger sees is that much older — open
+
+**Measured on the server, 30 September 2026.** `build_live` (`pipeline/live.py`) takes its stamp as it starts; the
+file is written 23–25 s later, in a cycle of about 30 s. The page ages every report correctly against the
+server's clock, so nothing is misstated, but each position reaches a phone about 23 s later than it need.
+- Where the time goes is not measured. Candidates are the match of about 700 buses to their patterns and the
+  trails' queries.
+- Profiling it means a copy of the 1.15 GB warehouse on this machine, which is a large download, for the owner to
+  approve.
+- A reduction of most of the 23 s would make the ride's "as it was about 30 s ago" nearer the reports' own
+  lag.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

@@ -4,12 +4,58 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`2347c6c`**, deployed 30 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`a549583`**, deployed 30 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 30 September, evening: the ride keeps its city, and no bus falsely "gone quiet"
+
+**Deployed: `a549583`**, with `2347c6c` kept for `deploy/rollback.sh`. The owner's phone showed the release below
+was not done: a V1 on Deansgate and an X43 by the Irwell, each visible, but each in an empty city and each saying
+"No report for 62s · the feed is live, this bus has gone quiet". Both are fixed, and both were measured on the
+served site before anything was changed (backlog 45 and 47).
+
+- **The city faded for most of a ride (backlog 45).** The morning's fix faded every building whenever MapLibre's
+  query found one drawn over the bus's point. That query ignores depth, so it fired for buildings beside or
+  beyond the bus: on a live V1 the city was faded for 131 of 150 s.
+  - Now the camera looks down over the buildings between it and the bus, just steeply enough to see the bus's
+    front half and roof (`lib/sightline.ts`), and settles back once the bus is past.
+  - The buildings fade only for a bus inside a footprint (the camera then keeps its framing), or behind a
+    building too tall for the steepest view. That is judged by the geometry alone.
+  - A first version aimed at the bus's middle and dove to 24° for a bus standing against a shop. The full gate
+    caught it (`journey.spec` at Stretford Mall), and the target became the front half.
+- **"Gone quiet" said of buses reporting every 20–30 s (backlog 47).** Our publication is stamped as it starts and
+  lands 23–25 s later (timed on the server), so a normal report reads 40–75 s old on a phone, and the card called
+  it quiet above 60 s. It now judges by how old the report was when the feed was read, and still says the true age.
+- **Found, not changed (backlog 48):** that 23–25 s itself. Every position a passenger sees is about 23 s older
+  than it need be. Profiling it needs a copy of the 1.15 GB warehouse on this machine, which is for the owner to
+  approve.
+- **What a passenger sees:**
+  - in the ride, the camera sometimes looks down more steeply beside tall buildings, and the city stays;
+  - the buildings fade only while the bus is drawn inside one;
+  - no "gone quiet" line on a bus that is reporting.
+
+**Verified.**
+- Node 331 (the sight line 10, the quiet rule 1), Python 187, lint with no errors.
+- The full browser gate on the fixed build: **470 passed, 50 skipped by design, none failed (1.3 h)**. The gate
+  before it, on the first version of the rise, failed one check and was stopped and rerun.
+- Served:
+  - every asset and the index byte-identical to the local build (9 of 9);
+  - that build is the gated one but for its stamp: the one stamped chunk's SHA-256 is equal once the stamp is
+    swapped, and the other seven chunks and both manifests are identical outright;
+  - `/preview/` returns 401;
+  - the collector's PID 331046 is unchanged;
+  - `RELEASE` reads `a549583`.
+- The station checks against the served site, on real tiles, 8 of 8: over the station at 24–25°, the city solid,
+  the bus 47–58% of its box; inside it, the framing kept and the bus seen through the fade.
+- Live on the served site, 120 s each:
+  - a V1 at night was never faded, at 60° throughout, with no "gone quiet";
+  - an X43 by day rose to 31–35° for about 30 s by Shudehill, was faded 7 s while drawn inside a building, and
+    showed no "gone quiet". Its only warnings were repositionings.
+- Emulation only; the owner's phone is the check that matters.
 
 ## 30 September: the bus hidden inside a building, and the nightly runs recorded "by hand"
 

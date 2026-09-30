@@ -2359,3 +2359,25 @@ recorded verdict names its inputs. No tool, no interface.
 
 **Next cheap step.** None beyond the fix; on the next fault in a recorded judgement, check first whether its
 inputs are in the record. Status: `mitigated`.
+
+## 75. A visual fix verified on its own fixture, and not on the rides it changes
+
+**Problem and evidence.** The fade of 29 September (backlog 45) passed its own browser check at the one place it
+was built for (Victoria, a fixture) and the full gate, and was deployed. On the owner's phone the next day it had
+emptied the city: ridden on live buses, the served build faded every building for 93 and 131 of 120–150 s, and
+most of those fades were false, because the check it rested on (MapLibre's point query) cannot tell a building in
+front of the bus from one beyond it. Nothing had ridden a live bus through the change before it shipped. The same
+pass found a second fault the fixtures could not show: the card's "gone quiet" line stood for 60–99 s of every
+two minutes on live buses reporting normally (backlog 47).
+
+**Who hits it, workaround.** Whoever changes what the ride draws; the owner, who then rides and reports it.
+
+**Recurrence and effort.** Twice in two days on the ride (29 and 30 September). The paired ride takes about 3 min.
+
+**Small fix, script, tool or product.** A script, now kept: `scripts/probes/paired-ride.mjs` rides one live bus on
+the served build and on the candidate at once, a second at a time, and says per build how long the city was faded,
+the camera where, and the card what. The reusable capability is an A/B of two builds on the same live input with
+per-second state, which fixture checks cannot give; no visual interface is needed beyond its frames.
+
+**Next cheap step.** Run it on two or three live buses in the centre before any deploy that touches the ride or the
+card. Status: `mitigated`.

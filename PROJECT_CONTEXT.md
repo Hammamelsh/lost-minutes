@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -27,6 +27,27 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **30 September, evening — the ride keeps its city; no false "gone quiet"** (`docs/RELEASE.md`, top; backlog
+  45, 47, 48).
+  - **From the owner's phone:** "Doesn't look done to me…": a V1 and an X43 each in an empty city, each "No report
+    for 62s · this bus has gone quiet".
+  - **The morning's fade was wrong:** it faded every building on a depth-blind point query, 131 of 150 s on a live
+    V1. The camera now looks down over the buildings between it and the bus, just enough to see its front half
+    (`lib/sightline.ts`), and settles back. The buildings fade only for a bus inside a footprint or behind one too
+    tall to see over.
+  - **"Gone quiet" was false:** the raw captures show both buses reporting every 20–30 s. Our publication lands
+    23–25 s after its stamp, and the card judged a report's age on the phone. It now judges the age at the
+    feed's read.
+  - **Found, left for the owner:** the 23–25 s publication build (backlog 48).
+  - **Verified:**
+    - Node 331, Python 187; the full gate 470 passed, 50 skipped, none failed (1.3 h), after a gate that caught a
+      first version diving at Stretford;
+    - served byte-identical, the code the gated build's but for its stamp, the preview locked, the collector
+      untouched; the station checks 8 of 8 on the served site;
+    - live on the served site: a V1 never faded and at 60° throughout; an X43 over a building by Shudehill at
+      31–35°; no "gone quiet" on either.
+    - **Deployed as `a549583`** (`2347c6c` kept for rollback). Emulation only.
 
 - **30 September — the bus under the building, and the runs recorded "by hand"** (`docs/RELEASE.md`, top;
   backlog 45 and 46).

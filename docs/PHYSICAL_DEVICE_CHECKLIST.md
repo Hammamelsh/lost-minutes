@@ -64,6 +64,10 @@ On mobile data, in daylight, on the served site. One minute each; write what was
       are still distinguishable; the ride card's text is readable. *unchecked*
 - [ ] Night theme at night: same. *unchecked*
 - [ ] Landscape: the ride card does not cover **Front view** / **Outside view**. *unchecked*
+- [ ] Beside tall buildings (added 30 September 2026, after the X41 at Victoria "riding under buildings"): while
+      a building stands between the camera and the bus, the buildings fade and the bus's body stays visible
+      inside its ring; once the bus is clear, they return to their look without flicker. Note the street: ____.
+      *unchecked; emulated at Victoria Station Approach on both themes*
 
 ## Movement, watched for two full minutes on one bus
 

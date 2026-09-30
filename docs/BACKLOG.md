@@ -661,6 +661,56 @@ alone, at the opening city view, before the page framed the chosen stop:
 
 After the deploy the served count is in `docs/MILESTONE_2026-09-29_CORRECTIONS.md`.
 
+## 45. The ride's bus hidden inside a building — fixed 29 September 2026 (evening)
+
+**Reported from the owner's phone, on the served site (`b507302`).** A screenshot on the night map:
+- an X41 "to Arrival Stand" ridden near Victoria Station Approach and Long Millgate;
+- "Front view · this bus is not placed" and "Last reported position · 60 s ago";
+- the lime ring and the route number were drawn, but no bus inside the ring, only a sliver under a dark block.
+
+The owner's words: "Bus is riding under buildings".
+
+**The cause, measured in the map's own tiles** (`outputs/probes/x41/`, not in Git):
+- *Where the camera stands.* The ride frames the bus at zoom 20 and pitch 60. At the phone's canvas height that
+  puts the camera about 49 m behind the bus and 28 m up.
+- *What was there.* On Victoria Station Approach, heading south-west, that point is inside or behind the 30 m
+  station building for the last 40 m of the approach. The buildings came from the OpenFreeMap vector tiles
+  themselves, decoded with rings classified by winding.
+- *Why the ring and number still showed.* The bus's body is a fill-extrusion, and shares the depth test with the
+  buildings, so a building in front of it hides it. Its ring and number are symbols, which are drawn over
+  everything.
+- *Why this bus.* A bus with no checked road (LNUD has no timetable here, so it is not placed) is drawn between
+  its reports, and nothing keeps the camera out of buildings on any bus.
+
+**Fixed** (`components/city-map.tsx`):
+- *Detection.* While the body is shown (zoom 18 or more, tilted, outside view), the page asks MapLibre every
+  250 ms, and whenever the camera comes to rest, whether a building is drawn over the bus's own ground point.
+  The check is `queryRenderedFeatures` in a 6 px box on the building layer.
+- *The fade.* While one is, every building fades to 0.3 opacity. The theme's own opacity (0.88 by day, 0.78 at
+  night) returns once the bus has been clear for 800 ms, so the edge of a building does not flicker the city.
+- *Drawing order.* The buses' bodies are now drawn beneath the building layer, so the faded building shows them.
+  Opaque, the buildings hide what is behind them as before.
+- *Why the whole layer.* OpenFreeMap's buildings carry no ids and are merged into multi-polygons, so a single
+  building cannot be faded on its own.
+- *The front view is unchanged:* its buildings stay at full opacity, and the bus's own body is hidden there.
+- *Diagnostics:* `data-bus-occluded` and `data-buildings-opacity`.
+
+**Verified** (`tests/browser/occlusion.spec.mjs`; FIXTURE publication, real basemap tiles and buildings). An X41
+approaches B (53.48731, −2.24354) at heading 237°:
+
+| check | before the fix (`b507302`) | after the fix |
+|---|---|---|
+| lime pixels of the body in a 40 px box at its ground point, day | 0 in all 4 runs | 190–200 desktop, 756–800 phone |
+| the same, night map, switched while hidden | — | 178 desktop, 549 phone |
+| a bus on the fixture's open road | not occluded | not occluded, theme opacity kept (0.88 / 0.78) |
+
+The frames are in `outputs/probes/x41/frames/`:
+- before, the whole map is the building's tint;
+- after, the bus, Hunts Bank and the station's outline are readable through it.
+
+**Not measured:** how often a real ride's camera stands in a building across the fleet. Emulation only; the
+owner's phone is the check that matters.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

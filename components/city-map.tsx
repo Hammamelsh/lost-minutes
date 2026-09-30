@@ -126,6 +126,10 @@ const RIDE_FROM_REPORTS='in the ride-along every bus is drawn from its own repor
 // not a seat on board and not the bus's lane: it is the map's street, seen from above the road.
 // Raised so that the road ahead, both sides of the street and the skyline share the frame, where
 // from 3.5 m a road filled the foot of the screen under an empty sky. Its paint is FRONT's.
+/** How see-through the buildings are while one stands between the camera and the chosen bus, and how long they
+ *  stay so once it is clear. */
+const BUILDINGS_SEE_THROUGH=0.3;
+const OCCLUSION_HOLD_MS=800;
 const EYE_HEIGHT=7.5;          // m above the road, above a double-decker's roof
 const EYE_FORWARD=4;           // m ahead of the drawn position, the middle of a 12 m bus
 const LOOK_AHEAD=32;           // m further along the road at a standstill, where the eye rests
@@ -688,6 +692,18 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const rideKey=useRef('');
  const returnRef=useRef<(fast?:boolean,as?:'entering'|'returning')=>void>(()=>{});
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
+ // Whether a building stands between the camera and the chosen bus, and the buildings see-through while one does
+ // (29 September 2026). The ride's camera stands about 49 m behind the bus and 28 m up. Where the road bends, or the
+ // bus has no checked road, that can be over or inside a building, and the building's walls then hid the bus's body
+ // while its ring and number stayed on top: seen on a phone as an X41 "riding under buildings" on Victoria Station
+ // Approach, the camera inside the 30 m station building. A building drawn over the bus's own ground point is in
+ // front of it. While one is, every building fades to BUILDINGS_SEE_THROUGH, and returns once the bus has been
+ // clear for a moment. The bus's body is drawn beneath the buildings, so the fade shows it; opaque, the buildings
+ // hide what is behind them as before.
+ const occluded=useRef(false);
+ const buildingsInside=useRef(false);
+ const applyBuildingsOpacity=useRef<()=>void>(()=>{});
+ const occlusionCheck=useRef<()=>void>(()=>{});
  const loop=useRef({raf:null as number|null,
   // The last repositioning, traced on the map while it is recent.
   snap:null as {at:number;from:[number,number];to:[number,number];metres:number;standing:boolean;
@@ -696,8 +712,38 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   drawKind:null as 'estimate'|'reports'|null,handoffIntoRide:false,wasRiding:false,
   // How long the last few frames took, so a view that has become a slideshow can say so rather
   // than look frozen. Written to data-frame-ms; read by the front view's own guard.
-  gaps:[] as number[],lastTick:0,
+  gaps:[] as number[],lastTick:0,lastOcclusion:0,
   key:null as string|null,clock:null as PresentationClock|null});
+ useEffect(()=>{
+  applyBuildingsOpacity.current=()=>{
+   const instance=map.current;
+   if(!instance?.getLayer('lm-buildings-3d'))return;
+   const base=(buildingExtrusion(themeRef.current) as unknown as {paint:Record<string,number>}).paint['fill-extrusion-opacity'];
+   const opacity=buildingsInside.current?1:occluded.current?BUILDINGS_SEE_THROUGH:base;
+   instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',opacity as never);
+   root.current?.setAttribute('data-buildings-opacity',String(opacity));
+  };
+  let clearSince=0;
+  occlusionCheck.current=()=>{
+   const instance=map.current,el=root.current,v=visualRef.current;
+   if(!instance||!el)return;
+   const bodyShown=Boolean(instance.getLayer('lm-buildings-3d')&&instance.getLayer('lm-bus-model')
+    &&instance.getLayoutProperty('lm-bus-model','visibility')==='visible'&&instance.getZoom()>=MODEL_MIN_ZOOM
+    &&instance.getPitch()>10&&!buildingsInside.current&&v);
+   let next=false;
+   if(bodyShown&&v){
+    const at=instance.project([v.lon,v.lat]);
+    const hidden=instance.queryRenderedFeatures([[at.x-3,at.y-3],[at.x+3,at.y+3]],{layers:['lm-buildings-3d']}).length>0;
+    const now=performance.now();
+    if(hidden)clearSince=0;
+    else if(occluded.current&&!clearSince)clearSince=now;
+    // Held a moment once clear, so a bus passing the edge of a building does not flicker the city.
+    next=hidden||(occluded.current&&now-clearSince<OCCLUSION_HOLD_MS);
+   }else clearSince=0;
+   if(next!==occluded.current){occluded.current=next;applyBuildingsOpacity.current()}
+   el.setAttribute('data-bus-occluded',next?'yes':'no');
+  };
+ },[]);
  // Every bus in the publication, drawn from its own reports (lib/fleet.ts): the drawings, the last
  // step drawn (the source's data, and the tap diagnostic's), the fleet's own loop and its inputs.
  const fleetBuses=fleet??buses;
@@ -1093,6 +1139,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    // And as soon as the camera rests: under load, idle can lag the rest by seconds (tiles still
    // arriving), and a check that tapped where a sign had been found nothing (26 September 2026).
    instance.on('moveend',()=>stopPoints.current());
+   instance.on('moveend',()=>occlusionCheck.current());
    // The drawn bus's place on the canvas changes when the camera moves as well as when the bus
    // does; a standing bus draws no frames, so it is projected here too, and so is the stop.
    instance.on('move',()=>{
@@ -1782,6 +1829,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   }
   // Diagnostics a few times a second, and always on the last frame before the loop rests, so a
   // bus that has just come to a stand is described as it is.
+  if(t-state.lastOcclusion>=250){state.lastOcclusion=t;occlusionCheck.current()}
   const more=needsFrames(e,v);
   // A held or easing head-turn is something left to draw.
   const headTurnLive=look.current.down!==null||look.current.offset!==0;
@@ -1847,8 +1895,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    instance.setLayoutProperty('lm-sel-caption','visibility',inside?'none':'visible');
    for(const id of SELECTED_TRAIL)instance.setLayoutProperty(id,'visibility',inside?'none':'visible');
    const extrusion=(buildingExtrusion(theme) as unknown as {paint:Record<string,unknown>}).paint;
+   buildingsInside.current=inside;
+   if(inside)occluded.current=false;
+   applyBuildingsOpacity.current();
    if(instance.getLayer('lm-buildings-3d')){
-    instance.setPaintProperty('lm-buildings-3d','fill-extrusion-opacity',(inside?1:extrusion['fill-extrusion-opacity']) as never);
     instance.setPaintProperty('lm-buildings-3d','fill-extrusion-color',
      (inside?['interpolate',['linear'],['coalesce',['get','render_height'],10],
        6,FRONT[theme].extrusionLow,40,FRONT[theme].extrusionHigh]:extrusion['fill-extrusion-color']) as never);
@@ -2019,7 +2069,13 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   const reduce=prefersReducedMotion();
   if(view!=='2d'){
    if(!instance.getLayer('lm-buildings-3d')){
-    try{instance.addLayer(buildingExtrusion(themeRef.current) as never,'lm-here-accuracy')}catch{}
+    try{
+     instance.addLayer(buildingExtrusion(themeRef.current) as never,'lm-here-accuracy');
+     // The buses' bodies beneath the buildings: opaque, the buildings still hide what is behind them; faded while
+     // one stands in front of the chosen bus, they show it.
+     for(const id of ['lm-fleet-model','lm-bus-model'])if(instance.getLayer(id))instance.moveLayer(id,'lm-buildings-3d');
+    }catch{}
+    applyBuildingsOpacity.current();
    }
   }else if(instance.getLayer('lm-buildings-3d'))instance.removeLayer('lm-buildings-3d');
   if(view==='city'){

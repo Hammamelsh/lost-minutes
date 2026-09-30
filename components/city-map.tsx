@@ -18,6 +18,7 @@ import {DEFAULT_PARAMS,DRAWING,drawingFor,estimate,needsFrames,observedAt,pointA
 import {daylightAt} from '@/lib/daylight';
 import {fleetAtReports,reconcileFleet,stepFleet,type Fleet,type FleetStep} from '@/lib/fleet';
 import {metresPerPixel} from '@/lib/scale';
+import {sightline,type Footprint} from '@/lib/sightline';
 import type {DrawnFrame} from '@/lib/gods-eye';
 import {elapsedWords} from '@/lib/live';
 import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
@@ -126,8 +127,13 @@ const RIDE_FROM_REPORTS='in the ride-along every bus is drawn from its own repor
 // not a seat on board and not the bus's lane: it is the map's street, seen from above the road.
 // Raised so that the road ahead, both sides of the street and the skyline share the frame, where
 // from 3.5 m a road filled the foot of the screen under an empty sky. Its paint is FRONT's.
-/** How see-through the buildings are while one stands between the camera and the chosen bus, and how long they
- *  stay so once it is clear. */
+/** The outside ride's camera rises over the buildings between it and its bus (lib/sightline.ts): never steeper
+ *  than this pitch, quickly on the way up and slowly back down, so it does not bob at every corner. */
+const RIDE_PITCH_FLOOR=20;
+const PITCH_RISE=45;           // ° a second, looking down more steeply to clear a building
+const PITCH_SETTLE=8;          // ° a second, back towards the ride's framing once the bus is past it
+/** Where no tilt can show the bus (it stands inside a footprint, or the camera is already as steep as it goes),
+ *  every building fades to this while one hides it, and returns once the bus has been clear for a moment. */
 const BUILDINGS_SEE_THROUGH=0.3;
 const OCCLUSION_HOLD_MS=800;
 const EYE_HEIGHT=7.5;          // m above the road, above a double-decker's roof
@@ -486,6 +492,19 @@ async function arrive(instance:MapLibreMap,framing:()=>CameraOptions&{duration:n
  return reached(instance,options)?'arrived':'short';
 }
 
+/** Where the camera itself stands, from MapLibre's own geometry by its public values (the transform is not
+ *  exposed at run time): 0.5/tan(fov/2) canvas heights from the centre along the view, so its ground point is
+ *  that distance × sin(pitch) behind the centre, against the bearing, and its height that distance × cos(pitch). */
+function cameraAt(instance:MapLibreMap):{lat:number;lon:number;altitude:number}{
+ const centre=instance.getCenter();
+ const fov=(instance.getVerticalFieldOfView?.()??36.87)*Math.PI/180,pitch=instance.getPitch()*Math.PI/180;
+ const bearing=instance.getBearing()*Math.PI/180,height=instance.getCanvas().clientHeight;
+ const distance=0.5/Math.tan(fov/2)*height*metresPerPixel(instance.getZoom(),centre.lat);
+ const back=distance*Math.sin(pitch);
+ return {lat:centre.lat-back*Math.cos(bearing)/111195,lon:centre.lng-back*Math.sin(bearing)/(111195*Math.cos(centre.lat*Math.PI/180)),
+  altitude:distance*Math.cos(pitch)};
+}
+
 /** Ease-out (cubic): all of the speed at the start, none at the end. */
 const settle=(t:number)=>1-Math.pow(1-t,3);
 
@@ -692,14 +711,20 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const rideKey=useRef('');
  const returnRef=useRef<(fast?:boolean,as?:'entering'|'returning')=>void>(()=>{});
  const resumeTimer=useRef<{at:number;timer:ReturnType<typeof setTimeout>}|null>(null);
- // Whether a building stands between the camera and the chosen bus, and the buildings see-through while one does
- // (29 September 2026). The ride's camera stands about 49 m behind the bus and 28 m up. Where the road bends, or the
- // bus has no checked road, that can be over or inside a building, and the building's walls then hid the bus's body
- // while its ring and number stayed on top: seen on a phone as an X41 "riding under buildings" on Victoria Station
- // Approach, the camera inside the 30 m station building. A building drawn over the bus's own ground point is in
- // front of it. While one is, every building fades to BUILDINGS_SEE_THROUGH, and returns once the bus has been
- // clear for a moment. The bus's body is drawn beneath the buildings, so the fade shows it; opaque, the buildings
- // hide what is behind them as before.
+ // Keeping the chosen bus in sight in the outside ride. The camera stands about 49 m behind the bus and 28 m up;
+ // where the road bends, or the bus has no checked road, a building can stand between them, or the camera inside
+ // one, and its walls hid the bus's body while its ring and number stayed on top: an X41 "riding under
+ // buildings" at Victoria on the owner's phone (29 September 2026). The first answer faded every building while
+ // one hid the bus, and in the centre that emptied the city for most of a ride (93 of 120 s on a live V1, 30
+ // September). Now the camera rises: the buildings drawn between the bus and the bottom of the screen are
+ // measured, remembered while the bus is near them, and the ride looks down just steeply enough to see the bus
+ // over them (lib/sightline.ts), settling back once it is past. Only where no tilt can show it (the bus inside a
+ // footprint, or the camera already as steep as it goes) do the buildings fade, and the bus's body, drawn beneath
+ // them, shows through.
+ const pitchCap=useRef<number|null>(null);
+ const busInside=useRef(false);
+ const obstacles=useRef(new Map<string,{footprint:Footprint;seen:number;box:[number,number,number,number]}>());
+ const sightKey=useRef<string|null>(null);
  const occluded=useRef(false);
  const buildingsInside=useRef(false);
  const applyBuildingsOpacity=useRef<()=>void>(()=>{});
@@ -724,24 +749,68 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    root.current?.setAttribute('data-buildings-opacity',String(opacity));
   };
   let clearSince=0;
+  // A building feature as a footprint: its rings (a merged multi-polygon's parts and holes alike) and height.
+  const footprintOf=(feature:MapLibreGL.MapGeoJSONFeature):Footprint|null=>{
+   const g=feature.geometry;
+   const rings=g.type==='Polygon'?g.coordinates:g.type==='MultiPolygon'?g.coordinates.flat():null;
+   if(!rings?.length)return null;
+   const height=Number(feature.properties?.render_height??10),base=Number(feature.properties?.render_min_height??0);
+   return {rings:rings as [number,number][][],height:Number.isFinite(height)?height:10,base:Number.isFinite(base)?base:0};
+  };
   occlusionCheck.current=()=>{
-   const instance=map.current,el=root.current,v=visualRef.current;
+   const instance=map.current,el=root.current,v=visualRef.current,r=ride.current;
    if(!instance||!el)return;
+   const started=performance.now();
    const bodyShown=Boolean(instance.getLayer('lm-buildings-3d')&&instance.getLayer('lm-bus-model')
     &&instance.getLayoutProperty('lm-bus-model','visibility')==='visible'&&instance.getZoom()>=MODEL_MIN_ZOOM
     &&instance.getPitch()>10&&!buildingsInside.current&&v);
-   let next=false;
-   if(bodyShown&&v){
-    const at=instance.project([v.lon,v.lat]);
-    const hidden=instance.queryRenderedFeatures([[at.x-3,at.y-3],[at.x+3,at.y+3]],{layers:['lm-buildings-3d']}).length>0;
-    const now=performance.now();
-    if(hidden)clearSince=0;
+   const riding=viewRef.current==='ride'&&r.state!=='off'&&r.camera!=='front';
+   const key=inputs.current.selected?.key??null;
+   if(!riding||key!==sightKey.current){sightKey.current=key;obstacles.current.clear();pitchCap.current=null;busInside.current=false}
+   let next=false,inside=false;
+   if(riding&&bodyShown&&v){
+    const at=instance.project([v.lon,v.lat]),now=performance.now();
+    // What stands between the bus and the camera is drawn between the bus and the foot of the screen.
+    const below=instance.queryRenderedFeatures([[at.x-40,Math.max(0,at.y-10)],[at.x+40,instance.getCanvas().clientHeight]],
+     {layers:['lm-buildings-3d']});
+    for(const feature of below){
+     const footprint=footprintOf(feature);
+     if(!footprint)continue;
+     const flat=footprint.rings.flat();
+     const box:[number,number,number,number]=[Math.min(...flat.map(p=>p[0])),Math.min(...flat.map(p=>p[1])),
+      Math.max(...flat.map(p=>p[0])),Math.max(...flat.map(p=>p[1]))];
+     obstacles.current.set(`${footprint.height}|${flat.length}|${box.map(x=>x.toFixed(6)).join(',')}`,{footprint,seen:now,box});
+    }
+    // Remembered while the bus is near them: once the camera has risen, a building behind it is off the screen
+    // and would otherwise be forgotten, and the camera would sink into it again.
+    const kx=111195*Math.cos(v.lat*Math.PI/180);
+    for(const [k,o] of obstacles.current){
+     const dx=Math.max(o.box[0]-v.lon,0,v.lon-o.box[2])*kx,dy=Math.max(o.box[1]-v.lat,0,v.lat-o.box[3])*111195;
+     if(now-o.seen>60_000||Math.hypot(dx,dy)>250)obstacles.current.delete(k);
+    }
+    const sight=sightline({bus:{lon:v.lon,lat:v.lat,heading:v.bearing},camera:cameraAt(instance),pitch:instance.getPitch(),
+     footprints:[...obstacles.current.values()].map(o=>o.footprint)});
+    pitchCap.current=sight.cap;inside=sight.inside;busInside.current=inside;
+    // What sets the cap, so a rise can be traced to its building: the face's distance behind the bus, its height,
+    // and its footprint's first corner.
+    const bound=sight.binding?[...obstacles.current.values()][sight.binding.index]?.footprint.rings[0]?.[0]:null;
+    el.setAttribute('data-sight-binding',sight.binding&&bound?`${sight.binding.distance.toFixed(1)}m,${sight.binding.height}m,${bound[1].toFixed(6)},${bound[0].toFixed(6)}`:'none');
+    // Fading is the last resort, where no tilt can show the bus: it stands inside a footprint, or a building is too
+    // tall for the steepest view. Decided by the geometry alone: MapLibre's query at the bus's own point finds a
+    // building drawn there wherever it stands, in front of the bus or beyond it, and said "hidden" of a V1 in
+    // plain view at Chapel Street for 17 s (30 September 2026). Faded on that, the city had emptied for no reason.
+    const lastResort=inside||(pitchCap.current!==null&&pitchCap.current<RIDE_PITCH_FLOOR);
+    if(lastResort)clearSince=0;
     else if(occluded.current&&!clearSince)clearSince=now;
     // Held a moment once clear, so a bus passing the edge of a building does not flicker the city.
-    next=hidden||(occluded.current&&now-clearSince<OCCLUSION_HOLD_MS);
+    next=lastResort||(occluded.current&&now-clearSince<OCCLUSION_HOLD_MS);
    }else clearSince=0;
    if(next!==occluded.current){occluded.current=next;applyBuildingsOpacity.current()}
    el.setAttribute('data-bus-occluded',next?'yes':'no');
+   el.setAttribute('data-bus-inside-building',inside?'yes':'no');
+   el.setAttribute('data-ride-pitch-cap',pitchCap.current===null?'none':pitchCap.current.toFixed(1));
+   el.setAttribute('data-sight-ms',(performance.now()-started).toFixed(1));
+   el.setAttribute('data-sight-obstacles',String(obstacles.current.size));
   };
  },[]);
  // Every bus in the publication, drawn from its own reports (lib/fleet.ts): the drawings, the last
@@ -1118,12 +1187,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     // the camera stands 0.5/tan(fov/2) canvas heights from the centre, along the view, so its ground
     // point is that distance × sin(pitch) behind the centre, against the bearing.
     {
-     const fov=(instance.getVerticalFieldOfView?.()??36.87)*Math.PI/180,pitch=instance.getPitch()*Math.PI/180;
-     const bearing=instance.getBearing()*Math.PI/180,height=instance.getCanvas().clientHeight;
-     const metresPerPx=metresPerPixel(instance.getZoom(),centre.lat);
-     const back=0.5/Math.tan(fov/2)*height*Math.sin(pitch)*metresPerPx;
-     const lat=centre.lat-back*Math.cos(bearing)/111195,lon=centre.lng-back*Math.sin(bearing)/(111195*Math.cos(centre.lat*Math.PI/180));
-     root.current?.setAttribute('data-eye',`${lat.toFixed(7)},${lon.toFixed(7)}`);
+     const eye=cameraAt(instance);
+     root.current?.setAttribute('data-eye',`${eye.lat.toFixed(7)},${eye.lon.toFixed(7)}`);
     }
     // The map's own padding, as MapLibre holds it: a fit that lands wrong with the right bounds
     // is a padding that was not what the fit assumed, and this is the only way to see it.
@@ -1820,11 +1885,23 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
      const most=RIDE_TURN*Math.min(250,Math.max(16,t-state.lastCamT))/1000;
      bearing={bearing:cut||prefersReducedMotion()||Math.abs(turn)<=most?v.bearing:from+Math.sign(turn)*most};
     }
+    // The camera looks down just steeply enough to see the bus over the buildings between them (pitchCap), and
+    // settles back to the ride's framing once it is past: rising quickly, settling slowly.
+    let pitch:{pitch?:number}={};
+    if(input.view==='ride'&&r.state!=='off'){
+     const base=(v.bearing??input.selected?.bearing??null)===null?50:60;
+     // A bus inside a footprint is shown through the faded buildings, and no tilt would help: the framing stays.
+     const cap=busInside.current?null:pitchCap.current;
+     const target=Math.max(RIDE_PITCH_FLOOR,Math.min(base,cap??base)),from=instance.getPitch(),gap=target-from;
+     const dt=Math.min(250,Math.max(16,t-state.lastCamT))/1000;
+     if(Math.abs(gap)>0.05)pitch={pitch:prefersReducedMotion()?target
+      :from+Math.sign(gap)*Math.min(Math.abs(gap),(gap<0?PITCH_RISE:PITCH_SETTLE)*dt)};
+    }
     state.lastCamT=t;
     const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
     if(!cut&&Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
-     instance.easeTo({center:[v.lon,v.lat],...bearing,duration:prefersReducedMotion()?0:280});
-    else instance.jumpTo({center:[v.lon,v.lat],...bearing});
+     instance.easeTo({center:[v.lon,v.lat],...bearing,...pitch,duration:prefersReducedMotion()?0:280});
+    else instance.jumpTo({center:[v.lon,v.lat],...bearing,...pitch});
    }
   }
   // Diagnostics a few times a second, and always on the last frame before the loop rests, so a
@@ -2101,8 +2178,11 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   }
   const centre=instance.getCenter();
   const heading=v?.bearing??s?.bearing??null;
+  // As steep as the buildings between the bus and the camera ask for, where they do (pitchCap).
+  const base=heading===null?50:60;
+  const cap=busInside.current?null:pitchCap.current;
   return {center:(v?[v.lon,v.lat]:s?[s.lon,s.lat]:[centre.lng,centre.lat]) as [number,number],zoom:RIDE_ZOOM,
-   pitch:heading===null?50:60,bearing:heading??instance.getBearing()};
+   pitch:Math.max(RIDE_PITCH_FLOOR,Math.min(base,cap??base)),bearing:heading??instance.getBearing()};
  },[]);
 
  /**

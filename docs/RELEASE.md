@@ -4,12 +4,71 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`b507302`**, deployed 29 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`2347c6c`**, deployed 30 September 2026 (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 30 September: the bus hidden inside a building, and the nightly runs recorded "by hand"
+
+**Deployed: `2347c6c`**, with `b507302` kept for `deploy/rollback.sh`. Two fixes, each with its account in
+`docs/BACKLOG.md` (45 and 46). Arrival predictions stay off in both directions; 6 October is when the
+confirmation results are read, not a release date.
+
+- **From the owner's phone: "Bus is riding under buildings."** An X41 with no checked road, ridden on the night
+  map past Manchester Victoria: the ring and the number drawn, the bus's body a sliver under a dark block. The
+  ride's camera, 49 m behind the bus and 28 m up, stood inside the 30 m station building, whose walls hid the
+  body (a fill-extrusion, sharing the buildings' depth test) while the symbols stayed on top. Now, while a
+  building is drawn over the chosen bus's ground point (asked of MapLibre every 250 ms and at each camera rest),
+  every building fades to 0.3, and the buses' bodies, drawn beneath the building layer, show through; the theme's
+  own opacity returns 800 ms after the bus is clear. The front view is unchanged.
+  `tests/browser/occlusion.spec.mjs`, on the station's own tiles: 0 lime pixels of the body before, 178–800
+  after, day and night, both profiles; the frames are in `outputs/probes/x41/frames/`.
+- **Found checking the night's runs: both recorded "by hand", and Operations calling both jobs overdue.** Both
+  had fired on their timers (each timer's `LastTriggerUSec` equal to its run's start). On systemd 259 a timer's
+  later firings hand the service the elapse *before* this one, which the check of `b507302` read as stale, so
+  from 05:44 and 06:12 UTC the served Operations view marked both jobs overdue. Proven with transient probe
+  timers on the server: a persistent calendar timer's second firing carried its first firing's moment. A run is
+  now judged by the timer's own `LastTriggerUSec`, read unprivileged as the service's user, and each attempt keeps
+  what its judgement rested on (`triggerEvidence`).
+  - **Left for the owner.** The server's two records of 30 September still read `manual`, so Operations reads
+    **overdue** until the runs of 1 October (about 02:43 and 03:12 UTC), recorded under this fix, move "last
+    scheduled run". Correcting them by hand, as on 29 September, was refused by the assistant's permission rule
+    for writes on the server. To correct them now, on the server:
+
+    ```
+    sudo -u lostminutes /srv/lost-minutes/app/.venv/bin/python - <<'EOF'
+    import sys; sys.path.insert(0, '/srv/lost-minutes/app')
+    from pipeline import jobs
+    from pipeline.core import atomic_json, utc_now
+    root = '/srv/lost-minutes/app'
+    for name, fired, handed in (('refresh', '2026-09-30T02:43:07.387675+00:00', '2026-09-29T02:44:25.599264+00:00'),
+                                ('arrival-eval', '2026-09-30T03:12:46+00:00', '2026-09-29T03:12:02.178785+00:00')):
+        with jobs._locked(root):
+            s = jobs._load(root, name); a = s['lastAttempt']
+            a['trigger'] = s['lastSuccess']['trigger'] = 'timer'
+            a['triggerEvidence'] = {'unit': f'lost-minutes-{name}.timer', 'elapseFromEnvironment': handed, 'timerLastFired': fired}
+            s.setdefault('corrections', []).append({'at': utc_now(), 'from': s.get('lastScheduledAttemptAt'),
+                'why': f'the timer fired at {fired} (LastTriggerUSec); recorded as manual by the check of b507302 (backlog 46)'})
+            s['lastScheduledAttemptAt'] = a['startedAt']
+            atomic_json(jobs._state_path(root, name), s); jobs.publish(root)
+    EOF
+    ```
+
+- **What a passenger sees:** the buildings fade while one hides the chosen bus; nothing else changes.
+
+**Verified.**
+- Node 320, Python 187 (two new), lint with no errors; the full browser gate on the fixed build **468 passed,
+  50 skipped by design, none failed (1.3 h)**, the six new checks among them; the focused ride, map, fleet and
+  paint specs 92 passed, 14 skipped.
+- Served: every asset and the index byte-identical to the local build (9 of 9); that build the gated one but for
+  its stamp (the one stamped chunk's SHA-256 equal once the stamp is swapped, the other seven chunks and both
+  manifests identical outright); `/preview/` 401; the collector's PID 331046 unchanged; `RELEASE` `2347c6c`.
+- The occlusion checks against the served site, on real tiles: 6 of 6 (the body 190 and 175 pixels on desktop,
+  728 and 476 on the phone profile, day and night).
+- Emulation only; the owner's phone at Victoria is the check that matters (`docs/PHYSICAL_DEVICE_CHECKLIST.md`).
 
 ## 29 September, afternoon: a bounded reliability close-out
 

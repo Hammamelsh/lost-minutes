@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -27,6 +27,23 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **30 September — the bus under the building, and the runs recorded "by hand"** (`docs/RELEASE.md`, top;
+  backlog 45 and 46).
+  - **From the owner's phone:** an X41 ridden past Victoria showed its ring and number with no bus: the ride's
+    camera stood inside the 30 m station building, whose walls hid the body. While a building is drawn over the
+    chosen bus, every building fades to 0.3 and the bus's body, now drawn beneath them, shows through; on the
+    station's own tiles, 0 body pixels before and 178–800 after, day and night.
+  - **Found:** both nightly runs of 30 September fired on their timers and were recorded "by hand", and
+    Operations called both overdue from 05:44 UTC. systemd 259 hands a timer's later firings the elapse before
+    this one, which `b507302`'s check read as stale; proven with probe timers on the server. A run is now judged
+    by the timer's own `LastTriggerUSec`, and each record keeps what its judgement rested on. The server's two
+    records are not corrected (the remote write was refused; the command is in the release record); the runs of
+    1 October clear the flag under the deployed fix.
+  - **Verified:** Node 320, Python 187; the full gate on the fixed build 468 passed, 50 skipped, none failed
+    (1.3 h); served byte-identical, the code the gated build's but for its stamp, the preview locked, the
+    collector untouched; the occlusion checks 6 of 6 on the served site. **Deployed as `2347c6c`** (`b507302`
+    kept for rollback). Emulation only.
 
 - **29 September, afternoon — a bounded reliability close-out** (`docs/MILESTONE_2026-09-29_CLOSEOUT.md`).
   - **Shared links by day:** 48 served loads with 602 buses in the publication, all drawn in 2.1–3.1 s.

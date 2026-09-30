@@ -198,6 +198,12 @@ Chromium emulation, fixtures, the served site and the server's own records; noth
 **Next unattended runs:** 30 September, about 02:43 and 03:11 UTC. They are the first to score a confirmation day
 (29 September) with the code's digest, and the first scheduled runs to record the kernel's account of memory.
 
+**Corrected, 30 September:** that fix was itself wrong for a timer's *later* firings. Both runs of 30 September
+were the timers' (their `LastTriggerUSec` equal each run's start), and both were recorded as manual, because on
+systemd 259 a timer's second and later firings hand the service the elapse *before* this one, and the check read
+that as stale. From 05:44 UTC Operations called both jobs overdue. The run is now judged by asking the timer
+itself; the account, the probes and the fix are backlog 46 and `docs/RELEASE.md`.
+
 ## A five-minute check on a phone
 
 On mobile data, in daylight, on the served site (also in `docs/PHYSICAL_DEVICE_CHECKLIST.md`):

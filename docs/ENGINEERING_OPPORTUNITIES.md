@@ -2334,3 +2334,28 @@ what is missing is fixtures that take their "now" from the same place. No visual
 
 **Next cheap step.** Run `plan.spec` and `connection.spec` once with every clock at 23:50 London time, and
 once at 00:50 on 25 October. Status: `observed`.
+
+## 74. A judgement recorded without the evidence it rested on
+
+**Problem and evidence.** On 30 September 2026 both nightly runs were recorded as started "by hand" though
+their timers had started them, and the served Operations view called both jobs overdue (backlog 46). The
+record held only the verdict (`trigger: manual`), not the values it was made from, so the cause could not be
+read from it: it took the timers' `LastTriggerUSec`, the services' `ActivationDetails` over D-Bus, and four
+transient probe timers on the server to learn that systemd 259 hands a timer's later firings the elapse before
+this one. The 29 September fix for the opposite fault (a run by hand recorded as the timer's) had the same
+gap, and its test encoded a first firing only.
+
+**Who hits it, workaround.** Whoever reads Operations after a nightly run; the workaround was the server's
+journal and D-Bus by hand.
+
+**Recurrence and effort.** Twice in two days on this one judgement (29 and 30 September); about two hours of
+probing the second time. Unknown for the other judgements the pipeline records without their inputs (the
+freshness bands, the match verdicts carry theirs).
+
+**Small fix, script, tool or product.** A small fix, made in this repository: each attempt now carries
+`triggerEvidence` (the unit named, the elapse handed, when the timer last fired), and the judgement asks the
+timer itself. The reusable rule is the project's own evidence rule applied to the pipeline's records: a
+recorded verdict names its inputs. No tool, no interface.
+
+**Next cheap step.** None beyond the fix; on the next fault in a recorded judgement, check first whether its
+inputs are in the record. Status: `mitigated`.

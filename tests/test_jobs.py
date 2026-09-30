@@ -3,6 +3,7 @@ success, and whether the timer or a person started it, so that a scheduled run i
 with a controlled one and a timer that stops firing is visible. From 24 to 28 September 2026 the
 arrival evaluation failed five nights running and nothing said so."""
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -141,6 +142,53 @@ class JobRecordTests(unittest.TestCase):
         self.assertEqual(state['lastScheduledAttemptAt'], '2026-09-29T03:12:02+00:00', 'a run by hand moves no schedule')
         self.assertEqual(jobs._trigger({'TRIGGER_UNIT': 'x.timer', 'TRIGGER_TIMER_REALTIME_USEC': 'garbled'}, '2026-09-29T03:12:02+00:00'), 'manual')
         self.assertEqual(jobs._trigger({}, '2026-09-29T03:12:02+00:00'), 'manual')
+
+    def test_a_timer_s_later_firing_is_judged_by_the_timer_itself_not_the_stale_elapse_it_is_handed(self):
+        # systemd 259 on the server, 30 September 2026: the nightly runs, started by their timers at 02:43:07 and
+        # 03:12:46 UTC, carried the night before's elapse in TRIGGER_TIMER_REALTIME_USEC, and were recorded as
+        # manual; Operations then called both jobs overdue. The timers' own LastTriggerUSec read the true moments.
+        from datetime import datetime
+        yesterday = int(datetime.fromisoformat('2026-09-29T02:44:25.599264+00:00').timestamp() * 1e6)
+        env = {'TRIGGER_UNIT': 'lost-minutes-refresh.timer', 'TRIGGER_TIMER_REALTIME_USEC': str(yesterday)}
+        fired = int(datetime.fromisoformat('2026-09-30T02:43:07+00:00').timestamp())
+        self.assertEqual(jobs._trigger(env, '2026-09-30T02:43:07.600195+00:00', last_trigger=fired), 'timer')
+        self.assertEqual(jobs._trigger(env, '2026-09-30T16:17:39+00:00', last_trigger=fired), 'manual', 'by hand, hours after the timer')
+        self.assertEqual(jobs._trigger(env, '2026-09-30T02:43:07.600195+00:00'), 'manual',
+                         'the stale elapse alone misjudges the timer\'s own run: it decides only where the timer cannot be asked')
+        jobs.start(self.root, 'refresh', now='2026-09-30T02:43:07.600195+00:00', env=env, ask=lambda unit: fired)
+        state = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())
+        self.assertEqual(state['lastAttempt']['trigger'], 'timer')
+        self.assertEqual(state['lastScheduledAttemptAt'], '2026-09-30T02:43:07.600195+00:00')
+        self.assertEqual(state['lastAttempt']['triggerEvidence'],
+                         {'unit': 'lost-minutes-refresh.timer', 'elapseFromEnvironment': '2026-09-29T02:44:25.599264+00:00',
+                          'timerLastFired': '2026-09-30T02:43:07+00:00'}, 'what the judgement rested on is in the record')
+        # By hand thirteen hours on, with the same details handed over: the timer has not fired since.
+        jobs.start(self.root, 'refresh', now='2026-09-30T16:17:39+00:00', env=env, ask=lambda unit: fired)
+        state = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())
+        self.assertEqual(state['lastAttempt']['trigger'], 'manual')
+        self.assertEqual(state['lastScheduledAttemptAt'], '2026-09-30T02:43:07.600195+00:00', 'a run by hand moves no schedule')
+        # A timer that cannot be asked, with no elapse in the environment: TRIGGER_UNIT alone, as before.
+        jobs.start(self.root, 'refresh', now='2026-10-01T02:42:00+00:00', env=TIMER, ask=lambda unit: None)
+        state = json.loads((Path(self.root) / 'data/jobs/refresh.json').read_text())
+        self.assertEqual(state['lastAttempt']['trigger'], 'timer')
+        self.assertEqual(state['lastAttempt']['triggerEvidence']['timerLastFired'], None)
+
+    def test_the_timer_is_read_from_systemd_s_own_account(self):
+        calls = []
+
+        def fired(argv, **kw):
+            calls.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout='LastTriggerUSec=@1790736187\n', stderr='')
+        self.assertEqual(jobs.timer_last_trigger('lost-minutes-refresh.timer', run=fired), 1790736187)
+        self.assertEqual(calls[0], ['systemctl', 'show', '--timestamp=unix', '-p', 'LastTriggerUSec', 'lost-minutes-refresh.timer'])
+
+        def never(argv, **kw):
+            return subprocess.CompletedProcess(argv, 0, stdout='LastTriggerUSec=\n', stderr='')
+        self.assertIsNone(jobs.timer_last_trigger('x.timer', run=never), 'a timer that never fired, or none')
+
+        def broken(argv, **kw):
+            raise OSError('no systemctl here')
+        self.assertIsNone(jobs.timer_last_trigger('x.timer', run=broken))
 
     def test_a_step_is_recorded_by_what_it_runs(self):
         py = '/srv/lost-minutes/app/.venv/bin/python'

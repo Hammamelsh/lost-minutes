@@ -83,24 +83,63 @@ def _load(root, name):
 TIMER_FRESH_SECONDS = 600
 
 
-def _trigger(env, now=None):
-    """'timer' when systemd's timer started the run, else 'manual' (a person, or a test). systemd 259 keeps a
-    unit's last activation details, so a run started by hand after a timer's still carries TRIGGER_UNIT naming the
-    timer, with that timer's old elapse time: on 29 September a run started by hand at 16:17 UTC was recorded as
-    the 03:12 timer's, and moved "last scheduled run" with it. A run is the timer's only if the timer elapsed in
-    the ten minutes before it started; without an elapse time (an older systemd), TRIGGER_UNIT alone decides."""
+def timer_last_trigger(unit, run=subprocess.run):
+    """When a timer last fired, in seconds since the epoch, from systemd's own account of it (`LastTriggerUSec`,
+    which a run started by hand does not move); None where the timer cannot be asked or has never fired. The
+    service's own user can read it, unprivileged."""
+    try:
+        done = run(['systemctl', 'show', '--timestamp=unix', '-p', 'LastTriggerUSec', unit],
+                   capture_output=True, text=True, timeout=10, check=False)
+        value = done.stdout.strip().partition('=')[2].strip()
+        return int(value[1:]) if value.startswith('@') else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def _trigger(env, now=None, last_trigger=None):
+    """'timer' when systemd's timer started the run, else 'manual' (a person, or a test).
+
+    The timer itself is asked (`last_trigger`, its LastTriggerUSec): the run is the timer's only if TRIGGER_UNIT
+    names a timer and that timer fired in the ten minutes before the run started. What the environment says of
+    the elapse (TRIGGER_TIMER_REALTIME_USEC) is not trusted while the timer can be asked, because systemd 259
+    hands a service its *last* activation details: a run started by hand at 16:17 UTC on 29 September 2026 carried
+    the 03:12 timer's elapse and was recorded as its; and on 30 September both nightly runs, started by their
+    timers, carried the night before's elapse and were recorded as manual, so Operations called both jobs
+    overdue. Where the timer cannot be asked the environment's elapse decides, and without one TRIGGER_UNIT alone
+    does (an older systemd)."""
     unit = env.get('TRIGGER_UNIT', '')
     if not unit.endswith('.timer'):
         return 'manual'
+    try:
+        started = datetime.fromisoformat(now).timestamp() if now else datetime.now(timezone.utc).timestamp()
+    except (TypeError, ValueError):
+        return 'manual'
+    if last_trigger is not None:
+        return 'timer' if -60 <= started - last_trigger <= TIMER_FRESH_SECONDS else 'manual'
     elapsed_us = env.get('TRIGGER_TIMER_REALTIME_USEC')
     if not elapsed_us:
         return 'timer'
     try:
-        started = datetime.fromisoformat(now).timestamp() if now else datetime.now(timezone.utc).timestamp()
         since = started - int(elapsed_us) / 1e6
     except (TypeError, ValueError):
         return 'manual'
     return 'timer' if -60 <= since <= TIMER_FRESH_SECONDS else 'manual'
+
+
+def _judge(env, now, ask):
+    """The trigger, and what it rested on, kept with the attempt so a wrong judgement can be traced from the record
+    (the runs of 30 September 2026 could not be)."""
+    unit = env.get('TRIGGER_UNIT') or None
+    last_trigger = ask(unit) if unit and unit.endswith('.timer') else None
+    stamp = lambda seconds: datetime.fromtimestamp(seconds, timezone.utc).isoformat()  # noqa: E731
+    elapse = env.get('TRIGGER_TIMER_REALTIME_USEC') or None
+    try:
+        elapse = stamp(int(elapse) / 1e6) if elapse else None
+    except (TypeError, ValueError, OverflowError, OSError):
+        pass                                           # garbled: kept as it was
+    evidence = {'unit': unit, 'elapseFromEnvironment': elapse,
+                'timerLastFired': stamp(last_trigger) if last_trigger is not None else None}
+    return _trigger(env, now, last_trigger), evidence
 
 
 def outcome(env):
@@ -168,12 +207,13 @@ def parse_size(text):
     return int(float(text))
 
 
-def start(root, name, now=None, env=None):
+def start(root, name, now=None, env=None, ask=timer_last_trigger):
     env = os.environ if env is None else env
     now = now or utc_now()
+    trigger, evidence = _judge(env, now, ask)
     with _locked(root):
         state = _load(root, name)
-        attempt = {'startedAt': now, 'trigger': _trigger(env, now), 'finishedAt': None, 'result': 'running'}
+        attempt = {'startedAt': now, 'trigger': trigger, 'triggerEvidence': evidence, 'finishedAt': None, 'result': 'running'}
         state['lastAttempt'] = attempt
         if attempt['trigger'] == 'timer':
             state['lastScheduledAttemptAt'] = now
@@ -223,13 +263,16 @@ def step(root, name, argv, run=subprocess.run):
     return code
 
 
-def finish(root, name, now=None, env=None, memory=None):
+def finish(root, name, now=None, env=None, memory=None, ask=timer_last_trigger):
     env = os.environ if env is None else env
     now = now or utc_now()
     memory = unit_memory(JOBS[name]['unit']) if memory is None else memory
     with _locked(root):
         state = _load(root, name)
-        attempt = state.get('lastAttempt') or {'startedAt': None, 'trigger': _trigger(env, now)}
+        attempt = state.get('lastAttempt')
+        if not attempt:                                # no start recorded: judged now, as a start would have
+            trigger, evidence = _judge(env, now, ask)
+            attempt = {'startedAt': None, 'trigger': trigger, 'triggerEvidence': evidence}
         attempt.update({'finishedAt': now, **outcome(env), **memory})
         state['lastAttempt'] = attempt
         if attempt['result'] == 'succeeded':

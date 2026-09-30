@@ -711,6 +711,51 @@ The frames are in `outputs/probes/x41/frames/`:
 **Not measured:** how often a real ride's camera stands in a building across the fleet. Emulation only; the
 owner's phone is the check that matters.
 
+## 46. Both nightly runs recorded as "by hand", and Operations calling both jobs overdue — fixed 30 September 2026
+
+**Found** on 30 September, checking that night's scheduled runs. Both succeeded on their timers, and both were
+recorded as `manual`; "last scheduled run" stayed on 29 September, so from 05:44 UTC (the rebuild) and 06:12 UTC
+(the evaluation), 27 hours after the last run recorded as scheduled, the served Operations view marked both jobs
+**overdue**, falsely. Judged with the page's own function on the served file at 14:36 UTC: `overdue: true` for
+both.
+
+**The cause: the check of `b507302` read a value that is stale by design.** That fix (29 September) had judged a
+run the timer's only if the elapse systemd hands the service, `TRIGGER_TIMER_REALTIME_USEC`, fell in the ten
+minutes before the run started, because a run started by hand had carried the timer's old elapse. On systemd 259
+a timer's *later* firings carry the elapse **before** this one:
+
+| run, 30 September | started (journal) | the timer's own `LastTriggerUSec` | elapse handed to the service | recorded |
+|---|---|---|---|---|
+| rebuild | 02:43:07.600 UTC | 02:43:07.388 UTC | 1790649865599264 = **29 Sept** 02:44:25.599 | manual |
+| evaluation | 03:12:46.771 UTC | 03:12:46 UTC | 1790651522178785 = **29 Sept** 03:12:02.179 | manual |
+
+The handed values were read from the services' `ActivationDetails` over D-Bus after the runs. Reproduced with
+transient timers on the server, each running `date; env | grep TRIGGER`:
+- a timer's **first** firing carries its own moment (an `OnActiveSec` timer, and a persistent calendar timer:
+  43 ms and 27 ms before the shell's clock);
+- a persistent calendar timer firing every minute: the first firing at 14:34:01.4 was handed 14:34:01.385; the
+  **second**, at 14:35:01.9, was handed 14:34:01.385 again, the first's.
+
+So the elapse in the environment can never tell a timer's second night from a run by hand the day after, and the
+test written on 29 September ("the timer, as it fires") encoded the first firing only.
+
+**Fixed** (`pipeline/jobs.py`): the timer itself is asked. Its `LastTriggerUSec` is the moment it last fired, which
+a run by hand does not move, and `systemctl show --timestamp=unix` gives it to the service's own user without
+privileges (verified as `lostminutes` on the server). A run is the timer's only if `TRIGGER_UNIT` names a timer and
+that timer fired between 60 s after and 600 s before the run started. The environment's elapse decides only where
+the timer cannot be asked, and `TRIGGER_UNIT` alone where there is no elapse either. What each judgement rested on
+is now kept with the attempt (`triggerEvidence`: the unit, the elapse handed, when the timer last fired), because
+this fault could not be traced from the record and took four probes on the server.
+- `tests/test_jobs.py`: the 30 September case (yesterday's elapse handed, the timer fired now: `timer`; the same
+  details thirteen hours on: `manual`; the timer unaskable: as before) and the reading of `LastTriggerUSec`.
+  13 of 13; the full Python suite 187.
+
+**The server's records of 30 September are not corrected.** The same correction as on 29 September (the timers'
+own last-fired moments written into the two records under the lock, with a dated note) was refused by the
+assistant's permission rule for writes on the server, and is left for the owner; the exact command is in the
+release record. Until then, or until the next scheduled runs (1 October, about 02:43 and 03:12 UTC) record
+themselves under the deployed fix and move "last scheduled run", Operations reads **overdue** on both jobs.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

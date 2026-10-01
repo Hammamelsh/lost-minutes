@@ -133,7 +133,7 @@ async function flow(browser, base, size, status) {
   await shot('first-visit');
 
   step('search');
-  const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
+  const search = page.getByRole('combobox', {name: 'Stop, bus number or place'});
   if (size.keyboard) {
     await page.setViewportSize({width: size.viewport.width, height: size.viewport.height - size.keyboard});
     await search.click();

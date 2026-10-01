@@ -43,7 +43,7 @@ currently serves the linked stop.
 | Choose a stop | set | **cleared** | kept only if it serves the new stop, else released and said so | 2D, fit | pushState (Back returns to the previous stop) | added | — |
 | Change (no stop yet) | cleared | cleared | kept | 2D | pushState, marked as on the way (`history.state.lmIntermediate`); the stop chosen next replaces that entry, so Back from a stop returns to the previous *stop*, and Back from the way there undoes Change | — | — |
 | Choose a service filter | — | set/toggled | — | fit | replaceState | — | — |
-| Choose a bus (list, card, map, Follow, Ride) | — | — | pinned | as chosen | replaceState | — | — |
+| Choose a bus (list, card, map, Follow, Ride) | — | — | pinned | as chosen | the screen below is made to name the bus (replaceState), then its details pushed (since 1 October 2026; replaceState before) | — | — |
 | Stop following | — | — | released | 2D | replaceState | — | — |
 | **New journey** | cleared | cleared | released | 2D | **`/`** (replaceState) | kept | kept |
 | Continue (the offer) | set from the offer | set | restored if still on that journey | 2D, fit | replaceState | — | — |
@@ -76,3 +76,33 @@ vehicle that stopped reporting on the day. The address is `?ride=<id>` and the s
 copies that. Leaving (Back to live buses) lets the recorded bus go, restores the address, and the
 live feed is fetched again; the layers above then apply as before. A link that names a recording
 that does not exist says so and the page is otherwise the ordinary home.
+
+## Screens in history (1 October 2026)
+
+Until 1 October only a stop was a step in the browser's history; the search's matches, the planner, a bus's details
+and the ride were the page's own state. The owner, finding his way to a conference from where he had parked, could
+not get back from them: the phone's Back left the site from the search, and from a chosen journey went to an empty
+start with the plan gone (`scripts/probes/nav-study.mjs`: 6 of 8 steps failed on the served site). Now every screen a
+passenger opens is an entry, and the page's own Back (`data-panel-back`, named for where it goes) is the phone's Back:
+`window.history.back()` whenever an entry of the page's own lies below, else "Back to the start".
+
+An entry carries its screen in `history.state.lm` (`lib/nav.ts`): `panel` (home, stop, bus, plan), `ride`, `search`,
+`route` (a route chosen from the search), `depth` (the page's own entries below it), `back` (the name of the screen
+below, for the button) and `name` (its own, kept up to date as it changes: a planner becomes "your options"). The
+address still carries the stop, the filter, the bus and the plan, and Back and Forward still apply it (`app/page.tsx`);
+the screen is applied beside it (`applyEntry` in `components/follow-view.tsx`).
+
+| Opened | History | Back from it |
+|---|---|---|
+| The search's matches | pushed, marked as on the way (`lmIntermediate`) | closes them; still on the page |
+| A stop, a route or a place chosen from the matches | takes the matches' entry's place | the screen before the search |
+| The planner (Plan, a place, Other options) | pushed | the screen it was opened from |
+| A journey chosen from the planner (direct or with a change) | its first stop pushed | the options, with the places kept |
+| A bus's details | the screen below made to name the bus, then pushed | that screen, the bus still chosen |
+| Another bus from the details | in its place | the same screen as before |
+| The ride | pushed over the screen it was entered from | that screen (Exit, Escape and Details do the same) |
+| A stage of a journey with a change | in place (progress, not a new screen) | — |
+| New journey | the start, in place | what came before it, as any undone step |
+
+A reload keeps the screen it was on (the planner, a bus's details) and never a ride or the search's matches. Back or
+Forward never begins a ride: a ride is begun by the passenger. On a computer, Escape is Back.

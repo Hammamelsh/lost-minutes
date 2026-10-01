@@ -234,3 +234,18 @@ result without the phone.
       its times are the next 53s from Trafford Bar (by). *unchecked*
 - [ ] A screen lock on the bus and back: the journey and the stage are still there. *unchecked*
 - [ ] Share: what arrives on another phone opens the same journey and names no location. *unchecked*
+
+## Finding the way and going back (1 October 2026; backlog 50)
+
+- [ ] Android's Back gesture or button, and iPhone Safari's swipe from the left edge: from the search's matches
+      (with the keyboard down), the planner, a chosen journey's stop, a bus's details and the ride, each goes one
+      step back, to the screen the page's own Back names; none leaves the site. *unchecked*
+- [ ] With the keyboard up over the search's matches, the first Back closes the keyboard and the second closes the
+      matches (Android); the page is still there. *unchecked*
+- [ ] Typing a venue's name in the main search ("Manchester Central Convention") offers it under **Places · plan a
+      journey there** above the keyboard; one tap opens the planner with it, and **From** is My location where the
+      phone already allows the page its location. *unchecked*
+- [ ] Where the page has not been allowed the location, the planner says **Where are you starting from?**, and
+      **Use my location** asks the phone once and then lists the buses. *unchecked*
+- [ ] A chosen journey's stop leads with the plan (board here, get off there, the walk on); **Other options** and
+      **Back to your options** both return to the list with the places kept. *unchecked*

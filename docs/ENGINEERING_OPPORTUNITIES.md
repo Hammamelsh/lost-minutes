@@ -2441,3 +2441,26 @@ The general capability (tail latency of a render loop's occasional work, on real
 long-task reports give; nothing new is needed.
 
 **Next cheap step.** Read `data-fleet-ms-max` in the served-site checks at street zooms. Status: `mitigated`.
+
+## 79. A check that reaches a control a passenger cannot
+
+**Problem and evidence.** The planner's list of places was drawn below the bottom of the screen on a phone and a
+computer from 22 September to 1 October 2026 (backlog 50), while `plan.spec` passed throughout: it chose places with
+`dispatchEvent('mousedown')`, which reaches an element wherever it is drawn. Playwright's `click()` would have refused
+(the element was outside the viewport and could not be scrolled to inside a fixed panel). The same idiom is in other
+specs.
+
+**Who hits it, workaround.** Anyone writing a browser check for a list or menu; the workaround was the owner's
+thumb.
+
+**Recurrence and effort.** One fault of nine days found this way; `grep -c dispatchEvent tests/browser/*.mjs` counts
+the idiom's other uses (unknown how many hide anything).
+
+**Small fix, script, tool or product.** A small fix, partly made: the new checks use `click()` and a `seen()` helper
+(inside the screen, and what is drawn at its middle is it), and `scripts/probes/nav-study.mjs` walks the passenger's
+way round on any build with the same test. Replacing `dispatchEvent` where a real tap is meant is the rest. The
+capability (assert reachability as a passenger has it, not presence in the DOM) is what Playwright's actionability
+checks already give; nothing new is needed.
+
+**Next cheap step.** Review each `dispatchEvent` use in the browser specs; keep it only where a tap is not what is
+being tested. Status: `open`.

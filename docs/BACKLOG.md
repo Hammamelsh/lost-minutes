@@ -998,6 +998,47 @@ never said to be one:
     street track (an X43: "133 s" for 4 s); it does not move.
 - Repositionings fell: 42 to 35, and 305 to 259.
 
+## 50. Hard to find the way, and hard to go back — fixed 1 October 2026
+
+**From the owner, after a conference across the city:** he had parked a little way off, wanted the buses there, and
+found the page hard to get round: "when you click on something … it's hard to go back if I clicked on something or
+searched … need it to be simpler to use and navigate".
+
+**Walked first, as a phone on the served site** (`scripts/probes/nav-study.mjs`: 390 × 844, touch, location allowed,
+at a car park about 1.5 km from Manchester Central). Of its eight steps one passed (Back from a bus's details).
+What it found:
+- **The phone's Back was not the page's.** Only a stop was a step in the browser's history; the search's matches,
+  the planner, a bus's details and the ride were the page's own state. From the search's matches Back left the site;
+  from a chosen journey it went to an empty start, the destination, the options and the start all gone.
+- **The main search found no places.** "Manchester Central" gave four stands of the coach station; a venue by name
+  was found only inside **Plan**, a separate button.
+- **The planner's places were drawn off the screen.** Its list sat under a wrapper with no position, so it was placed
+  against the whole panel and drawn below the bottom of the screen, on a phone (y = 874 of 844) and a computer
+  (795 of 768) alike: "9 places found: pick one to confirm it", and nothing to pick. Since the workspace of 22
+  September. The planner's checks chose places by dispatching an event, which reaches a control nobody can see.
+- **A destination and no start showed nothing at all.** Location was allowed, but **From** stayed "Choose a starting
+  point", and nothing said that was what was missing.
+- **The planner had three ways out** (Close, Back, Show map), **the stop none**; a chosen journey opened its stop
+  scrolled to the departures, the plan (where to get off, the walk on) at the foot of the panel; and a journey with a
+  change wrote no history at all, so Back behaved differently for the two kinds.
+
+**Now:**
+- *Every screen is a step* (`lib/nav.ts`, `docs/JOURNEY_STATE.md`): the search's matches, the planner, a stop, a bus's
+  details and the ride. The page's own Back, on every screen but the start, is the phone's Back and says where it
+  goes: "Back to your options", "Back to Stretford Mall (Stop A)", "Back to the start". With none of the page's own
+  entries below (a shared link), it goes to the start, not off the site. Back from a bus keeps it chosen, as the
+  page's own Back always has. A reload keeps the screen; Back never begins a ride. Escape is Back on a computer.
+- *One search, places too* ("Stop, bus number or place"): routes and stops at once, places (postcodes.io and Photon,
+  as the planner) as they come, after the first three stops; a place opens the planner there.
+- *From here, where allowed*: the planner starts from My location when the page already has the location allowed,
+  and otherwise asks **Where are you starting from?** with **Use my location**.
+- *The planner's places are on the screen*, in the panel's own flow under their field.
+- *A chosen plan leads its stop*, with **Other options** (back to the list, the places kept) and **New destination**.
+- *Less of where the passenger is leaves the page*: the place providers' ranking point is rounded to about a kilometre
+  (it was sent to the metre).
+
+**Verified.** AFTER_VERIFIED
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

@@ -1037,7 +1037,10 @@ What it found:
 - *Less of where the passenger is leaves the page*: the place providers' ranking point is rounded to about a kilometre
   (it was sent to the metre).
 
-**Verified.** AFTER_VERIFIED
+**Verified.** Node 349, Python 187; the full gate on the final build 483 passed, 51 skipped, none failed (1.4 h);
+`tests/browser/finding-the-way.spec.mjs` 9 of 9 on the served site; and the same walk on the served site with real
+data and the real place providers, **7 of 7 steps** (1 of 8 before). Deployed as `95d1df6`. Emulation only: the
+phone's own Back gesture is on the physical-device checklist.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

@@ -4,12 +4,59 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`4d91c79`**, deployed 1 October 2026, night (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`95d1df6`**, deployed 1 October 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 1 October, evening: finding the way, and going back
+
+**Deployed: `95d1df6`**, with `4d91c79` kept for `deploy/rollback.sh`. From the owner, after a conference across the
+city: he had parked a little way off, wanted the buses there, and found the page hard to get round, "when you click
+on something … it's hard to go back". The account is backlog 50.
+
+- **Walked first, as a phone on the served site** (`scripts/probes/nav-study.mjs`, 390 × 844, location allowed, a car
+  park about 1.5 km from Manchester Central): **1 of 8 steps passed** (Back from a bus's details).
+- **What was wrong:**
+  - the phone's Back was not the page's: only a stop was a step in the browser's history, so Back from the search's
+    matches left the site, and from a chosen journey went to an empty start with the plan gone;
+  - the main search found no places, only stops ("Manchester Central": four stands of the coach station);
+  - **the planner's list of places was drawn off the screen**, on a phone and a computer alike, since 22 September:
+    "9 places found: pick one to confirm it", and nothing to pick. Its checks had chosen places by an event that
+    reaches a control nobody can see;
+  - with a destination and no start the planner showed nothing, and said nothing, though location was allowed;
+  - the planner had three ways out and the stop none, and a chosen journey's stop opened scrolled past the plan.
+- **Now:**
+  - every screen is a step: the search's matches, the planner, a stop, a bus's details and the ride. The page's own
+    Back, on every screen but the start, is the phone's, and says where it goes ("Back to your options", "Back to
+    Stretford Mall (Stop A)", "Back to the start"); from a shared link it goes to the start, never off the site. Back
+    from a bus keeps it chosen, as before. Escape is Back on a computer;
+  - one search for a stop, a bus number or a place; a place opens the planner there, from here where the location
+    is already allowed, else asking **Where are you starting from?** with **Use my location**;
+  - the planner's places are on the screen; a chosen plan leads its stop, with **Other options** and **New
+    destination**;
+  - the place providers are sent where the passenger is to about a kilometre, not to the metre.
+
+**Verified.**
+- Node 349 (the screens in history 3; the rounded ranking point checked in an existing test), Python 187, lint with no errors.
+- The full browser gate on the final build: **483 passed, 51 skipped by design, none failed (1.4 h)**. The gate
+  before it failed one check, the ride's Details on a phone: the card was scrolled to before the bus's details were
+  drawn, and left out of view once they were; it is now scrolled to after (on a computer the miss was 1,538 px).
+  Two more were found on the way by the new checks: a field emptied by the passenger lost the focus as its matches
+  went, and a tap on a field that had kept it did not open its matches again.
+- Served:
+  - the index and every script and stylesheet it names byte-identical to the deployed build (10 of 10);
+  - that build is the gated one but for its stamp: all 3,703 files equal once the build ID, the stamped chunk's
+    name and the stamp are swapped;
+  - `/preview/` returns 401; the collector's PID 364734 is unchanged; `RELEASE` reads `95d1df6`.
+- `tests/browser/finding-the-way.spec.mjs` against the served site: 9 passed, 1 skipped by design (Escape, a
+  keyboard's).
+- The same walk on the served site, real data and the real place providers: **7 of 7 steps pass** (the matches and
+  Back; the venue in the main search; starts from My location, 8 options; the plan in view on its stop; Back to the
+  options, 8 still listed; Back to the start; Back from a bus, still chosen).
+- Emulation only; the owner's phone is the check that matters, and the phone's own Back gesture most of all.
 
 ## 1 October, night: every bus drawn on its street, not over the houses
 

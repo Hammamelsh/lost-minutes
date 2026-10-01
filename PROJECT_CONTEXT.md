@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 1 October 2026, night (every bus with no checked road drawn along the map's streets between its reports, not on straight lines over the houses, measured across two whole fleets against the map; checked roads and streets from the zoom a stop opens at; no street graph built in a frame; from the owner's phone: `8dd1a8c`, `4d91c79`). Before that, 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 1 October 2026, evening (finding the way: every screen a step the phone's Back undoes, named for where it goes; places in the main search, planned to from here; the planner's places on the screen, which had been drawn below it since 22 September; from the owner after a conference: `d178c24`, `95d1df6`). Before that, 1 October 2026, night (every bus with no checked road drawn along the map's streets between its reports, not on straight lines over the houses, measured across two whole fleets against the map; checked roads and streets from the zoom a stop opens at; no street graph built in a frame; from the owner's phone: `8dd1a8c`, `4d91c79`). Before that, 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -27,6 +27,20 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **1 October, evening — finding the way, and going back** (`docs/RELEASE.md`, top; backlog 50; `docs/JOURNEY_STATE.md`).
+  - **From the owner:** parked a little way from a conference, he wanted the buses there and found the page hard to
+    get round: "when you click on something … it's hard to go back".
+  - **Walked as a phone on the served site first** (`scripts/probes/nav-study.mjs`): 1 of 8 steps passed. The phone's
+    Back left the site from the search and lost a chosen plan (only a stop was in history); the main search found no
+    places; the planner's places were drawn below the screen on both sizes since 22 September; a destination with no
+    start showed nothing.
+  - **Now:** every screen is a step (`lib/nav.ts`), the page's own Back is the phone's and names where it goes; one
+    search for a stop, a bus number or a place, a place planned to from My location where allowed; the planner's
+    places on the screen; a chosen plan leads its stop; the place providers get the passenger's place to about 1 km.
+  - **Verified:** Node 349, Python 187; the full gate 483 passed, 51 skipped, none failed (1.4 h); served
+    byte-identical, the code the gated build's but for its stamp, the preview locked, the collector untouched; the
+    walk on the served site 7 of 7 with real data. **Deployed as `95d1df6`** (`4d91c79` kept for rollback). Emulation only.
 
 - **1 October, night — every bus on its street, not over the houses** (`docs/RELEASE.md`, top; backlog 49).
   - **From the owner's phone:** a Diamond 74 at Charlestown "flying and not on the road"; then "Check that all busses

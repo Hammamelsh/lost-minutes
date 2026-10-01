@@ -74,6 +74,11 @@ all busses don't do this". The account is backlog 49.
     drawn a median 0.4 m from the road and at most 2.4 m, never inside a building, no "gone quiet", the camera at 60°;
   - Piccadilly Gardens at zoom 15.4 with the map dragged into new tiles: the fleet's worst tick 4.1 ms, no long task.
     Ten buses at night says little about cost; the evening fleet is the real test.
+- **The nightly runs of 1 October, the first under `2347c6c`'s judgement of the timer:** both fired on their timers
+  (02:43:07 and 03:13:59 UTC), succeeded, and are recorded `trigger: timer`, each with its evidence: systemd's
+  stale elapse of 29 September beside the timer's own firing that night. Operations' overdue flag is clear. The
+  rebuild paused collection 2 min 39 s (the collector restarted at 02:45:46, its end), its whole job at the 1,500 MB
+  ceiling with page cache as on 29 September, its largest process 620 MB resident, no OOM.
 - Emulation only; the owner's phone is the check that matters.
 
 ## 30 September, evening: the ride keeps its city, and no bus falsely "gone quiet"

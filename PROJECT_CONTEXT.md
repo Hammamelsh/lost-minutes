@@ -53,6 +53,7 @@ journey change and fixed, and the view from above kept private behind a password
     - live on the served site at night: a 43 with no checked road ridden 150 s over 756 m, a median 0.4 m from the
       road, never inside a building.
     - **Deployed as `4d91c79`** (`a549583` kept for rollback). Emulation only.
+    - The nightly runs of 1 October both recorded as the timer's, with their evidence; the overdue flag clear.
 
 - **30 September, evening — the ride keeps its city; no false "gone quiet"** (`docs/RELEASE.md`, top; backlog
   45, 47, 48).

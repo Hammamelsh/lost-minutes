@@ -147,7 +147,7 @@ test('the return is recomputed from the places, sharing says what is shared, and
   await expect(panel(page).locator('.plan-empty')).toContainText('No bus journey found within a 900 m walk of both places on today’s timetable, direct or with one change');
   await expect(panel(page).locator('[data-handoff="google"]')).toHaveAttribute('href', /origin=53\.4488/);
   // A saved stop survives New journey; the plan does not.
-  await search(page, 'Bus number, stop or area').first().fill('stretford mall');
+  await search(page, 'Stop, bus number or place').first().fill('stretford mall');
   await page.locator('.stop-search-option').first().dispatchEvent('mousedown');
   await page.getByRole('button', {name: 'Save this stop'}).click();
   await page.getByRole('button', {name: /New journey/}).click();

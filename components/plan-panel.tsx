@@ -4,7 +4,7 @@
 // each with its boarding stop and direction, where to get off and both walks; tracked buses by
 // their last report, never minutes; and the hand-offs to a full planner for anything with changes.
 import {useState} from 'react';
-import {ArrowLeftRight,Bus,ExternalLink,MapPin,Share2,X} from 'lucide-react';
+import {ArrowLeftRight,Bus,ExternalLink,LocateFixed,MapPin,Share2,X} from 'lucide-react';
 import type {Stop} from '@/lib/stops';
 import type {Place} from '@/lib/places';
 import PlaceSearch from '@/components/place-search';
@@ -20,12 +20,14 @@ export type PlanTo={lat:number;lon:number;label:string;detail?:string};
 const metresWords=(m:number)=>`about ${Math.max(10,Math.round(m/10)*10)} m`;
 const stopName=(s:Stop)=>s.indicator?`${s.name} (${s.indicator})`:s.name;
 
-export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false,
+export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,link,chosenKey,compact=false,onOtherOptions,
                                   direct=[],directTimes=null,lead='direct',checking=false,connections=[],connectionTimes=null,onChooseConnection}:{
  stops:Stop[];day:string;
  from:PlanFrom|null;to:PlanTo|null;device:{lat:number;lon:number}|null;
  onUseDevice:()=>void;onChooseFrom:(place:Place)=>void;onSetTo:(place:PlanTo|null)=>void;
  onChoose:(option:DirectOption)=>void;onShowOnMap:()=>void;link:string;chosenKey:string|null;compact?:boolean;
+ /** Back to the list of options, keeping the places (a chosen plan's summary). */
+ onOtherOptions?:()=>void;
  /** Journeys with one change (lib/connections.ts), worked out by the view, listed after the direct buses
   *  in the order the view put them in by the timetable; with each one's times, or null while the
   *  timetables are being read. */
@@ -60,7 +62,9 @@ export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChoose
  if(compact&&chosen)return <section className="plan-panel compact" aria-label="Your plan" data-plan="chosen">
   <p className="plan-summary" data-plan-summary><Bus size={14} aria-hidden="true"/>
    <span><strong>Your plan:</strong> {chosen.line} towards {chosen.headsign} from <strong>{stopName(chosen.board)}</strong>, off at <strong>{stopName(chosen.alight)}</strong> ({chosen.rideStops} stop{chosen.rideStops===1?'':'s'}), then {metresWords(chosen.walkFromAlightMetres)} to {to?.label}.</span>
-   <button className="text-action" onClick={()=>onSetTo(null)} data-clear-plan>Change plan</button></p>
+   <span className="plan-summary-actions">
+    {onOtherOptions&&<button className="text-action" onClick={onOtherOptions} data-plan-other-options>Other options</button>}
+    <button className="text-action" onClick={()=>onSetTo(null)} data-clear-plan>New destination</button></span></p>
  </section>;
  return <section className={`plan-panel${compact?' compact':''}`} aria-label="Plan a journey" data-plan={from&&to?'set':to?'to-only':'empty'}>
   <h3 className="section-head"><Bus size={15} aria-hidden="true"/> Plan a journey
@@ -91,6 +95,14 @@ export default function PlanPanel({stops,day,from,to,device,onUseDevice,onChoose
     <button className="text-action" onClick={()=>onSetTo(null)} data-clear-plan><X size={14} aria-hidden="true"/> Clear destination</button>
    </div>}
   </div>
+
+  {to&&!from&&editing!=='from'&&<div className="plan-needs-start" role="status" data-plan-needs-start>
+   <p><strong>Where are you starting from?</strong> The buses are found from there to {to.label}.</p>
+   <div className="plan-needs-start-actions">
+    <button className="action" onClick={onUseDevice} data-plan-use-location><LocateFixed size={15} aria-hidden="true"/> Use my location</button>
+    <button className="text-action" onClick={()=>setEditing('from')}>Choose a starting point</button>
+   </div>
+  </div>}
 
   {from&&to&&<div className="plan-options" data-plan-options={options.length}>
    {checking&&<p className="plan-note" role="status" data-plan-checking>Finding times: reading the timetables{connections.length?' and checking the walks between stops':''}…</p>}

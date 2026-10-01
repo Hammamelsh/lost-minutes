@@ -74,6 +74,12 @@ test('places: postcodes are recognised, our stops come as places, and the provid
  assert.ok(inside({lat:53.46,lon:-2.29})&&!inside({lat:51.5,lon:-0.1}));
  const failed=await addressPlaces('anything',{fetch:async()=>{throw new Error('offline')}});
  assert.deepEqual(failed,[]);
+ // Where the passenger is ranks the answers, to about a kilometre, and no more of it leaves the page (1 October 2026).
+ let asked='';
+ await addressPlaces('Old Trafford',{near:{lat:53.448712,lon:-2.309534},fetch:async url=>{asked=String(url);return new Response('{"features":[]}',{status:200})}});
+ const sent=new URL(asked).searchParams;
+ assert.equal(sent.get('lat'),'53.45');
+ assert.equal(sent.get('lon'),'-2.31');
 });
 
 test('the plan link is read defensively and written back without touching the rest of the address', async () => {

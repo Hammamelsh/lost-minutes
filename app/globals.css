@@ -1856,3 +1856,22 @@ body.above{overflow:hidden}
  .journey-row{grid-template-columns:1fr;gap:2px}
  .journey-row-arrow{display:none}
 }
+
+/* ---- Finding the way (1 October 2026). The planner's matches sat under a wrapper with no position, so they were
+   placed against the whole panel and drawn below the bottom of the screen, on a phone and a computer alike: "9 places
+   found" and nothing to pick. In the planner they are in the panel's own flow, under their field. */
+.place-search .stop-search-list{position:static;margin-top:6px;max-height:none;box-shadow:none}
+.stop-search-option.place strong,.stop-search-option.more strong{display:flex;align-items:center;gap:6px}
+.stop-search-option.place svg{color:#c6f36a;flex-shrink:0}
+.stop-search-option.more{min-height:44px}
+.stop-search-option.more strong{font-size:13.5px;color:#c6f36a}
+.stop-search-waiting{padding:10px 11px;font-size:13px;color:#a7bcc8}
+.stop-search-credit{padding:8px 11px 4px;font-size:11px;color:#8298a6;line-height:1.5}
+/* A destination and no start: one line, and the one tap that starts from here. */
+.plan-needs-start{margin:12px 0 4px;padding:12px 13px;border:1px solid #4c6b39;border-radius:12px;background:#1a2b22}
+.plan-needs-start p{margin:0 0 10px;font-size:14px;line-height:1.5;color:#dbe7ec}
+.plan-needs-start-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.plan-needs-start-actions .action{display:inline-flex;align-items:center;gap:6px;min-height:44px}
+.plan-summary-actions{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 14px;margin-left:auto}
+.plan-summary .plan-summary-actions .text-action{margin-left:0}
+.panel-head .panel-back span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(62vw,340px)}

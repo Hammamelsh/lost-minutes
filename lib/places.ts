@@ -64,7 +64,9 @@ export async function postcodePlaces(query:string,{fetch:f=fetch,signal}:{fetch?
 export async function addressPlaces(query:string,{fetch:f=fetch,signal,near}:{fetch?:Fetch;signal?:AbortSignal;near?:{lat:number;lon:number}}={}):Promise<Place[]>{
  const q=query.trim();
  if(q.length<3)return [];
- const bias=near??{lat:53.48,lon:-2.24};
+ // Where to rank from, to about a kilometre: enough to put the nearer of two namesakes first, and no more of where
+ // the passenger is than that leaves the page (it was sent to the metre until 1 October 2026).
+ const bias=near?{lat:Math.round(near.lat*100)/100,lon:Math.round(near.lon*100)/100}:{lat:53.48,lon:-2.24};
  const url=`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${bias.lat}&lon=${bias.lon}&limit=6&lang=en`
   +`&bbox=${PLACE_BBOX.west},${PLACE_BBOX.south},${PLACE_BBOX.east},${PLACE_BBOX.north}`;
  try{

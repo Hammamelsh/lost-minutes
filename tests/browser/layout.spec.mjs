@@ -249,7 +249,7 @@ for (const {zoom, width, height} of [{zoom: '150%', width: 911, height: 512},
       // layout, the block in the panel on a wide one. Both are in the DOM; one of them is shown.
       {name: 'the stop', locator: page.locator('.your-stop-copy strong:visible, .sheet-words:visible').first()},
       {name: 'Change stop', locator: page.getByRole('button', {name: 'Change stop', exact: true}).first()},
-      {name: 'the search', locator: page.getByRole('combobox', {name: /Bus number, stop or area/i}).first()},
+      {name: 'the search', locator: page.getByRole('combobox', {name: /Stop, bus number or place/i}).first()},
       {name: 'the departures', locator: page.locator('.departures .section-head').first()},
     ]) {
       await expect(locator, `${name} at ${zoom}`).toBeVisible();

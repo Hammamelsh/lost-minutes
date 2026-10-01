@@ -9,6 +9,7 @@ import StopSearch from '@/components/stop-search';
 import PlanPanel,{type PlanTo} from '@/components/plan-panel';
 import JourneyCard,{type JourneyStage,type TransferState} from '@/components/journey-card';
 import {readPlanLink,withPlan} from '@/lib/plan-link';
+import {backWords,pushed,replaced,screenName,screenOf,withScreen,type Panel,type Screen} from '@/lib/nav';
 import {directArrival,directOptions,rankDirect,timeDirect,type DirectOption,type DirectTiming} from '@/lib/plan';
 import {busOnJourney,busesOnLeg,chosenFrom,chosenStatus,departureId,connectionArrival,connectionFromKey,connectionOptions,connectionSentence,estimatedWalk,
  familyQuality,legFamily,legService,lineShort,onwardFromChange,rankConnections,serviceDaysAt,timeConnection,timetabledAtBoard,transferWalk,
@@ -138,6 +139,24 @@ const FALLBACK:Record<string,string>={
  create_failed:'it could not be started',style_failed:'its style could not be loaded',
  tiles_failed:'none of its map tiles arrived',startup_timeout:'it could not finish starting',
 };
+
+/** The entry the page is on, as a screen (lib/nav.ts). */
+const entryNow=()=>typeof window==='undefined'?null:screenOf(window.history.state);
+type ScreenWrite={url?:string;place?:'push'|'replace';intermediate?:boolean};
+/**
+ * A screen over the one on show (pushed), or in its place (replaced), written to the browser's history; the new one's
+ * Back is named after the entry it was opened over. What is chosen from the search's matches or from
+ * "Change stop" takes their entry's place: they are on the way somewhere, not somewhere to come back to.
+ */
+function writeScreen(next:Partial<Screen>&{panel:Panel},{url,place,intermediate=false}:ScreenWrite={}):Screen{
+ const current=entryNow();
+ const over=place?place==='push':!(current?.search||window.history.state?.lmIntermediate);
+ const s=over?pushed(current,next):replaced(current,next);
+ const state=withScreen(window.history.state,s,{lmIntermediate:intermediate});
+ const target=url??`${window.location.pathname}${window.location.search}${window.location.hash}`;
+ if(over)window.history.pushState(state,'',target);else window.history.replaceState(state,'',target);
+ return s;
+}
 
 export default function FollowView({paused=false,mode,live,buses,roads,onRefresh,refreshing,
                                     publicationAgeSeconds,ageBasis,archiveDate,onUseArchive,
@@ -271,11 +290,58 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // sets the sheet itself.
  const sheetBeforeSearch=useRef<'peek'|'half'|'full'|null>(null);
  const panelBody=useRef<HTMLDivElement>(null);
+
+ // ------------------------------------------------------------ the screens in history (lib/nav.ts)
+ // Every screen a passenger opens is a step in the browser's history, so that the phone's Back undoes it as the
+ // page's own Back does: the search's matches, the planner, a stop, a bus's details, the ride. Until 1 October 2026
+ // only a stop was: the phone's Back closed none of the others, left the site from the search, and lost a chosen
+ // plan. Each entry carries its screen's name (kept up to date below), for the Back of the screen opened over it;
+ // `screen` is the entry the page is on, for its own Back's words.
+ const [screen,setScreen]=useState<Screen|null>(null);
+ function openScreen(next:Partial<Screen>&{panel:Panel},options:ScreenWrite={}){
+  setScreen(writeScreen(next,options));
+ }
+ // The page's own Back is the phone's: one step, to the screen it names. With none of the page's own entries
+ // below (a shared link opened here), it goes to the start rather than off the site.
+ const afterBack=useRef<(()=>void)|null>(null);
+ const goBackRef=useRef<(then?:()=>void)=>void>(()=>{});
+ const panelRef=useRef<Panel>('home');
+ // Escape on a computer is Back, as on a phone: from the search's matches (which close themselves), a bus, the
+ // planner or a stop. Never from inside a field, which Escape clears, nor from the ride, which leaves itself.
+ useEffect(()=>{
+  const onKey=(e:KeyboardEvent)=>{
+   if(e.key!=='Escape'||e.defaultPrevented||panelRef.current==='home')return;
+   const t=e.target as HTMLElement|null;
+   if(t?.closest('input,textarea,select,[role="combobox"],[role="dialog"]')||document.querySelector('.vector-map[data-ride]:not([data-ride="off"])'))return;
+   goBackRef.current();
+  };
+  addEventListener('keydown',onKey);
+  return()=>removeEventListener('keydown',onKey);
+ },[]);
+ function goBack(then?:()=>void){
+  if((entryNow()?.depth??0)>0){afterBack.current=then??null;window.history.back();return}
+  if(view==='ride'){setSheet(sh=>sh==='full'?'half':sh);setView('2d');then?.();return}
+  if(planOpen||busOpen){setPlanOpen(false);setBusOpen(false);openScreen({panel:stop?'stop':'home'},{place:'replace'});then?.();return}
+  if(stop)selectStopRef.current(null);
+  then?.();
+ }
+ const selectStopRef=useRef<(next:Stop|null)=>void>(()=>{});
+ // The search's matches are a screen of their own on a phone (they fill it, over the keyboard): opened, they are an
+ // entry, so Back closes them; closed without a choice, their entry goes with them.
+ const [searchClose,setSearchClose]=useState(0);
+ function searchList(open:boolean){
+  const current=entryNow();
+  if(open){if(!current?.search)openScreen({panel:current?.panel??'home',search:true,route:current?.route??null,name:current?.name??'the start'},{place:'push',intermediate:true});return}
+  if(current?.search)window.history.back();
+ }
+ // A bus tapped on the map: chosen, and its details opened, as a step of their own (set up just after, below,
+ // since this handler stays the same for the map's whole life).
+ const [mapChose,setMapChose]=useState(0);
  const selectFromMap=useCallback((key:string)=>{
-  setBusOpen(true);setSheet(sh=>sh==='peek'?'half':sh);
   const bus=busesRef.current.find(candidate=>candidate.key===key);
+  setBusOpen(true);setPlanOpen(false);setSheet(sh=>sh==='peek'?'half':sh);
   if(bus)setPinChoice(pinOf(bus,'map'));
-  setFollow(false);
+  setFollow(false);setMapChose(n=>n+1);
  },[]);
 
  // The day a timetable is judged against: today in Manchester, or the recording's day.
@@ -371,7 +437,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  },[]);
  function setDestination(next:PlanTo|null){
   setDestinationState(next);setChosenPlan(null);clearJourneyPlan();
-  if(!next)setPlanOpen(true);
+  if(!next&&!planOpen){openScreen({panel:'plan'});setPlanOpen(true);setBusOpen(false);setSheet('full')}
   try{if(next)sessionStorage.setItem(DESTINATION_KEY,JSON.stringify(next));else sessionStorage.removeItem(DESTINATION_KEY)}catch{}
   const fromPlace=origin?.kind==='chosen'?{lat:origin.lat,lon:origin.lon,label:origin.label}:null;
   const target=`${window.location.pathname}${withPlan(window.location.search,next?fromPlace:null,next)}`;
@@ -472,6 +538,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   const chosen=row?chosenFrom(row):null;
   setChosenJourney(option);setChosenPlan(option.key);setStage('before');setMoreTime(false);setChosenConnection(chosen);
   rememberJourneyPlan(option.key,'before',false,chosen);
+  // Its first stop is a screen over the options, as a direct bus's is: Back returns to them.
+  openScreen({panel:'stop'},{place:'push'});
   goToLeg(option,'before');
   setTimeout(()=>scrollTo('.journey-card'),0);
  }
@@ -673,13 +741,33 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   return stage==='second'?2:1;
  };
  const otherLegBusOf=(leg:1|2)=>chosenJourney&&legBuses?(leg===1?boundSecond??legBus(2):boundFirst??legBus(1)):null;
+ // The planner, over the screen it was opened from. Where it can start from here without asking (the device's
+ // location is already allowed), it does: the owner, wanting buses to a conference from where he had parked, was
+ // shown nothing until he found that the start was missing (1 October 2026).
+ function startHereIfAllowed(){
+  if(origin||!onLocate)return;
+  try{navigator.permissions?.query({name:'geolocation' as PermissionName}).then(p=>{if(p.state==='granted')onLocate()},()=>{})}catch{/* not known: the planner asks */}
+ }
+ function openPlanner(){
+  if(!planOpen)openScreen({panel:'plan'});
+  setPlanOpen(true);setBusOpen(false);setSheet('full');
+  // The expanded sheet is measured from the search bar's place, which is right only at the page's top.
+  if(window.scrollY>0)window.scrollTo({top:0,behavior:'auto'});
+  startHereIfAllowed();
+ }
+ // A place chosen from the search: the planner, there, from here.
+ function openPlannerTo(place:Place){
+  openPlanner();
+  setDestination({lat:place.lat,lon:place.lon,label:place.label,detail:place.detail});
+ }
  function choosePlan(option:DirectOption){
   clearJourneyPlan();
   setChosenPlan(`${option.pattern.id}|${option.board.id}|${option.alight.id}`);
   setPlanOpen(false);
   selectStop(option.board);
   const key=serviceKeyOf(option.pattern);
-  setTimeout(()=>{setServiceChoice(key);scrollTo('.waiting')},0);
+  // The plan leads the stop it boards at (where to get off, and the walk on), so the panel opens at its top.
+  setTimeout(()=>{setServiceChoice(key);document.querySelector('.follow > .panel .panel-body')?.scrollTo({top:0,behavior:'auto'})},0);
  }
  function chooseFromPlace(place:Place){onChooseOrigin?.({lat:place.lat,lon:place.lon},place.label)}
  // Which of a route's directions is open: two directions can share a compass word and differ only
@@ -836,13 +924,72 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // Every way of choosing a bus pins it. Filters, a new route or a new stop leave the pin alone:
  // a bus the passenger chose never disappears because it falls outside the list being browsed.
  function pinBus(bus:FollowBus,via:PinSource){setPinChoice(pinOf(bus,via))}
- function chooseBus(bus:FollowBus){pinBus(bus,'list');setFollow(false);setFitRequest(n=>n+1);setBusOpen(true);setSheet(s=>s==='peek'?'half':s);
+ // A bus's details, over the screen it was chosen from. That screen's own entry is made to name the bus first, so
+ // Back returns to it with the bus still chosen, as the page's own Back always has (layout.spec); another bus
+ // chosen from the details takes their place rather than adding a step per bus looked at.
+ function openBusScreen(bus:FollowBus|null){
+  const current=entryNow();
+  if(current?.panel==='bus'&&!current.ride&&!current.search){openScreen({panel:'bus'},{place:'replace'});return}
+  // A recording's address names the recording, never its bus (docs/JOURNEY_STATE.md).
+  if(bus&&!recording){
+   const query=journeyQuery({stopId:stop?.id??null,serviceKey,busKey:busLinkKey(pinOf(bus,'list').bus)});
+   const url=`${window.location.pathname}${query?`?${query}`:''}${window.location.hash}`;
+   if(current&&!current.search)window.history.replaceState(window.history.state,'',url);
+   onAddress?.(query?`?${query}`:'');
+   openScreen({panel:'bus'},{url});
+  }else openScreen({panel:'bus'});
+ }
+ useEffect(()=>{
+  if(!mapChose)return;
+  const timer=setTimeout(()=>{const s=entryNow();if(view!=='ride'&&(s?.panel!=='bus'||s.search))openBusScreen(shown??null)},0);
+  return()=>clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[mapChose]);
+ // Back or Forward to an entry: its screen. (The address — the stop, the filter, the bus — is applied by the page.)
+ // The ride is never entered this way, only left: a ride is begun by the passenger, not by history.
+ const applyEntry=useRef<()=>void>(()=>{});
+ const applyEntryNow=()=>{
+  const s=entryNow();
+  setScreen(s);
+  const panel:Panel=s?.panel??(new URLSearchParams(window.location.search).get('stop')?'stop':'home');
+  setPlanOpen(panel==='plan');
+  setBusOpen(panel==='bus');
+  if(panel==='plan')setSheet('full');
+  if(view==='ride'&&!s?.ride){setSheet(sh=>sh==='full'?'half':sh);setView('2d')}
+  if(s?.search)window.history.replaceState(withScreen(window.history.state,{...s,search:false}),'',window.location.href);
+  setSearchClose(n=>n+1);
+  if(s&&panel==='home'){
+   const [route,direction='all']=(s.route??'').split('#');
+   if(s.route&&choice?.route!==route){setChoice({route,direction});setDirKey(null)}
+   else if(!s.route&&choice&&!stop){setChoice(null);setDirKey(null)}
+  }
+  const then=afterBack.current;afterBack.current=null;then?.();
+ };
+ useEffect(()=>{
+  const on=()=>applyEntry.current();
+  addEventListener('popstate',on);
+  // The entry the page opened on: a screen of its own, and on a reload the one it was on (the planner, a bus's
+  // details), never a ride or the search's matches, which a reload does not bring back. Off the render path.
+  const timer=setTimeout(()=>{
+   const s=entryNow();
+   if(!s){openScreen({panel:new URLSearchParams(window.location.search).get('stop')?'stop':'home'},{place:'replace'});return}
+   const kept={...s,ride:false,search:false};
+   if(s.ride||s.search)window.history.replaceState(withScreen(window.history.state,kept),'',window.location.href);
+   setScreen(kept);
+   if(s.panel==='plan')setPlanOpen(true);
+   if(s.panel==='bus')setBusOpen(true);
+  },0);
+  return()=>{clearTimeout(timer);removeEventListener('popstate',on)};
+ },[]);
+ function chooseBus(bus:FollowBus){openBusScreen(bus);pinBus(bus,'list');setFollow(false);setFitRequest(n=>n+1);setBusOpen(true);setPlanOpen(false);setSheet(s=>s==='peek'?'half':s);
   setTimeout(()=>{panelBody.current?.scrollTo({top:0,behavior:prefersReducedMotion()?'auto':'smooth'})},0)}
  function chooseService(key:string){setServiceChoice(serviceKey===key?null:key);setFitRequest(n=>n+1)}
  // Try Ride-along: the bus is pinned as a ride would pin it and the ride begins, with no stop.
  function startRide(bus:FollowBus){
   pick({route:routeId(bus),direction:bus.direction});
-  pinBus(bus,'ride');setFollow(false);setBusOpen(true);setSheet(s=>s==='peek'?'half':s);setView('ride');
+  if(entryNow()?.panel!=='bus')openBusScreen(bus);
+  if(!entryNow()?.ride)openScreen({panel:'bus',ride:true},{place:'push'});
+  pinBus(bus,'ride');setFollow(false);setBusOpen(true);setPlanOpen(false);setSheet(s=>s==='peek'?'half':s);setView('ride');
  }
  function pick(next:{route:string;direction:string}){setChoice(next);setFitRequest(n=>n+1)}
  // Choosing a stop is deliberate: it is remembered as a recent, the filter is cleared, and the
@@ -864,20 +1011,18 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   const kept=pin&&serves?pin:null;
   const query=journeyQuery({stopId:next?.id??null,serviceKey:null,busKey:kept?kept.journeyKnown?busLinkKey(kept.bus):kept.bus.key:null});
   const target=`${window.location.pathname}${query?`?${query}`:''}`;
-  if(target!==`${window.location.pathname}${window.location.search}${window.location.hash}`){
-   // A stop chosen is a place Back can return to. "Change" (no stop yet) is on the way to one: it
-   // is pushed, marked as on the way, and the stop chosen next replaces it rather than adding to
-   // it, so history reads stop, stop, stop, and a stop's own entry is never overwritten.
-   const state={...(window.history.state??{}),lmIntermediate:!next};
-   if(next&&window.history.state?.lmIntermediate)window.history.replaceState(state,'',target);
-   else window.history.pushState(state,'',target);
-   onAddress?.(query?`?${query}`:'');
-  }
+  // A stop chosen is a place Back can return to. "Change stop" (no stop yet) is on the way to one: it is
+  // pushed, marked as on the way, and the stop chosen next replaces it rather than adding to it, so history
+  // reads stop, stop, stop, and a stop's own entry is never overwritten. The same stop chosen again, on its
+  // own board, is no new step.
+  const current=entryNow();
+  const same=target===`${window.location.pathname}${window.location.search}${window.location.hash}`&&current?.panel===(next?'stop':'home')&&!current?.search&&!current?.ride;
+  openScreen({panel:next?'stop':'home'},{url:target,intermediate:!next,...(same?{place:'replace' as const}:{})});
+  onAddress?.(query?`?${query}`:'');
  }
  function letGo(){setPinChoice(null);setFollow(false);setView('2d');setFitRequest(n=>n+1);setBusOpen(false)}
  const rideStarted=useRef<string|null>(null);
  const startRideRef=useRef(startRide),letGoRef=useRef(letGo);
- startRideRef.current=startRide;letGoRef.current=letGo;
  useEffect(()=>{
   if(!recording){
    // Back to live: the recording's bus is not a bus anyone chose from the feed, so it is let go
@@ -900,10 +1045,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   const id=`${hit.operator??''}|${hit.line}`;
   if(stop){
    const served=services.find(s=>s.line===hit.line&&(s.operator??'')===(hit.operator??''));
-   if(served){chooseService(served.key);scrollTo('.waiting');return}
+   if(served){chooseService(served.key);if(entryNow()?.search)openScreen({panel:'stop'},{place:'replace'});scrollTo('.waiting');return}
    selectStop(null);
   }
-  pick({route:id,direction:hit.directions[0]?.direction??'all'});
+  const direction=hit.directions[0]?.direction??'all';
+  openScreen({panel:'home',route:`${id}#${direction}`},entryNow()?.search?{place:'replace'}:{});
+  pick({route:id,direction});
   setDirKey(hit.directions[0]?directionKey(hit.directions[0]):null);
   setPlanOpen(false);setBusOpen(false);setSheet('half');
   setTimeout(()=>scrollTo('.route-browse'),50);
@@ -925,6 +1072,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const offerStop=offer?.stopId?stopById.get(offer.stopId)??null:null;
  function continueOffer(){
   if(!offer)return;
+  // A stop taken up is a screen over the start, as any chosen stop is.
+  openScreen({panel:offerStop?'stop':'home'});
   onSelectStop(offerStop);setServiceChoice(offer.serviceKey);setChangeNote(null);
   setPinChoice(offer.bus?{bus:offer.bus,via:'device',journeyKnown:true}:offer.busKey?pinFromKey(offer.busKey,'device'):null);
   setView('2d');setFitRequest(n=>n+1);
@@ -935,6 +1084,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   setDestinationState(null);setChosenPlan(null);clearJourneyPlan();try{sessionStorage.removeItem(DESTINATION_KEY)}catch{}
   setBusOpen(false);setPlanOpen(false);setSheet('half');
   onNewJourney?.();
+  // The start, in this entry's place: what came before stays behind Back, as any undone step does.
+  openScreen({panel:'home'},{place:'replace'});
  }
  function continueJourney(){if(selection.kind==='new_journey')pinBus(selection.bus,'continue')}
  // Following or riding along starts on the bus shown, and so pins it.
@@ -943,6 +1094,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   setFollow(value=>!value);
  }
  function changeView(next:MapView){
+  // The ride is a screen over the one it was entered from: Exit, Escape and the phone's Back each leave it.
+  if(view==='ride'&&next!=='ride'&&entryNow()?.ride){goBack(next==='2d'?undefined:()=>setView(next));return}
+  if(next==='ride'&&view!=='ride'&&!entryNow()?.ride)openScreen({panel:entryNow()?.panel??'home',ride:true,name:entryNow()?.name??'the start'},{place:'push'});
   if(next==='ride'&&selection.kind==='none'&&shown)pinBus(shown,'ride');
   // Leaving the ride hands back to the map: on a phone a sheet left full (Try Ride-along opens it
   // there, and the ride is started from its rows) came back over the map the camera had just
@@ -950,13 +1104,32 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   if(view==='ride'&&next!=='ride')setSheet(s=>s==='full'?'half':s);
   setView(next);
  }
+ // The card, once the screen under the ride is drawn: asked from Back's own step, which is applied after this
+ // render, and opened by an effect, which runs once it is on the screen (a card scrolled to under the ride was left
+ // out of view on a phone).
+ const [cardWanted,setCardWanted]=useState(0);
+ useEffect(()=>{
+  if(!cardWanted)return;
+  const timer=setTimeout(showCard,0);
+  return()=>clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[cardWanted]);
  function showCard(){
-  setBusOpen(true);setSheet(sh=>sh==='peek'?'half':sh);
+  if(!busOpen)openBusScreen(shown??null);
+  setBusOpen(true);setPlanOpen(false);setSheet(sh=>sh==='peek'?'half':sh);
+  setCardFocus(n=>n+1);
+ }
+ // Scrolled to and focused once the details are drawn: scrolled to before, under the stop's board where the card
+ // stood, it was left 1,538 px above the panel once the card moved to lead (1 October 2026). Focus goes with it, so
+ // the next Tab continues from the card, not from the lists above it.
+ const [cardFocus,setCardFocus]=useState(0);
+ useEffect(()=>{
+  if(!cardFocus)return;
   const card=document.getElementById('lm-bus-card');
   card?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'});
-  // Focus goes with it, so the next Tab continues from the card, not from the lists above it.
   card?.focus({preventScroll:true});
- }
+ },[cardFocus]);
+
  // A shared link names the stop, the service and the bus the passenger chose: never where they are.
  async function share(){
   const query=recording?`ride=${recording.id}`
@@ -1213,12 +1386,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    {/* The focus moves to the other leg's bus; the stage, which is where the passenger said they are, does not. */}
    {other&&<button className="text-action" data-switch-leg onClick={()=>{setJourneyFocus(ridden===2?'first':'second');pinBus(other,'ride');setView('ride')}}>
     <Crosshair size={13} aria-hidden="true"/> {ridden===2?'Focus on the first bus':'Focus on the next bus'}</button>}
-   {!other&&ridden===1&&<button className="text-action" data-switch-leg onClick={()=>{setView('2d');setJourneyFocus('second');setFitRequest(n=>n+1)}}>
+   {!other&&ridden===1&&<button className="text-action" data-switch-leg onClick={()=>{changeView('2d');setJourneyFocus('second');setFitRequest(n=>n+1)}}>
     Show the next bus’s stop on the map</button>}
   </div>})()}
   {/* The way from the ride to everything the card holds. It leaves the ride first, because on a
       phone the ride is the whole screen and the card is not on it. */}
-  <button className="text-action ride-details" onClick={()=>{setView('2d');setTimeout(showCard,0)}}>Details</button>
+  <button className="text-action ride-details" onClick={()=>{if(entryNow()?.ride)goBack(()=>setCardWanted(n=>n+1));else{setView('2d');setTimeout(showCard,0)}}}>Details</button>
  </div>:null;
 
  const row=(item:BoardRow,detail:string)=><button key={item.bus.key} onClick={()=>chooseBus(item.bus)}
@@ -1272,6 +1445,17 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const exploringBus=Boolean(stop&&pinned&&!absent&&cardStanding!==null&&cardStanding!=='coming'&&cardStanding!=='maybe');
  const panelMode:'home'|'stop'|'bus'|'plan'=planOpen?'plan':busOpen&&identity?'bus':stop?'stop':'home';
  const inStop=!!stop&&(panelMode==='stop'||panelMode==='bus');
+ // What this screen is called, for the Back of the next; and the latest handlers, for listeners set up once.
+ const screenNameNow=screenName(panelMode,{stop:stopLabel,route:identity?.route??null,planned:Boolean(destination&&planFrom)});
+ // The entry's own name follows its screen (a stop's planner becomes "your options"), for the next one's Back.
+ useEffect(()=>{
+  const s=entryNow();
+  if(s&&!s.search&&s.name!==screenNameNow)window.history.replaceState(withScreen(window.history.state,{...s,name:screenNameNow}),'',window.location.href);
+ },[screenNameNow]);
+ useEffect(()=>{
+  goBackRef.current=goBack;panelRef.current=panelMode;
+  applyEntry.current=applyEntryNow;startRideRef.current=startRide;letGoRef.current=letGo;selectStopRef.current=selectStop;
+ });
  const showStopBlock=panelMode!=='plan';
  // The sheet's one line when it is folded down: what the panel is about, and the next thing to do.
  const handleWords=panelMode==='plan'?'Plan a journey'
@@ -1312,6 +1496,18 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   sheetTo(next)};
  // What the labelled control does from here: open the panel out, or give the map back.
  const openLabel=panelMode==='bus'?'Open details':panelMode==='plan'?'Open planner':'Open full list';
+ const showPlan=stops.length>0&&mode!=='archive'&&(panelMode==='plan'||(!chosenJourney&&(inStop||panelMode==='home')&&Boolean(chosenPlan||destination)));
+ const planOnTop=showPlan&&panelMode==='stop'&&Boolean(chosenPlan);
+ // Back to the options, where they are the screen below; else the planner, opened again with the same places.
+ const otherOptions=()=>{if(entryNow()?.back===screenName('plan',{planned:true}))goBack();else openPlanner()};
+ const planPanel=<PlanPanel stops={stops} day={day}
+    from={planFrom}
+    to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
+    onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
+    link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'} onOtherOptions={otherOptions}
+    direct={listedDirect} directTimes={directTimes} lead={planTimes?.lead??'direct'} checking={Boolean(candidateKey)&&!planReady}
+    connections={listedConnections} connectionTimes={connectionTimes}
+    onChooseConnection={o=>chooseConnection(o,connectionTimes?.get(o.key)??null)}/>;
  // The feed's state is about bus *positions*. Under a board of scheduled departures the word LIVE
  // on its own read as if the departures were live, so the status says what it is about.
  const feedWords=recording?`${recording.ended?'Recording ended':'Recorded ride'} · ${recording.date}`
@@ -1338,13 +1534,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </div>
   {stops.length>0&&mode!=='archive'&&<div className="follow-search">
    <StopSearch stops={stops} patterns={patterns} day={day} onSelect={selectStop} onSelectRoute={onSelectRoute} compact
-    placeholder="Bus number, stop or area"
+    placeholder="Stop, bus number or place"
+    onListChange={searchList} closeSignal={searchClose}
+    places={recording?undefined:{near:here??device??null,onPick:openPlannerTo}}
     onFocusField={()=>{if(sheet!=='peek')sheetBeforeSearch.current=sheet;sheetTo('peek')}}
     onLeaveField={chose=>{const before=sheetBeforeSearch.current;sheetBeforeSearch.current=null;
      if(!chose&&before&&before!=='peek')sheetTo(before)}}/>
    <button className={`plan-entry${panelMode==='plan'?' on':''}`} aria-pressed={panelMode==='plan'} data-plan-entry
     aria-label={panelMode==='plan'?'Close the journey planner':'Plan a journey'}
-    onClick={()=>{if(panelMode==='plan'){setPlanOpen(false)}else{setPlanOpen(true);sheetTo('full')}}}>
+    onClick={()=>{if(panelMode==='plan')goBack();else openPlanner()}}>
     <Route size={15} aria-hidden="true"/><span className="plan-entry-words">{panelMode==='plan'?'Close planner':'Plan a journey'}</span>
     <span className="plan-entry-short" aria-hidden="true">{panelMode==='plan'?'Close':'Plan'}</span></button>
   </div>}
@@ -1396,19 +1594,20 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      </button>
     </div>
    </div>
-   {(panelMode==='bus'||panelMode==='plan')&&<div className="panel-head">
-    <button className="panel-back" onClick={()=>{if(panelMode==='plan')setPlanOpen(false);else setBusOpen(false)}} data-panel-back>
-     <ArrowLeft size={16} aria-hidden="true"/>{panelMode==='plan'?(stop?`Back to ${stop.name}`:'Back'):stop?'Back to the board':'Back'}</button>
-    {stop&&<button className="text-action" onClick={newJourney} aria-label="New journey: clear the stop, filter and chosen bus" data-new-journey>
+   {panelMode!=='home'&&<div className="panel-head" data-panel-head>
+    <button className="panel-back" onClick={()=>goBack()} data-panel-back data-back-to={screen?.depth?screen.back??'':'the start'}>
+     <ArrowLeft size={16} aria-hidden="true"/><span>{backWords(screen)}</span></button>
+    {(stop||pinned||destination)&&<button className="text-action" onClick={newJourney} aria-label="New journey: clear the stop, filter and chosen bus" data-new-journey>
      <RotateCcw size={14} aria-hidden="true"/> New journey</button>}
    </div>}
    <div className="panel-body" ref={panelBody}>
+  {planOnTop&&planPanel}
   {/* A journey with a change leads: the next thing to do, then the rest in order, then the stop's
       own board and buses below it, which are about the same stop. */}
   {chosenJourney&&journeyQuality&&panelMode!=='plan'&&<JourneyCard option={chosenJourney} timing={journeyTiming??{kind:'loading'}} quality={journeyQuality}
     stage={stage} transfer={transfer&&transfer.key===chosenJourney.key?transfer.state:{status:'checking'}} buses={buses} nowMs={nowMs} moreTime={moreTime}
     onStage={moveStage} onFocus={f=>{setJourneyFocus(f);setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'nearest',behavior:prefersReducedMotion()?'auto':'smooth'})}}
-    onMoreTime={setMoreTimeKept} onEnd={newJourney} onOtherOptions={()=>{setPlanOpen(true);sheetTo('full')}}
+    onMoreTime={setMoreTimeKept} onEnd={newJourney} onOtherOptions={openPlanner}
     rideable={rideable} onRide={bus=>{startRide(bus)}} onShare={shareJourney} shareState={shareState}
     roads={journeyOverlay?{first:journeyOverlay.legs[0].onRoad,second:journeyOverlay.legs[1].onRoad}:undefined}
     onward={onwardTiming} trackedTime={trackedTime} chosen={chosenConnection} choice={connectionChoice} onAccept={acceptConnection}/>}
@@ -1443,8 +1642,6 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
         <span>{savedStopIds.includes(stop.id)?'Saved':'Save'}</span></button>
        <button onClick={share} aria-label="Share this stop" data-compact><Share2 size={15}/><span>Share</span></button>
        <button onClick={()=>selectStop(null)}>Change stop</button>
-       <button onClick={newJourney} aria-label="New journey: clear the stop, filter and chosen bus" data-new-journey>
-        <RotateCcw size={15}/><span>New journey</span></button>
       </div>
      </div>
    : <div className="your-stop unset">
@@ -1772,16 +1969,9 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </div>}
 
   {/* Planning: a start (this device or a fixed place, which is the same origin the walk uses), a
-      destination, and the direct buses the timetable supports between them. */}
-  {stops.length>0&&mode!=='archive'&&(panelMode==='plan'||(!chosenJourney&&(inStop||panelMode==='home')&&(chosenPlan||destination)))
-   &&<PlanPanel stops={stops} day={day}
-    from={planFrom}
-    to={destination} device={device} onUseDevice={()=>onLocate?.()} onChooseFrom={chooseFromPlace} onSetTo={setDestination}
-    onChoose={choosePlan} onShowOnMap={()=>{setFitRequest(n=>n+1);document.querySelector('.vector-map')?.scrollIntoView({block:'start',behavior:'smooth'})}}
-    link={planLink} chosenKey={chosenPlan} compact={panelMode!=='plan'}
-    direct={listedDirect} directTimes={directTimes} lead={planTimes?.lead??'direct'} checking={Boolean(candidateKey)&&!planReady}
-    connections={listedConnections} connectionTimes={connectionTimes}
-    onChooseConnection={o=>chooseConnection(o,connectionTimes?.get(o.key)??null)}/>}
+      destination, and the direct buses the timetable supports between them. A plan chosen leads the stop it
+      boards at instead (above), so where to get off and the walk on are in view, not under the board. */}
+  {showPlan&&!planOnTop&&planPanel}
   {panelMode==='home'&&(buses.length>0||choice)&&<section className="route-browse" aria-label="Follow a route">
    <h3 className="section-head">{choice?`Route ${routeNumber(route)}`:'Or follow a route'}<small>{choice?'directions, stops and buses':'without choosing a stop'}</small>
     {choice&&<button className="text-action filter-clear" onClick={()=>{setChoice(null);setDirKey(null)}} data-clear-route>Clear route</button>}</h3>

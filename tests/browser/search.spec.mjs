@@ -5,7 +5,7 @@ import {test, expect} from '@playwright/test';
 import {FX, foldSheet, journeyLive, mapBand, serveLive, servePatterns, unavailableState, unfoldSheet, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
-const search = page => page.getByRole('combobox', {name: 'Bus number, stop or area'}).first();
+const search = page => page.getByRole('combobox', {name: 'Stop, bus number or place'}).first();
 const options = page => page.locator('.stop-search-list [role=option]');
 const map = page => page.locator('.vector-map');
 

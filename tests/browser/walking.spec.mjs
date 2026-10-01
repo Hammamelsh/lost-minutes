@@ -201,7 +201,7 @@ test.describe('far away', () => {
     await serveLive(page, [() => journeyLive()]);
     await page.goto('/');
     await page.getByRole('button', {name: 'Buses near me'}).click();
-    const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
+    const search = page.getByRole('combobox', {name: 'Stop, bus number or place'});
     await search.fill('stretford mall');
     await page.getByRole('option', {name: /Stop A/}).first().click();
     await expect(page.locator('.walk-guide')).toContainText('too far to plan a walk here');
@@ -214,7 +214,7 @@ test('without a location, walking directions say what they need', async ({page})
   await servePatterns(page);
   await serveLive(page, [() => journeyLive()]);
   await page.goto('/');
-  const search = page.getByRole('combobox', {name: 'Bus number, stop or area'});
+  const search = page.getByRole('combobox', {name: 'Stop, bus number or place'});
   await search.fill('stretford mall');
   await page.getByRole('option', {name: /Stop A/}).first().click();
   await expect(page.locator('.walk-guide')).toContainText('Walking directions start from your location');

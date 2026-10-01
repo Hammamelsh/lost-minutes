@@ -69,3 +69,14 @@ test('a bus standing where its reports stood is said to be standing, not moving 
   assert.equal(describeMotion({...observed, standing: true, displayDelaySeconds: 1}).label, 'Standing · latest 12 s ago');
   assert.equal(describeMotion({...observed, standing: false}).label, 'Moving between its reports · as it was about 45 s ago · report 12 s old');
 });
+
+test('a bus with no checked road drawn along the map\'s streets says so, and never that its road is checked', () => {
+  // lib/streets.ts, 30 September 2026: the streets nearest its reports, not a road checked against its own reports.
+  const words = describeMotion({...observed, onRoad: false, offRoad: false, onStreet: true});
+  assert.match(words.detail, /along the streets the map shows joining them/);
+  assert.match(words.detail, /not a road checked against this service’s own reports/);
+  assert.doesNotMatch(words.detail, /checked against this service’s own reports, because both/);
+  assert.match(words.label, /^Moving between its reports/);
+  // Without a street track, as before: a straight line, no road checked.
+  assert.match(describeMotion({...observed, onRoad: false, onStreet: false}).detail, /straight line, not its road/);
+});

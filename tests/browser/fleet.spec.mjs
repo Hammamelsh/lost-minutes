@@ -4,7 +4,7 @@
 // every poll. FIXTURE data on the recorded fixture road; SwiftShader, so any timing is a software
 // renderer's, not a phone's.
 import {test, expect} from '@playwright/test';
-import {fleetLive, mapBand, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
+import {fleetLive, mapBand, metresOffFixtureRoad, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 const map = page => page.locator('.vector-map').first();
@@ -13,6 +13,18 @@ const fleet = async page => {
   const [total, inView, moving, animate, modelled] = ((await map(page).getAttribute('data-fleet')) ?? '').split(',').map(Number);
   return {total, inView, moving, animate, modelled};
 };
+/** data-fleet-streets: of the buses in view with no checked road, drawn on a street track, tried at their newest
+ *  report, and all of them (lib/streets.ts). */
+const streets = async page => {
+  const [ready, tried, wanted] = ((await map(page).getAttribute('data-fleet-streets')) ?? '').split(',').map(Number);
+  return {ready, tried, wanted};
+};
+/** Until every bus in view with no checked road has had its streets tried, and its move onto them (an eased
+ *  correction, 100 ms a metre) has run its course. */
+async function streetsSettled(page) {
+  await expect.poll(async () => { const s = await streets(page); return s.wanted > 0 && s.tried === s.wanted; }, {timeout: 30_000}).toBe(true);
+  await page.waitForTimeout(4000);
+}
 /** Where every other bus is drawn on the canvas, refreshed four times a second. */
 const points = async page => JSON.parse((await map(page).getAttribute('data-bus-points')) || '[]');
 const byKey = list => Object.fromEntries(list.map(p => [p.key, p]));
@@ -68,6 +80,9 @@ test('buses in view move between their reports at a bus’s pace, none teleporti
   await page.goto(`/?stop=${STOP_A}`);
   await waitForPaint(page);
   await expect.poll(async () => (await fleet(page)).moving, {timeout: 20_000}).toBeGreaterThanOrEqual(3);
+  // At the stop's zoom these buses, with no checked road, are drawn along the map's streets once their tiles are in;
+  // the move onto the streets is a correction, eased, and checked on its own below. Their pace is judged after it.
+  await streetsSettled(page);
   const zoom = Number(await map(page).getAttribute('data-zoom'));
   const moved = await travel(page, 6);
   const fleetKeys = Object.keys(moved).filter(k => k.includes('FX-FLEET-'));
@@ -82,6 +97,38 @@ test('buses in view move between their reports at a bus’s pace, none teleporti
     expect(moved[k].fastest, `${k}: fastest movement between samples, m/s`).toBeLessThan(25);
   }
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-fleet-moving.png`)});
+});
+
+test('at a stop\'s own zoom, buses with no checked road are drawn on their street, eased onto it, not over the houses', async ({page}) => {
+  // The fixture road is a real road (route 256's), and these buses report along it with no timetable pattern, so no
+  // checked road: drawn on straight lines between reports 140 m apart they cut its bends, up to 28–31 m off it for two
+  // of them (the same reports through lib/motion.ts in Node). Until 1 October 2026 the fleet drew them so at a stop's
+  // zoom (14.2–15): street tracks began at 14, but a bus's road was settled only from 15, and a bus with no road
+  // settled was given none. Real tiles from the map's own source.
+  test.setTimeout(120_000);
+  await servePatterns(page);
+  const start = Date.now() - 90_000;
+  await serveLive(page, [() => fleetLive({nowMs: Date.now(), startMs: start, count: 6, spacing: 200})]);
+  await page.goto(`/?stop=${STOP_A}`);
+  await waitForPaint(page);
+  // From the first frames to settled: no step a bus could not be drawn making (a jump to a newest report 140 m on
+  // would be hundreds of metres a second; the move onto the streets is eased at about 10 m/s on top of the bus's 7,
+  // read here at up to twice that, as each sample is of a drawing refreshed every 250 ms).
+  const early = await travel(page, 5);
+  for (const k of Object.keys(early).filter(key => key.includes('FX-FLEET-'))) expect(early[k].fastest, `${k} settling`).toBeLessThan(60);
+  await streetsSettled(page);
+  const s = await streets(page);
+  expect(s.ready, `on street tracks: ${JSON.stringify(s)}`).toBeGreaterThanOrEqual(3);
+  // The stop's own zoom: 14.4 on the phone profile, inside the band that had no streets, and 15.6 on the desktop.
+  const zoom = Number(await map(page).getAttribute('data-zoom'));
+  const worst = {};
+  for (let i = 0; i < 24; i++) {
+    for (const p of await points(page)) if (p.key.includes('FX-FLEET-')) worst[p.key] = Math.max(worst[p.key] ?? 0, metresOffFixtureRoad(p.lat, p.lon));
+    await page.waitForTimeout(250);
+  }
+  console.log(`zoom ${zoom.toFixed(2)}, street tracks ${JSON.stringify(s)}, off the road at most: ${Object.entries(worst).map(([k, m]) => `${k.split('|')[1]} ${m.toFixed(1)} m`).join(', ')}`);
+  expect(Object.keys(worst).length, 'fleet buses in the frame').toBeGreaterThanOrEqual(3);
+  for (const [k, m] of Object.entries(worst)) expect(m, `${k} drawn off its road`).toBeLessThan(8);
 });
 
 test('tapping a moving bus chooses it where it is drawn, and its drawing carries on', async ({page}) => {

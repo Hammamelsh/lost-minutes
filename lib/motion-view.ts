@@ -216,6 +216,9 @@ export type MotionInfo={mode:'estimated'|'observed';reason:string;reportAge:numb
  /** Observed, with a checked road that its reports have left here for another street: drawn in a
   *  straight line between them. */
  offRoad?:boolean;
+ /** Observed, with no checked road, and drawn along the map's streets between its reports (lib/streets.ts): the
+  *  nearest streets to both, not a road checked against this service's own reports. */
+ onStreet?:boolean;
  /** Observed and played back, and at this instant standing where its reports stood (a stop, the
   *  lights): said as standing, not as "moving between its reports" (25 September 2026). */
  standing?:boolean;
@@ -298,6 +301,9 @@ export function describeMotion(info:MotionInfo):{label:string;detail:string;said
       :info.offRoad
       ?' Here its reports have left the road checked for this service — they lie on another street — so it is'
        +' drawn in a straight line between them: the streets it took are not known.'
+      :info.onStreet
+      ?' Between two reports it goes along the streets the map shows joining them — the streets nearest both'
+       +' reports, the way a bus could have gone in the time — not a road checked against this service’s own reports.'
       :' The line between two reports is a straight line, not its road: no road has been checked for it.')
    :'';
   // A repositioning is said where it is seen, not only in the explanation: `said` repeats it for the

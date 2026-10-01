@@ -15,6 +15,7 @@ import type {FollowBus} from '@/lib/follow';
 import {drawingFor,historyFrom,observedAt,REPOSITION_METRES,stepVisual,type Estimate,type Fix,type History,
  type RepositionReason,type Track,type Visual} from '@/lib/motion';
 import {historyOf,serviceOf} from '@/lib/motion-view';
+import type {StreetRun} from '@/lib/streets';
 
 export const FLEET_REASON='every bus on the map is drawn from its own reports, a little behind them';
 /** The drawn bus counts as moving above this speed, m/s. */
@@ -33,6 +34,9 @@ export type FleetEntry={
  road:Track|null|undefined;
  /** Set once the road has been asked for, so it is asked for once. */
  roadAsked:boolean;
+ /** Where there is no checked road, the map's streets between its reports (lib/streets.ts), kept and extended as
+  *  they arrive; and the stamp it was last extended at. Never a checked road, and never said to be one. */
+ street:StreetRun|null;streetStamp:string|null;
  /** The vehicle's journey when this drawing began: another journey is another drawing. */
  journey:string;
  /** The newest report and the trail's length: a change means the history is rebuilt. */
@@ -52,7 +56,7 @@ export type Fleet=Map<string,FleetEntry>;
 const journeyOf=(bus:FollowBus)=>`${bus.route}|${bus.direction}|${bus.journeyRef}`;
 const stampOf=(bus:FollowBus)=>`${bus.observedAtMs}:${bus.trail?.length??0}`;
 const fresh=(bus:FollowBus,journey:string,stamp:string):FleetEntry=>
- ({bus,history:historyOf(bus),vis:null,e:null,road:undefined,roadAsked:false,journey,stamp,next:null,bridge:null,moved:null});
+ ({bus,history:historyOf(bus),vis:null,e:null,road:undefined,roadAsked:false,street:null,streetStamp:null,journey,stamp,next:null,bridge:null,moved:null});
 
 /** This journey's history, with the bridge in front of its reports while the drawing has yet to pass it. */
 function historyWith(bus:FollowBus,bridge:Fix|null):History{
@@ -83,7 +87,7 @@ function takeOver(entry:FleetEntry){
  const v=entry.vis,last=entry.history.fixes[entry.history.fixes.length-1];
  entry.bridge=v&&last?{at:last.at,lat:v.lat,lon:v.lon,bearing:v.bearing,service:serviceOf(bus),source:null,anchor:true}:null;
  entry.bus=bus;entry.journey=journey;entry.stamp=stamp;entry.next=null;
- entry.road=undefined;entry.roadAsked=false;
+ entry.road=undefined;entry.roadAsked=false;entry.street=null;entry.streetStamp=null;
  entry.history=historyWith(bus,entry.bridge);
 }
 
@@ -170,7 +174,7 @@ export function stepFleet(fleet:Fleet,now:number,options:FleetOptions):FleetStep
    inView+=1;
    const before=entry.vis;
    const e=observedAt(entry.history,now,FLEET_REASON);
-   const v=stepVisual(entry.vis,e,now,null,drawingFor(e,null),entry.history,entry.road??null);
+   const v=stepVisual(entry.vis,e,now,null,drawingFor(e,null),entry.history,entry.road??entry.street?.track??null);
    entry.vis=v;entry.e=e;
    lat=v.lat;lon=v.lon;bearing=v.bearing;
    if(v.velocity>FLEET_MOVING_MPS)moving+=1;

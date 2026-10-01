@@ -19,6 +19,8 @@ import {daylightAt} from '@/lib/daylight';
 import {fleetAtReports,reconcileFleet,stepFleet,type Fleet,type FleetStep} from '@/lib/fleet';
 import {metresPerPixel} from '@/lib/scale';
 import {sightline,type Footprint} from '@/lib/sightline';
+import {extendStreets,prepareStreets,type StreetBox,type StreetLine,type StreetRun} from '@/lib/streets';
+import {tilesCovering,tileStreets} from '@/lib/mvt';
 import type {DrawnFrame} from '@/lib/gods-eye';
 import {elapsedWords} from '@/lib/live';
 import {delaySeconds,historyOf,loadMotionModel,loadTrack,type MotionInfo,type MotionModel,type TrackResult, loadSharedTrack,withinSharedRoad,type SharedRoad} from '@/lib/motion-view';
@@ -201,8 +203,19 @@ const SELECTABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-sel-marker
 const HOVERABLE=['lm-bus-marker','lm-bus-label','lm-fleet-label','lm-fleet-model'];
 /** At most this many other buses get a 3D model at once, nearest the centre first. */
 const FLEET_MODEL_LIMIT=12;
-/** From this zoom the buses in view are drawn down their checked roads (their shapes are a few KB each). */
-const FLEET_ROAD_ZOOM=15;
+/** From this zoom the buses in view are drawn down their checked roads (their shapes are 5 KB at the mean). The same
+ *  zoom as street tracks: from 15, a bus with a checked road was drawn on straight lines at a stop's own zoom (14.2),
+ *  where a bus with none was drawn along the streets (1 October 2026). */
+const FLEET_ROAD_ZOOM=14;
+/** From this zoom a bus with no checked road is drawn along the map's streets between its reports (lib/streets.ts):
+ *  the map's tiles are then its most detailed (z14), with every minor and service road; below it they are not. */
+const STREET_ZOOM=14;
+/** Buses whose street track is brought up to date in one tick of the fleet: a few at a time, as roads are asked. */
+const STREETS_PER_TICK=3;
+/** The street tiles held in the one street graph before it may be started again (about 1.4 MB of graph a tile,
+ *  measured over 154 of Manchester's; 20 is a ride of several kilometres). Only when most have gone unasked for
+ *  half a minute: a large screen at the street zoom asks for more than 20 at once, and would start again for ever. */
+const STREET_TILES_MAX=20;
 /** From this zoom the fleet is drawn every frame; below it ten times a second is plenty (a bus at
  *  8 m/s moves under a pixel per tick at zoom 16). */
 const FLEET_EVERY_FRAME_ZOOM=17;
@@ -210,17 +223,20 @@ const FLEET_EVERY_FRAME_ZOOM=17;
  *  longer chosen: the same drawing carries on, so choosing a moving bus never moves it. Only a
  *  drawing from reports is handed either way; an estimate is the map's own. The draw key is the
  *  bus's key with its journey, as the frame loop keeps it. */
-function takeFromFleet(fleet:Fleet,drawKey:string):Visual|null{
+function takeFromFleet(fleet:Fleet,drawKey:string):{v:Visual|null;street:StreetRun|null}{
  const [operator,vehicle,route,direction,journeyRef]=drawKey.split('|');
  const entry=fleet.get(`${operator}|${vehicle}`);
- if(!entry||entry.journey!==`${route}|${direction}|${journeyRef}`||!entry.vis||entry.vis.mode!=='observed')return null;
+ if(!entry||entry.journey!==`${route}|${direction}|${journeyRef}`)return {v:null,street:null};
+ // Its street track goes with it: drawn along the same streets, choosing it moves nothing.
+ const street=entry.street;
+ if(!entry.vis||entry.vis.mode!=='observed')return {v:null,street};
  const v=entry.vis;entry.vis=null;entry.e=null;
- return v;
+ return {v,street};
 }
-function handToFleet(fleet:Fleet,drawKey:string,v:Visual){
+function handToFleet(fleet:Fleet,drawKey:string,v:Visual,street:StreetRun|null){
  const [operator,vehicle,route,direction,journeyRef]=drawKey.split('|');
  const entry=fleet.get(`${operator}|${vehicle}`);
- if(entry&&entry.journey===`${route}|${direction}|${journeyRef}`&&v.mode==='observed')entry.vis=v;
+ if(entry&&entry.journey===`${route}|${direction}|${journeyRef}`&&v.mode==='observed'){entry.vis=v;if(street)entry.street=street}
 }
 
 /** A marker drawn once to a canvas: a disc, with a nose when it has a direction. The nose is
@@ -589,7 +605,7 @@ function diagnostics(el:HTMLElement|null,e:Estimate|null,v:Visual|null,frames=0,
 }
 
 function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionParams,now:number,
-                    travelling=false,onRoad=false):MotionInfo{
+                    travelling=false,onRoad=false,onStreets=false):MotionInfo{
  const band=e.mode==='estimated'?uncertaintyAt(profile,e.reportAge):null;
  // A correction is mentioned while it is recent, not for as long as the bus stays selected.
  const last=v.lastCorrection&&now-v.lastCorrection.at<=30_000?v.lastCorrection:null;
@@ -604,6 +620,8 @@ function motionInfo(e:Estimate,v:Visual,profile:ErrorProfile|null,params:MotionP
   // A bus with a checked road that its reports have left for another street: drawn straight
   // between them, and said, never presented as driving its road.
   offRoad:e.mode==='observed'&&travelling&&onRoad&&v.buffer?.onRoad===false,
+  // No checked road, and drawn along the map's streets between its reports at this instant (lib/streets.ts).
+  onStreet:e.mode==='observed'&&travelling&&!onRoad&&onStreets&&v.buffer?.onRoad===true,
   // Measured from the moment the drawn place stands for, not the clock (they differ while the bus
   // trails its goal pulling away).
   displayDelaySeconds:e.mode==='observed'&&v.buffer?Math.round((now-(v.buffer.represented??v.buffer.shown))/1000):null,
@@ -725,6 +743,52 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  const busInside=useRef(false);
  const obstacles=useRef(new Map<string,{footprint:Footprint;seen:number;box:[number,number,number,number]}>());
  const sightKey=useRef<string|null>(null);
+ // The chosen bus's street track (lib/streets.ts), keyed by its drawing, and the stamp it was last extended at.
+ const street=useRef<{key:string|null;run:StreetRun|null;stamp:string|null}>({key:null,run:null,stamp:null});
+ // The streets for street tracks, read from the map's own z14 tiles (lib/mvt.ts), fetched round what is being joined
+ // and usually already in the browser's cache. Read from what the map had drawn instead, the ride at zoom 20 on a
+ // phone had 30 pieces of street round the screen and no track (the browser check at Charlestown). Every tile's
+ // streets go into one set, and one graph, grown as each tile arrives (lib/streets.ts, prepareStreets): so no frame
+ // builds a graph, and every bus is routed on the same one. A graph built afresh for each bus's set of tiles cost 32 ms
+ // at the median and up to 213 ms, several in one frame as a phone panned into a street zoom (the night's fleet, 30
+ // September 2026). A box with a tile still coming gives nothing yet, and the track is tried again on a later tick.
+ // Past STREET_TILES_MAX tiles, most of them no longer asked for, the set is started again; the tiles still wanted
+ // come back from the browser's cache.
+ const streetTiles=useRef({state:new Map<string,'loading'|'in'>(),asked:new Map<string,number>(),all:[] as StreetLine[],held:0,generation:0,
+  template:null as string|null,pending:false,lines:0});
+ const streetsIn=useRef((box:StreetBox):StreetLine[]=>{
+  const st=streetTiles.current,instance=map.current;
+  st.template??=((instance?.getSource('openmaptiles') as unknown as {tiles?:string[]}|undefined)?.tiles?.[0])??null;
+  if(!st.template){st.pending=true;return []}
+  let ready=true;
+  const now=Date.now();
+  for(const [x,y] of tilesCovering(box)){
+   const key=`${x}/${y}`,have=st.state.get(key);
+   st.asked.set(key,now);
+   if(have==='in')continue;
+   ready=false;
+   if(have==='loading')continue;
+   st.state.set(key,'loading');
+   const generation=st.generation,url=st.template.replace('{z}','14').replace('{x}',String(x)).replace('{y}',String(y));
+   fetch(url).then(r=>r.ok?r.arrayBuffer():Promise.reject(new Error(String(r.status))))
+    .then(buf=>({lines:tileStreets(buf,14,x,y),ok:true}),()=>({lines:[] as StreetLine[],ok:false}))
+    .then(({lines,ok})=>{
+     if(st.generation!==generation)return;
+     if(st.held>=STREET_TILES_MAX){
+      const recent=[...st.state.keys()].filter(k=>st.state.get(k)==='in'&&Date.now()-(st.asked.get(k)??0)<30_000).length;
+      if(recent<=STREET_TILES_MAX/2){st.generation+=1;st.state=new Map();st.asked=new Map();st.all=[];st.held=0;return}
+     }
+     for(const line of lines)st.all.push(line);
+     prepareStreets(st.all,Math.atan(Math.sinh(Math.PI*(1-2*(y+0.5)/16384)))*180/Math.PI);
+     st.state.set(key,'in');st.held+=1;
+     // A tile that could not be fetched is asked for again later rather than every tick.
+     if(!ok)setTimeout(()=>{if(st.generation===generation)st.state.delete(key)},60_000);
+    });
+  }
+  if(!ready){st.pending=true;return []}
+  st.lines=st.all.length;
+  return st.all;
+ });
  const occluded=useRef(false);
  const buildingsInside=useRef(false);
  const applyBuildingsOpacity=useRef<()=>void>(()=>{});
@@ -862,7 +926,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  // One tick of the fleet: every bus in view stepped along its reports, the rest at their newest
  // report; the flat markers, and from the model's zoom the nearest few as 3D buses in the muted
  // livery; the roads of the buses in view asked for from a street zoom; and the diagnostics a check
- // reads (data-fleet: total, in view, moving, animating, modelled; data-fleet-ms: the tick's cost).
+ // reads (data-fleet: total, in view, moving, animating, modelled; data-fleet-ms: the tick's cost, and -max its worst).
  const fleetDraw=useRef<(why:'tick'|'publication')=>void>(()=>{});
  useEffect(()=>{
   fleetDraw.current=(why)=>{
@@ -935,11 +999,37 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     loadTrack(id).then(result=>{if(entry.journey===journey)entry.road=result.track},()=>{if(entry.journey===journey)entry.road=null})
      .finally(()=>{fl.roadsInFlight-=1});
    }
+   // Buses in view with no checked road: the map's streets between their reports, a few at a time, each when its
+   // reports next change (lib/streets.ts).
+   // Diagnostic (data-fleet-streets): of the buses in view with no checked road, how many are drawn on a street track,
+   // how many have been tried at their newest report (the streets may not join theirs), and how many there are.
+   let streetsReady=0,streetsTried=0,streetsWanted=0;
+   if(zoom>=STREET_ZOOM){
+    let budget=STREETS_PER_TICK;
+    for(const entry of fleetRef.current.values()){
+     if(entry.road!==null)continue;
+     const at=entry.vis??entry.bus;
+     if(!inView(at.lat,at.lon))continue;
+     streetsWanted+=1;
+     if(entry.street)streetsReady+=1;
+     if(entry.streetStamp===entry.stamp){streetsTried+=1;continue}
+     if(budget<=0)continue;
+     const fixes=entry.history.fixes.filter(f=>!f.anchor);
+     streetTiles.current.pending=false;
+     if(fixes.length>1)entry.street=extendStreets(entry.street,fixes,streetsIn.current,entry.bus.key);
+     // Its streets still coming: tried again on a later tick.
+     if(!streetTiles.current.pending)entry.streetStamp=entry.stamp;
+     budget-=1;
+    }
+   }
    fl.ms.push(performance.now()-t0);
    if(fl.ms.length>20)fl.ms.splice(0,fl.ms.length-20);
    const sorted=[...fl.ms].sort((x,y)=>x-y);
    el.setAttribute('data-fleet',`${step.total},${step.inView},${step.moving},${animate?1:0},${step.modelled.length}`);
+   el.setAttribute('data-fleet-streets',`${streetsReady},${streetsTried},${streetsWanted}`);
    el.setAttribute('data-fleet-ms',sorted[Math.floor(sorted.length/2)].toFixed(1));
+   // And the longest of those ticks: a median hid a street graph built inside a tick (up to 0.45 s, 30 September 2026).
+   el.setAttribute('data-fleet-ms-max',sorted[sorted.length-1].toFixed(1));
    if(why==='publication'||t0-fl.lastPoints>=250){fl.lastPoints=t0;busPoints.current()}
   };
  },[]);
@@ -1699,8 +1789,8 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   if(!input.selected||!input.history){
    if(state.drawn){selectedSource?.setData(EMPTY);trailSource?.setData(EMPTY);modelSource?.setData(EMPTY);state.drawn=false}
    // A bus no longer chosen goes back to the fleet where it was drawn, so nothing hops.
-   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current);
-   visualRef.current=null;estimateRef.current=null;state.key=null;
+   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current,street.current.run);
+   visualRef.current=null;estimateRef.current=null;state.key=null;street.current={key:null,run:null,stamp:null};
    if(state.infoKey!=='none'){state.infoKey='none';input.onMotion?.(null)}
    diagnostics(root.current,null,null,state.frames,0,null);
    return;
@@ -1711,8 +1801,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   if(state.key!==drawKey){
    // A bus tapped on the map takes over the fleet's drawing of it, so choosing it does not move it;
    // the bus it replaces goes back to the fleet the same way.
-   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current);
-   state.key=drawKey;visualRef.current=takeFromFleet(fleetRef.current,drawKey);state.handoffIntoRide=false;
+   if(state.key&&visualRef.current)handToFleet(fleetRef.current,state.key,visualRef.current,street.current.run);
+   const taken=takeFromFleet(fleetRef.current,drawKey);
+   state.key=drawKey;visualRef.current=taken.v;state.handoffIntoRide=false;
+   street.current={key:drawKey,run:taken.street,stamp:null};
   }
   // One clock for everything drawn: the server's, as report ages use, and never stepped.
   state.clock=tickClock(state.clock,Date.now(),input.clockOffsetMs);
@@ -1745,8 +1837,23 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   // an *estimate* runs along, and only an estimate may have it. As `road` it is the road a bus
   // drawn at its reports *travels down* between two of them — movement, not prediction — which
   // needs nothing from the evaluation, only geometry checked against that pattern's own reports.
+  // A bus with no checked road is drawn along the map's streets between its reports (lib/streets.ts), its track
+  // kept and extended as reports arrive; never offered as a checked road (the front view, the road ahead and the
+  // arrival estimate read `input.track` alone).
+  let streetTrackNow:Track|null=null;
+  if(input.replay&&!input.track&&input.history&&input.history.fixes.length>1){
+   const st=street.current,fixes=input.history.fixes.filter(f=>!f.anchor),newest=fixes[fixes.length-1];
+   const stamp=newest?`${newest.at}:${fixes.length}`:null;
+   if(stamp&&st.stamp!==stamp&&fixes.length>1&&(map.current?.getZoom()??0)>=STREET_ZOOM){
+    streetTiles.current.pending=false;
+    st.run=extendStreets(st.run,fixes,streetsIn.current,drawKey);
+    // Its streets still coming: tried again on a later frame.
+    if(!streetTiles.current.pending)st.stamp=stamp;
+   }
+   streetTrackNow=st.run?.track??null;
+  }
   const v=stepVisual(visualRef.current,e,now,e.mode==='estimated'?input.track:null,drawingFor(e,input.profile),
-   input.replay?input.history:null,input.replay?input.track:null);
+   input.replay?input.history:null,input.replay?input.track??streetTrackNow:null);
   visualRef.current=v;estimateRef.current=e;
   if((v.bearing!==null)!==state.facing){state.facing=v.bearing!==null;setFacing(state.facing)}
   // A snap is a repositioning, and it is shown as one: a trace from where the bus was drawn to
@@ -1916,8 +2023,12 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   }
   const info=motionInfo(e,v,input.profile,input.params,now,
    Boolean(input.replay&&input.history&&input.history.fixes.length>1),
-   Boolean(input.replay&&input.track&&e.mode==='observed'));
-  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${info.offRoad}|${info.standing}|${delaySeconds(info.displayDelaySeconds)??''}`;
+   Boolean(input.replay&&input.track&&e.mode==='observed'),
+   Boolean(input.replay&&!input.track&&streetTrackNow&&e.mode==='observed'));
+  root.current?.setAttribute('data-street',streetTrackNow?`${street.current.run?.points.length??0}:${Math.round(streetTrackNow.length)}`:'none');
+  root.current?.setAttribute('data-street-lines',String(streetTiles.current.lines));
+  root.current?.setAttribute('data-street-on',streetTrackNow&&v.buffer?.onRoad?'yes':'no');
+  const key=`${info.mode}|${info.reason}|${info.capped}|${info.correction?.at??0}|${Math.floor(info.reportAge/5)}|${info.speedKmh}|${info.onRoad}|${info.offRoad}|${info.onStreet}|${info.standing}|${delaySeconds(info.displayDelaySeconds)??''}`;
   if(key!==state.infoKey){state.infoKey=key;input.onMotion?.(info)}
   // Frames only while something moves: a standing, paused or reported-only bus costs nothing.
   // A bus held at its last reports wakes the clock a few seconds before its hold ends, so that

@@ -822,8 +822,23 @@ function roadPlace(road: Track, fix: Fix, near: number | undefined): {s: number;
  return {...p, on: beyond <= ROAD_END_SLACK && p.offset <= (p.agrees ? BEARING_AGREED_METRES : DEFAULT_PARAMS.offTrack)};
 }
 
+/**
+ * What a path is built from: its reports and its road. Keyed by the reports alone, a road that came after them (a
+ * street track once the map's tiles were in, a checked road loaded a moment late) was not used until the next
+ * report, and a bus with a street track built was drawn on none of it for as long (30 September 2026, the browser
+ * check at Charlestown: 0 of 120 frames).
+ */
+function pathKeyOf(fixes: Fix[], road: Track | null): string {
+ return `${fixes.map(f => f.at).join(',')}|${road ? `${road.id}:${road.points.length}:${Math.round(road.length)}` : '-'}`;
+}
+
 export function buildPath(all: Fix[], road: Track | null): Path {
- const {kept: fixes, held} = supportedReports(all, road);
+ // A report off a checked road, while the reports either side lie on it, is held as a fault. Off a street track
+ // (lib/streets.ts: the map's streets between the reports of a bus with no checked road) it is more often the
+ // map's streets than the report, and holding it stood the bus at the track's end while its reports drove on,
+ // then moved it 30-200 m at once (39 more repositionings over an evening's fleet, 30 September 2026). There it
+ // is kept, and joined to the rest in a straight line as it was before the streets were used.
+ const {kept: fixes, held} = road && !road.id.startsWith('street:') ? supportedReports(all, road) : {kept: all, held: 0};
  const nodes: PathNode[] = [];
  let S = 0, prevS: number | undefined;
  for (let i = 0; i < fixes.length; i++) {
@@ -881,8 +896,9 @@ export function buildPath(all: Fix[], road: Track | null): Path {
   nodes.push({fix, S, onRoad, roadS, road: roadSeg, jump});
   if (onRoad) prevS = roadS;
  }
- // Keyed by every report it was built from, held ones included, so that the same reports reuse it.
- return {nodes, road, key: all.map(f => f.at).join(','), tangents: tangentsFor(nodes), held};
+ // Keyed by every report it was built from, held ones included, and the road it was built on, so that the same
+ // reports on the same road reuse it.
+ return {nodes, road, key: pathKeyOf(all, road), tangents: tangentsFor(nodes), held};
 }
 
 /**
@@ -1143,7 +1159,7 @@ function playback(previous: Visual | null, e: Estimate, fixes: Fix[], now: numbe
  // bus catches it up at its own pace — which is what a bus setting off after a stand looks like.
  const latestAt = fixes[fixes.length - 1].at + PACE.smoothMs;
  const prior = previous?.buffer ?? null;
- const path: Path = prior && prior.pathKey === fixes.map(f => f.at).join(',') && prior.path ? prior.path as Path : buildPath(fixes, road);
+ const path: Path = prior && prior.pathKey === pathKeyOf(fixes, road) && prior.path ? prior.path as Path : buildPath(fixes, road);
  const end = path.nodes[path.nodes.length - 1].S;
  // A report's age when it arrived: the lag the delay is sized from. Recorded when the newest
  // report changes, which is the moment it arrived here.

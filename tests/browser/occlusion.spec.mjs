@@ -10,7 +10,10 @@ import {movingLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs
 
 const map = page => page.locator('.vector-map').first();
 const B = {lat: 53.48731, lon: -2.24354};            // Victoria Station Approach; the camera behind it is in the station
-const INSIDE = {lat: 53.48755, lon: -2.24292};       // inside the station's 30 m footprint (the map's own tiles)
+// A one-way lane through Stockport Interchange, every point of it under the station's roof (the map's own tiles):
+// where a bus on its road is inside a building, and no tilt can show it.
+const STOCKPORT_LANE = [[53.408979, -2.162794], [53.408966, -2.162756], [53.408947, -2.162724], [53.408921, -2.162708],
+  [53.408864, -2.162724], [53.408652, -2.162949], [53.408585, -2.163057], [53.408288, -2.163706], [53.408205, -2.163904]];
 
 // A bus approaching `end` on `heading` at `speed`, a report every `every` s over `span` s, the newest 8 s old.
 function busLive(nowMs, {id, route, end, heading, speed, every = 10, span = 150}) {
@@ -33,7 +36,25 @@ function busLive(nowMs, {id, route, end, heading, speed, every = 10, span = 150}
   return base;
 }
 const victoria = nowMs => busLive(nowMs, {id: 'FX-X41', route: 'X41', end: B, heading: 237, speed: 1.0});
-const inStation = nowMs => busLive(nowMs, {id: 'FX-X41', route: 'X41', end: INSIDE, heading: 327, speed: 13 / 30, every: 30, span: 90});
+/** A bus crawling along the lane under the roof, a report every 10 s, the newest 8 s old at its far end. */
+function underRoof(nowMs) {
+  const base = movingLive({nowMs}), now = Math.floor(nowMs / 1000) * 1000, newest = now - 8000;
+  const legs = STOCKPORT_LANE.slice(1).map((p, i) => Math.hypot((p[0] - STOCKPORT_LANE[i][0]) * 111195, (p[1] - STOCKPORT_LANE[i][1]) * 111195 * Math.cos(53.4 * Math.PI / 180)));
+  const total = legs.reduce((a, b) => a + b, 0);
+  const along = m => { let k = 0; while (k < legs.length - 1 && m > legs[k]) { m -= legs[k]; k++; } const f = Math.min(1, m / legs[k]);
+    return [STOCKPORT_LANE[k][0] + (STOCKPORT_LANE[k + 1][0] - STOCKPORT_LANE[k][0]) * f, STOCKPORT_LANE[k][1] + (STOCKPORT_LANE[k + 1][1] - STOCKPORT_LANE[k][1]) * f]; };
+  const fixes = [];
+  for (let k = 0; k <= 7; k++) { const [lat, lon] = along(total * k / 7); fixes.push({t: newest - (7 - k) * 10_000, lat, lon}); }
+  const latest = fixes.at(-1);
+  base.vehicles.push({operator: 'LNUD', vehicle: 'FX-X41', route: 'X41', direction: 'inbound', journeyRef: 'FX-X41-J',
+    destination: 'Stockport_Interchange', origin: 'Shudehill_Interchange', observedAtMs: latest.t,
+    recordedAt: new Date(latest.t).toISOString().replace('.000Z', '+00:00'), lat: latest.lat, lon: latest.lon,
+    ageSeconds: 8, freshness: 'fresh', positionKind: 'observed', sourceHash: 'f'.repeat(64), bearing: 225,
+    bearingStatus: 'reported', aimedDeparture: null, retrievedAtMs: latest.t + 3000,
+    trail: fixes.slice(0, -1).map(f => [latest.t - f.t, f.lat, f.lon, 225, 0]),
+    match: {unresolved: 'no_pattern_for_route', explanation: 'FIXTURE: no timetable pattern is held for this route label.'}});
+  return base;
+}
 
 /** The share of a box along the chosen bus, from its ground point up the screen, in the bus's own colours: its lime
  *  body, or its pale roof, which is most of what a camera looking steeply down sees. Scored on saved frames: the bus
@@ -111,11 +132,11 @@ test('on the night map, and through a change of theme, the camera stays over the
   expect(shown, 'the bus\'s body is seen at night').toBeGreaterThan(0.2);
 });
 
-test('a bus inside a building\'s footprint, which no tilt can show, is seen through the faded buildings', async ({page}) => {
+test('a bus under a bus station\'s roof, which no tilt can show, is seen through the faded buildings', async ({page}) => {
   test.setTimeout(120_000);
   await servePatterns(page);
   const now = Date.now();
-  await serveLive(page, [() => inStation(now)]);
+  await serveLive(page, [() => underRoof(now)]);
   await ride(page, 'LNUD|FX-X41|X41|inbound', 'X41');
   await expect(map(page)).toHaveAttribute('data-bus-inside-building', 'yes', {timeout: 20_000});
   await expect(map(page)).toHaveAttribute('data-buildings-opacity', '0.3', {timeout: 10_000});
@@ -123,7 +144,8 @@ test('a bus inside a building\'s footprint, which no tilt can show, is seen thro
   await expect.poll(() => pitchOf(page), {timeout: 10_000, message: 'the framing is kept'}).toBeGreaterThan(55);
   await page.waitForTimeout(600);                    // the fade's own transition
   const shown = await bodyShare(page);
-  console.log(`inside the station: pitch ${(await pitchOf(page)).toFixed(1)}, bus colours ${(shown * 100).toFixed(0)}% of its box`);
+  console.log(`under Stockport Interchange's roof: pitch ${(await pitchOf(page)).toFixed(1)}, bus colours ${(shown * 100).toFixed(0)}% of its box, `
+    + `street ${await map(page).getAttribute('data-street')}`);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-inside.png`)});
   expect(shown, 'the bus\'s body shows through the faded roof').toBeGreaterThan(0.2);
 });

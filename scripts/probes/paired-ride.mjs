@@ -3,7 +3,8 @@
  * fed the served site's own data (service worker blocked there, so the data is forwarded). Every second: what the
  * card says about the bus's reporting, the publication the page last received and the bus's report time in it,
  * the camera, and the sight-line diagnostics (the pitch the buildings ask for, whether the bus is inside one,
- * whether the buildings are faded). A frame every 15 s. Run two at once on the same bus to compare builds.
+ * whether the buildings are faded), and where the bus is drawn and whether on its street track (data-street-on, a
+ * bus with no checked road, backlog 49). A frame every 15 s. Run two at once on the same bus to compare builds.
  * Written for the owner's report of 30 September 2026 (backlog 45 and 47). REAL data; Chromium, emulation.
  *
  *   node scripts/probes/paired-ride.mjs "BNGN|2335|V1|outbound" V1 150 served-v1 night
@@ -52,6 +53,8 @@ for (let s = 0; s < Number(seconds); s++) {
     opacity: await m.getAttribute('data-buildings-opacity'), camera: await m.getAttribute('data-camera'),
     cap: await m.getAttribute('data-ride-pitch-cap'), hidden: await m.getAttribute('data-bus-hidden'),
     inside: await m.getAttribute('data-bus-inside-building'), sightMs: await m.getAttribute('data-sight-ms'),
+    street: await m.getAttribute('data-street'), streetOn: await m.getAttribute('data-street-on'),
+    display: await m.getAttribute('data-display'), frameMs: await m.getAttribute('data-frame-ms'),
     lastFetch: fetches.at(-1)?.at?.slice(11, 19) ?? null, busObservedAt: fetches.at(-1)?.busObservedAt?.slice(11, 19) ?? null});
   if (s % 15 === 0) await page.screenshot({path: `${out}/t${String(s).padStart(3, '0')}.png`});
   await page.waitForTimeout(1000 - ((Date.now() - t0) % 1000));
@@ -63,6 +66,7 @@ const q = f => pitches.length ? [...pitches].sort((a, b) => a - b)[Math.floor(f 
 const ms = samples.map(x => Number(x.sightMs)).filter(Number.isFinite).sort((a, b) => a - b);
 console.log(JSON.stringify({key, seconds: samples.length, fetches: fetches.length, occludedSeconds: occl, quietSeconds: quiet,
   hiddenSeconds: samples.filter(x => x.hidden === 'yes').length, insideSeconds: samples.filter(x => x.inside === 'yes').length,
+  onStreetTrackSeconds: samples.filter(x => x.streetOn === 'yes').length,
   pitch: {min: q(0), p10: q(0.1), median: q(0.5), atFraming: pitches.filter(p => p > 59).length, below45: pitches.filter(p => p < 45).length, n: pitches.length},
   sightMs: {median: ms[Math.floor(ms.length / 2)] ?? null, max: ms.at(-1) ?? null},
   opacities: [...new Set(samples.map(x => x.opacity))], firstQuiet: samples.find(x => x.quiet) ?? null}));

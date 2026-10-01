@@ -865,7 +865,7 @@ served site: on two live rides the warning stood for 60 and 83 of 120 s, from th
 **Not changed:** the other judgements from the same clock use the 150 s "stale" band, which the delay moves far
 less (an old report, a faded marker, stop activity).
 
-## 48. A publication takes 23–25 s to build, so every position a passenger sees is that much older — open
+## 48. A publication takes 23–25 s to build, and it has doubled every position's age in a week — open, the most important
 
 **Measured on the server, 30 September 2026.** `build_live` (`pipeline/live.py`) takes its stamp as it starts; the
 file is written 23–25 s later, in a cycle of about 30 s. The page ages every report correctly against the
@@ -876,6 +876,127 @@ server's clock, so nothing is misstated, but each position reaches a phone about
   approve.
 - A reduction of most of the 23 s would make the ride's "as it was about 30 s ago" nearer the reports' own
   lag.
+
+**Measured again the same evening, and it is worse than a delay.** Two recordings of what a phone receives:
+
+| recording | report's age when it reaches the page (median) | publication after its stamp (median) | repositionings in the drawing | buses drawn over 75 s behind |
+|---|---|---|---|---|
+| 22 September, evening (334 buses, 63 publications) | 24 s | 10 s | 42 | 0 |
+| 30 September, night (302 buses, 31 publications) | **44 s** | **30 s** | **305** (216 of them "late") | **43** |
+
+In eight days the publication has become about 20 s slower, while the warehouse passed 10.3 million observations.
+Reports now reach a phone so late that the drawing cannot keep them at a bus's pace and repositions them, and the
+false "gone quiet" of backlog 47 came from the same cause. Where the time goes is still not measured:
+- the cheapest way to find out is a timing of each step of `build_live` in the collector's own log, which means
+  restarting the collector (a pause of a few seconds) for the owner to approve;
+- the alternative is a copy of the 1.15 GB warehouse here.
+
+## 49. A bus with no checked road drawn over the houses beside its road — fixed 1 October 2026
+
+**From the owner's phone, on the served site (`a549583`).** A Diamond 74 at Charlestown, Salford, on the night map:
+"Another that seems to be flying and not on the road lol", then "Check that all busses don't do this".
+
+**It was the drawing, not the data.**
+- The 74 (BNDB YY73OYB, no timetable held for Diamond, so no checked road) reported every 20–40 s.
+- Its reports from the server's raw captures (20:50:23–20:54:32 UTC) lay 0.3–3.4 m from Langley Road, Auckland
+  Drive and Langley Road South.
+- The drawing joins a bus with no checked road to its reports with straight lines, which cut every bend: the
+  line between 20:53:32 and 20:54:02, the minute of the screenshot, ran up to **37 m** off every street.
+- In the ride that put the bus inside blocks, and the buildings faded round it, so it looked like flying.
+
+**All buses, measured** (`scripts/evaluate-fleet-playback.mjs --osm [--streets]`): every bus in a recording is drawn
+as the page draws it, and each drawn frame (every 500 ms) and each report is measured against the map's own
+drivable streets and buildings (`scripts/osm-streets.mjs`, the OpenFreeMap tiles the page draws).
+
+| buses with no checked road | 22 Sept evening (216 buses): straight lines | streets | 30 Sept night (186): straight lines | streets |
+|---|---|---|---|---|
+| drawn more than 10 m from any road | 10.0% of frames | **0.82%** | 9.1% | **1.4%** |
+| more than 20 m | 1.27% | **0.11%** | 1.41% | **0.14%** |
+| inside a building | 6.9% | **2.6%** | 4.4% | **1.1%** |
+| buses ever more than 20 m off | 136 | **33** | 103 | **26** |
+| their own reports more than 10 m off a road | 4.6% | | 3.8% | |
+
+The streets column is the page as released: the same tiles, cut at their edges, in one set grown a tile at a time
+(below). The first version read the streets round each box (0.84%, 0.11%, 2.6%; 1.5%, 0.17%, 1.2%).
+
+Buses with a checked road were already on it (0.85% and 0.14% of frames more than 10 m off), and are unchanged.
+What stays "inside a building" is buses on the road under a bus station's roof: Stockport Interchange and the
+Trafford Centre, whose roofs are mapped as buildings over the bus lanes.
+
+**Fixed: a street track** (`lib/streets.ts`). A bus with no checked road is drawn along the map's streets between its
+reports, which the drawing takes as it takes a checked road (`lib/motion.ts`). It is never a checked road, and is
+never said to be one:
+- the front view, the road ahead and the arrival estimate read the checked road alone;
+- the card's explanation says the streets are the nearest to both reports, the way a bus could have gone in the
+  time, "not a road checked against this service's own reports";
+- a report off it is never held as a fault, as one off a checked road is.
+
+**The rules, each forced by a fault the fleet check found on the way:**
+- *One-way streets.* Driven only their way, and each report snapped to the carriageway running the bus's way. Of a
+  dual carriageway's two lines 10 m apart the nearer was often the other way's, and the way between them turned
+  the bus round.
+- *No turning back.* A way turning back by more than 150° within 30 m, even round two right angles, is refused.
+- *Scatter.* A standing bus's scatter back along the track is the same place; a creep forward extends it. Collapsed
+  to the track's end, a standing bus was dated by its first report there ("as it was about 93 s ago" of a 23 s old
+  report).
+- *Junctions.* Hooks and kinks at a junction's clutter are cut, and each bend is rounded to a 10 m radius, so the
+  body lies along the way it goes.
+- *Kept and extended per bus, never rebuilt under it.* Rebuilt from each publication, the track changed shape under
+  the bus: 44 of 334 buses faced more than 30° off their movement for over 1.5 s, and repositionings doubled. It now
+  only grows at its newest end, starts again only after 90 s past its end, and is not cut within a ride.
+- *Evidence kept.* A report the streets do not join is passed over, and a later way must pass within 25 m of it: a 52's
+  track took a 526 m way round a block, and the bus was moved 40 m across it.
+- *A map with gaps.* The map's tiles cut every road at their edge, and their simplification can drop the point where
+  a side road meets another: loose ends within 2 m are joined, and "not joined at all" fell from 7.0% to 0.7% of
+  consecutive reports (`scripts/street-joins.mjs`; 95% of all consecutive pairs are joined).
+- *Its own streets.* The page reads the map's own z14 tiles round what it joins (`lib/mvt.ts`, a small reader held
+  to the standard decoder on a real tile). Read from what the map had drawn, the ride at zoom 20 on a phone had 30
+  pieces of street round the screen and no track.
+- *No graph built in a frame.* The first version built a street graph for each set of tiles a bus's surroundings
+  covered, inside the fleet's tick, three buses a tick. Timed on the night's fleet exactly as the page fed it (the
+  real tiles, 3,256 extensions): 248 graphs over 105 tiles, 32 ms at the median and up to 213 ms each, and ticks of up
+  to **447 ms** as a phone panned into the street zoom. The fleet's own diagnostic, a median of 20 ticks, hid it. Now
+  the page holds one set of streets and one graph, grown as each tile arrives (`prepareStreets`), and a tick only
+  routes: 0.07 ms an extension at the median, 0.8 ms at the 99th percentile. A tile's streets cost 10–14 ms at the
+  median and at most 47 ms here, once, in the tile's own arrival and never in a frame; a phone is slower. The graph
+  is about 1.4 MB a tile, started again past 20 tiles once most are no longer asked for (a large screen at the
+  street zoom asks for more than 20 at once). `data-fleet-ms-max` now carries the worst recent tick.
+- *Cut at the tiles' edges.* Each tile carries a road a little past its edge, simplified its own way, so the two
+  copies of a road crossing an edge overlapped without meeting, and whether they were joined depended on which tile
+  was read first: every difference between one set per bus and one set for all was at a tile's edge or corner, and
+  the two orders joined 2,228 and 2,244 of the night's reports. Cut at the edge, the copies end together (2,393 of
+  2,398 ends within 1.5 m across 141 pairs of tiles), both orders give the same tracks to 0.08 m, and 2,263 of the
+  night's reports are joined, with 296 not joined in the time, against 2,228 and 335 at first.
+- *A path keyed by its road too.* Keyed by its reports alone, a road that came after them was not used until the
+  next report: at Charlestown the page had built the track and drew the bus on it in 0 of 120 frames.
+
+- *Every bus at a stop's own zoom.* Street tracks began at zoom 14, but the fleet settled a bus's road only from 15,
+  and a bus with no road settled was given no street track: at a stop's own zoom (14.2–15, where a stop opens on a
+  phone) the whole fleet with no checked road was still drawn on straight lines, and buses with a checked road were
+  too. Both now start at 14 (`FLEET_ROAD_ZOOM`). Found by the fleet check below, which the fixture's fleet failed
+  once it was given streets at that zoom: a road arriving under a bus already drawn is a correction, eased at the
+  drawing's 100 ms a metre, so the move onto its street (22–24 m for two fixture buses on a bend) is quick and
+  smooth, once, as the street tiles come in; the pace check now judges the fleet after it.
+
+**Verified.**
+- `tests/streets.test.mjs` (11), `tests/mvt.test.mjs` (3) and `tests/motion-words.test.mjs` (1 more).
+- `tests/browser/fleet.spec.mjs`, new: the fixture's fleet (no pattern, reports along a real road) at a stop's own
+  zoom, 14.4 on the phone profile and 15.6 on the desktop. Every bus drawn within 2.5 m of its road once settled,
+  where on straight lines two were 28 m and 31 m off it (the same reports through `lib/motion.ts` in Node); nothing
+  faster than 60 m/s while settling (no jump to a newest report). The pace check: 11 m/s at most after it.
+- `tests/browser/streets.spec.mjs`: the owner's 74 from its real reports, on the real streets
+  (`tests/browser/recorded/charlestown-74.json`). On its street track in 120 of 120 frames on both profiles, at most
+  1.6–1.7 m from the streets, where the straight lines were up to 37 m off them.
+- **What it costs, measured:**
+  - buses facing more than 30° off their movement for over 1.5 s: 9 of 334 and 5 of 302 (1 and 1 on straight
+    lines). All are at bus stations (Stockport, Shudehill, the Trafford Centre, where buses reverse out of stands)
+    or turning loops, which a straight line crosses flat.
+  - On the night recording, whose reports arrive 44 s old (backlog 48), 56 buses were drawn over 75 s behind at
+    some moment, against 43. Most are marginal (75–78 s), the street a little longer than the line at the same
+    pace.
+  - A standing bus can be dated earlier for a few seconds when a publication's reports straddle the start of its
+    street track (an X43: "133 s" for 4 s); it does not move.
+- Repositionings fell: 42 to 35, and 305 to 259.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

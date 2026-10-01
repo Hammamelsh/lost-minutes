@@ -71,6 +71,11 @@ On mobile data, in daylight, on the served site. One minute each; write what was
       (a covered bus station). No "gone quiet" line on a bus that is reporting. Note the street: ____.
       *unchecked; emulated at Victoria Station Approach on both themes, and on live V1s in the centre*
 
+- [ ] A bus with no checked road (added 30 September 2026, after the 74 at Charlestown "flying"): ride a Diamond bus
+      (a 74, a 66, a 79) or any whose Front view says "this bus is not placed". It stays on the street through bends
+      and junctions, never over the houses; at a bus station it may turn and reverse as the buses do. Note the
+      route and street: ____. *unchecked; emulated with the 74's own reports on the real streets*
+
 ## Movement, watched for two full minutes on one bus
 
 - [ ] A bus with **Estimated movement**: it moves continuously between reports and a new report

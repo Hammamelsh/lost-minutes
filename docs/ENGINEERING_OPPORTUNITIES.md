@@ -2381,3 +2381,63 @@ per-second state, which fixture checks cannot give; no visual interface is neede
 
 **Next cheap step.** Run it on two or three live buses in the centre before any deploy that touches the ride or the
 card. Status: `mitigated`.
+
+## 76. The publication's own build time is recorded nowhere, and it doubled in a week unseen
+
+**Problem and evidence.** On 30 September 2026 two recordings of what a phone receives showed reports reaching the
+page at a median 44 s old, against 24 s on 22 September, and each publication landing 30 s after its stamp, against
+10 s (backlog 48). The drawing repositioned buses 305 times in 15 minutes against 42 in 20 (216 of them because the
+reports came late), and the card called healthy buses "gone quiet" (backlog 47). Operations shows the feed's
+freshness and each cycle's outcome, but not how long `build_live` took, so nothing said the pipeline had slowed.
+
+**Who hits it, workaround.** Every passenger (older positions, more jumps); the owner, from their phone. The
+workaround was timing the file on the server by hand and reading two recordings.
+
+**Recurrence and effort.** Unknown before this week; about an hour to find the second time. Likely to recur as the
+warehouse grows (10.3 million observations).
+
+**Small fix, script, tool or product.** A small fix: the collector records each publication's build time, by step,
+beside the cycle's outcome, and Operations shows it with a threshold. The reusable capability is a stage timing kept
+with every run of a pipeline, not a new tool.
+
+**Next cheap step.** Time each step of `build_live` in the collector's log (a collector restart, for the owner to
+approve). Status: `observed`.
+
+## 77. What a page draws, measured against the map it draws on
+
+**Problem and evidence.** A bus with no checked road was drawn up to 61 m from any street, inside buildings 6.9% of
+the time, and the owner found it by riding (backlog 49). No check measured drawn positions against the streets; the
+fixture checks run on a few hand-made roads.
+
+**Who hits it, workaround.** Anyone changing the drawing; the workaround was the owner's eyes.
+
+**Recurrence and effort.** Three reports from the owner's phone in two days were about where a bus is drawn (45, 47,
+49). The measurement takes about two minutes on a recording.
+
+**Small fix, script, tool or product.** A script, now kept: `scripts/osm-streets.mjs` reads the map's own tiles, and
+`scripts/evaluate-fleet-playback.mjs --osm` measures every drawn frame of every bus in a recording against its drivable
+streets and buildings, with the bus's own reports as the baseline; `scripts/street-joins.mjs` measures how often the
+streets join two reports. The capability (drawn positions against map geometry, by bus and by place) would suit any
+map-matched display; a visual interface is not needed beyond the places it lists.
+
+**Next cheap step.** Run it with `--streets` on a fresh recording before any change to the drawing. Status: `mitigated`.
+
+## 78. A per-frame cost summarised by its median
+
+**Problem and evidence.** The fleet's tick cost is published as `data-fleet-ms`, the median of the last 20 ticks. The
+first street-track build ran a street graph inside some ticks, 32 ms at the median and up to 213 ms each, three in
+one tick at most (447 ms, timed on the night's fleet as the page fed it, backlog 49). No check saw it: every browser
+check read the median, and the fixtures hold a handful of buses in one or two tiles.
+
+**Who hits it, workaround.** Anyone adding work to the frame loop that runs only sometimes (a publication, a new
+tile). The workaround was timing the work by hand outside the page.
+
+**Recurrence and effort.** Once found here; the median figure has been quoted in every release since 25 September.
+Unknown elsewhere.
+
+**Small fix, script, tool or product.** A small fix, made: `data-fleet-ms-max` carries the worst of the same 20 ticks,
+and `scripts/`-style timing of the loop's occasional work on a whole recording (as the page feeds it) is what found it.
+The general capability (tail latency of a render loop's occasional work, on real inputs) is what browser profilers'
+long-task reports give; nothing new is needed.
+
+**Next cheap step.** Read `data-fleet-ms-max` in the served-site checks at street zooms. Status: `mitigated`.

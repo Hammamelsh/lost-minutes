@@ -491,9 +491,11 @@ side) are stepped each tick — ten times a second at map zooms, every frame fro
 stand at their newest report and start afresh when they come into view. A bus tapped on the map hands
 its `Visual` to the chosen bus's drawing and takes it back when it is no longer chosen, so choosing a
 moving bus does not move it (measured 2–6 m between the fleet's last drawn place and the chosen
-drawing's first, the bus's own movement in the moment between). From zoom 15 the checked roads of the
-buses in view are loaded, a few at a time, and a bus is drawn down its road once its reports next
-change (the path is rebuilt only then); from zoom 18 the nearest twelve with a heading are drawn as
+drawing's first, the bus's own movement in the moment between). From zoom 14 (15 until 1 October 2026) the
+checked roads of the buses in view are loaded, a few at a time, and a bus is drawn down its road from then on
+(a path is keyed by its road as well as its reports since 30 September; before, only once its reports next
+changed); a bus with no checked road is drawn along the map's streets between its reports from the same zoom
+(`lib/streets.ts`, backlog 49); from zoom 18 the nearest twelve with a heading are drawn as
 3D models in a muted livery (`FLEET_LIVERY`). Under reduced motion every bus stands at its newest
 report. The estimate is still drawn for the chosen bus alone, on the map, where the evaluation allows
 it. Nothing of the fleet's drawing is stored or published. Measured: 200 synthetic buses stepped in

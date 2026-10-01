@@ -4,7 +4,7 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
+Last updated: 1 October 2026, night (every bus with no checked road drawn along the map's streets between its reports, not on straight lines over the houses, measured across two whole fleets against the map; checked roads and streets from the zoom a stop opens at; no street graph built in a frame; from the owner's phone: `8dd1a8c`, `4d91c79`). Before that, 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
 withdrawn everywhere it stood as current; every road stop named by an explicit, versioned stop mapping; the
 arrival evaluation frozen on the moments a page would show it, both directions failing on the revision days;
 the rebuild's memory peak cut from 1.11 GB to 654 MB and shown as the resident figure; the evaluation scored a
@@ -27,6 +27,32 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **1 October, night — every bus on its street, not over the houses** (`docs/RELEASE.md`, top; backlog 49).
+  - **From the owner's phone:** a Diamond 74 at Charlestown "flying and not on the road"; then "Check that all busses
+    don't do this". Its reports lay within 3.4 m of its road; the straight line between two of them cut the bend by
+    37 m. Any bus with no checked road (no timetable held, an unsettled branch, a road not built) was drawn so.
+  - **All buses, measured against the map** (`scripts/evaluate-fleet-playback.mjs --osm --streets`): of frames of buses
+    with no checked road, more than 10 m from any road 10.0% → 0.82% (22 Sept evening, 216 buses) and 9.1% → 1.4%
+    (30 Sept night, 186); inside a building 6.9% → 2.6% and 4.4% → 1.1%, what is left under bus stations' roofs.
+  - **Now:** a street track (`lib/streets.ts`) along the map's own drivable streets between reports, one-way streets
+    only their way, never turning back, at a pace a bus could drive, kept and only extended; never called a checked
+    road (the front view, the road ahead and the arrival estimate still need one). Read from the map's z14 tiles
+    (`lib/mvt.ts`), cut at their edges, in one graph grown as each tile arrives.
+  - **Found on the way:** a street graph built inside the frame loop (up to 0.45 s, hidden by a median diagnostic;
+    `data-fleet-ms-max` now); tiles' overlapping edges joined by read order; and checked roads loaded only from zoom
+    15, so at a stop's own zoom on a phone every bus was still on straight lines. All fixed.
+  - **Costs:** a bus already drawn when its streets arrive is eased onto them once; 9 and 5 buses face over 30° off
+    their movement for 1.5 s, at bus stations and turning loops (1 before); repositionings fell, 42 → 35, 305 → 259.
+  - **Open, the most important (backlog 48):** positions reach a phone about twice as old as on 22 September (44 s
+    against 24 s at the median); tracing it needs a collector restart or the warehouse copy, the owner's to approve.
+  - **Verified:**
+    - Node 346, Python 187; the full gate 474 passed, 50 skipped, none failed (1.4 h);
+    - served byte-identical, the code the gated build's but for its stamp, the preview locked, the collector
+      untouched; the street, fleet and station checks 28 passed on the served site;
+    - live on the served site at night: a 43 with no checked road ridden 150 s over 756 m, a median 0.4 m from the
+      road, never inside a building.
+    - **Deployed as `4d91c79`** (`a549583` kept for rollback). Emulation only.
 
 - **30 September, evening — the ride keeps its city; no false "gone quiet"** (`docs/RELEASE.md`, top; backlog
   45, 47, 48).

@@ -4,12 +4,77 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`a549583`**, deployed 30 September 2026, evening (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`4d91c79`**, deployed 1 October 2026, night (the release sections below); the running site carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 1 October, night: every bus drawn on its street, not over the houses
+
+**Deployed: `4d91c79`**, with `a549583` kept for `deploy/rollback.sh`. From the owner's phone on the served site: a
+Diamond 74 at Charlestown on the night map, "Another that seems to be flying and not on the road", then "Check that
+all busses don't do this". The account is backlog 49.
+
+- **It was the drawing.** The 74 has no timetable here, so no checked road, and a bus with none was drawn on straight
+  lines between its reports. Every report lay within 3.4 m of its road; the line between two of them cut the bend by
+  37 m, over the houses.
+- **All buses, measured against the map they are drawn on** (`scripts/evaluate-fleet-playback.mjs --osm --streets`,
+  every bus in two recordings, every drawn frame against the map's own streets and buildings):
+
+  | buses with no checked road | 22 Sept evening (216): before | now | 30 Sept night (186): before | now |
+  |---|---|---|---|---|
+  | drawn more than 10 m from any road | 10.0% of frames | **0.82%** | 9.1% | **1.4%** |
+  | more than 20 m | 1.27% | **0.11%** | 1.41% | **0.14%** |
+  | inside a building | 6.9% | **2.6%** | 4.4% | **1.1%** |
+
+  Buses with a checked road were already on it, and are unchanged. What is left inside a building is buses on the
+  road under a bus station's roof (Stockport Interchange, the Trafford Centre), which the map draws as a building.
+- **Now:** a bus with no checked road is drawn along the map's streets between its reports (`lib/streets.ts`): one-way
+  streets only their way, never a way that turns back on itself, a way a bus could have driven in the time, kept and
+  only ever extended at its newest end. It is never called a checked road: the front view, the road ahead and the
+  arrival estimate still need one, and the card says the streets are the nearest to both reports.
+- **And at the zoom a stop opens at.** Checked roads were loaded for the buses in view only from zoom 15, and street
+  tracks needed that settled: at a stop's own zoom on a phone (14.2–15) every bus was still on straight lines. Both
+  now start at 14.
+- **Found and fixed on the way:** the first version built a street graph inside the map's frame loop, up to 0.45 s in
+  one frame as a phone panned into a street zoom; the page now holds one graph, grown as each tile arrives, and the
+  frame loop only routes (0.07 ms at the median). A median figure had hidden it; `data-fleet-ms-max` now shows the worst.
+  And the map's tiles each carry a road past their edge, so whether two copies were joined depended on which tile
+  was read first; cut at the edge they meet (2,393 of 2,398).
+- **What it costs:** a bus already drawn when its streets arrive is eased onto them, once, at the drawing's usual
+  10 m/s; 9 and 5 buses of 334 and 302 face more than 30° off their movement for over 1.5 s, at bus stations and
+  turning loops, against 1 on straight lines; on the night recording 56 buses were drawn over 75 s behind at some
+  moment against 43, most by 75–78 s. Repositionings fell, 42 to 35 and 305 to 259.
+- **Not changed, and the larger problem (backlog 48):** the report on the owner's screenshot was 49 s old. Every
+  position now reaches a phone about twice as old as on 22 September (a median 44 s against 24 s): each publication
+  reaches the page about 30 s after its own stamp, against 10 s then. Where that time goes is not measured; tracing
+  it needs either a collector restart to time each step (a pause of a few seconds), or a copy of the 1.15 GB
+  warehouse here, and both are the owner's to approve.
+
+**Verified.**
+- Node 346 (street tracks 11, the tile reader 3, the wording 1), Python 187, lint with no errors.
+- The full browser gate on the final build: **474 passed, 50 skipped by design, none failed (1.4 h)**. The gate on
+  the first version failed only the station check, whose fixture bus the street track now drew on its street; it was
+  moved under Stockport Interchange's roof. A focused run on the second version failed the fleet's pace check at a
+  stop's zoom, which is how the zoom band was found.
+- Served:
+  - the index and every script and stylesheet it names byte-identical to the deployed build (10 of 10);
+  - that build is the gated one but for its stamp: all 3,703 files equal once the build ID, the stamped chunk's name
+    and the stamp are swapped;
+  - `/preview/` returns 401;
+  - the collector's PID 331046 is unchanged;
+  - `RELEASE` reads `4d91c79`.
+- The street, fleet and station checks against the served site: 28 passed, 2 skipped by design. The 74 on its street
+  track in 120 of 120 frames, at most 1.7 m from the streets; the fixture's fleet within 2.3 m of its road at a
+  stop's zoom (14.4 and 15.6).
+- Live on the served site, at night (14 buses publishing):
+  - a 43 on an unsettled branch, so with no checked road, ridden 150 s over 756 m: on its street track throughout,
+    drawn a median 0.4 m from the road and at most 2.4 m, never inside a building, no "gone quiet", the camera at 60°;
+  - Piccadilly Gardens at zoom 15.4 with the map dragged into new tiles: the fleet's worst tick 4.1 ms, no long task.
+    Ten buses at night says little about cost; the evening fleet is the real test.
+- Emulation only; the owner's phone is the check that matters.
 
 ## 30 September, evening: the ride keeps its city, and no bus falsely "gone quiet"
 

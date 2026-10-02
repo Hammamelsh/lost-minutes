@@ -865,7 +865,7 @@ served site: on two live rides the warning stood for 60 and 83 of 120 s, from th
 **Not changed:** the other judgements from the same clock use the 150 s "stale" band, which the delay moves far
 less (an old report, a faded marker, stop activity).
 
-## 48. A publication takes 23–25 s to build, and it has doubled every position's age in a week — open, the most important
+## 48. A publication takes 23–25 s to build, and it has doubled every position's age in a week — fixed 2 October 2026 (our publication); the browser's poll and the database load measured and left
 
 **Measured on the server, 30 September 2026.** `build_live` (`pipeline/live.py`) takes its stamp as it starts; the
 file is written 23–25 s later, in a cycle of about 30 s. The page ages every report correctly against the
@@ -890,6 +890,89 @@ false "gone quiet" of backlog 47 came from the same cause. Where the time goes i
 - the cheapest way to find out is a timing of each step of `build_live` in the collector's own log, which means
   restarting the collector (a pause of a few seconds) for the owner to approve;
 - the alternative is a copy of the 1.15 GB warehouse here.
+
+**Measured and fixed, 2 October 2026** (the owner approved a planned collector restart to time each stage).
+- **How it was measured.** The collector writes one more line a cycle to its own journal, nothing stored or published
+  (`pipeline/collect.py`, `pipeline/live.py`): each stage's wall time; the feed's own `ResponseTimestamp`; how old
+  every report the payload brings for the first time already was when it reached us, counted by second; and when the
+  file a phone reads was written. `scripts/stage-timings.py` summarises any window of it, pooled over reports. The
+  browser's side is `scripts/probes/delivery.mjs`: one phone on the served site, a bus chosen as a passenger
+  chooses one, each live.json received and the chosen bus's drawing read once a second; `scripts/delivery-summary.py`
+  joins its receipts to the collector's write times. Clocks: the server's is 769 ms ahead of this machine's
+  (±29 ms, over one held ssh connection), corrected.
+- **Before** (REAL feed, 17:54–18:32 UTC, 72 cycles, 26,832 new reports; the feed carried 636–658 buses in the
+  area a payload, as by day; today's daytime cycles, 09:00–17:00 UTC, ran 34.6 s at the median, 824 of them, the
+  same as this window's 32.6 s):
+
+  | where a report's age goes | median | p95 |
+  |---|---|---|
+  | upstream: its age when the feed answered | 11.2 s | 18.4 s |
+  | the feed's answer to our receipt | 0.14 s | 0.29 s |
+  | **ours: receipt to the file written** | **32.0 s** | **35.3 s** |
+  | — of which the freshness measurements | 20.0 s | 22.2 s |
+  | — of which the latest report per bus | 7.5 s | 8.5 s |
+  | — of which the database load | 3.4 s | 4.2 s |
+  | — of which the matching | 0.4 s | 0.6 s |
+  | its age when the file was written | 43.0 s | 51.1 s |
+  | the browser: the file written to the page's first receipt (38 publications) | 10.2 s | 18.4 s |
+  | **its age on reaching the page** (13,386 reports) | **51.9 s** | **63.8 s** |
+
+  **Most of the delay was ours, not upstream's.** Two statements read the whole history at every publication:
+  `freshness.measure` took percentiles over every observation ever collected (12.8 million) for figures no screen
+  shows, and the latest report per bus was ranked over the same. On a server whose database is held to 1 GB they
+  were read from disk each time (the cgroup crossed its soft memory limit 45,823 times in 22 minutes); locally,
+  over 1.4 million rows, the same statements took 0.6 and 0.2 s. A cycle took 32 s against a 20 s interval, so the
+  feed was read every 33 s, not every 20.
+- **The fix** (`1155e2f`): each statement reads its own window. The latest reports come from those received in the
+  last 24 hours: a published report is at most 15 minutes old, so the buses published are exactly those of the
+  whole history (a test holds them equal); what the window bounds is the count of expired positions withheld, now
+  among those received in the last day, and the file's note says so. The freshness measurements cover the last
+  hour, and each says its window ("the last 60 minutes: 112 responses, 17:35 to 18:35 UTC"). `ourCycleSeconds` was
+  described as "request to … published"; it ends when the response is loaded, and its caveat now says so.
+- **After** (REAL feed, 18:34–19:17 UTC, 131 cycles, 38,271 new reports, 630–651 buses in the area a payload):
+
+  | | before | after |
+  |---|---|---|
+  | freshness measurements | 20.0 s | **0.13 s** |
+  | latest report per bus | 7.5 s | **0.72 s** |
+  | the whole publication | 28.5 s | **1.5 s** |
+  | ours: receipt to the file written (median / p95) | 32.0 / 35.3 s | **4.8 / 5.6 s** |
+  | a report's age when the file was written (median / p95) | 43.0 / 51.1 s | **15.6 / 22.9 s** |
+  | the feed read every | 32.6 s | **20.0 s**, as configured |
+  | a new report's age on reaching the page (median / p95) | 51.9 / 63.8 s | **19.2 / 38.2 s** and **22.6 / 35.1 s** (two runs, 18,587 and 16,311 reports) |
+  | the file written to the page's first receipt (median / p95) | 10.2 / 18.4 s (38) | 2.6 / 19.8 s (60) and 4.1 / 15.2 s (61): fixed per page by when it was opened, 0–20 s (below) |
+  | the server: load average, the collector's CPU | 2.0, 165% | 0.6, 32% |
+  | the collector's cgroup; soft-limit crossings | 1.24 GB; 45,823 in 22 min | 0.55 GB; none |
+
+  **The drawing's own delay, unchanged in code.** `PLAYBACK` (`lib/motion.ts`) draws a bus the median age of its
+  reports on arrival plus 20 s behind real time, held between 30 and 60 s, so it has a report interval in hand.
+  Measured once a second on a chosen bus while it was reporting (a stop's first coming bus, as a passenger chooses
+  one): before, an 85 under way for 20 minutes, 1,185 samples; after, an 86 under way at Oxford Road, 745 samples.
+
+  | the chosen bus | before | after |
+  |---|---|---|
+  | drawn behind real time (median / p95) | 61.9 / 70.8 s | **35.6 / 35.6 s** |
+  | its newest report's age at that moment (median / p95) | 68.3 / 86.3 s | 28.6 / 42.8 s |
+  | the margin the drawing kept behind its newest report (median / p95) | **−5.2** / 18.1 s | **7.0 / 18.7 s** |
+
+  Before, the reports arrived older than the 60 s ceiling allows, so the drawing ran out of them and waited at
+  the newest more than half the time, the fits and starts and repositionings of 30 September. After, the margin is
+  what the design intends, and the card's "as it was about N s ago" reads the delay drawn. Nothing in the animation
+  was shortened to hide a delay: it is later than the data by the margin it needs, and the data arrives younger.
+  The first "after" run chose at Piccadilly Gardens, where every bus listed was arriving at its terminus and went
+  quiet; it is kept (`outputs/probes/delivery/after.json`), summarised only while its buses reported, and the run
+  above was made at a stop mid-route instead.
+- **Left, measured, not changed in this pass:**
+  - **The browser's poll.** The page asks every 20 s, unaligned to the collector, which now writes every 20 s:
+    a page's wait is fixed by when it was opened, anywhere from 0 to 20 s (the "before" run, whose clocks drifted
+    past each other, saw 10.2 s at the median, 18.4 s at p95). Asking just after the next expected write
+    (`publishedAt` + 20 s + the ~1.3 s to write it) would take about 10 s off the median. Not done here: it changes
+    how every phone polls, and needs its own check.
+  - **The database load, 3.4 s, now the largest of ours,** and growing: its classification joins each payload's
+    reports to all 12.8 million stored observations by identity (`CLASSIFY_SQL`, `pipeline/warehouse.py`).
+    Bounding the join to the payload's own range of observation times would give the same classification, since
+    the time is part of the identity.
+  - Upstream, 10.5 s at the median and 17.5 s at p95 when the feed answers, is the operators' and the feed's.
 
 ## 49. A bus with no checked road drawn over the houses beside its road — fixed 1 October 2026
 

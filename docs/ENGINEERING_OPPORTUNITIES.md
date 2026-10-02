@@ -2403,6 +2403,15 @@ with every run of a pipeline, not a new tool.
 **Next cheap step.** Time each step of `build_live` in the collector's log (a collector restart, for the owner to
 approve). Status: `observed`.
 
+**2 October 2026: measured, and the cause fixed.** The collector now writes each cycle's stage times, the feed's
+own response time and every new report's age on arrival to its journal (one line a cycle, nothing published), and
+`scripts/stage-timings.py` summarises any window. The first 72 cycles showed 27.5 of a 32 s cycle in two statements
+reading the whole history at every publication (backlog 48); each now reads its own window, and a report's age when
+the file is written fell from 43.0 to 15.6 s at the median. The capability that found it was the small one named
+above, a stage time kept with every run. Still not done: Operations shows none of it and nothing alerts on it; the
+next growth (the database load's join, 3.4 s) is visible in the same line. Status: `fixed` (the cause); the display
+`open`.
+
 ## 77. What a page draws, measured against the map it draws on
 
 **Problem and evidence.** A bus with no checked road was drawn up to 61 m from any street, inside buildings 6.9% of
@@ -2464,3 +2473,12 @@ checks already give; nothing new is needed.
 
 **Next cheap step.** Review each `dispatchEvent` use in the browser specs; keep it only where a tap is not what is
 being tested. Status: `open`.
+
+**2 October 2026: done for every selection.** Fourteen choices of a search match or a place in four specs went
+through `dispatchEvent('mousedown')`; they, and the new spec's two clicks, now go through `chooseOption` (`tests/browser/fixtures.mjs`): the option
+must be inside the screen as it stands, with nothing drawn over its middle and nothing scrolled for it, and is then
+tapped on a touch profile and clicked with a mouse. The stricter check found a second fault the old idiom had hidden:
+the planner's list of places ran 13 px past the right edge of a 390 px phone and 41 px past a 360 px one, since
+22 September (a grid column that could not shrink below its input), fixed in the same commit. The remaining
+`dispatchEvent` uses are not selections (a pointer leaving the map, a page hidden); the study probe keeps one, after
+judging the step failed, only to walk an old build further. Status: `fixed`.

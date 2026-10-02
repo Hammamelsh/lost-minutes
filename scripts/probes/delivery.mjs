@@ -10,6 +10,9 @@
  *  - once a second, the chosen bus's drawing: how far behind real time the place drawn stands (frame − shown, from the
  *    map's diagnostics, on the page's own server-corrected clock), and the age of the newest report it is drawn from.
  *    The difference is the delay the drawing keeps on purpose (PLAYBACK in lib/motion.ts).
+ * A bus whose newest report is over 120 s old is not being drawn from reports any more (its journey has ended, or it
+ * has gone quiet), so the drawing is summarised over the samples while it is reporting, and a bus quiet for 30 s
+ * is replaced, as a passenger would choose another.
  * REAL data; Chromium, phone emulation; not a phone in hand. One page, one poll every 20 s: a single passenger's load.
  *
  *   node scripts/probes/delivery.mjs --minutes 40 --offset-ms 1100 [--stop 1800SB45141] [--label name]
@@ -23,7 +26,9 @@ const arg = (name, fallback) => { const i = process.argv.indexOf(`--${name}`); r
 const BASE = arg('base', 'https://lost-minutes.duckdns.org');
 const MINUTES = Number(arg('minutes', '30'));
 const OFFSET = Number(arg('offset-ms', '0'));
-const STOP = arg('stop', '1800SB45141');
+// Mid-route on the Oxford Road corridor, outbound: buses chosen here are under way, not arriving at a terminus, where
+// a bus ends its journey and goes quiet (the first run, at Piccadilly Gardens, chose four such buses in 20 minutes).
+const STOP = arg('stop', '1800SB18781');
 const LABEL = arg('label', new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-'));
 const out = 'outputs/probes/delivery'; mkdirSync(out, {recursive: true});
 const serverNow = () => Date.now() + OFFSET;
@@ -56,12 +61,18 @@ page.on('response', async response => {
   } catch (error) { notes.push({at, note: `unreadable live.json: ${error.message}`}); }
 });
 
+// Each choice takes the next bus listed: one drawn as an estimate (routes 15, 250 and 256, where the evaluation
+// allows it) has no playback to read, and choosing it again would only wait again (the second run of 2 October chose
+// one 250 five times).
+let picks = 0;
 async function chooseBus() {
   await page.goto(`${BASE}/?stop=${STOP}`, {waitUntil: 'load'});
   await page.locator('.vector-map[data-map-state="painted"]').waitFor({timeout: 90_000}).catch(() => {});
   await page.waitForTimeout(4000);
-  const row = page.locator('.waiting .follow-row:visible, .panel-body button.follow-row:visible').first();
-  if (!(await row.count())) { notes.push({at: serverNow(), note: 'no bus listed at the stop'}); return false; }
+  const rows = page.locator('.waiting .follow-row:visible, .panel-body button.follow-row:visible');
+  const count = await rows.count();
+  if (!count) { notes.push({at: serverNow(), note: 'no bus listed at the stop'}); return false; }
+  const row = rows.nth(picks++ % count);
   await row.click();
   notes.push({at: serverNow(), note: `chose ${(await row.innerText()).split('\n').slice(0, 2).join(' · ')}`});
   return true;
@@ -69,7 +80,7 @@ async function chooseBus() {
 
 await chooseBus();
 const end = Date.now() + MINUTES * 60_000;
-let empty = 0;
+let empty = 0, quiet = 0;
 while (Date.now() < end) {
   await page.waitForTimeout(1000);
   const d = await page.locator('.vector-map').evaluate(el => ({display: el.getAttribute('data-display'), shown: el.getAttribute('data-shown'),
@@ -79,6 +90,8 @@ while (Date.now() < end) {
   if (Number.isFinite(frame) && Number.isFinite(shown) && d.age) {
     empty = 0;
     drawing.push({at: serverNow(), behindS: Math.round(frame - shown) / 1000, reportAgeS: Number(d.age), motion: d.motion});
+    if (Number(d.age) > 120 && ++quiet >= 30) { quiet = 0; notes.push({at: serverNow(), note: 'the chosen bus has gone quiet'}); await chooseBus(); }
+    else if (Number(d.age) <= 120) quiet = 0;
   } else if (++empty >= 60) {
     // The chosen bus has gone (its journey ended, or it is no longer drawn): choose another, as a passenger would.
     empty = 0;
@@ -89,12 +102,15 @@ await browser.close();
 
 const q = (xs, p) => { const s = [...xs].sort((a, b) => a - b); if (!s.length) return null; const k = (s.length - 1) * p, f = Math.floor(k), c = Math.min(f + 1, s.length - 1); return Math.round((s[f] + (s[c] - s[f]) * (k - f)) * 10) / 10; };
 const ages = responses.flatMap(r => r.newReportAges ?? []).filter(a => a <= 900);
-const deliberate = drawing.map(d => d.behindS - d.reportAgeS);
+const reporting = drawing.filter(d => d.reportAgeS <= 120);
+const deliberate = reporting.map(d => d.behindS - d.reportAgeS);
 const summary = {base: BASE, minutes: MINUTES, offsetMs: OFFSET, stop: STOP,
   responses: responses.length, repeatedPublications: responses.filter((r, i) => i && r.publishedAtMs === responses[i - 1].publishedAtMs).length,
   newReportAgeAtPageS: {n: ages.length, p50: q(ages, 0.5), p95: q(ages, 0.95)},
-  drawnBehindRealTimeS: {n: drawing.length, p50: q(drawing.map(d => d.behindS), 0.5), p95: q(drawing.map(d => d.behindS), 0.95)},
-  newestReportAgeS: {n: drawing.length, p50: q(drawing.map(d => d.reportAgeS), 0.5), p95: q(drawing.map(d => d.reportAgeS), 0.95)},
+  // While the chosen bus is reporting (its newest report at most 120 s old).
+  drawnBehindRealTimeS: {n: reporting.length, p50: q(reporting.map(d => d.behindS), 0.5), p95: q(reporting.map(d => d.behindS), 0.95)},
+  newestReportAgeS: {n: reporting.length, p50: q(reporting.map(d => d.reportAgeS), 0.5), p95: q(reporting.map(d => d.reportAgeS), 0.95)},
+  samplesWhileQuiet: drawing.length - reporting.length,
   deliberateS: {n: deliberate.length, p50: q(deliberate, 0.5), p95: q(deliberate, 0.95)}};
 writeFileSync(`${out}/${LABEL}.json`, JSON.stringify({summary, responses, drawing, notes}, null, 1));
 console.log(JSON.stringify(summary, null, 1));

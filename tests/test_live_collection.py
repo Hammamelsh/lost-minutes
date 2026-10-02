@@ -75,9 +75,10 @@ class LiveCollectionTests(unittest.TestCase):
         # The fake clock advances only when the collector sleeps, so the window ends after
         # exactly the number of cycles we intend.
         self.ticks = [0.0]
+        log = kwargs.pop('log', lambda *_: None)
         result = collect(minutes=(cycles * interval) / 60.0, interval=interval,
                          root=self.root, db_path=self.db, fetch_fn=feed,
-                         clock=self.clock, sleep=self.sleep, log=lambda *_: None,
+                         clock=self.clock, sleep=self.sleep, log=log,
                          api_key='test-key-never-real', **kwargs)
         return result, feed
 
@@ -566,6 +567,57 @@ class LiveCollectionTests(unittest.TestCase):
             self.assertIn('p95', measured[key])
             self.assertIn('windowDescription', measured[key])
         self.assertIn('caveat', measured)
+
+    # -- where a report's age goes (backlog 48) -----------------------------------------------
+    def test_each_cycle_logs_where_its_time_went_and_publishes_none_of_it(self):
+        lines = []
+        self.run_collector([siri_document([bus(at(-30)), bus(at(-50), vehicle='V2', lat=53.471)]),
+                            siri_document([bus(at(-10), lat=53.4705), bus(at(-50), vehicle='V2', lat=53.471)])],
+                           cycles=2, log=lines.append)
+        timings = [line for line in lines if isinstance(line, dict) and 'ms' in line]
+        self.assertEqual([t['cycle'] for t in timings], [1, 2], 'one timing line a cycle')
+        for t in timings:
+            self.assertTrue({'fetch', 'store', 'parse', 'load', 'publish'} <= set(t['ms']), t['ms'])
+            self.assertTrue({'previous', 'latest', 'match', 'trails', 'collection', 'freshness', 'validate',
+                             'serialise', 'write', 'record'} <= set(t['publication']), t['publication'])
+            self.assertTrue(all(isinstance(v, int) and v >= 0 for v in [*t['ms'].values(), *t['publication'].values()]))
+            self.assertGreaterEqual(t['stampToWrittenMs'], 0, 'written after its own stamp')
+            self.assertLessEqual(t['requestedAtMs'], t['receivedAtMs'])
+            self.assertLessEqual(t['receivedAtMs'], t['publishedAtMs'], 'stamped after the feed was read')
+        # The run's first payload has nothing to compare with; the second brings one new report (V1's), not V2's
+        # again, and says how old it was on arrival.
+        self.assertIsNone(timings[0]['arrivalAges'])
+        (age, count), = timings[1]['arrivalAges'].items()
+        self.assertEqual(count, 1)
+        self.assertGreaterEqual(int(age), 10)
+        published = (self.root / 'public/data/live.json').read_text()
+        for key in ('arrivalAges', 'stampToWrittenMs', '"timings"', 'receivedAtMs'):
+            self.assertNotIn(key, published, 'the timings are the collector\'s log, not the public file')
+
+
+class ArrivalTimingTests(unittest.TestCase):
+    """The pieces of the timing line that need no warehouse (backlog 48)."""
+
+    def test_only_a_vehicle_s_later_reports_count_and_old_ones_are_counted_together(self):
+        from pipeline.collect import arrival_ages
+        rec = lambda vehicle, ms: {'operator': 'OP', 'vehicle': vehicle, 'time': ms}
+        newest = {}
+        self.assertIsNone(arrival_ages([rec('A', 100_000), rec('B', 50_000)], newest, 130_000),
+                          'a run\'s first payload counts nothing')
+        self.assertEqual(newest, {('OP', 'A'): 100_000, ('OP', 'B'): 50_000})
+        ages = arrival_ages([rec('A', 100_000), rec('B', 120_000), rec('C', 10_000)], newest, 1_000_000)
+        # A: the same report again, not counted; B: 880 s on arrival; C: first seen, 990 s, past the cap.
+        self.assertEqual(ages, {'880': 1, '>900': 1})
+        self.assertEqual(arrival_ages([rec('A', 90_000)], newest, 1_000_000), {}, 'an older report is not new')
+
+    def test_the_feed_s_response_timestamp_is_read_where_it_says_one(self):
+        from pipeline.collect import response_timestamp_ms
+        body = (b'<Siri version="2.0" xmlns="http://www.siri.org.uk/siri"><ServiceDelivery>'
+                b'<ResponseTimestamp>2026-09-20T00:49:34.134+00:00</ResponseTimestamp>')
+        self.assertEqual(response_timestamp_ms(body),
+                         int(datetime(2026, 9, 20, 0, 49, 34, 134000, tzinfo=timezone.utc).timestamp() * 1000))
+        self.assertIsNone(response_timestamp_ms(siri_document([bus(at(-5))])), 'not said, not guessed')
+        self.assertIsNone(response_timestamp_ms(b'<ResponseTimestamp>yesterday</ResponseTimestamp>'))
 
 
 if __name__ == '__main__':

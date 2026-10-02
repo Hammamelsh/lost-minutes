@@ -32,7 +32,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 from .capture import fetch
-from .core import SERVICE_AREA, parse_source, redact_url
+from .core import SERVICE_AREA, Laps, parse_source, redact_url, timestamp
 from .env import load_env
 # The run kinds Operations can be asked to describe. A hosted service run and someone's bounded
 # run on a laptop are different things, and the page says which it is looking at.
@@ -297,6 +297,46 @@ def collect_timetables(con, run_id, urls, directory, log=emit, fetch_fn=None, si
     return stored
 
 
+# The time the feed says it built its response (SIRI's ServiceDelivery ResponseTimestamp), which splits a report's
+# age on arrival here into the part before the feed answered and the part between its answer and our receipt.
+RESPONSE_TIMESTAMP = re.compile(rb'<(?:[A-Za-z0-9]+:)?ResponseTimestamp>\s*([^<\s]{10,40})\s*<')
+# Ages on arrival are counted per whole second; anything older than this is counted together. A position older
+# than the expiry (pipeline/freshness.py, 900 s) is never published, so it says nothing about what a phone sees.
+AGE_CAP_SECONDS = 900
+
+
+def response_timestamp_ms(body):
+    """The feed's own ResponseTimestamp, in epoch milliseconds, or None where it does not say."""
+    match = RESPONSE_TIMESTAMP.search(body[:8192]) if body[:2] != b'PK' else None
+    try:
+        return timestamp(match.group(1).decode('ascii')) if match else None
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def arrival_ages(records, newest, received_ms):
+    """How old each report this payload brings for the first time was when it reached us, in whole seconds,
+    counted by second ({seconds: reports}); ages past AGE_CAP_SECONDS under one key, '>900'.
+
+    A report is new when it is later than the latest one this run has had from that vehicle; `newest` keeps those
+    and is updated. A run's first payload has nothing to compare with: everything in it would count as new, the
+    hours-old positions the feed carries among them, so it updates `newest` and counts nothing (returns None)."""
+    first = not newest
+    ages = {}
+    for record in records:
+        key = (record['operator'], record['vehicle'])
+        before = newest.get(key)
+        if before is not None and record['time'] <= before:
+            continue
+        newest[key] = record['time']
+        if first:
+            continue
+        age = (received_ms - record['time']) // 1000
+        bucket = f'>{AGE_CAP_SECONDS}' if age > AGE_CAP_SECONDS else str(int(age))
+        ages[bucket] = ages.get(bucket, 0) + 1
+    return None if first else ages
+
+
 def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable_urls=(),
             root=ROOT, db_path=None, fetch_fn=fetch, clock=time.monotonic, sleep=time.sleep,
             log=emit, api_key=None, publish=True):
@@ -333,15 +373,21 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
     cycle = failures = 0
     previous_digest = None
     last_timetable = None
+    newest = {}
     summary = {'cycles': 0, 'changed': 0, 'repeats': 0, 'failures': 0, 'loaded': 0}
     try:
         while clock() < deadline:
             started = clock()
             cycle += 1
+            # Where this cycle's time goes, and how old the reports it brings already were (backlog 48), written
+            # as one line after the publication: the collector's own log, nothing stored or published.
+            laps = Laps()
+            timing = {'cycle': cycle}
             requested_at = datetime.now(timezone.utc)
             if timetable_urls and (last_timetable is None or started - last_timetable >= TIMETABLE_EVERY):
                 collect_timetables(con, run_id, timetable_urls, live_dir, log)
                 last_timetable = started
+                laps.lap('timetables')
 
             try:
                 body, status, _ = fetch_fn(url)
@@ -365,7 +411,13 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                      'errorClass': type(error).__name__, 'failureStreak': failures})
             else:
                 failures = 0
+                received_ms = round(time.time() * 1000)
+                laps.lap('fetch')
+                timing['requestedAtMs'] = round(requested_at.timestamp() * 1000)
+                timing['receivedAtMs'] = received_ms
+                timing['responseAtMs'] = response_timestamp_ms(body)
                 digest, path = store_payload(body, live_dir, 'positions')
+                laps.lap('store')
                 changed = digest != previous_digest
                 summary['cycles'] += 1
                 if not changed:
@@ -376,11 +428,13 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                     record_cycle(con, run_id, cycle, requested_at, 'repeat_payload',
                                  http_status=status, source_sha256=digest,
                                  byte_size=len(body), payload_changed=False)
+                    laps.lap('load')
                     log({'cycle': cycle, 'outcome': 'repeat_payload', 'sha256': digest[:12]})
                 else:
                     try:
                         records, rejected, stats = parse_source(
                             body, digest, requested_at.isoformat(), SERVICE_AREA)
+                        laps.lap('parse')
                     except Exception as error:
                         record_cycle(con, run_id, cycle, requested_at, 'malformed',
                                      http_status=status, source_sha256=digest,
@@ -405,6 +459,8 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
                                      http_status=status, source_sha256=digest,
                                      byte_size=len(body), payload_changed=True,
                                      observations_loaded=counts['new'])
+                        laps.lap('load')
+                        timing['arrivalAges'] = arrival_ages(records, newest, received_ms)
                         log({'cycle': cycle, 'outcome': 'succeeded', 'sha256': digest[:12],
                              'inArea': counts['inArea'], 'new': counts['new'],
                              'repeats': counts['repeats'], 'conflicts': counts['conflicts'],
@@ -414,7 +470,11 @@ def collect(minutes=10.0, interval=POLL_DEFAULT, bbox=MANCHESTER_BBOX, timetable
             # whole; and again after the publication, before the collector sleeps.
             _check_stop()
             if publish:
-                publish_live(con, run_id, root=root)
+                published = publish_live(con, run_id, root=root)
+                laps.lap('publish')
+                timing.update(publication=published['timings'], publishedAtMs=published['publishedAtMs'],
+                              stampToWrittenMs=published['stampToWrittenMs'])
+            log({**timing, 'ms': laps.ms})
             _check_stop()
             # Bounded exponential backoff on consecutive failures, then back to normal.
             wait = min(interval * 2 ** min(failures, 4), MAX_BACKOFF)

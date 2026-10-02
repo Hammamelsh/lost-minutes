@@ -21,7 +21,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .core import SERVICE_AREA, atomic_json, stopped_by_signal, utc_now
+from .core import SERVICE_AREA, Laps, atomic_json, stopped_by_signal, utc_now
 from .freshness import EXPIRY, label, measure, policy
 from .match import match_all
 from .warehouse import DEFAULT_DB, connect
@@ -233,8 +233,13 @@ def write_runtime_config(root, poll_seconds, environ=None):
         print(f'  the private preview offer was not written: {error}', file=sys.stderr)
 
 
-def build_live(con, published_at=None):
-    """Assemble the live state. Expired positions are excluded, counted and explained."""
+def build_live(con, published_at=None, laps=None):
+    """Assemble the live state. Expired positions are excluded, counted and explained.
+
+    `laps`, if given, is told where the time went (core.Laps): the latest reports, the matching (with the pattern
+    catalogue it reads; pipeline/match.py is pinned by the arrival protocol and is not touched for this), the
+    trails, the collection's own statistics, and the freshness measurements."""
+    laps = laps or Laps()
     now = published_at or datetime.now(timezone.utc)
     now_ms = int(now.timestamp() * 1000)
     rows = con.execute(LATEST_SQL, [LIVE_KIND]).fetchall()
@@ -268,6 +273,7 @@ def build_live(con, published_at=None):
         # Stated on every position so no consumer has to infer it.
         item['positionKind'] = 'observed'
         vehicles.append(item)
+    laps.lap('latest')
 
     # Place each published bus on a service pattern where the timetable supports it. A bus
     # that cannot be placed carries the reason instead, and is still shown as a position.
@@ -278,7 +284,9 @@ def build_live(con, published_at=None):
             raise
         matching = {'matched': 0, 'unmatched': len(vehicles),
                     'reasons': {'patterns_unavailable': type(error).__name__}}
+    laps.lap('match')
     trail_sources = _trails(con, now_ms, vehicles) if vehicles else []
+    laps.lap('trails')
 
     cycles = con.execute("""
         SELECT count(*), count(*) FILTER (WHERE outcome = 'succeeded'),
@@ -331,6 +339,9 @@ def build_live(con, published_at=None):
                      'endsBy': iso(run[2] + timedelta(minutes=run[4])) if run[2] and run[4] else None,
                      'exitReason': run[6]}
     state = 'live' if vehicles else ('stale' if has_positions else 'unavailable')
+    laps.lap('collection')
+    measured = measure(con, LIVE_KIND)
+    laps.lap('freshness')
 
     payload = {
         'schemaVersion': SCHEMA_VERSION,
@@ -349,7 +360,7 @@ def build_live(con, published_at=None):
             'sharedCollector': True,
             'collector': collector,
         },
-        'freshness': {'policy': policy(), 'measured': measure(con, LIVE_KIND)},
+        'freshness': {'policy': policy(), 'measured': measured},
         'matching': matching,
         'vehicles': vehicles,
         'trailSources': trail_sources,
@@ -427,8 +438,13 @@ def validate_live(payload, previous=None):
 
 def publish_live(con, run_id=None, root=Path('.'), target=LIVE_TARGET, published_at=None,
                  poll_seconds=None):
-    """Build, validate, then replace. A failure leaves the last good state in place."""
+    """Build, validate, then replace. A failure leaves the last good state in place.
+
+    The result says where the time went (`timings`, milliseconds by stage) and how long after its own
+    `publishedAt` the file was in place (`stampToWrittenMs`): the publication is stamped as it starts to be
+    built, and a phone can read it only once it is written."""
     from .freshness import POLL_DEFAULT
+    laps = Laps()
     target = Path(root) / target
     previous = None
     if target.exists():
@@ -436,20 +452,30 @@ def publish_live(con, run_id=None, root=Path('.'), target=LIVE_TARGET, published
             previous = json.loads(target.read_text())
         except ValueError:
             previous = None
+    laps.lap('previous')
 
-    payload = build_live(con, published_at)
+    payload = build_live(con, published_at, laps)
     checks = validate_live(payload, previous)
     failed = [c['name'] for c in checks if not c['passed']]
+    laps.lap('validate')
     body = json.dumps(payload, ensure_ascii=False, separators=(',', ':')) + '\n'
     digest = hashlib.sha256(body.encode()).hexdigest()
+    laps.lap('serialise')
 
+    written = None
     if not failed:
         atomic_json(target, payload)
+        written = datetime.now(timezone.utc)
         write_runtime_config(root, poll_seconds)
+    laps.lap('write')
 
     _record(con, run_id, payload, digest, len(body), target, failed, checks, root)
+    laps.lap('record')
     return {'state': payload['state'], 'vehicles': len(payload['vehicles']),
-            'published': not failed, 'failedChecks': failed, 'sha256': digest}
+            'published': not failed, 'failedChecks': failed, 'sha256': digest,
+            'publishedAtMs': payload['publishedAtMs'],
+            'stampToWrittenMs': None if written is None else round(written.timestamp() * 1000) - payload['publishedAtMs'],
+            'timings': laps.ms}
 
 
 def _record(con, run_id, payload, digest, size, target, failed, checks, root):

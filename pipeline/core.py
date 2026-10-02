@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import time
 import zipfile
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -35,6 +36,21 @@ FUTURE_TOLERANCE_SECONDS = 120
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
+
+
+class Laps:
+    """Wall time spent in each named stage, in whole milliseconds, for the collector's log (backlog 48: where a
+    report's age goes between the operator and a phone). Each `lap` closes the stage that ran since the last one.
+    Only timing: nothing here is published or stored."""
+
+    def __init__(self):
+        self.ms = {}
+        self._at = time.perf_counter()
+
+    def lap(self, name):
+        now = time.perf_counter()
+        self.ms[name] = self.ms.get(name, 0) + round((now - self._at) * 1000)
+        self._at = now
 
 
 def timestamp(value):

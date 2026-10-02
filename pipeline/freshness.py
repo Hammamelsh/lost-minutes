@@ -89,7 +89,7 @@ KIND_LABELS = {
 }
 
 
-def measure(con, kind='archive_positions'):
+def measure(con, kind='archive_positions', window_seconds=None, now=None):
     """Measured ages and intervals for one source kind, each with its sample and window.
 
     Every measurement is scoped to `kind`. Archive numbers describe a recorded sample and
@@ -97,50 +97,70 @@ def measure(con, kind='archive_positions'):
 
     Two delays are kept apart because they have different owners:
       observationToRetrieval  how old a position already was when we received it. Theirs.
-      ourCycle                request to stored, parsed, loaded and published. Ours.
+      ourCycle                request to stored, parsed and loaded into the warehouse. Ours, but
+                              not all of ours: the publication that follows is not in it.
+
+    `window_seconds` bounds every measurement to the responses retrieved in that many seconds before
+    `now`, and the window says so. The live publication passes one (pipeline/live.py, MEASURE_WINDOW):
+    measured over all retained history at every publication, these took 20 s of a 32 s collector cycle
+    on 2 October 2026, 12.8 million observations in, and grew with every day collected (backlog 48).
+    Without one, all retained history, as before.
     """
+    since = None
+    if window_seconds is not None:
+        from datetime import datetime, timedelta, timezone
+        since = (now or datetime.now(timezone.utc)) - timedelta(seconds=window_seconds)
+    since_ms = None if since is None else int(since.timestamp() * 1000)
+    within = lambda column: 'TRUE' if since is None else f"{column} >= '{since.isoformat()}'::TIMESTAMPTZ"
     window = con.execute(
         "SELECT min(captured_at AT TIME ZONE 'UTC'), max(captured_at AT TIME ZONE 'UTC'),"
-        ' count(*) FROM raw_source WHERE source_kind = ?', [kind]).fetchone()
+        f' count(*) FROM raw_source WHERE source_kind = ? AND {within("captured_at")}', [kind]).fetchone()
     empty = not window or not window[2]
     described = ('no sources of this kind yet' if empty else
                  f'{window[2]} responses, {window[0]:%Y-%m-%d %H:%M} to {window[1]:%H:%M} UTC')
+    if since is not None:
+        described = f"the last {round(window_seconds / 60)} minutes: {'no responses of this kind' if empty else described}"
 
+    # An observation keeps the moment it was first retrieved, and rows are stored in that order, so a
+    # window on it is read from the recent end of the table rather than through all of it.
     joined = 'observation o JOIN raw_source r ON r.source_sha256 = o.source_sha256'
+    scoped = f"r.source_kind = '{kind}' AND {within('o.retrieved_at')} AND {within('r.captured_at')}"
     # How old a position already was when the upstream response carrying it was built.
     # Meaningful for both kinds: it is the source's own delay.
     observation_to_source = _summary(
-        con, 'epoch(r.captured_at) - o.observed_at_ms / 1000.0', joined,
-        f"r.source_kind = '{kind}'", described)
+        con, 'epoch(r.captured_at) - o.observed_at_ms / 1000.0', joined, scoped, described)
     # How old it was when *we* received it. For live collection these are near-identical.
     # For an archive replay this includes the days between the recording and our download,
     # so it is not a latency measurement and is labelled as such below.
     observation_to_retrieval = _summary(
-        con, 'epoch(r.retrieved_at) - o.observed_at_ms / 1000.0', joined,
-        f"r.source_kind = '{kind}'", described)
+        con, 'epoch(r.retrieved_at) - o.observed_at_ms / 1000.0', joined, scoped, described)
 
     # Scoped to this kind: without the join a live measurement would quietly include
-    # archive observations and report the wrong cadence.
+    # archive observations and report the wrong cadence. In a window, each vehicle's first report in
+    # it has nothing before it to measure from.
     report_interval = _summary(con, 'gap', f"""(
         SELECT (o.observed_at_ms - lag(o.observed_at_ms) OVER (
                     PARTITION BY o.operator, o.vehicle ORDER BY o.observed_at_ms)) / 1000.0 AS gap
         FROM v_publishable_observation o
         JOIN raw_source r ON r.source_sha256 = o.source_sha256
-        WHERE r.source_kind = '{kind}')""", 'gap > 0', described)
+        WHERE r.source_kind = '{kind}'{'' if since_ms is None else f' AND o.observed_at_ms >= {since_ms}'})""",
+        'gap > 0', described)
 
     source_cadence = _summary(con, 'gap', f"""(
         SELECT epoch(captured_at - lag(captured_at) OVER (ORDER BY captured_at)) AS gap
-        FROM raw_source WHERE source_kind = '{kind}')""", 'gap > 0', described)
+        FROM raw_source WHERE source_kind = '{kind}' AND {within('captured_at')})""", 'gap > 0', described)
 
     # Our own time, from collection cycles. Archive imports have no cycles, so this is
     # empty for the archive and that is the honest answer rather than a borrowed number.
     our_cycle = _summary(
         con, 'epoch(completed_at - requested_at)', 'collection_cycle',
-        "outcome IN ('succeeded', 'repeat_payload')", described)
+        f"outcome IN ('succeeded', 'repeat_payload') AND {within('requested_at')}", described)
 
     caveat = ('Report intervals are bounded by the cadence of the responses we hold, so they '
               'describe our observation cadence, not the operator\'s publication rate. '
-              'Operators are required to publish every 10-30 seconds.')
+              'Operators are required to publish every 10-30 seconds. ourCycleSeconds runs from our '
+              'request to the response loaded into the warehouse; building and writing the publication '
+              'come after it and are not in it.')
     if kind == 'archive_positions':
         caveat += (' These figures come from a recorded archive sample and are not a '
                    'measurement of live operation. observationToRetrieval measures the gap '

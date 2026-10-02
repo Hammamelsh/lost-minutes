@@ -595,6 +595,40 @@ class LiveCollectionTests(unittest.TestCase):
             self.assertNotIn(key, published, 'the timings are the collector\'s log, not the public file')
 
 
+    def test_the_publication_reads_only_its_windows_and_publishes_the_same_buses(self):
+        """2 October 2026 (backlog 48): ranked over all retained history, the latest reports took 7.5 s and the
+        freshness measurements 20 s of a 32 s cycle. Each now reads its own window; the buses are the same."""
+        from pipeline.freshness import measure
+        from pipeline.live import LATEST_SQL, LIVE_KIND, build_live
+        self.run_collector([siri_document([bus(at(-30)), bus(at(-3600), vehicle='OLD', lat=53.471),
+                                           bus(at(-40), vehicle='V3', lat=53.472)]),
+                            siri_document([bus(at(-10), lat=53.4705), bus(at(-3600), vehicle='OLD', lat=53.471),
+                                           bus(at(-40), vehicle='V3', lat=53.472)])], cycles=2)
+        con = self.connect()
+        now = datetime.now(timezone.utc)
+        live = build_live(con, now)
+        everything = LATEST_SQL.replace('WHERE o.retrieved_at >= ?\n      AND ', 'WHERE ')
+        self.assertNotEqual(everything, LATEST_SQL)
+        whole = [(r[0], r[1], int(r[5])) for r in con.execute(everything, [LIVE_KIND]).fetchall()
+                 if (now.timestamp() * 1000 - r[5]) / 1000 <= 900]
+        self.assertEqual(sorted((v['operator'], v['vehicle'], v['observedAtMs']) for v in live['vehicles']), sorted(whole))
+        self.assertEqual(live['withheld']['expiredPositions'], 1, 'the hour-old position the feed handed us, counted')
+        # A day on, nothing received is inside the window: no bus, and nothing counted that the window does not hold.
+        later = build_live(con, now + timedelta(hours=25))
+        self.assertEqual((later['vehicles'], later['withheld']['expiredPositions']), ([], 0))
+        # The freshness measurements say their window, and a window holding everything measures what all history does.
+        hour = measure(con, LIVE_KIND, 3600, now)
+        self.assertTrue(hour['observationToRetrievalSeconds']['windowDescription'].startswith('the last 60 minutes: 2 responses'))
+        full = measure(con, LIVE_KIND)
+        for key in ('observationToRetrievalSeconds', 'reportIntervalSeconds', 'sourceCadenceSeconds', 'ourCycleSeconds'):
+            self.assertEqual({k: v for k, v in hour[key].items() if k != 'windowDescription'},
+                             {k: v for k, v in full[key].items() if k != 'windowDescription'}, key)
+        empty = measure(con, LIVE_KIND, 3600, now + timedelta(hours=2))
+        self.assertEqual(empty['observationToRetrievalSeconds']['samples'], 0)
+        self.assertEqual(empty['observationToRetrievalSeconds']['windowDescription'], 'the last 60 minutes: no responses of this kind')
+        con.close()
+
+
 class ArrivalTimingTests(unittest.TestCase):
     """The pieces of the timing line that need no warehouse (backlog 48)."""
 

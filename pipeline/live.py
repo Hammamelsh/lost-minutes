@@ -42,8 +42,8 @@ NOTES = [
     'The page may draw a clearly labelled estimate of where a selected bus has got to since its '
     'last report. Estimates are computed on the device, bounded by measured behaviour, and are '
     'never published here, stored, or counted as observations.',
-    'A position older than the expiry threshold is withheld and counted, because the feed '
-    'demonstrably carries positions that are hours old.',
+    'A position older than the expiry threshold is withheld and counted (among the positions received '
+    'in the last 24 hours), because the feed demonstrably carries positions that are hours old.',
     'No arrival time is offered. Progress toward a stop is shown only where a timetabled '
     'service pattern is matched, and is counted in stops along that pattern, not minutes.',
     'A reported position shows a direction only where the vehicle reported a bearing; a missing '
@@ -55,18 +55,30 @@ NOTES = [
 # The trail: earlier observed reports of the same journey, so a page can show where a bus has
 # been and read its recent speed without waiting for further updates.
 TRAIL_SECONDS = 240
+
+# The freshness measurements published with each state cover the last hour (pipeline/freshness.py, measure).
+MEASURE_WINDOW = 3600
 TRAIL_POINTS = 6
 
 BEARING_STATUSES = ('reported', 'absent', 'invalid', 'not_captured')
 
 # Latest report per vehicle, newest first. Out-of-order arrivals are handled here rather
 # than at load time: the row with the greatest observation time wins, whenever it arrived.
+# Read from the reports received in the last LATEST_WINDOW seconds only. A published report is at most the
+# expiry (900 s) old, so it was received inside the window, and the buses published are exactly those of the
+# whole history. What the window bounds is the count of expired positions withheld: every position the feed
+# handed us in the last day that was past the expiry, however old it was. Rows are stored in the order they
+# were received, so the rest of the table is skipped, not read. Ranked over all retained history this took
+# 7.5 s of a 32 s collector cycle on 2 October 2026, 12.8 million observations in, growing every day
+# (backlog 48).
+LATEST_WINDOW = 24 * 3600
 LATEST_SQL = """
 WITH ranked AS (
     SELECT o.*, row_number() OVER (PARTITION BY o.operator, o.vehicle
                                    ORDER BY o.observed_at_ms DESC) AS rn
     FROM v_publishable_observation o
-    WHERE o.source_sha256 IN (SELECT source_sha256 FROM raw_source WHERE source_kind = ?)
+    WHERE o.retrieved_at >= ?
+      AND o.source_sha256 IN (SELECT source_sha256 FROM raw_source WHERE source_kind = ?)
 )
 SELECT operator, vehicle, route, direction, journey_ref, observed_at_ms, recorded_at_text,
        lat, lon, destination, origin, source_sha256, bearing, bearing_status, aimed_departure,
@@ -242,7 +254,7 @@ def build_live(con, published_at=None, laps=None):
     laps = laps or Laps()
     now = published_at or datetime.now(timezone.utc)
     now_ms = int(now.timestamp() * 1000)
-    rows = con.execute(LATEST_SQL, [LIVE_KIND]).fetchall()
+    rows = con.execute(LATEST_SQL, [now - timedelta(seconds=LATEST_WINDOW), LIVE_KIND]).fetchall()
     columns = ['operator', 'vehicle', 'route', 'direction', 'journeyRef', 'observedAtMs',
                'recordedAt', 'lat', 'lon', 'destination', 'origin', 'sourceHash', 'bearing',
                'bearingStatus', 'aimedDeparture', 'retrievedAtMs']
@@ -340,7 +352,7 @@ def build_live(con, published_at=None, laps=None):
                      'exitReason': run[6]}
     state = 'live' if vehicles else ('stale' if has_positions else 'unavailable')
     laps.lap('collection')
-    measured = measure(con, LIVE_KIND)
+    measured = measure(con, LIVE_KIND, MEASURE_WINDOW, now)
     laps.lap('freshness')
 
     payload = {

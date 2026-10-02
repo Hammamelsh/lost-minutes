@@ -1448,7 +1448,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .plan-panel{margin:6px 0 14px}
 .plan-panel .section-head svg{vertical-align:-2px;margin-right:3px}
 .plan-fields{display:flex;flex-direction:column;gap:8px}
-.plan-field{display:grid;grid-template-columns:44px 1fr;gap:8px;align-items:start}
+.plan-field{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;align-items:start}
 .plan-field-label{padding-top:12px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#8aa8b9}
 .plan-place{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;width:100%;min-height:48px;padding:7px 12px;border-radius:12px;
  border:1px solid #2d4250;background:#13222d;color:inherit;font:inherit;text-align:left;cursor:pointer}

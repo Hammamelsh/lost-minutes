@@ -6,7 +6,7 @@
 // or late), and the moving 256 is tied to the first timetabled journey by its reported departure.
 // Chromium, both sizes.
 import {test, expect} from '@playwright/test';
-import {FX, FX53, boardOrigins, connectionCatalogue, departureBoard, fastConfig, movingLive, serveDepartures, serveLive,
+import {FX, FX53, chooseOption, boardOrigins, connectionCatalogue, departureBoard, fastConfig, movingLive, serveDepartures, serveLive,
   serveMotion, servePatterns, serveScheduleAnchor, waitForPaint} from './fixtures.mjs';
 
 const START = {postcode: FX53.start.postcode, latitude: FX53.start.latitude, longitude: FX53.start.longitude, admin_district: 'Trafford', admin_ward: 'Stretford'};
@@ -91,9 +91,9 @@ async function planIt(page, {to = 'trafford bar'} = {}) {
   await expect(panel(page)).toBeVisible();
   await panel(page).locator('[data-plan-from]').click();
   await search(page, 'Starting point').fill(START.postcode);
-  await page.locator('.place-search [role=option]', {hasText: START.postcode}).dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]', {hasText: START.postcode}));
   await search(page, 'Destination').fill(to);
-  await page.locator('.place-search [role=option]').first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]').first());
 }
 
 test('From and To give a journey with one change; choosing it shows one card, the stop, the times as the timetable’s, and both legs on the map', async ({page}) => {

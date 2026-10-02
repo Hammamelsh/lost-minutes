@@ -2,7 +2,7 @@
 // the map; browsing stops where the map was moved to. FIXTURE timetable (route 256 on real NaPTAN
 // stops) with the real stop catalogue, in Chromium at desktop and phone size.
 import {test, expect} from '@playwright/test';
-import {FX, foldSheet, journeyLive, mapBand, serveLive, servePatterns, unavailableState, unfoldSheet, waitForPaint} from './fixtures.mjs';
+import {chooseOption, FX, foldSheet, journeyLive, mapBand, serveLive, servePatterns, unavailableState, unfoldSheet, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 const search = page => page.getByRole('combobox', {name: 'Stop, bus number or place'}).first();
@@ -43,7 +43,7 @@ test('a bus number finds the route from the timetable, even with no bus reportin
   await search(page).fill('25');
   await expect(options(page).first()).toContainText('Route 256');
   await search(page).fill('256');
-  await options(page).first().dispatchEvent('mousedown');
+  await chooseOption(options(page).first());
   const panel = page.locator('.route-panel');
   await expect(panel).toBeVisible();
   await expect(panel.locator('.route-directions button')).toHaveCount(2);
@@ -59,17 +59,17 @@ test('a bus number finds the route from the timetable, even with no bus reportin
   // The search is still there with a stop chosen, compact, and a stop found from it changes stop.
   await expect(page.locator('.stop-search.compact')).toBeVisible();
   await search(page).fill('stretford public hall');
-  await options(page).first().dispatchEvent('mousedown');
+  await chooseOption(options(page).first());
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Public Hall');
 });
 
 test('a route searched at a stop it serves filters the board, and the filter is cleared in one press', async ({page}) => {
   await open(page);
   await search(page).fill('stretford mall');
-  await options(page).first().dispatchEvent('mousedown');
+  await chooseOption(options(page).first());
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
   await search(page).fill('256');
-  await options(page).first().dispatchEvent('mousedown');
+  await chooseOption(options(page).first());
   await expect(page.locator('.waiting .section-head')).toContainText('256 to');
   // The filter is shown as the pressed service chip, and one press of it clears it.
   const pressed = page.locator('.service-chip[aria-pressed="true"]');
@@ -101,7 +101,7 @@ test.describe('stops on the map', () => {
     test.setTimeout(90_000);
     await open(page);
     await search(page).fill('hillingdon road');
-    await options(page).first().dispatchEvent('mousedown');
+    await chooseOption(options(page).first());
     await expect(page.locator('.your-stop-copy strong')).toContainText('Hillingdon Road (nr)');
     await map(page).evaluate(el => el.scrollIntoView({block: 'start'}));
     // The map is the subject here: on a phone the passenger pulls the sheet down to it first.

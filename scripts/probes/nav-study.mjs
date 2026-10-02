@@ -87,6 +87,8 @@ const inScreen = loc => loc.evaluate(el => { const r = el.getBoundingClientRect(
     await option.waitFor({state: 'attached', timeout: 9000}).catch(() => {});
     const seen = await inScreen(option);
     await judge(page, 'planner-places-visible', seen, seen ? 'the places are on screen' : 'the places are listed but drawn off the screen');
+    // An old build's places off the screen: the step is judged FAIL above, then pushed past (a bare mousedown, which no
+    // passenger could send) only so the rest of that build's walk can be judged too. The regression checks never do this.
     if (seen) await option.click(); else await option.dispatchEvent('mousedown');
   }
   await page.waitForTimeout(3000);

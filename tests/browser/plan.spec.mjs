@@ -4,7 +4,7 @@
 // shared; the return is recomputed; New journey clears it. The two place providers are mocked
 // here (postcodes.io, Photon); the stop catalogue is the real one. Chromium, both sizes.
 import {test, expect} from '@playwright/test';
-import {departureBoard, journeyLive, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {chooseOption, departureBoard, journeyLive, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const M32 = {postcode: 'M32 8LZ', latitude: 53.443649, longitude: -2.307795, admin_district: 'Trafford', admin_ward: 'Longford'};
 const OLD_TRAFFORD = {features: [
@@ -53,12 +53,12 @@ test('a fixed start and a destination give the direct bus with its legs; choosin
   const options = page.locator('.place-search [role=option]');
   await expect(options.filter({hasText: 'M32 8LZ'})).toHaveCount(1);
   await expect(options.first(), 'My location is offered first, never taken').toContainText('My location');
-  await options.filter({hasText: 'M32 8LZ'}).dispatchEvent('mousedown');
+  await chooseOption(options.filter({hasText: 'M32 8LZ'}));
   await expect(field(page, 'from')).toContainText('M32 8LZ');
   await expect(field(page, 'from')).toContainText('a fixed starting point, not this device');
   await expect(page.locator('.legend-you')).toHaveText('Starting point');
   await search(page, 'Destination').fill('sydney street');
-  await page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first());
   await expect(field(page, 'to')).toContainText('Sydney Street');
   const option = panel(page).locator('.plan-option').first();
   await expect(option).toContainText('256');
@@ -126,9 +126,9 @@ test('the return is recomputed from the places, sharing says what is shared, and
   await open(page);
   await field(page, 'from').locator('[data-plan-from]').click();
   await search(page, 'Starting point').fill('M32 8LZ');
-  await page.locator('.place-search [role=option]', {hasText: 'M32 8LZ'}).dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]', {hasText: 'M32 8LZ'}));
   await search(page, 'Destination').fill('sydney street');
-  await page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first());
   // The main pattern first (the best walks); the fixture branch may offer a second, worse, option.
   await expect(panel(page).locator('.plan-option').first()).toContainText('towards Piccadilly Gardens');
   // Share: the preview names what is in the link, and the text names the legs and promises no time.
@@ -136,7 +136,7 @@ test('the return is recomputed from the places, sharing says what is shared, and
   await page.locator('[data-clear-plan]').click();
   await expect(panel(page).locator('.plan-option')).toHaveCount(0);
   await search(page, 'Destination').fill('sydney street');
-  await page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.place-search [role=option]', {hasText: 'Sydney Street'}).first());
   // Choosing marks the option; sharing is offered on a chosen option.
   const choose = panel(page).locator('.plan-option [data-choose-plan]');
   await expect(choose.first()).toBeVisible();
@@ -148,7 +148,7 @@ test('the return is recomputed from the places, sharing says what is shared, and
   await expect(panel(page).locator('[data-handoff="google"]')).toHaveAttribute('href', /origin=53\.4488/);
   // A saved stop survives New journey; the plan does not.
   await search(page, 'Stop, bus number or place').first().fill('stretford mall');
-  await page.locator('.stop-search-option').first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.stop-search-option').first());
   await page.getByRole('button', {name: 'Save this stop'}).click();
   await page.getByRole('button', {name: /New journey/}).click();
   await expect(page.locator('.saved .stop-chip', {hasText: 'Stretford Mall'})).toBeVisible();

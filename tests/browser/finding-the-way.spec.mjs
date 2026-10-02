@@ -7,7 +7,7 @@
 // is found in the main search and planned to from here; the planner's places are on the screen and taken by a tap.
 // FIXTURE positions and timetables; the place providers mocked; the stop catalogue real. Both sizes.
 import {test, expect} from '@playwright/test';
-import {departureBoard, journeyLive, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {chooseOption, departureBoard, journeyLive, onScreen, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 // Beside Stretford Mall: where the fixture's 256 starts its walk from.
@@ -34,13 +34,7 @@ async function open(page, path = '/') {
 const follow = page => page.locator('.follow');
 const back = page => page.locator('[data-panel-back]');
 const mainSearch = page => page.locator('.follow-search input');
-/** On the screen, and what is drawn there is it: not under the sheet's edge, a scrolled panel or the keyboard's room. */
-const seen = locator => locator.evaluate(el => {
-  const r = el.getBoundingClientRect();
-  if (!(r.height > 0 && r.top >= 0 && r.bottom <= innerHeight)) return false;
-  const at = document.elementFromPoint(r.left + Math.min(40, r.width / 2), r.top + Math.min(16, r.height / 2));
-  return !!at && (el === at || el.contains(at));
-});
+const seen = onScreen;
 
 test.describe('with the device\'s location allowed', () => {
   test.use({permissions: ['geolocation'], geolocation: NEAR_STOP_A});
@@ -54,7 +48,7 @@ test.describe('with the device\'s location allowed', () => {
     expect(await seen(place), 'the place is on the screen, not under the keyboard\'s room').toBe(true);
     await expect(page.locator('.follow-search .stop-search-group', {hasText: 'Places'})).toBeVisible();
     await page.screenshot({path: info.outputPath(`${info.project.name}-place-in-search.png`)});
-    await place.click();
+    await chooseOption(place);
     // The planner, there, from here: the device's location was already allowed, so it is used without asking.
     await expect(follow(page)).toHaveAttribute('data-panel', 'plan');
     await expect(page.locator('[data-plan-to]')).toContainText('Fixture Conference Centre');
@@ -147,7 +141,7 @@ test('with no location allowed, the planner\'s places are on the screen, and a m
   await expect(option).toBeVisible({timeout: 10_000});
   // Until 1 October 2026 the list was placed against the whole panel and drawn below the screen, on both sizes.
   expect(await seen(option), 'the place is drawn on the screen').toBe(true);
-  await option.click();
+  await chooseOption(option);
   const ask = page.locator('[data-plan-needs-start]');
   await expect(ask).toContainText('Where are you starting from?');
   await context.grantPermissions(['geolocation']);

@@ -2,7 +2,7 @@
 // geolocation in Chromium (context.setGeolocation), which is not a phone's GPS: the fixes are
 // exact, instant and never denied unless told to be. FIXTURE buses; the real stop catalogue.
 import {test, expect} from '@playwright/test';
-import {foldSheet, unfoldSheet, journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {chooseOption, foldSheet, unfoldSheet, journeyLive, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const LONGFORD_PARK = {latitude: 53.4487, longitude: -2.3095, accuracy: 40};
 // 60 m north-east of Longford Park; and 5 m east, which is GPS noise at 40 m accuracy.
@@ -89,7 +89,7 @@ test('stops are listed around the chosen starting point, not around the device',
   await waitForPaint(page);
   // No location pressed at all: the page must still search and browse.
   await page.getByRole('combobox', {name: 'Stop, bus number or place'}).first().fill('stretford mall');
-  await page.locator('.stop-search-option').first().dispatchEvent('mousedown');
+  await chooseOption(page.locator('.stop-search-option').first());
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
   await expect(page.locator('.waiting')).toBeVisible();
 });

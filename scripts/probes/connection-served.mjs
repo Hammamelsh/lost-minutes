@@ -35,7 +35,12 @@ await page.locator('[data-plan-entry]').click();
 await page.locator('.plan-panel [data-plan-from]').click();
 // The starting-point list leads with "My location": the place is picked by its own words.
 const pick = async words => { const option = page.locator('.place-search [role=option]', {hasText: new RegExp(words, 'i')}).first();
-  await option.waitFor({timeout: 15_000}); await option.dispatchEvent('mousedown'); };
+  await option.waitFor({timeout: 15_000});
+  // Taken as a passenger takes it: on the screen as it stands and uncovered, then a real click (2 October 2026).
+  const seen = await option.evaluate(el => { const r = el.getBoundingClientRect(); if (!(r.height > 0 && r.top >= 0 && r.bottom <= innerHeight)) return false;
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!at && (el === at || el.contains(at)); });
+  if (!seen) throw new Error(`the place "${words}" is offered but not on the screen`);
+  await option.click(); };
 await page.getByRole('combobox', {name: 'Starting point'}).fill(FROM);
 await pick(FROM);
 await page.getByRole('combobox', {name: 'Destination'}).fill(TO);

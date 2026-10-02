@@ -5,6 +5,7 @@
 // It exists because a test needs live state that changes on demand. Checks against the real
 // feed are run separately, with the collector running, and are labelled as such.
 import {readFileSync} from 'node:fs';
+import {expect} from '@playwright/test';
 
 const replay = JSON.parse(readFileSync(new URL('../../public/data/replay.json', import.meta.url), 'utf8'));
 
@@ -83,6 +84,26 @@ export async function serveLive(page, builders) {
 /** Wait for the vector map to paint. If the page gives up on it and draws its fallback map instead,
  *  fail at once with the reason the page gives (data-map-fallback: no_webgl, startup_timeout, …)
  *  rather than waiting out the timeout as if the map were only slow. */
+/** On the screen as it stands, and what is drawn at its middle is it: inside the viewport without any scrolling done
+ *  for it, not under the sheet's edge, a panel scrolled over it or the keyboard's room. */
+export const onScreen = locator => locator.evaluate(el => {
+  const r = el.getBoundingClientRect();
+  if (!(r.width > 0 && r.height > 0 && r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth)) return false;
+  const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return !!at && (el === at || el.contains(at));
+});
+
+/** Choose an offered option as a passenger does: it must be there to be seen (`onScreen`), and is then tapped on a
+ *  touch screen and clicked with a mouse. Until 2 October 2026 checks chose search matches and places by sending
+ *  the option a bare mousedown, which reached the planner's places where the planner drew them, below the screen,
+ *  where nobody could (opportunity 79). Nothing here forces or scrolls. */
+export async function chooseOption(locator) {
+  await expect(locator).toBeVisible();
+  await expect.poll(() => onScreen(locator), {message: 'on the screen and uncovered, as it stands', timeout: 5000}).toBe(true);
+  const touch = await locator.page().evaluate(() => navigator.maxTouchPoints > 0);
+  await (touch ? locator.tap() : locator.click());
+}
+
 export async function waitForPaint(page, {timeout = 45_000, note = ''} = {}) {
   const fallback = page.locator('.map-fallback-wrap');
   const outcome = await Promise.race([

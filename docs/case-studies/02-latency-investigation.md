@@ -39,9 +39,9 @@ on each publication's own stamp. The server's clock was measured 769 ms ahead of
 | — database load | 3.42 s | 4.16 s |
 | — matching | 0.41 s | 0.58 s |
 
-**Conclusion: most of the delay was ours, not upstream's.** Upstream accounted for about a fifth of a report's age on
-reaching the page. Two statements read the whole warehouse (12.8 million stored live observations) at every
-publication:
+**Conclusion: most of the delay was ours, not upstream's.** Measured separately, at the median: a report was 11.5 s
+old when we received it, our receipt-to-written time was 32.0 s, and a report was 51.9 s old when the emulated phone
+received it. Two statements read the whole warehouse (12.8 million stored live observations) at every publication:
 - percentiles for freshness figures that no screen displays;
 - a ranking of every report ever made, to find each bus's latest.
 

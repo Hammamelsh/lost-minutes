@@ -2405,8 +2405,9 @@ approve). Status: `observed`.
 
 **2 October 2026: measured, and the cause fixed.** The collector now writes each cycle's stage times, the feed's
 own response time and every new report's age on arrival to its journal (one line a cycle, nothing published), and
-`scripts/stage-timings.py` summarises any window. The first 72 cycles showed 27.5 of a 32 s cycle in two statements
-reading the whole history at every publication (backlog 48); each now reads its own window, and a report's age when
+`scripts/stage-timings.py` summarises any window. The first 72 cycles showed two statements reading the whole history
+at every publication, at per-cycle medians of 20.0 s and 7.5 s, in cycles whose receipt-to-written median was 32.0 s
+(backlog 48); each now reads its own window, and a report's age when
 the file is written fell from 43.0 to 15.6 s at the median. The capability that found it was the small one named
 above, a stage time kept with every run. Still not done: Operations shows none of it and nothing alerts on it; the
 next growth (the database load's join, 3.4 s) is visible in the same line. Status: `fixed` (the cause); the display

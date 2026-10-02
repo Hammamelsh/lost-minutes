@@ -90,11 +90,15 @@ Where to look in the code:
 2. **Refuse rather than guess.** A bus is placed on a timetable pattern only when operator, timetable version,
    operating day and direction agree; two equally good branches stay unresolved. Positions over 15 minutes old are
    withheld and counted. Conflicts are withheld, not resolved.
-3. **Measure before optimising.** The collector times each stage in its own log. That showed two whole-history
-   queries taking 27.5 s of a 32 s cycle; bounding them cut the received-to-written median from 32.0 s to 4.8 s.
+3. **Measure before optimising.** The collector times each stage in its own log. Over 72 cycles on 2 October, two
+   queries that read the whole history had per-cycle medians of 20.0 s and 7.5 s, and the median time from receiving
+   the feed to writing the file was 32.0 s. With both bounded to the window they need, that median was 4.8 s over the
+   next 131 cycles: consecutive live windows, not a same-input benchmark.
    [Case study 2](docs/case-studies/02-latency-investigation.md).
-4. **Evaluate before releasing, and accept a no.** Arrival criteria were written before the results, the evaluation
-   is frozen and pinned to its code by hash, and the estimate stays off because it fails them.
+4. **Evaluate before releasing, and accept a no.** Release criteria for an arrival estimate were fixed before any
+   held-out result was read, and the current evaluation (protocol `display-1`) is frozen and pinned to its code by
+   hash. On its revision days (21–26 September, route 15) it fails them; its confirmation days (29 September–
+   5 October) are read once, after 6 October. Predictions are off by the owner's decision.
    [Case study 3](docs/case-studies/03-arrival-evaluation.md).
 5. **Reproduce production failures before fixing them.** A swallowed stop signal, an out-of-memory kill, a timetable
    that was an error page. [Case study 4](docs/case-studies/04-operational-failures.md).
@@ -156,31 +160,39 @@ scripts/setup-browser.sh && pnpm build && pnpm test:browser
 ## Limitations
 
 - Tested in emulation only; nothing has been checked on a phone in hand.
-- A report is about 20 s old when it reaches a page (median, 2 Oct 2026): about 10 s upstream, about 5 s ours, and
-  0–20 s waiting for the page's next poll.
+- A report reached an emulated phone 19.2 s and 22.6 s old at the median (two 20-minute runs, 2 Oct 2026). Measured
+  separately: a report was 10.4 s old at the median when the feed answered; our receipt-to-written median was 4.8 s;
+  and the page asks every 20 s.
 - A bus's progress is counted in stops from its nearest pattern stop, with no measured error bound.
 - One server, one disk; uptime is not measured.
 - The 3D "front view" is a stylised map drawing, not imagery.
 
 ## At a larger scale
 
-*Analysis written on 2 October 2026; none of this is built.*
-- **Storage**: a single DuckDB file with one writer suits one city on one machine. Many feeds would want
-  append-only, date-partitioned columnar files, with deduplication by the existing identity key.
-- **Per-cycle work must stay bounded.** The database load still joins each payload to the whole history
-  (3.4 s, growing); it should read only the payload's own time range.
-- **Delivery**: one static file polled every 20 s by every browser is cheap at this scale. Many viewers would want a
-  CDN with a short cache time, or a push channel, and polls aligned to publication.
-- **Operations**: stage timings live in the collector's log. A larger service would export them as metrics, alert on
-  them, and back captures up to object storage; content addressing already makes that incremental.
+*Proposals written on 2 October 2026; none of this is built or tested.* Each keeps the guarantees above.
+- **Storage.** A single DuckDB file with one writer suits one city on one machine. For many feeds: raw captures in
+  object storage, still named by SHA-256, and observations in append-only columnar files partitioned by observation
+  date.
+  - **Identity** stays the same six fields. A load deduplicates against the partitions its payload's times fall in,
+    instead of against the whole history; that is also the fix for today's load (3.4 s at the median, growing).
+  - **Conflicts** stay a separate table, found the same way: one identity, different coordinates. Conflicting
+    identities stay excluded from anything published.
+- **Writers.** One collector per region, each holding a lease, would keep one writer per partition. Re-delivering the
+  same bytes would still add nothing.
+- **Publication.** Each region's file is built and validated as now, then written as a new versioned object. Readers
+  switch to it through a small pointer file replaced atomically, so they never see a half-written publication, and
+  the previous version stays available to roll back to.
+- **Delivery and operations.** A CDN with a short cache in front of the published objects, and polls timed to just
+  after the next expected write. The stage timings exported as metrics with alerts.
 
 ## How this was built
 
-Hammam Elshtewi directs this project: he sets its goals and scope, makes the product and release decisions recorded
-in these documents (for example keeping arrival predictions off), and reports what he finds using it. Most of the
-code, tests and documentation were written with an AI coding assistant (Anthropic's Claude, through Claude Code),
-working under the project's written rules ([`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md)). The application
-itself contains no AI features.
+Hammam Elshtewi owns and directs this project. He sets its goals and scope, chose its hosting, and sets the rules
+under which changes are deployed; he approved, for example, the planned collector restarts that measured its latency.
+He makes the product and release decisions recorded in these documents, among them keeping arrival predictions off,
+and reports the problems he finds using it on his own phone. Most of the code, tests and documentation were written with an AI
+coding assistant (Anthropic's Claude, through Claude Code), working under the project's written rules
+([`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md)). The application itself contains no AI features.
 
 ## Documentation
 

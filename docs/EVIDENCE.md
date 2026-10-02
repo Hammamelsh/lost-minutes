@@ -46,7 +46,7 @@ exists only on the production server or this author's machine (`no`), in which c
 | Release criteria were written before any held-out result | `docs/ARRIVAL_RELEASE_CRITERIA.md` (20 Sep 2026) | Git history of that file | yes |
 | The evaluation is frozen and pinned to the code that defines it | `pipeline/arrival_protocol.py` (`sourceDigest`) | `tests/test_arrival_protocol.py`, in CI | yes |
 | The page's estimator gives the evaluator's answers | `lib/arrival.ts` | `tests/arrival.test.mjs` against `tests/fixtures/arrival-parity-sample.json` | yes |
-| It fails the criteria on the moments a page would show it, and is off in both directions | revision days 21–26 Sep 2026 (`docs/ARRIVAL_DISPLAY_PROTOCOL.md`); the owner's decision | the nightly job's record on the server | no |
+| Under protocol `display-1` it fails the criteria on the moments a page would show it (route 15, revision days 21–26 Sep 2026); its confirmation days (29 Sep–5 Oct) are read once after 6 Oct; it is off in both directions | `docs/ARRIVAL_DISPLAY_PROTOCOL.md`; the owner's decision | the nightly job's record on the server | no |
 
 ## The interface
 

@@ -164,7 +164,8 @@ live path loads 999 observations and withholds **all 392 vehicles** as expired.
 The live publication measures the same things on the live collection, over **the last hour**, and
 says so in each figure's `windowDescription`; the withheld count is of the positions received in
 **the last 24 hours**. Both windows date from 2 October 2026: measured over all retained history at
-every publication they had grown to 27 s of a 32 s collector cycle (backlog 48). A published bus is
+every publication they had grown to per-cycle medians of 20.0 s and 7.5 s, in a cycle whose receipt-to-written
+median was 32.0 s (backlog 48). A published bus is
 at most 15 minutes old, so the window changes no bus that is published. Each cycle's stage times,
 and every new report's age on arrival, are in the collector's journal (`scripts/stage-timings.py`).
 

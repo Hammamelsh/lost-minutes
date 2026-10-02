@@ -1,8 +1,9 @@
 # Case study 3: an arrival estimate that was built, evaluated, and kept off the page
 
-**Question.** "When will this bus reach my stop?" is what a passenger wants. The feed gives positions, not
-predictions, and the only live departure products need an account and a fee (`docs/DEPARTURE_DATA.md`). So the
-question was whether an estimate made here from the reports was good enough to show.
+**Question.** "When will this bus reach my stop?" is what a passenger wants. The BODS feed gives positions, not
+predictions. External live-departure data exists: NextBuses, run by TransportAPI since May 2026, has a free evaluation
+tier of 30 requests a day, and larger use is paid (`docs/LIVE_DEPARTURES_FEASIBILITY.md`). None is integrated. So the
+project asked whether an estimate made here, from the buses' own reports, was good enough to show.
 
 **Status: arrival predictions are disabled in both directions, by the owner's decision.** The page shows timetabled
 departures labelled as such, and tracked buses by how many stops away their last report was, never as minutes.
@@ -21,30 +22,36 @@ before the bus passes the stop:
 | sample | ≥ 150 passages from ≥ 20 journeys, including a weekday |
 
 Ground truth is an **inferred stop passage**: the moment a bus crossed a stop between two reports, timed by
-interpolation, with half the gap as its uncertainty. It is not "a report within 40 m of the stop".
+interpolation, with half the gap as its uncertainty. It is not "a report within 40 m of the stop". Every evaluation
+below is on route 15 (operator BNML), from this project's own captures: the development machine's before
+20 September, the server's since.
 
-## What happened
+## The evaluations, in order
 
-1. **20 September.** Fitted on 11–14 September, scored once on 17–20 September (63,397 moments, 1,436 passages):
-   median and p80 failed at 2–10 minutes. Nothing was shown.
-2. **28 September.** The owner authorised a pilot for outbound route 15 on four conditions. On held-out days it met
-   the criteria (median 1.20 min, p80 2.48 min, 253 journeys) **when moments were grouped by how far the bus truly
-   was**. Read on the moments a page would actually show (the *predicted* 2–10 minutes) it was median 1.57 and p80
-   3.79: over both thresholds. **No-go.** The page's estimator was first made identical to the evaluated one: on
-   every held-out route-15 journey, 2,078,969 answers agreed (5 of them 1 ms apart).
-3. **Found on the way: inbound 15's stops were numbered 14 out.** A route that starts outside the collected area had
-   its stop offsets paired by list position. The evaluation of that direction was invalid, and an earlier finding
-   that "inbound 15's timetable runs 15 minutes early" was an artefact of the same error: paired correctly, its first
-   observed stops read +2.6 min. The finding was **withdrawn everywhere it stood as current**, with dated corrections.
-4. **29 September.** Every stop is named by an explicit, versioned stop mapping (`docs/STOP_MAPPING.md`; 560 shapes,
-   15,960 stops within 15.7 m of the road at their offsets, 284 previously misread). The evaluation was frozen as
-   protocol `display-1` on the moments a page would show, with signed errors, interval coverage and results by
-   journey, and **pinned to the code that defines it**: `pipeline/arrival_protocol.py` hashes the defining files, a
-   day scored under any other digest is invalid, and an approval must cite a digest that exists only once the
-   results do. On the revision days (21–26 September) both directions fail: outbound median 1.70, p80 4.00, the bus
-   later than estimated at 72.8% of moments; inbound shown at only 2.1% of moments.
-5. **Confirmation, 29 September–5 October**, collected nightly and read once after 6 October. Three days scored so
-   far, all under the pinned digest. 6 October is a date for reading results, not a release date.
+| | data | read on | result | status |
+|---|---|---|---|---|
+| **1.** First held-out score (20 Sep) | fitted 11–14 Sep; scored once on 17–20 Sep; 63,397 moments, 1,436 passages | moments grouped by how far the bus truly was, 2–10 min | median and p80 over both thresholds | historical |
+| **2.** Outbound pilot reading (28 Sep) | held-out days 21–27 Sep, 253 journeys | (a) grouped by how far the bus truly was; (b) the moments a page would show, chosen by the *predicted* 2–10 min | (a) median 1.20, p80 2.48 min: pass; (b) median 1.57, p80 3.79 min: fail. No-go | historical; superseded by protocol `display-1` |
+| **3.** Protocol `display-1`, revision days | 21–26 Sep: outbound 252 journeys, 10,829 passages; inbound 249 journeys, 2,412 passages | the moments a page would show, every 5 s, as a page would compute them | outbound median 1.70 (95% by journey 1.60–1.80), p80 4.00 (3.70–4.30), coverage 84.8%; inbound median 1.65, p80 3.25, coverage 2.1%. Both fail | **current protocol**; revision days decide nothing |
+| **4.** Protocol `display-1`, confirmation | 29 Sep–5 Oct, scored nightly | as 3 | not yet read; three of seven days scored by 2 October, all under the pinned digest | **current**; read once, after 6 October |
+
+Reading 2 (b) and protocol `display-1` ask the same question, which moments a passenger would see; `display-1` also
+reproduces the page's own timing and stop mapping, and is the one that counts. 6 October is a date for reading the
+confirmation results, not a release date.
+
+## Found on the way
+
+- **Inbound 15's stops were numbered 14 out.** A route that starts outside the collected area had its stop offsets
+  paired by list position, so the inbound evaluation was invalid. An earlier operational finding, that "inbound 15's
+  timetable runs 15 minutes early", was an artefact of the same error: paired correctly, its first observed stops read
+  +2.6 min. The finding was **withdrawn everywhere it stood as current**, with dated corrections.
+- **Every stop is now named by an explicit, versioned mapping** (`docs/STOP_MAPPING.md`, 29 September): 560 shapes,
+  15,960 stops within 15.7 m of the road at their offsets, 284 previously misread.
+- **The page's estimator was made identical to the evaluated one** (28 September): on every held-out route-15
+  journey, 2,078,969 answers agreed, 5 of them 1 ms apart.
+- **`display-1` is pinned to its code.** It was frozen at 19:28 UTC on 28 September. Since 29 September,
+  `pipeline/arrival_protocol.py` hashes its defining files: a day scored under any other digest is invalid, and an
+  approval must cite a digest of the confirmation results, which exists only once they do.
 
 ## What this shows
 

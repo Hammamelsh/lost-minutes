@@ -11,6 +11,17 @@ One page, kept current. What is running, what is verified, what is not, and what
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
 
+## 3 October: a wording pass on the reader-facing documents (no code, no deploy)
+
+- **Contribution:** the README says what the owner does, as evidenced, and keeps the AI-assistance disclosure.
+- **Separate figures:** latency figures are stated as separate measurements, not summed; the consecutive-live-window
+  caveat is kept.
+- **Arrival figures by protocol:** each is identified by protocol, dates and population; the 28 September pilot
+  reading is marked historical, `display-1` is current, and its confirmation days are unread.
+- **The arrival case study** no longer says external departure data must be paid for.
+- **Scaling** is written as proposals that keep the observation identity, conflict withholding and validate-then-swap
+  publication.
+
 ## 2 October, late: CI's unit check able to fail, and the live-departures note corrected
 
 - **CI** (`57b93fe`): the systemd step ended in `|| true`, so a broken unit passed. It now runs
@@ -128,8 +139,9 @@ journey, not the whole app's speed.
 The page asks every 20 s on its own clock. Before, the collector wrote every 33 s and the two clocks drifted past
 each other, so the wait spread over 0–20 s. After, both run at 20 s, so a page's wait is fixed by when it was opened
 (the two after-runs' medians are their own few page loads, 5 and 6), and across passengers it should average about
-10 s. **Upstream was about a fifth of a report's age before** (11.5 of 51.9 s at the median) **and is about half of
-it now.**
+10 s. **Measured separately, at the median:** a report was 11.5 s old on our receipt before and 10.5 s after, against
+51.9 s before and 19.2 and 22.6 s after on reaching the page; our own receipt-to-written time was 32.0 s before and
+4.8 s after. These are separate measurements, not parts that add up.
 
 **The cause, and what the fix changed.** Two statements read all 12.8 million stored observations at every
 publication: percentiles for freshness figures no screen shows, and a ranking of every report ever made to find each

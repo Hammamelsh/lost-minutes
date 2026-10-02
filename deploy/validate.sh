@@ -19,40 +19,12 @@ echo "1. shell syntax"
 for f in deploy/*.sh; do bash -n "$f" && ok "$f" || bad "$f"; done
 
 echo "2. systemd units"
-if command -v systemd-analyze >/dev/null; then
-  scratch=$(mktemp -d)
-  mkdir -p "$scratch/srv/lost-minutes/app/.venv/bin" "$scratch/srv/lost-minutes/app/deploy" \
-           "$scratch/srv/lost-minutes/app/data/live-capture" "$scratch/srv/lost-minutes/app/public/data" \
-           "$scratch/etc/lost-minutes" "$scratch/etc/systemd/system" "$scratch/usr/bin" "$scratch/bin"
-  for exe in srv/lost-minutes/app/.venv/bin/python srv/lost-minutes/app/deploy/check-health.sh usr/bin/find bin/systemctl bin/cp; do
-    printf '#!/bin/sh\n' > "$scratch/$exe"; chmod +x "$scratch/$exe"
-  done
-  touch "$scratch/etc/lost-minutes/collector.env"
-  # The standard units every unit depends on (sysinit.target, timers.target and the rest), as
-  # this machine has them; without them verify stops at the first missing target.
-  if [[ -d /usr/lib/systemd/system ]]; then
-    mkdir -p "$scratch/usr/lib/systemd" && cp -r /usr/lib/systemd/system "$scratch/usr/lib/systemd/"
-  fi
-  cp deploy/systemd/lost-minutes-*.service deploy/systemd/lost-minutes-*.timer "$scratch/etc/systemd/system/"
-  units=$(cd deploy/systemd && ls lost-minutes-*.service lost-minutes-*.timer)
-  # The login sessions' memory ceiling is a drop-in for every user-UID.slice, checked on one of them.
-  mkdir -p "$scratch/etc/systemd/system/user-.slice.d"
-  cp deploy/systemd/user-.slice.d/*.conf "$scratch/etc/systemd/system/user-.slice.d/"
-  printf '[Unit]\nDescription=a login user'"'"'s slice, for the drop-in\n' > "$scratch/etc/systemd/system/user-1000.slice"
-  # verify exits 0 on a directive it does not know, and prints "Unknown key ..., ignoring": a misspelt
-  # MemoryMax or OOMScoreAdjust would pass here and be ignored on the server, the protection silently
-  # absent. Any such line fails the check.
-  # shellcheck disable=SC2086
-  if out=$(cd "$scratch/etc/systemd/system" && systemd-analyze verify --root="$scratch" --man=no $units user-1000.slice 2>&1) \
-     && ! grep -qiE 'unknown (key|section|lvalue)|failed to parse|invalid|ignoring' <<<"$out"; then
-    ok "$(echo $units | wc -w) units and the login sessions' memory ceiling"
-  else
-    echo "$out" | sed 's/^/        /'
-    bad "units"
-  fi
-  rm -rf "$scratch"
+# deploy/verify-units.sh holds the check, so CI runs exactly what this runs.
+if units_out=$(deploy/verify-units.sh); then
+  case "$units_out" in skipped:*) echo "   $units_out" ;; *) ok "${units_out#ok: }" ;; esac
 else
-  echo "   skipped: systemd-analyze is not installed"
+  echo "$units_out" | sed 's/^/     /'
+  bad "units"
 fi
 
 echo "3. Caddyfile"

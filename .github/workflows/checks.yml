@@ -84,5 +84,7 @@ jobs:
         run: |
           set -eu
           for script in deploy/*.sh scripts/preview.sh; do bash -n "$script"; done
-          # systemd-analyze is present on the runner image; unit files are checked, not started.
-          systemd-analyze verify deploy/systemd/lost-minutes-*.service || true
+          # The units are checked, not started, against a scratch root holding the paths they name; an unknown
+          # directive fails, and a runner without systemd-analyze fails and says so (until 2 October 2026 this line
+          # ended in `|| true`, so a broken unit passed).
+          deploy/verify-units.sh --require

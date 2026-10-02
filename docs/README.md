@@ -24,7 +24,7 @@
 | [`JOURNEY_STATE.md`](JOURNEY_STATE.md) | what the page remembers, where, and the screens in the browser's history |
 | [`STOP_MAPPING.md`](STOP_MAPPING.md) | the explicit, versioned mapping of stops to road offsets |
 | [`ARRIVAL_RELEASE_CRITERIA.md`](ARRIVAL_RELEASE_CRITERIA.md), [`ARRIVAL_DISPLAY_PROTOCOL.md`](ARRIVAL_DISPLAY_PROTOCOL.md) | the criteria (written before results) and the frozen protocol |
-| [`LIVE_DEPARTURES_FEASIBILITY.md`](LIVE_DEPARTURES_FEASIBILITY.md) | live departure times from NextBuses or TransportAPI: what exists, terms, cost, and the smallest pilot (2 October 2026) |
+| [`LIVE_DEPARTURES_FEASIBILITY.md`](LIVE_DEPARTURES_FEASIBILITY.md) | live departure times from NextBuses, now run by TransportAPI: what is published, what is unverified, and the smallest pilot (2 October 2026) |
 | [`ENGINEERING_OPPORTUNITIES.md`](ENGINEERING_OPPORTUNITIES.md) | recurring friction that could justify tooling, with evidence and status |
 | [`PHYSICAL_DEVICE_CHECKLIST.md`](PHYSICAL_DEVICE_CHECKLIST.md) | what only a phone in hand can answer; none of it is checked yet |
 | [`../deploy/README.md`](../deploy/README.md) | the server's units, install, deploy, rollback and memory limits |

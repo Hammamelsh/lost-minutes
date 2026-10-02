@@ -37,8 +37,9 @@ journey change and fixed, and the view from above kept private behind a password
   - **For reviewers:** `README.md` rewritten around what runs, with a Mermaid diagram checked by rendering it;
     `docs/EVIDENCE.md` ties each claim to code, a check and whether a fresh clone reproduces it; `docs/SETUP.md`'s
     demo and live paths were each run from a fresh clone; four case studies; superseded documents labelled.
-  - **Live departures** (`docs/LIVE_DEPARTURES_FEASIBILITY.md`): Traveline's NextBuses is the recommended pilot source;
-    no credential is held, so no sample was taken; the single account step is a NextBuses username from Traveline.
+  - **Live departures** (`docs/LIVE_DEPARTURES_FEASIBILITY.md`, revised the same evening): NextBuses is now run by
+    TransportAPI (migrated May 2026; HTTPS; free tier 30 requests a day); unverified, since no credential is held; the
+    single account step is a free TransportAPI developer account, and a sample stays within 30 requests a day.
   - **Corrected on the way:** CI's unit check cannot fail (opportunity 81); twelve days of stale status lines
     (opportunity 80); the live file is not `fsync`ed, now said.
 

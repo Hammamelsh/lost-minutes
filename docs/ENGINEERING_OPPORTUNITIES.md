@@ -2520,3 +2520,10 @@ run `deploy/validate.sh`.
 
 **Next cheap step.** Run `systemd-analyze verify` on the runner once without `|| true` and record what it reports.
 Status: `observed`.
+
+**2 October 2026, later: fixed.** The check `deploy/validate.sh` already made (a scratch root holding the paths the units
+name; any unknown directive fails) moved into `deploy/verify-units.sh`, which `validate.sh` and CI both run. In CI it
+runs with `--require`, so a runner without `systemd-analyze` fails and says so rather than passing. Shown on GitHub's
+runner (systemd 255): the units as committed passed (all 9 and the login sessions' ceiling); a temporary branch with
+`MemoryMax` misspelt failed with "Unknown key name 'MemoryMaxx' … ignoring", though `systemd-analyze` itself exited 0;
+the branch was then deleted. Locally, an impossible timer time and a missing executable also failed. Status: `fixed`.

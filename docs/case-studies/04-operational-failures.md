@@ -42,8 +42,8 @@ record.
   `docs/MILESTONE_2026-09-27_ROADS_MEMORY_REASONS.md`, `docs/MILESTONE_2026-09-28_RELIABILITY.md`,
   `docs/MILESTONE_2026-09-29_CLOSEOUT.md`, `docs/BACKLOG.md` (43, 46, 48).
 - Code: `pipeline/collect.py` (stop handling), `pipeline/jobs.py`, `deploy/check-health.sh`, `deploy/server-job.sh`,
-  `deploy/systemd/`, `deploy/validate.sh` (run on this machine before a deploy; CI checks only the shell scripts'
-  syntax, and runs `systemd-analyze verify` without failing on it).
+  `deploy/systemd/`, `deploy/verify-units.sh` (the units verified against a scratch root, failing on an unknown
+  directive; run in CI since 2 October 2026), `deploy/validate.sh` (that, plus the Caddyfile, before a deploy).
 - Tests: `tests/test_live_collection.py` (a stop during a query, during matching, swallowed by the warehouse; exit
   codes), `tests/test_jobs.py`, `tests/test_timetable_catalogue.py` (a non-timetable snapshot skipped; a shrunken
   build refused).

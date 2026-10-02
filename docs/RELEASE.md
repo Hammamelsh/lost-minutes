@@ -11,6 +11,21 @@ One page, kept current. What is running, what is verified, what is not, and what
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
 
+## 2 October, late: CI's unit check able to fail, and the live-departures note corrected
+
+- **CI** (`57b93fe`): the systemd step ended in `|| true`, so a broken unit passed. It now runs
+  `deploy/verify-units.sh --require`: the units are verified against a scratch root, an unknown directive fails, and a
+  runner without `systemd-analyze` fails and says so. Shown on GitHub's runner:
+  - the committed units passed (systemd 255);
+  - a temporary branch with `MemoryMax` misspelt failed, though `systemd-analyze` itself exited 0; the branch was
+    deleted afterwards.
+
+  `deploy/validate.sh` runs the same script. Nothing on the server changed.
+- **`docs/LIVE_DEPARTURES_FEASIBILITY.md` revised.** TransportAPI has run NextBuses since its May 2026 migration, so the
+  recommendation to apply to Traveline and the 2022 allowance are withdrawn, as is the suggestion that a server-only
+  credential made plain HTTP acceptable. The integration is unverified; any sample stays within the free 30 requests a
+  day.
+
 ## 2 October, evening: the planner's places deployed, and the documentation for reviewers
 
 **Deployed: `fead20d`** (built 20:43 UTC), with `1155e2f` kept for `deploy/rollback.sh`.

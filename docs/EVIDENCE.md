@@ -63,5 +63,7 @@ lists what only a phone can answer.
 ## What CI runs on every push (`.github/workflows/checks.yml`)
 
 Types, lint, the Node tests and the static build, with a scan of the built site for credential values and
-build-machine paths; the Python tests; the deployment scripts' shell syntax. It does not run the browser suite, the
-real feed, the real walking router, or `deploy/validate.sh`.
+build-machine paths; the Python tests; the deployment scripts' shell syntax; and the systemd units
+(`deploy/verify-units.sh --require`: an unknown directive fails, and so does a runner without `systemd-analyze`).
+It does not run the browser suite, the real feed, the real walking router, or the Caddyfile check in
+`deploy/validate.sh`.

@@ -142,7 +142,8 @@ prerequisites and the external services each one contacts, are in [`docs/SETUP.m
 - **Python** (the pipeline, matching, the arrival protocol, restore): 191 tests, 190 passed, 1 skipped (it needs the
   downloaded archive sample), 0 failed. **Node** (contracts, drawing, planning, navigation): 349 tests, 346 passed,
   3 skipped, 0 failed. Both in CI on `fead20d` (2 Oct 2026), which runs them on every push with type checking, lint,
-  the static build and a scan of the built site for credential values.
+  the static build, a scan of the built site for credential values, and a check of the systemd units that fails on
+  an unknown directive.
 - **Browser**: 534 checks in Chromium with software WebGL, desktop and phone emulation, about 1.4 hours locally; on
   `11eebf5` (2 Oct 2026) 483 passed, 51 skipped by design, 0 failed. Not in CI: it depends on external map tiles.
 

@@ -2482,3 +2482,41 @@ the planner's list of places ran 13 px past the right edge of a 390 px phone and
 22 September (a grid column that could not shrink below its input), fixed in the same commit. The remaining
 `dispatchEvent` uses are not selections (a pointer leaving the map, a page hidden); the study probe keeps one, after
 judging the step failed, only to walk an old build further. Status: `fixed`.
+
+## 80. Reader-facing status statements go stale with nothing to notice
+
+**Problem and evidence.** On 2 October 2026, twelve days after the server went live, the repository still told a
+reader the opposite in four places: the README ("not a hosted live service", "not yet hosted", "no scheduled time is
+shown"), `deploy/README.md` ("not provisioned"), `docs/HOSTING.md` ("Nothing has been provisioned") and
+PROJECT_CONTEXT's "Known limitations" ("Local only"). The GitHub description still described the 11 September archive
+replay. Each was true when written; nothing marks a statement about the present as one that needs revisiting.
+
+**Who hits it, workaround.** Anyone reading the repository first, a hiring reviewer most of all; the workaround was
+an audit by hand.
+
+**Recurrence and effort.** Once, found at the audit; about an hour to find and fix. Likely to recur whenever the
+status changes (hosting, a feature switched on or off).
+
+**Small fix, script, tool or product.** A small fix, made: a docs index that separates current reference from
+historical material, and a dated note at the top of each superseded document. A script that lists present-tense
+status phrases ("not provisioned", "not hosted", "is not shown") for review at each release would be cheap; no new
+tool is justified.
+
+**Next cheap step.** Read the README's status lines as part of each release record. Status: `fixed` (this instance).
+
+## 81. A CI check that cannot fail
+
+**Problem and evidence.** `.github/workflows/checks.yml` runs `systemd-analyze verify deploy/systemd/lost-minutes-*.service
+|| true`: a broken unit file passes. The stricter check, `deploy/validate.sh` (made strict on 27 September, after it had
+passed a misspelt directive silently), runs only by hand on the development machine, because it needs a Caddy binary.
+
+**Who hits it, workaround.** Whoever changes a unit; the workaround is remembering to run `deploy/validate.sh`.
+
+**Recurrence and effort.** Unknown; no unit fault has reached the server since 27 September.
+
+**Small fix, script, tool or product.** A small fix, not made in this documentation pass: gate on
+`systemd-analyze verify` with the runner's expected warnings filtered, or fetch a checksum-pinned Caddy in CI and
+run `deploy/validate.sh`.
+
+**Next cheap step.** Run `systemd-analyze verify` on the runner once without `|| true` and record what it reports.
+Status: `observed`.

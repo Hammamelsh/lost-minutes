@@ -1,277 +1,200 @@
 # Lost Minutes
 
-Find your bus stop in Manchester and the walk to it, see which reported buses are timetabled
-to call there and how old each report is, and follow one — at its reports, or at a clearly
-labelled estimate between them; or explore a recorded slice of bus movement and inspect the
-exact source behind a point.
+Manchester bus tracking and timetable-based journey planning, backed by an auditable Python/DuckDB pipeline and an
+interactive 3D map.
 
-## Project context
+**Live: <https://lost-minutes.duckdns.org>**. It has been hosted on one server since 20 September 2026; uptime is not
+measured. The interface has been tested in desktop and phone emulation, not yet on a phone in hand. Arrival
+predictions were built, evaluated and are **switched off** (they did not meet criteria written before the results).
 
-Lost Minutes is a personal data-engineering project by **Hammam Elshtewi**, a data engineer
-in Manchester. It exists to show how public transport data is actually collected, validated
-and published — end to end, with the evidence kept attached to every number on screen.
+<img src="docs/images/phone-stop-2026-10-02.png" width="320" alt="A 390 px phone screen: Piccadilly Gardens, Stop L, on
+the day map, with nearby buses labelled by route number, and below the map the stop's next departures marked
+Scheduled, not live: the 255 to Partington Terminus at 21:55, timetabled, in 10 minutes.">
 
-The design rule is that nothing on screen may claim more than the data supports. Every
-published observation keeps its original timestamp, its raw source file and that file's
-SHA-256 fingerprint, and any value the pipeline cannot justify is shown as unknown rather
-than filled in. Counts are reconciled rather than asserted: the totals in the Evidence and
-Operations views add up to the inputs they came from, including the records that were
-rejected or suppressed and why.
+*The served site at 21:45 on 2 October 2026, real data, in phone emulation.*
 
-Current stage: a local companion that collects the live feed on this machine in bounded runs
-and places each bus on a timetabled stop pattern, or states why it cannot, plus a historical
-replay of an 11-snapshot public archive sample, with a restartable DuckDB history of every
-input, run and publication behind both. It is deliberately **not** a hosted live service, a
-punctuality monitor or a delay predictor: no arrival time is predicted, progress is counted
-from the nearest pattern stop without a measured error bound, and no scheduled time is shown.
-Between reports, a bus on the three evaluated routes (15, 250 and 256) may be drawn at a
-labelled estimate, computed on the device and never stored or published.
-Roadmap work is tracked in `research/IMPLEMENTED.md`.
+## What it does
 
-![The ride-along filling a 390 px phone screen: a bar with Exit, "following the bus" and a question
-mark; a lime 3D bus seen from behind on Moss Lane West, inside a ground ring with a contact shadow
-and a dotted ESTIMATE trail; a Front view button; and a card reading "15 to Roedean Gardens,
-Estimated position, last report 27 s ago, last report nearest Chorlton Road, 9 stops before
-yours".](docs/images/phone-ride-along.png)
+- **Find a stop** by name, bus number or place, or nearby. A stop shows its timetabled departures (labelled as the
+  timetable) and the buses on its routes, each placed by its last report, with the report's age.
+- **Follow one bus** on the map, drawn between its own reports, or ride along with it in 3D. On three evaluated routes
+  a clearly labelled estimate may run up to two minutes past the last report; nothing is ever stored as a report.
+- **Plan a journey**, direct or with one change, from the operators' registered timetables, with the walks.
+- **Behind the data**: the pipeline's runs, cycles and publications as it recorded them, the evidence behind the
+  figures, and a replay of a recorded archive sample.
 
-*Following a real route 15 bus, on the real feed, through the temporary public link. The position is
-an estimate between reports and says so, with the age of the report it is estimated from.*
+It does not predict arrival times, show live departure minutes, or cover Metrolink.
 
-**Beta readiness, 17 September 2026.** The app is prepared for invited testing and is **not yet
-hosted**: it is served from this laptop through a temporary Cloudflare Quick Tunnel, so it stops
-when the laptop does and its address changes at every restart. The release record — what is
-verified, what is not, the supported scope, the measured figures and the costs — is in
-`docs/RELEASE.md`; what the app can and cannot say, service by service, is traced in
-`docs/COVERAGE.md`; the hosting decision that is waiting on the owner is at the end of
-`docs/HOSTING.md`. **No physical phone has been used for any check**; `docs/PASSENGER_TEST.md`
-carries the short script for that.
+## How it works
 
-Data comes from the Department for Transport's Bus Open Data Service via the Open
-Innovations / National Data Library archive (Open Government Licence v3.0), with road
-geometry from OpenStreetMap (ODbL). Attribution and licensing are in full at the end of
-this file.
+```mermaid
+flowchart LR
+  subgraph sources["Public sources"]
+    bods["BODS SIRI-VM feed<br/>every bus's latest position"]
+    txc["TfGM TransXChange timetables<br/>4 operator datasets"]
+    naptan["NaPTAN stops<br/>Greater Manchester"]
+  end
 
-## For reviewers: behind the data
+  subgraph server["One server: Ubuntu, systemd"]
+    collector["Collector<br/>pipeline/collect.py<br/>one writer lock<br/>feed every 20 s<br/>timetables hourly"]
+    raw[("Raw captures<br/>gzip, named by SHA-256")]
+    warehouse[("DuckDB warehouse<br/>observations, conflicts, quarantine,<br/>runs, cycles, publications")]
+    publish["Build, match to timetable patterns,<br/>validate, replace atomically<br/>pipeline/live.py"]
+    nightly["Nightly: timetable catalogue and stop<br/>departure boards (collector paused);<br/>arrival evaluation (nothing released)"]
+    files["Published JSON<br/>live.json · patterns.json ·<br/>departures/ · operations.json"]
+    caddy["Caddy, HTTPS<br/>static site and /data"]
+  end
 
-The passenger's page has no engineering in it. The header's **Behind the data** link opens a short
-account of the pipeline (collect, check, publish, freshness) and three views, each with its own
-address on the site:
+  subgraph dev["Developer machine"]
+    build["Next.js static export,<br/>road shapes (FOSSGIS Valhalla),<br/>tests"]
+  end
 
-- **Operations** (`/#operations`): what the archive pipeline did, run by run, with every total
-  reconciled against the history it came from.
-- **Evidence** (`/#evidence`): what the recorded sample can and cannot show, how the live view
-  works, and the motion model's held-out evaluation.
-- **Recorded journeys** (`/#recorded-journeys`): a replay of the 11 September 2026 archive sample,
-  labelled as a recording and never as live.
+  subgraph browser["Browser"]
+    app["Static app: polls live.json every 20 s,<br/>draws movement, plans journeys"]
+  end
 
-The code and its measurements are described in `docs/PIPELINE.md`, `PROJECT_CONTEXT.md` and
-`docs/LOCAL_VERIFICATION.md`.
+  external["On request from the browser:<br/>OpenFreeMap tiles, walking routes,<br/>place search"]
 
-## Working now
+  bods --> collector
+  txc --> collector
+  naptan -. "imported once" .-> warehouse
+  collector --> raw
+  collector --> warehouse
+  warehouse --> publish --> files
+  warehouse --> nightly --> files
+  files --> caddy
+  build -. "deploy/publish.sh (rsync)" .-> caddy
+  caddy --> app
+  app -.-> external
+```
 
-- A responsive React/TypeScript map and replay interface, with real OpenStreetMap roads.
-- An 11-snapshot public BODS archive sample from 11 September 2026, approximately
-  08:00–08:10 British Summer Time.
-- 3,426 accepted observations across 419 vehicle/journey tracks in the selected area.
-- Deduplication, invalid-observation rejection, conflict suppression, source fingerprints,
-  explicit archive labels and source-age handling.
-- A restartable DuckDB pipeline: raw bytes preserved outside Git and identified by
-  SHA-256, one row per observation identity, per-run checkpoints, recorded rejection and
-  conflict reasons, and reruns that add no duplicate analytical rows.
-- Validate-then-swap publication: a candidate is checked as a whole and only then moved
-  into place atomically, so a failed run leaves the last good snapshot serving.
-- An Operations view driven by those records: collection, processing and publication times,
-  source age, inputs, retained, repeats, conflicts, rejections, per-run outcomes, and every
-  total reconciled against the history it came from.
-- A mobile-first, stop-first Follow view: find a boarding point by location or search (with
-  its side of the road and today's services), see the buses at it now and those coming to it
-  in the timetable's stop order, follow one, and read the age of each report rather than a
-  reassuring "last updated". An original map style in daylight and night themes, a City view
-  and a ride-along with a generic 3D bus, each labelled for what it is.
-- Walking guidance to the chosen boarding point: a pedestrian route from
-  routing.openstreetmap.de (FOSSGIS e.V.'s OSRM foot profile), asked for only when the
-  passenger chooses to, with their location rounded to about 10 m, and drawn on the map with
-  its distance and time. A refused or inaccurate location, a stop too far to walk, and a
-  router failure each say what happened; a straight line is never passed off as a route.
-- Estimated movement between reports on evaluated routes. The estimate follows road
-  geometry checked against the buses' own reports, at the speed of the bus's recent reports,
-  eased off as the report ages, for a bounded time. Each new report corrects it smoothly. It
-  is labelled "Estimated position" with the real report age and scored on held-out captures
-  against the last report itself (Behind the data, Evidence). Showing reported positions only is one tap
-  away.
-- Timetable matching against TfGM TransXChange stop patterns: operator, timetable version,
-  operating day and direction are checked before position, and branches the position cannot
-  separate are kept unresolved rather than guessed.
-- A single-writer live collector for one shared Manchester feed, with repeated-payload
-  detection, bounded backoff and an evidence-led freshness policy. Phones read our published
-  state; no device ever contacts the data service.
-- Installable as a web app, with an offline state that says it is offline and keeps every
-  cached observation's original timestamps.
-- A Python archive importer and a separate credentialed, bounded live collector.
+The boundaries that matter: phones never contact BODS; only the collector writes to the warehouse; a published file
+is replaced only after it validates; the browser reads static files and does its own drawing and planning. The
+details are in [`docs/PIPELINE.md`](docs/PIPELINE.md) and [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
 
-It is **not a hosted live service or a validated delay monitor**. Buses are matched to
-timetabled stop patterns, not to individual journeys; stop passage is not inferred beyond the
-nearest pattern stop, and there is no scheduled-time comparison or arrival prediction. An
-estimated position is a drawing between reports, never evidence that a bus reached, left or
-served a stop.
-Tracks are reconstructed by observation time from sampled archive responses. They do not
-represent a complete stream of what was known at every moment.
+Where to look in the code:
+- `pipeline/collect.py`: the collector, its writer lock, per-cycle records and stage timings;
+- `pipeline/core.py`: parsing, quarantine reasons and observation identity;
+- `pipeline/warehouse.py`: the DuckDB schema and the repeat and conflict classification;
+- `pipeline/live.py`: building, validating and atomically publishing the live state;
+- `pipeline/match.py`: placing a bus on a timetable pattern, or refusing with a reason;
+- `lib/motion.ts`: how a bus is drawn between its reports; `lib/connections.ts`: journey planning;
+- `deploy/`: the systemd units, the health check, deploy and rollback.
 
-## Run locally in VS Code / WSL
+## Engineering decisions worth reading
 
-Node 22.13+ (Node 24 recommended for the included TypeScript test command), pnpm as
-specified in package.json, and Python 3.11+. Open THIS folder, not original-source.zip.
-No BODS key is required for the included archive replay.
+1. **One observation, defined.** Identity is (operator, vehicle, route, direction, journey, observation time). The
+   same identity at a different place is a conflict: both readings are kept and neither is published. Every response
+   is kept byte for byte, named by its SHA-256, and three clocks (observed, retrieved, published) are never merged.
+   [Case study 1](docs/case-studies/01-ingestion-identity-and-recovery.md).
+2. **Refuse rather than guess.** A bus is placed on a timetable pattern only when operator, timetable version,
+   operating day and direction agree; two equally good branches stay unresolved. Positions over 15 minutes old are
+   withheld and counted. Conflicts are withheld, not resolved.
+3. **Measure before optimising.** The collector times each stage in its own log. That showed two whole-history
+   queries taking 27.5 s of a 32 s cycle; bounding them cut the received-to-written median from 32.0 s to 4.8 s.
+   [Case study 2](docs/case-studies/02-latency-investigation.md).
+4. **Evaluate before releasing, and accept a no.** Arrival criteria were written before the results, the evaluation
+   is frozen and pinned to its code by hash, and the estimate stays off because it fails them.
+   [Case study 3](docs/case-studies/03-arrival-evaluation.md).
+5. **Reproduce production failures before fixing them.** A swallowed stop signal, an out-of-memory kill, a timetable
+   that was an error page. [Case study 4](docs/case-studies/04-operational-failures.md).
+
+## Measurements
+
+| What | Value | Basis |
+|---|---|---|
+| Stored live observations | 12.8 million | the warehouse, about 17:45 UTC, 2 Oct 2026 |
+| Vehicle activity records inside the area, per feed response | 630–658 | 203 responses, 17:54–19:17 UTC, 2 Oct 2026; a count per response, not buses in service |
+| Receipt to the file being written, per cycle (median) | 32.0 s → **4.8 s** | 72 and 131 cycles, consecutive live windows on 2 Oct 2026, before and after one change; not a same-input benchmark |
+| A report's age on reaching an emulated phone (median) | 51.9 s → 19.2 s and 22.6 s | one emulated phone, 20 minutes a run, same day |
+| Timetable coverage | 4 datasets, 206 observed services, 585 patterns; 133 observed services with no timetable held | the server's nightly build, 02:43 UTC, 2 Oct 2026 |
+
+Every figure, with its metric, window and sample, is in [`docs/EVIDENCE.md`](docs/EVIDENCE.md).
+
+## Guarantees, and their limits
+
+- **One writer.** An exclusive advisory file lock: a second collector refuses to start (it does not stop other
+  programs). This is one process on one machine, not distributed or exactly-once processing: loading is idempotent
+  (the same bytes add no rows).
+- **Atomic replacement of one file.** Each published file is written aside and renamed into place only after it
+  validates, so a reader never sees a half-written file. The live file is not `fsync`ed, so the newest write may not
+  survive a power cut. Files are replaced independently, and a deploy (rsync) is not atomic.
+- **Recovery.** A stopped run records why; a killed run is closed as abandoned by the next one; the warehouse can be
+  rebuilt from the captures (`pipeline/restore.py`). There is no off-server backup and no external alerting.
+- **Coverage.** Buses whose operator timetable is not held are shown at their reports but not placed on a route.
+- **Planning** uses registered timetables; a timetable not checked against real buses is said to be unchecked.
+- **Arrival predictions are disabled** in both directions.
+
+## Run it locally
+
+Credential-free (the map, stops, timetables, a recorded ride and the archive replay; no live buses):
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm dev          # the frontend alone
-pnpm dev:live     # the frontend and the collector together; Ctrl-C stops both cleanly
+pnpm build && pnpm start        # http://localhost:3000
 ```
 
-`pnpm dev:live` reads the key from `.env` on the Python side only. It never reaches the
-browser: verified by searching the served HTML, every JavaScript chunk and the static build
-for the key and finding it in none of them.
+Live collection needs a free BODS key, Python 3.11+ and a few minutes of first-run downloads. Both paths, with
+prerequisites and the external services each one contacts, are in [`docs/SETUP.md`](docs/SETUP.md).
 
-Open http://localhost:3000. The site reads two published JSON files and needs no Python
-and no API key. To run the pipeline that produces them, create the local environment once:
+## Tests
+
+- **Python** (the pipeline, matching, the arrival protocol, restore): 191 tests, 190 passed, 1 skipped (it needs the
+  downloaded archive sample), 0 failed. **Node** (contracts, drawing, planning, navigation): 349 tests, 346 passed,
+  3 skipped, 0 failed. Both in CI on `fead20d` (2 Oct 2026), which runs them on every push with type checking, lint,
+  the static build and a scan of the built site for credential values.
+- **Browser**: 534 checks in Chromium with software WebGL, desktop and phone emulation, about 1.4 hours locally; on
+  `11eebf5` (2 Oct 2026) 483 passed, 51 skipped by design, 0 failed. Not in CI: it depends on external map tiles.
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pipeline.run import      # fetch what is missing, load, publish
-.venv/bin/python -m pipeline.run status      # refresh and print the Operations payload
+pnpm test && pnpm typecheck && pnpm lint
+.venv/bin/python -m unittest discover -s tests
+scripts/setup-browser.sh && pnpm build && pnpm test:browser
 ```
 
-`import` is safe to repeat and safe to interrupt. See docs/PIPELINE.md for the table grain,
-the recovery semantics and the validation checks, and PROJECT_CONTEXT.md for the whole
-picture. For checks and a standalone export:
+## Limitations
 
-```bash
-pnpm test
-python3 -m unittest discover -s tests -v          # parser tests, no DuckDB needed
-.venv/bin/python -m unittest discover -s tests -v # adds the pipeline history tests
-pnpm build
-pnpm typecheck
-scripts/setup-browser.sh                          # once: browser libraries, no root needed
-pnpm test:browser                                 # the built site in a real browser with WebGL
-```
+- Tested in emulation only; nothing has been checked on a phone in hand.
+- A report is about 20 s old when it reaches a page (median, 2 Oct 2026): about 10 s upstream, about 5 s ours, and
+  0–20 s waiting for the page's next poll.
+- A bus's progress is counted in stops from its nearest pattern stop, with no measured error bound.
+- One server, one disk; uptime is not measured.
+- The 3D "front view" is a stylised map drawing, not imagery.
 
-`pnpm build` writes `out/`, which can be hosted independently as static files at the root
-of your own domain. `pnpm start` serves it locally using Python. GitHub holds the source;
-the website host serves the built output. This copy has no ChatGPT hosting requirement.
-GitHub Pages under /lost-minutes/ needs explicit base-path and fetch-URL configuration;
-the present build assumes a domain root. Backend collection must run separately: `deploy/`
-holds a ready but unprovisioned server configuration (Caddy with HTTPS, the collector and a
-nightly timetable rebuild under systemd), described in deploy/README.md and costed in
-docs/HOSTING.md.
+## At a larger scale
 
-To reproduce the sample, optionally run `python3 -m pipeline.import_archive`. It downloads
-the eleven named snapshots, caches them under data/raw/, and regenerates the replay.
-This is unnecessary just to run the website. Keep raw downloads out of Git.
+*Analysis written on 2 October 2026; none of this is built.*
+- **Storage**: a single DuckDB file with one writer suits one city on one machine. Many feeds would want
+  append-only, date-partitioned columnar files, with deduplication by the existing identity key.
+- **Per-cycle work must stay bounded.** The database load still joins each payload to the whole history
+  (3.4 s, growing); it should read only the payload's own time range.
+- **Delivery**: one static file polled every 20 s by every browser is cheap at this scale. Many viewers would want a
+  CDN with a short cache time, or a push channel, and polls aligned to publication.
+- **Operations**: stage timings live in the collector's log. A larger service would export them as metrics, alert on
+  them, and back captures up to object storage; content addressing already makes that incremental.
 
-Read docs/PIPELINE.md for the data model and recovery behaviour, docs/REVIEW.md for the
-verified critique and visual direction, docs/LOCAL_VERIFICATION.md for measured local
-results, docs/EXPORT_VERIFICATION.md for the original export checks, and
-docs/CLAUDE_HANDOFF.md for the working approach.
+## How this was built
 
-## Live capture
+Hammam Elshtewi directs this project: he sets its goals and scope, makes the product and release decisions recorded
+in these documents (for example keeping arrival predictions off), and reports what he finds using it. Most of the
+code, tests and documentation were written with an AI coding assistant (Anthropic's Claude, through Claude Code),
+working under the project's written rules ([`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md)). The application
+itself contains no AI features.
 
-Bounded live captures have run on the owner's machine with a registered key (12 and 13
-September 2026); the measured results are in docs/LOCAL_VERIFICATION.md. A checkout without a
-key publishes an honest `unavailable` state instead, and the interface says so rather than
-pretending.
+## Documentation
 
-### Setting up a key, exactly
+[`docs/README.md`](docs/README.md) is the index: start there for the case studies, the evidence page, the release
+record and the design notes; superseded material is labelled as historical.
 
-1. Register free at <https://data.bus-data.dft.gov.uk/account/signup/> and copy the API key
-   from your account page. Consumers of the location API must be registered.
-2. Put it in a local `.env` at the repository root:
+## Data and licences
 
-   ```bash
-   cp .env.example .env
-   # then edit .env and set BODS_API_KEY=your-key
-   ```
-
-   `.env` is ignored by Git. `pipeline/env.py` loads it when the collector starts; a value
-   already exported in your shell always wins over the file. Only the *names* loaded are
-   ever printed — never the values.
-3. Run a bounded capture:
-
-   ```bash
-   .venv/bin/python -m pipeline.collect --minutes 10
-   .venv/bin/python -m pipeline.collect --minutes 10 --timetable-url 'https://OFFICIAL_URL'
-   ```
-
-Never paste the key into a command, a source file, a commit or a browser asset. The
-collector redacts credential query parameters from everything it records, so the stored URL
-reads `api_key=[REDACTED]`.
-
-### What the collector does
-
-One writer at a time, enforced by a lock: a second run refuses to start rather than
-interleave. Each cycle is recorded with its outcome — `succeeded`, `repeat_payload`,
-`http_error`, `transport_error` or `malformed`. Identical bytes are recorded as a repeat and
-do **not** make the data look newer. Failures back off, bounded; an authentication rejection
-stops collection. Timetable versions are stored by content hash with their declared
-effective dates where the file states them — holding a timetable is not evidence that any
-journey has been matched to it.
-
-Every run records why it ended: its time limit, a stop signal (SIGINT, SIGTERM or SIGHUP),
-rejected credentials, or an exception. A run left `running` by an abrupt stop is closed by the
-next collector as `interrupted`, exit reason `abandoned`, at its last cycle, and no cause is
-guessed. The page labels a time-limited run as a local run with its end time, never as an
-always-on service.
-
-Operators must publish vehicle locations every 10–30 seconds, so the poll interval has a
-10-second floor: anything faster mostly returns a payload we already hold.
-
-Local execution stops when this machine stops. There is no scheduler and no hosted worker,
-so nothing in the interface is labelled continuously live.
-
-## Source and licensing
-
-Bus data: Department for Transport and contributing operators, via Open Innovations /
-National Data Library, under the Open Government Licence v3.0:
-https://data.datalibrary.uk/transport/BODS-ARCHIVE/
-https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
-
-Road geometry: © OpenStreetMap contributors, Open Database Licence 1.0. The selected road
-extract is in `public/data/roads.json`, including its source timestamp and attribution:
-https://www.openstreetmap.org/copyright
-The extract was obtained from the Overpass API. It is visual context and is not used to assert
-that a bus followed a particular road between sampled positions.
-
-Bus route shapes for the evaluated routes (`public/data/shapes/`) were generated from
-OpenStreetMap data (ODbL) by the FOSSGIS Valhalla service, and kept only where observed reports
-lie close to them. They carry labelled estimates between reports and are not evidence that a
-bus followed that road.
-
-Walking routes come from routing.openstreetmap.de (FOSSGIS e.V., OSRM foot profile, over
-OpenStreetMap data under the ODbL). They are asked for only when the passenger chooses to, with
-the passenger's location rounded to about 10 m, and the service logs requests under its own
-policy. The router is runtime configuration: `LM_WALKING_ROUTER` names another, or `none`
-switches walking routes off.
-
-## Where to look
-
-- `pipeline/core.py`: parsing, compound observation identity, conflicts and rejection.
-- `pipeline/warehouse.py`: the DuckDB schema, SQL transformations and run bookkeeping.
-- `pipeline/run.py`: the orchestrator, checkpointing and restart recovery.
-- `pipeline/publish.py`: candidate build, validation checks and the atomic swap.
-- `pipeline/operations.py`: the Operations payload and the reconciliation identities.
-- `pipeline/collect.py`: the single-writer live collector and its per-cycle record.
-- `pipeline/freshness.py`: the freshness policy and the measurements that justify it.
-- `pipeline/live.py`: the small published state every device refreshes.
-- `pipeline/capture.py`: source preservation, redaction and bounded fetching.
-- `lib/replay.ts`, `lib/operations.ts`, `lib/live.ts`: the frontend data contracts.
-- `components/follow-view.tsx`: the passenger view, favourites and the route-fitted map.
-- `lib/motion.ts`: reports, the estimate and the drawn position, kept apart;
-  `scripts/evaluate-motion.mjs` scores the estimate on held-out captures.
-- `lib/walking.ts`, `components/walk-guide.tsx`: walking routes, consent and every failure state.
-- `pipeline/shapes.py`: road shapes for service patterns, validated against observed reports.
-- `app/page.tsx`, `components/operations-view.tsx`: replay, evidence and operations views.
-- `research/source-verification.json`: measured sample results and source hashes.
-- `research/IMPLEMENTED.md`: implemented capabilities and remaining work.
-
-The owner learns while building. AI can implement changes; important definitions and
-claims must remain understandable, tested and supported by source evidence.
+- Bus positions and timetables: Department for Transport and contributing operators, via the Bus Open Data Service;
+  stops: NaPTAN. Open Government Licence v3.0. The recorded archive sample: Open Innovations / National Data Library
+  BODS archive, OGL v3.0.
+- Map tiles: OpenFreeMap, © OpenMapTiles, © OpenStreetMap contributors (ODbL). Road shapes for bus routes: generated
+  from OpenStreetMap data by the FOSSGIS Valhalla service (ODbL). Walking routes: FOSSGIS e.V.'s OSRM foot profile on
+  routing.openstreetmap.de, asked for only when the passenger chooses. Place search: Photon (komoot), © OpenStreetMap
+  contributors, and postcodes.io.
+- Bundled software: MapLibre GL JS (BSD-3-Clause), CesiumJS (Apache-2.0, private preview only), Inter and Space Grotesk
+  (SIL Open Font Licence, `public/fonts/LICENCES.txt`), shadcn/ui styles (MIT, `vendor/`).
+- Code: MIT, © 2026 Hammam Elshtewi ([`LICENSE`](LICENSE)).

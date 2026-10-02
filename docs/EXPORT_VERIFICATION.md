@@ -1,5 +1,7 @@
 # Export verification — 12 September 2026
 
+> **Historical, labelled 2 October 2026.** Checks on the original export, 12 September 2026. Current verification is recorded by commit in [`RELEASE.md`](RELEASE.md) and [`EVIDENCE.md`](EVIDENCE.md). Kept as written below.
+
 - Standalone Next.js 16.3.4 `next build --webpack`: passed; static out/index.html produced.
 - TypeScript `tsc --noEmit`: passed.
 - Node replay tests: 5/5 passed.

@@ -4,61 +4,145 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`1155e2f`**, deployed to the collector 2 October 2026 (the release sections below); the site the gated `95d1df6` build; the running release carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`fead20d`**, deployed 2 October 2026, 20:43 UTC: the site is the gated `11eebf5` build, re-stamped; the collector runs the pipeline of `1155e2f`, unchanged since; the documentation is in the commit after it. The running release carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
 
+## 2 October, evening: the planner's places deployed, and the documentation for reviewers
+
+**Deployed: `fead20d`** (built 20:43 UTC), with `1155e2f` kept for `deploy/rollback.sh`.
+- **The site** is the gated build of `11eebf5`, re-stamped: all 3,703 files equal once the build ID, the stamped chunk's
+  name and the stamp are swapped. Nothing in the frontend changed between `11eebf5` and `fead20d`.
+- **The collector** was not restarted (PID 396692 throughout). Its pipeline code has not changed since `1155e2f`.
+- **The browser gate on `11eebf5`:** 534 checks, 483 passed, 51 skipped by design, 0 failed (1.4 h, 19:18–20:42 UTC).
+- **Served:**
+  - the index and the 9 scripts and stylesheets it names are byte-identical to the build, and `/preview/` returns 401;
+  - the site was LIVE with 256 buses;
+  - with the real place service, the planner's list of places ends at 348 px on a 360 px phone and 378 px on a 390 px
+    one, with no sideways scroll (emulation).
+- **The frozen arrival evaluation is untouched.** None of its pinned files changed in any commit today. On the server
+  they hash to the pinned `c44d743a…`, and the three confirmation days scored so far carry that digest. Predictions
+  stay off in both directions.
+
+**The documentation, for a reader arriving cold** (the owner's brief of 2 October):
+- `README.md` rewritten: what the app does, the live link, a current screenshot, a Mermaid diagram of the real
+  boundaries (rendered in Chromium with Mermaid 11 to check it), the decisions worth reading, dated measurements,
+  guarantees and their limits, tests by commit, limitations, larger-scale trade-offs (labelled as analysis), and a
+  factual note on AI assistance for the owner's review.
+- New:
+  - `docs/EVIDENCE.md`: each claim, its code, its check, and whether a fresh clone can reproduce it;
+  - `docs/SETUP.md`: both setup paths, each run from a fresh clone today;
+  - four case studies in `docs/case-studies/`;
+  - `docs/README.md`: an index separating current reference from historical material;
+  - `docs/LIVE_DEPARTURES_FEASIBILITY.md`.
+- Fifteen superseded documents carry a dated historical note at the top, kept as written; PROJECT_CONTEXT's
+  pre-hosting "Known limitations" and "Next priorities" are labelled the same way.
+- Corrected:
+  - `deploy/README.md`, which said "not provisioned" and "stopped with SIGINT";
+  - `.env.example`, which listed two of the four timetable datasets.
+- GitHub: the description is now the one the owner gave, and the homepage is the live site.
+- Corrections to this day's earlier record, made in place:
+  - CPU is CPU time per wall-clock second over whole runs, not a lifetime `ps` average;
+  - memory names the cgroup's peak, page cache included, apart from the process's resident set, which did not fall;
+  - test counts are given as passed, skipped and failed, by commit.
+
 ## 2 October: where a report's age went, and the planner's places at the screen's edge
 
-**Deployed: `1155e2f`** to the collector, with `03a61df` kept for `deploy/rollback.sh`; the site unchanged, the gated
-`95d1df6` build but for its stamp (all 3,703 files equal once the build ID, the stamped chunk's name and the stamp
-are swapped). From the owner: a brief, planned collector restart to time each stage; keep the four parts of a
-report's age apart; measure them; optimise only a bottleneck the measurements show, and say so if upstream
-dominates; keep predictions off and heavy replays off the server. The account is backlog 48.
+**Collector: `1155e2f`**, deployed 18:33:56 UTC, with `03a61df` (the timings alone) kept for `deploy/rollback.sh`.
+**Site:** the gated `95d1df6` build, re-stamped (all 3,703 files equal once the build ID, the stamped chunk's name
+and the stamp are swapped); the CSS fix `11eebf5` is recorded below with its gate. From the owner: a brief, planned
+collector restart to time each stage; keep the four parts of a report's age apart; optimise only a bottleneck the
+measurements show; keep predictions off and heavy replays off the server. The account is backlog 48.
 
-- **Two planned restarts**, 17:53:56 (the timings, `03a61df`) and 18:33:56 UTC (the fix, `1155e2f`). Each stop was
-  recorded as `interrupted` by SIGTERM and exited 0; the next run published within 9 s; the last good `live.json`
-  stood in the meantime (it is replaced only after validation); the unit, its memory ceilings and threads are
-  untouched; no OOM, no restart by systemd.
-- **The four parts, measured** (REAL feed; the collector's journal, pooled over every new report; one phone on the
-  served site, `scripts/probes/delivery.mjs`; the clocks corrected by the measured 769 ms):
+**Restarts.** Two, both planned: 17:53:56 UTC (the timings) and 18:33:56 UTC (the fix). Each stop was recorded as
+`interrupted` by SIGTERM and exited 0, and the next run's first publication followed within 9 s. The last good
+`live.json` stood meanwhile: a publication file is replaced only after it validates. The unit, its memory ceilings
+and its thread settings are unchanged; no OOM kill, no restart by systemd.
 
-  | part | before (17:54–18:32 UTC) | after (18:34–19:17 UTC) |
-  |---|---|---|
-  | **upstream**: a report's age when the feed answered | 11.2 / 18.4 s | 10.4 / 17.4 s |
-  | the feed's answer to our receipt | 0.14 / 0.29 s | 0.14 / 0.31 s |
-  | **ours**: receipt to the file written | **32.0 / 35.3 s** | **4.8 / 5.6 s** |
-  | — fetch, store, parse | 0.29, 0.03, 0.08 s | 0.28, 0.03, 0.08 s |
-  | — the database load | 3.4 s | 3.4 s |
-  | — the publication: latest reports, matching, freshness, validation and the rest | 7.5, 0.41, 20.0, 0.004, 0.4 s | 0.72, 0.33, 0.13, 0.002, 0.3 s |
-  | a report's age when the file was written | 43.0 / 51.1 s | **15.6 / 22.9 s** |
-  | **the browser**: written to the page's first receipt | 10.2 / 18.4 s | 0–20 s, fixed per page (below) |
-  | a new report's age on reaching the page | 51.9 / 63.8 s | **19.2 / 38.2** and **22.6 / 35.1 s** |
-  | **the drawing's deliberate delay**: a chosen bus drawn behind real time | 61.9 / 70.8 s | **35.6 / 35.6 s** |
-  | — the margin it kept behind its newest report | −5.2 / 18.1 s (run dry) | 7.0 / 18.7 s |
+**How it was measured.**
+- *Server* (REAL feed): the collector's own journal, one line a cycle (`pipeline/collect.py`), summarised by
+  `scripts/stage-timings.py`. **Before:** build `03a61df`, 17:54–18:32 UTC, 72 cycles. **After:** build `1155e2f`,
+  18:34–19:17 UTC, 131 cycles. Same server, same warehouse (12.8 million stored live observations at about 17:45
+  UTC). Each feed response carried 636–658 and 630–651 vehicle activity records inside the service area. **This is
+  not a controlled same-input benchmark**: the inputs are consecutive live windows, and both are early evening, not
+  daytime (today's daytime cycles, 09:00–17:00 UTC, ran 34.6 s at the median over 824, as the "before" window's
+  32.6 s did).
+- *Browser*: one emulated phone (Chromium, 390 × 844) on the served site, `scripts/probes/delivery.mjs`, 20 minutes a
+  run: one run before (18:12–18:32), two after (18:36–18:56 at Piccadilly Gardens, 18:57–19:17 at Oxford Road). Its
+  clock corrected by the server's measured lead of 769 ms (±29 ms). Emulation, not a phone in hand.
 
-  Medians / 95th percentiles. Samples: 72 and 131 cycles; 26,832 and 38,271 new reports; 13,386, 18,587 and 16,311
-  reports at the page; 1,185 and 745 drawing samples on a bus under way. The feed carried 630–658 buses in the area
-  a payload in both windows, as it does by day; today's daytime cycles (09:00–17:00 UTC, 824) took 34.6 s, as the
-  "before" window's did. **Daytime itself is not the window measured**: these are early-evening hours, and the same
-  line is in the journal for any later window (`scripts/stage-timings.py`).
-- **Most of the delay was ours, not upstream's**, and it was two statements reading the whole history (12.8 million
-  observations) at every publication: percentiles for freshness figures no screen shows, and a ranking of every
-  report ever to find each bus's latest. Each now reads its own window (the latest from reports received in the last
-  24 hours, the figures from the last hour, each saying so), and the buses published are exactly the same, a test
-  holding them equal. The feed is read every 20 s again (it had been every 33 s).
-- **The server**, after: load average 0.6 against 2.0, the collector at 32% CPU against 165%, its cgroup at 0.55 GB
-  against 1.24 GB, and its soft memory limit not crossed (45,823 times in the first 22 minutes before).
-- **The animation was not touched.** It is drawn later than its newest report by the margin it needs to play
-  continuously (the median age on arrival plus 20 s, 30–60 s); before, the reports came older than that allows and
-  it ran dry; now it holds 7 s in hand, and the card's "as it was about N s ago" is the delay drawn.
-- **Left, measured, not changed:** the browser's poll, 0–20 s fixed per page by when it was opened, now the largest
-  part of ours (asking just after the next expected write would take about 10 s off the median; it changes every
-  phone's polling and needs its own check); the database load, 3.4 s and growing with the history (its join to every
-  stored observation could be bounded by the payload's own times); upstream's 10.4 s.
+**A report's age, per new report** (pooled over the reports each payload brought for the first time; counted in
+whole seconds; median / 95th percentile):
+
+| measured at | before (n = 26,832) | after (n = 38,271) |
+|---|---|---|
+| the feed's answer (upstream) | 11.2 / 18.4 s | 10.4 / 17.4 s |
+| our receipt | 11.5 / 18.5 s | 10.5 / 17.5 s |
+| the file a phone reads, written | 43.0 / 51.1 s | 15.6 / 22.9 s |
+
+**Our processing, per cycle** (wall time; median / 95th percentile over 72 and 131 cycles):
+
+| stage | before | after |
+|---|---|---|
+| **receipt to the file written** | **32.0 / 35.3 s** | **4.8 / 5.6 s** |
+| fetch (request to receipt) | 0.29 / 0.49 s | 0.28 / 0.51 s |
+| store, parse | 0.03, 0.08 s | 0.03, 0.08 s |
+| database load (classify, insert, record the cycle) | 3.42 / 4.16 s | 3.40 / 4.07 s |
+| publication, whole | 28.5 / 31.1 s | 1.50 / 1.69 s |
+| — freshness measurements | 20.0 / 22.2 s | 0.12 / 0.16 s |
+| — latest report per bus | 7.55 / 8.50 s | 0.72 / 0.85 s |
+| — matching (pattern catalogue loaded and every bus matched) | 0.41 / 0.58 s | 0.33 / 0.45 s |
+| — validation | under 0.01 s | under 0.01 s |
+| — trails, statistics, serialise, write, record | 0.38 s together | 0.27 s together |
+
+The **received-to-written median fell from 32.0 to 4.8 s** under those conditions. It is one stage of a report's
+journey, not the whole app's speed.
+
+**The browser and the drawing** (one emulated phone; median / 95th percentile):
+
+| measured | before | after |
+|---|---|---|
+| file written to the page's first receipt, per publication | 10.2 / 18.4 s (38) | 2.6 / 19.8 s (60), 4.1 / 15.2 s (61) |
+| a new report's age on reaching the page, per report | 51.9 / 63.8 s (13,386) | 19.2 / 38.2 s (18,587), 22.6 / 35.1 s (16,311) |
+| a chosen bus drawn behind real time, per 1 s sample while it reported | 61.9 / 70.8 s (1,185) | 35.6 / 35.6 s (745) |
+| the margin drawn behind its newest report, per sample | −5.2 / 18.1 s | 7.0 / 18.7 s |
+
+The page asks every 20 s on its own clock. Before, the collector wrote every 33 s and the two clocks drifted past
+each other, so the wait spread over 0–20 s. After, both run at 20 s, so a page's wait is fixed by when it was opened
+(the two after-runs' medians are their own few page loads, 5 and 6), and across passengers it should average about
+10 s. **Upstream was about a fifth of a report's age before** (11.5 of 51.9 s at the median) **and is about half of
+it now.**
+
+**The cause, and what the fix changed.** Two statements read all 12.8 million stored observations at every
+publication: percentiles for freshness figures no screen shows, and a ranking of every report ever made to find each
+bus's latest. Each now reads its own window.
+- **The buses published are unchanged**: a published report is at most 900 s old, so it was received inside the
+  24-hour window; `tests/test_live_collection.py` holds the windowed and whole-history results equal.
+- **What did change**: the published freshness measurements now cover the last hour (each figure says its window),
+  and the count of expired positions withheld now covers the positions received in the last 24 hours (the file's note
+  says so). `ourCycleSeconds` had been described as running to the publication; it ends when the response is loaded,
+  and its caveat now says so.
+- The feed is read every 20 s again; it had been every 33 s, because a cycle took longer than the interval.
+
+**The server, before and after** (the collector's cgroup):
+- CPU time per wall-clock second: **1.66** over the instrumented 40-minute run and 1.65 over the 15-hour run before
+  it; **0.31** over the first 79 minutes after (systemd's CPU accounting; the server has 2 vCPUs).
+- Memory: the cgroup's peak, page cache included, 1.7 GiB in the 40-minute run before and 1.30 GiB in the first 79
+  minutes after; its soft limit (`MemoryHigh`, 1.76 GiB) crossed 45,823 times in the first 22 minutes before and
+  not at all after. The **process's own resident set did not fall** (551 MiB at 22 minutes before, 740 MiB at
+  79 minutes after, rising with uptime): what changed is how much the database read through the page cache.
+
+**The animation was not changed.** `PLAYBACK` draws a bus the median age of its reports on arrival plus 20 s behind
+real time, held between 30 and 60 s. Before, reports arrived older than that ceiling allows and the drawing ran out
+of them; now it keeps the margin it was designed to keep, and the card's "as it was about N s ago" reads the delay
+drawn.
+
+**Measured, not changed:** the browser's 20 s poll (asking just after the next expected write would cut about 10 s
+from the median; it changes every phone's polling, so it needs its own check); the database load, 3.4 s and growing
+with the history (its classification joins each payload to every stored observation); upstream.
 
 **The place results' checks.** Fourteen selections of a search match or a place in four specs were made with
 `dispatchEvent('mousedown')`, which reaches an option wherever it is drawn. They, and the newer spec's two clicks,
@@ -67,16 +151,21 @@ uncovered at its middle, with nothing scrolled for it, and is then tapped on the
 computer; nothing is forced. The first run found what the old idiom hid: **the planner's list of places ran 13 px
 past the right edge of a 390 px phone and 41 px past a 360 px one**, its field's right border cut off, since
 22 September (a grid column that could not shrink below its input). Fixed in `11eebf5` (`minmax(0,1fr)`): the list
-ends at 378 and 348 px, with the To field, and the page never scrolls sideways. The five specs: 51 passed, 1 skipped
-by design (Escape, a keyboard's), none failed. **Correction to 1 October:** "the planner's places are on the screen"
-held for the bottom of the screen, not its right edge.
+ends at 378 and 348 px, with the To field, and the page never scrolls sideways. **Correction to 1 October:** "the
+planner's places are on the screen" held for the bottom of the screen, not its right edge.
 
-**Verified.**
-- Python 191 (four new: a timing line a cycle, published nowhere; a run's first payload counts no ages; the feed's
-  response time read only where it says one; the windows publish the same buses and say what they cover); Node 349;
-  typecheck; lint with no errors.
-- The arrival protocol's pinned files untouched (`pipeline/match.py` was changed for a sub-timing and put back, since
-  any change to it would have made the confirmation window's version a new one).
+**Verified, by commit.**
+- `1155e2f`, on this machine: Python 191 tests, 191 passed (four new: a timing line a cycle, published nowhere; a
+  run's first payload counts no ages; the feed's response time read only where it says one; the windows publish the
+  same buses and say what they cover); typecheck; lint with no errors.
+- `fead20d`, in CI: Python 191 tests, 190 passed, 1 skipped (the archive test, which needs the downloaded sample),
+  0 failed; Node 349 tests, 346 passed, 3 skipped, 0 failed; the build and its credential scan.
+- `11eebf5` (built locally before commit, the same CSS): the five changed specs, 51 passed, 1 skipped by design
+  (Escape, a keyboard's), 0 failed. Full gate on the build of `11eebf5`: 534 checks, 483 passed, 51 skipped by design, 0 failed (1.4 h, 19:18–20:42 UTC).
+- The frozen arrival evaluation: none of the protocol's pinned files changed in any commit (`pipeline/match.py` was
+  edited for a sub-timing and put back before commit); on the server they hash to the pinned `c44d743a…`, and the
+  three confirmation days scored so far (29 September–1 October) carry that digest. The evaluation imports
+  `pipeline/core.py`, which gained only the timing helper. Predictions stay off in both directions.
 
 ## 1 October, evening: finding the way, and going back
 

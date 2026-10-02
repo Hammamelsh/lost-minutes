@@ -1,5 +1,7 @@
 # Coverage: what Lost Minutes can say, and where it stops
 
+> **Historical, labelled 2 October 2026.** Coverage measured on 17–18 September 2026. Current counts are in the served catalogue's `coverage` block; [`EVIDENCE.md`](EVIDENCE.md) quotes them with their date. Kept as written below.
+
 Measured on **Thursday 17 September 2026**, with the counts refreshed on **Friday 18 September** against the catalogue published at
 `2026-09-17T14:29:50Z` and a live publication of 587 vehicles taken the same afternoon.
 Every figure here is reproducible: the in-product version of this audit is the coverage ledger

@@ -936,13 +936,20 @@ false "gone quiet" of backlog 47 came from the same cause. Where the time goes i
   | freshness measurements | 20.0 s | **0.13 s** |
   | latest report per bus | 7.5 s | **0.72 s** |
   | the whole publication | 28.5 s | **1.5 s** |
-  | ours: receipt to the file written (median / p95) | 32.0 / 35.3 s | **4.8 / 5.6 s** |
+  | ours: receipt to the file written (median / p95 per cycle) | 32.0 / 35.3 s | **4.8 / 5.6 s** |
   | a report's age when the file was written (median / p95) | 43.0 / 51.1 s | **15.6 / 22.9 s** |
   | the feed read every | 32.6 s | **20.0 s**, as configured |
   | a new report's age on reaching the page (median / p95) | 51.9 / 63.8 s | **19.2 / 38.2 s** and **22.6 / 35.1 s** (two runs, 18,587 and 16,311 reports) |
   | the file written to the page's first receipt (median / p95) | 10.2 / 18.4 s (38) | 2.6 / 19.8 s (60) and 4.1 / 15.2 s (61): fixed per page by when it was opened, 0–20 s (below) |
-  | the server: load average, the collector's CPU | 2.0, 165% | 0.6, 32% |
-  | the collector's cgroup; soft-limit crossings | 1.24 GB; 45,823 in 22 min | 0.55 GB; none |
+  | the collector's CPU time per wall-clock second (whole run; 2 vCPUs) | 1.66 (40 min) | 0.31 (first 79 min) |
+  | the cgroup's memory peak, page cache included; soft-limit crossings | 1.7 GiB in 40 min; 45,823 in the first 22 min | 1.30 GiB in 79 min; none |
+
+  Not a controlled same-input benchmark: consecutive live windows on the same server and warehouse, both early
+  evening. The process's own resident set did not fall (551 MiB at 22 minutes before, 740 MiB at 79 minutes after,
+  rising with uptime); what fell is the database's reading through the page cache. The buses published are the
+  same; the freshness figures' window (the last hour) and the expired count's scope (positions received in the last
+  24 hours) changed, and each says so. The release record (`docs/RELEASE.md`, 2 October) has every figure's metric,
+  unit, window and sample.
 
   **The drawing's own delay, unchanged in code.** `PLAYBACK` (`lib/motion.ts`) draws a bus the median age of its
   reports on arrival plus 20 s behind real time, held between 30 and 60 s, so it has a report interval in hand.

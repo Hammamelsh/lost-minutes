@@ -1,5 +1,7 @@
 # Passenger test: Lost Minutes beside the tester's usual app
 
+> **Historical, labelled 2 October 2026.** The script for the first passenger trial, 17 September 2026. The interface has changed since; [`CONNECTION_WALKTHROUGH.md`](CONNECTION_WALKTHROUGH.md) is the newer walkthrough. Kept as written below.
+
 One tester, one real journey they make, about 30 minutes. Lost Minutes on their own phone beside
 the app they normally use (Bee Network or Google Maps). Watch; do not help unless they are stuck
 for more than a minute, and write down where they hesitate, in their words.

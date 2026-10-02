@@ -1,5 +1,7 @@
 # First local session — 12 September 2026 (VS Code / WSL)
 
+> **Historical, labelled 2 October 2026.** Results measured on the development machine, 12–18 September 2026, before the project was hosted. Later results are in [`RELEASE.md`](RELEASE.md). Kept as written below.
+
 The existing export was installed and run in place. Nothing was rebuilt from scratch and no
 hosting platform was provisioned. This file records what was actually executed and observed.
 

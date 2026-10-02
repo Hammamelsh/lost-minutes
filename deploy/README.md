@@ -1,7 +1,8 @@
 # Deploying Lost Minutes
 
-Ready to use, **not provisioned**: nothing here has been bought or started. The costs and the
-choice of host are in `docs/HOSTING.md`; provisioning needs the owner's approval first.
+**In use since 20 September 2026** on one Hetzner CX23 (2 vCPUs, 4 GB, Ubuntu 26.04), serving
+<https://lost-minutes.duckdns.org>. The steps below are how a new server is set up; the original costing is in
+`docs/HOSTING.md` (historical), and buying or provisioning anything needs the owner's approval.
 
 What runs on the server:
 
@@ -9,8 +10,9 @@ What runs on the server:
 |---|---|---|
 | The website | Caddy serves `out/` over HTTPS, with its own certificate from Let's Encrypt | `Caddyfile` |
 | Published data | Caddy serves `/data/*` straight from `public/data`, where the pipeline writes | `Caddyfile` |
-| Collection | the collector under systemd, a 24-hour run restarted automatically, stopped with SIGINT so each run records why it ended | `systemd/lost-minutes-collector.service` |
-| Timetable patterns | rebuilt nightly at 03:40 (collection pauses for a few minutes: one writer) | `systemd/lost-minutes-refresh.*` |
+| Collection | the collector under systemd, a 24-hour run restarted automatically, stopped with SIGTERM (since 19 September 2026) so each run records why it ended | `systemd/lost-minutes-collector.service` |
+| Timetable patterns and stop boards | rebuilt nightly at 03:40 London time (collection pauses for a few minutes: one writer) | `systemd/lost-minutes-refresh.*` |
+| Arrival evaluation | nightly at 04:10 London time, on a copy of the warehouse; scores the frozen estimator and publishes nothing to passengers | `systemd/lost-minutes-arrival-eval.*` |
 | Watchdog | every 5 minutes, a collector that has not published for 10 minutes is restarted | `systemd/lost-minutes-health.*`, `check-health.sh` |
 | Raw-capture retention | installed, **off** until the 14-day policy is approved | `systemd/lost-minutes-retention.*` |
 

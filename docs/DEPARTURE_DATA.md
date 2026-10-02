@@ -1,5 +1,7 @@
 # Real departure times at a stop: what exists, what it costs, and what is built here
 
+> **Historical, labelled 2 October 2026.** Research of 22 September 2026, re-checked and extended in [`LIVE_DEPARTURES_FEASIBILITY.md`](LIVE_DEPARTURES_FEASIBILITY.md) (2 October 2026), which corrects how NextBuses is provided. Kept as written below.
+
 Checked on 22 September 2026. **Nothing was signed up for, no key was requested, no request was
 made to any paid endpoint and no charge was incurred.** Everything below is from each provider's
 own public pages; where a page could not be read, that is said rather than filled in.

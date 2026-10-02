@@ -1,5 +1,7 @@
 # Map lifecycle repair — 13 September 2026
 
+> **Historical, labelled 2 October 2026.** The map repair of 13 September 2026. Current verification is recorded by commit in [`RELEASE.md`](RELEASE.md). Kept as written below.
+
 Reviewed base: `59b6249fba044e96598b44d4fb61a4b6bad2024a` from
 `Hammamelsh/lost-minutes`. This repair was prepared in a separate checkout. It has not
 been pushed to the owner's repository or exercised in the owner's Windows browser.

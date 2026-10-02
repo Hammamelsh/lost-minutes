@@ -1,5 +1,7 @@
 # Hosting recommendation
 
+> **Historical, labelled 2 October 2026.** The hosting proposal, written before anything was bought. The decision was made (Hetzner CX23, no paid backups, a free subdomain) and the server has run since 20 September 2026; see [`RELEASE.md`](RELEASE.md) and [`PROVISIONING.md`](PROVISIONING.md). Kept as written below.
+
 A concrete proposal, costed from measured figures. **Nothing has been provisioned.** This
 needs your decision before anything is bought.
 

@@ -1,5 +1,7 @@
 # What Lost Minutes can take from God's Eye View and the Bee Network
 
+> **Historical, labelled 2 October 2026.** Design research, 13 September 2026; the interface has been built and changed since. Kept as written below.
+
 Research note, 13 September 2026. Written to answer one question: which ideas from
 [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view) (GEV) and from the Bee Network
 app would make Lost Minutes easier and better-looking for a passenger, without breaking the

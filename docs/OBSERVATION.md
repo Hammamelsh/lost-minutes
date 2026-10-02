@@ -1,5 +1,7 @@
 # The 48-hour observation
 
+> **Historical, labelled 2 October 2026.** A planned 48-hour observation that was never run as a separate exercise. The service has run continuously since 20 September 2026; its incidents are in [`case-studies/04-operational-failures.md`](case-studies/04-operational-failures.md). Uptime has not been measured. Kept as written below.
+
 **Status: not started.** It begins the hour Lost Minutes is hosted somewhere that stays up, and
 nothing about it may be reported before it has elapsed. The method is in `docs/RELEASE.md`.
 

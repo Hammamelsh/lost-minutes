@@ -1,5 +1,7 @@
 # Milestone checklist: walking guidance and credible bus tracking
 
+> **Historical, labelled 2 October 2026.** Requirement checklists, 13–21 September 2026. Later work is recorded in the milestone records and [`RELEASE.md`](RELEASE.md). Kept as written below.
+
 13 September 2026. One row per requirement in the owner's brief: what was built, the check or
 inspection behind it, and what still stands in the way. **Done** means implemented and
 verified. **Partial** means implemented with a stated limit. **Not done** means a named

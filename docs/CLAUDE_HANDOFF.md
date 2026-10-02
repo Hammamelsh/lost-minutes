@@ -1,5 +1,7 @@
 # Claude Code handoff
 
+> **Historical, labelled 2 October 2026.** The first session's handoff, 12 September 2026. The working rules now live in [`../AGENTS.md`](../AGENTS.md) and [`../CLAUDE.md`](../CLAUDE.md). Kept as written below.
+
 ## Owner and working approach
 Hammam is a Manchester data engineer seeking stronger DE/AE/DS and applied AI evidence.
 He already has an Energy Reconciliation portfolio project. Lost Minutes should add a

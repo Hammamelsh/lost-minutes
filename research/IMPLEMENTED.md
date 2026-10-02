@@ -1,5 +1,7 @@
 # Implementation record
 
+> **Historical, labelled 2 October 2026.** The implementation record to 14 September 2026. Later work is recorded in [`../docs/RELEASE.md`](../docs/RELEASE.md). Kept as written below.
+
 A real-data Manchester archive replay, a restartable local pipeline with a queryable
 history, and an Operations view built from that history. No continuous collection is
 deployed: the pipeline runs in one local WSL process and stops when that process stops.

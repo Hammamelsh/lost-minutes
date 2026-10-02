@@ -1,5 +1,7 @@
 # What to build next: a short decision note
 
+> **Historical, labelled 2 October 2026.** A decision note of 17 September 2026 on what to build next; kept as written. Kept as written below.
+
 Written 17 September 2026, after the Lost Minutes beta work. Two candidates were compared. The
 recommendation is neither of them as a separate product.
 

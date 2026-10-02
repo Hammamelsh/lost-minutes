@@ -1,5 +1,7 @@
 # Lost Minutes: from bus positions to a useful passenger experience
 
+> **Historical, labelled 2 October 2026.** A research and implementation brief, 12–14 September 2026; the interface has been built and changed since. Kept as written below.
+
 **Research and implementation brief for Hammam Elshtewi — 12 September 2026**
 
 **Recommendation:** Keep the existing project and data pipeline. Build the passenger experience around a selected stop, a clear destination and the buses that actually serve that stop. Add a geographically rich, optional 3D city view using the same trusted data. This gives the project both practical value and a striking demonstration of the engineering underneath it.

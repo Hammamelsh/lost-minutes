@@ -1,5 +1,7 @@
 # Review of the original first release
 
+> **Historical, labelled 2 October 2026.** An assessment of the original export (12 September 2026), with notes added to 23 September. It is not a current assessment: the project has been hosted and operated since 20 September. The current state is in [`RELEASE.md`](RELEASE.md). Kept as written below.
+
 Subjective assessment, based on source inspection and the owner's screenshot review:
 - Visual/product prototype: 7/10. Coherent styling and an excellent evidence concept, but
   sparse framing, limited visual hierarchy around an outcome, and no core measurement.

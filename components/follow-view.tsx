@@ -1931,10 +1931,12 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     onChooseConnection={o=>chooseConnection(o,connectionTimes?.get(o.key)??null)}/>;
  // The feed's state is about bus *positions*. Under a board of scheduled departures the word LIVE
  // on its own read as if the departures were live, so the status says what it is about.
- const feedWords=recording?`${recording.ended?'Recording ended':'Recorded ride'} · ${recording.date}`
-  :(copy.label==='LIVE'?'Live positions':copy.label==='CHECKING'?'Checking positions'
-  :copy.label==='ARCHIVE REPLAY'?'Recorded positions':`Positions ${copy.label.toLowerCase()}`)
-  +(publicationAgeSeconds!==null&&!loading?` · ${elapsedWords(publicationAgeSeconds)} ago`:'');
+ // Its state and its age each keep together: "Live positions · 21s ago" was cut to "Live positions · 21s a…" on a
+ // 360 px phone (4 October 2026), and where the line is too short now, the age goes to a second line, never lost.
+ const feedState=recording?recording.ended?'Recording ended':'Recorded ride'
+  :copy.label==='LIVE'?'Live positions':copy.label==='CHECKING'?'Checking positions'
+  :copy.label==='ARCHIVE REPLAY'?'Recorded positions':`Positions ${copy.label.toLowerCase()}`;
+ const feedAge=recording?recording.date:publicationAgeSeconds!==null&&!loading?`${elapsedWords(publicationAgeSeconds)} ago`:null;
  return <section ref={followRef} className={`follow panel-${panelMode} sheet-${sheet}${stop?' has-stop':''}${riding?' riding':''}${exploringBus?' exploring-bus':''}`}
    data-panel={panelMode} data-sheet={sheet} data-journey-plan={chosenJourney?`${chosenJourney.key}|${stage}`:pendingTrip?`pending:${pendingTrip.key}`:''}
    data-trip={trip&&tripPlan?`${tripPlan.option.key}|${trip.index}`:''}>
@@ -1956,7 +1958,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   </div>
   {stops.length>0&&mode!=='archive'&&<div className="follow-search">
    <StopSearch stops={stops} patterns={patterns} day={day} onSelect={selectStop} onSelectRoute={onSelectRoute} compact
-    placeholder="Stop, bus number or place"
+    placeholder="Stop, bus or place"
     onListChange={searchList} closeSignal={searchClose}
     places={recording?undefined:{near:here??device??null,onPick:openPlannerTo}}
     onFocusField={()=>{if(sheet!=='peek')sheetBeforeSearch.current=sheet;sheetTo('peek')}}
@@ -2005,7 +2007,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     <div className="sheet-row">
      <div className="sheet-title">
       <span className="sheet-words">{handleWords}</span>
-      <span className={`sheet-status ${copy.tone}`} data-feed-status>{feedWords}</span>
+      <span className={`sheet-status ${copy.tone}`} data-feed-status><span>{feedState}{feedAge?' ·':''}</span>{feedAge&&<> <span>{feedAge}</span></>}</span>
      </div>
      {mode!=='archive'&&<button className="sheet-refresh" onClick={onRefresh} disabled={refreshing}
       aria-label="Check for newer positions"><RefreshCw size={16} className={refreshing?'spin':''}/></button>}

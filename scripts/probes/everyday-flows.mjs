@@ -28,7 +28,7 @@ for (const size of [{name: 'phone-390', viewport: {width: 390, height: 844}, pho
   await page.goto('/');
   await waitForPaint(page).catch(() => {});
   // 1. The search: three sides of one road.
-  const search = page.getByRole('combobox', {name: /Stop, bus number or place/i}).first();
+  const search = page.getByRole('combobox', {name: /Stop, bus or place/i}).first();
   await search.fill('stretford mall');
   await page.waitForTimeout(700);
   await page.screenshot({path: join(out, `${size.name}-1-search.png`)});

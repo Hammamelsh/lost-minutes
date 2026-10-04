@@ -151,8 +151,52 @@ test('a fresh visitor is offered the two ways in, before any stop is chosen', as
   await expect(page.getByRole('button', {name: 'Buses near me'})).toBeVisible();
   await expect(page.locator('.follow-search input')).toBeVisible();
   await expect(page.locator('[data-plan-entry]')).toBeVisible();
-  // The search says it takes a bus number as well as a place.
-  await expect(page.locator('.follow-search input')).toHaveAttribute('placeholder', /number/i);
+  // The search says it takes a bus as well as a stop and a place. (Until 4 October 2026 "Stop, bus number or place",
+  // cut to "Stop, bus number or plac" on a 360 px phone and short by 2 px at 375; the owner chose shorter words.)
+  const placeholder = await page.locator('.follow-search input').getAttribute('placeholder');
+  expect(placeholder).toMatch(/stop/i);
+  expect(placeholder).toMatch(/bus/i);
+  expect(placeholder).toMatch(/place/i);
+});
+
+test('on a 360 px phone nothing on the first screen is cut short, and its controls are whole targets', async ({page}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile', 'a phone’s widths');
+  await page.setViewportSize({width: 360, height: 740});
+  await servePatterns(page);
+  await serveLive(page, [() => journeyLive()]);
+  await page.goto('/');
+  await waitForPaint(page);
+  // The search's words, measured in its own font against the room the field gives them.
+  const search = await page.locator('.follow-search input').evaluate(el => {
+    const s = getComputedStyle(el), c = document.createElement('canvas').getContext('2d');
+    c.font = `${s.fontWeight} ${s.fontSize} ${s.fontFamily}`;
+    return {need: c.measureText(el.placeholder).width, room: el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight)};
+  });
+  expect(search.need, 'the search’s placeholder fits its field').toBeLessThanOrEqual(search.room);
+  // The feed's state and age, each whole and inside the handle, never under the buttons beside it.
+  const status = page.locator('[data-feed-status]');
+  // "Live positions", not "Live": under a board of timetabled departures LIVE alone read as if they were live.
+  await expect(status).toContainText(/^Live positions · \d/i, {timeout: 15_000});
+  // Each part keeps together (nowrap), so one too long for the line would run on past the handle's edge: none does.
+  const rights = await status.evaluate(el => [...el.children].map(c => c.getBoundingClientRect().right));
+  expect(rights).toHaveLength(2);
+  const refresh = await page.locator('.sheet-refresh').boundingBox();
+  for (const right of rights) expect(right, 'left of the refresh button').toBeLessThanOrEqual(refresh.x);
+  // A whole target: Try Ride-along, and the route picker below, where its caption is part of the select.
+  const ride = await page.locator('[data-try-ride-link]').boundingBox();
+  expect(ride.width).toBeGreaterThanOrEqual(44);
+  expect(ride.height).toBeGreaterThanOrEqual(44);
+  const picker = page.locator('#follow-route');
+  await picker.scrollIntoViewIfNeeded();
+  const [select, box] = await Promise.all([picker.boundingBox(), page.locator('.picker.route').boundingBox()]);
+  expect(select.height).toBeGreaterThanOrEqual(44);
+  expect(select.width).toBeGreaterThanOrEqual(44);
+  expect(Math.abs(select.y - box.y), 'the select is the whole box, caption included').toBeLessThanOrEqual(2);
+  // Its neighbour, the save star, is a separate target that does not overlap it.
+  const star = await page.locator('.follow-save').boundingBox();
+  expect(star.x).toBeGreaterThanOrEqual(select.x + select.width);
+  expect(star.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll').toBe(true);
 });
 
 test('a boarding point is chosen by tapping its sign on the map, without knowing its name', async ({page}) => {
@@ -249,7 +293,7 @@ for (const {zoom, width, height} of [{zoom: '150%', width: 911, height: 512},
       // layout, the block in the panel on a wide one. Both are in the DOM; one of them is shown.
       {name: 'the stop', locator: page.locator('.your-stop-copy strong:visible, .sheet-words:visible').first()},
       {name: 'Change stop', locator: page.getByRole('button', {name: 'Change stop', exact: true}).first()},
-      {name: 'the search', locator: page.getByRole('combobox', {name: /Stop, bus number or place/i}).first()},
+      {name: 'the search', locator: page.getByRole('combobox', {name: /Stop, bus or place/i}).first()},
       {name: 'the departures', locator: page.locator('.departures .section-head').first()},
     ]) {
       await expect(locator, `${name} at ${zoom}`).toBeVisible();

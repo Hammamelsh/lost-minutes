@@ -88,7 +88,7 @@ test('stops are listed around the chosen starting point, not around the device',
   await page.goto('/');
   await waitForPaint(page);
   // No location pressed at all: the page must still search and browse.
-  await page.getByRole('combobox', {name: 'Stop, bus number or place'}).first().fill('stretford mall');
+  await page.getByRole('combobox', {name: 'Stop, bus or place'}).first().fill('stretford mall');
   await chooseOption(page.locator('.stop-search-option').first());
   await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
   await expect(page.locator('.waiting')).toBeVisible();

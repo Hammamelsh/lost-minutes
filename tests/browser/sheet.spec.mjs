@@ -42,7 +42,7 @@ test.describe('the sheet', () => {
     const box = await panel(page).boundingBox();
     expect(box.height, `${box.height}px of a 664px screen`).toBeGreaterThan(664 * 0.75);
     // And the one control that has to stay reachable from it, the search, is still above it.
-    const search = await page.getByRole('combobox', {name: /Stop, bus number or place/i}).boundingBox();
+    const search = await page.getByRole('combobox', {name: /Stop, bus or place/i}).boundingBox();
     expect(search.y + search.height, 'the search bar is above the sheet').toBeLessThanOrEqual(box.y + 1);
     await page.waitForTimeout(1500);
     await expect(follow(page), 'and it stays there').toHaveAttribute('data-sheet', 'full');
@@ -116,7 +116,7 @@ test.describe('the sheet', () => {
     await openStop(page);
     await page.locator('[data-sheet-toggle]').click();
     await expect(follow(page)).toHaveAttribute('data-sheet', 'full');
-    const search = page.getByRole('combobox', {name: /Stop, bus number or place/i});
+    const search = page.getByRole('combobox', {name: /Stop, bus or place/i});
     await search.focus();
     await expect(follow(page), 'folded for the keyboard and the matches').toHaveAttribute('data-sheet', 'peek');
     await page.keyboard.press('Escape');

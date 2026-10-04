@@ -1642,9 +1642,12 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
  .follow>.vector-map .map-views{top:60px}
  .follow>.vector-map .map-notice{top:186px}
  .follow>.vector-map .map-tools{top:60px}
- /* Cut short rather than run under the buttons beside it: "positions not collecting · 13 days ago"
-    is longer than the handle has room for on a 390 px phone (26 September 2026). */
- .sheet-status{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8aa8b9;white-space:nowrap}
+ /* Never run under the buttons beside it, and never lose the age: "positions not collecting · 13 days ago" is longer
+    than the handle has room for on a 390 px phone (26 September 2026), and was cut short; the state and the age now
+    each keep together, and a long state puts its age on a second line (4 October 2026, after "Live positions ·
+    21s a…" on a 360 px phone). */
+ .sheet-status{display:block;max-width:100%;font-size:11px;line-height:1.35;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#8aa8b9}
+ .sheet-status>span{white-space:nowrap}
  .sheet-status.live{color:#c6f36a}
  .sheet-status.warn,.sheet-status.bad{color:#ffce8f}
 }

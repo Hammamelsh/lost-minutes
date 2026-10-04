@@ -511,10 +511,10 @@ export default function Home(){
   <span>Recorded {archiveDate}, {clock(data.start)}–{clock(data.end)} BST</span><small>Historical observations · not live</small></p>:null;
  return <main className="app-shell">
   <a className="skip-link" href="#content-start">{away?'Skip to the content':'Skip to your stop and buses'}</a>
-  <header className="masthead"><Link className="brand" href={preview?'/preview/':'/'} aria-label="Lost Minutes home" onClick={event=>{if(away){event.preventDefault();show('follow')}}}><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link><span className="location-label">MANCHESTER / UK</span>
+  <header className="masthead"><div className="brand-block"><Link className="brand" href={preview?'/preview/':'/'} aria-label="Lost Minutes home" onClick={event=>{if(away){event.preventDefault();show('follow')}}}><span className="brand-mark"><Route size={23}/></span>lost minutes<span className="brand-period">.</span></Link>{/* What the site is, in three words, at every size (4 October 2026: a phone showed only the name). */}<span className="brand-tagline">Live Manchester buses</span></div>
    {away
     ?<a href="#follow" onClick={event=>{event.preventDefault();show('follow')}} className="header-link back"><ArrowLeft size={16}/>Back to buses</a>
-    :<a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}} className="header-link">Behind the data <ArrowUpRight size={16}/></a>}</header>
+    :<a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}} className="header-link">How it’s built</a>}</header>
   {preview&&<p className="preview-banner" role="note" data-preview={previewPhoto3d?previewPhoto3d.provider:'none'}>
    <strong>Private preview</strong>
    <span className="preview-banner-long">{previewPhoto3d?'The view from above is on under Explore Manchester. It is not public.'
@@ -589,6 +589,6 @@ export default function Home(){
   </section>}
   <SiteNotes feed={liveMode} publishedAgo={publishedAge===null?'':`${elapsedWords(publishedAge)} ago`} stop={null}
    photo3d={(preview?(previewPhoto3d??config.photo3d):config.photo3d)?.provider??null}/>
-  <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a>{!away&&<> · <a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}}>Behind the data: how it is built</a></>}</p></footer>
+  <footer className="footer"><span>lost minutes<span className="brand-period">.</span> <span className="footer-caption">Made to make the journey clearer.</span></span><p>{data?.attribution??'Public bus observations with explicit source provenance.'} <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noreferrer">OGL v3.0</a>{!away&&<> · <a href="#behind-the-data" onClick={event=>{event.preventDefault();show('operations','#behind-the-data')}}>How it’s built</a></>}</p></footer>
  </main>
 }

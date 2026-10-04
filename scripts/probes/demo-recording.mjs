@@ -99,7 +99,7 @@ if (await front.count()) {
 await page.getByRole('button', {name: 'Exit ride-along'}).click();
 await beat('back at the stop', 2200);
 
-await page.getByRole('link', {name: /^Behind the data/}).first().click();
+await page.getByRole('link', {name: 'How it’s built'}).first().click();
 await page.evaluate(() => scrollTo(0, 0));
 await beat('behind the data', 2500);
 await page.locator('.coverage').scrollIntoViewIfNeeded().catch(() => {});

@@ -168,7 +168,7 @@ async function disturbance() {
     await new Promise(r => setTimeout(r, 4000));
     await page.locator('.sheet-toggle').first().click({timeout: 5000}).catch(() => {});
   } else if (disturb === 'panel') {
-    await page.getByRole('link', {name: /Behind the data/i}).first().click({timeout: 5000}).catch(() => {});
+    await page.getByRole('link', {name: /How it.s built/i}).first().click({timeout: 5000}).catch(() => {});
     await new Promise(r => setTimeout(r, disturbFor * 1000));
     await page.getByRole('button', {name: /Back to buses/i}).first().click({timeout: 5000}).catch(() => {});
   }

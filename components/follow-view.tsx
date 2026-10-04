@@ -1757,7 +1757,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   :emptyKind==='no_reports'?`${serviceNames(runningServices)} ${runningServices.length===1?'is':'are'} timetabled here today, but no bus on ${runningServices.length===1?'it':'them'} has a current report.`
   :null;
  const emptyAside=emptyKind==='no_reports'?'A missing report does not mean no bus is running: the operator’s feed can leave vehicles out. Nothing is guessed to fill the gap.'
-  :emptyKind==='no_coverage'?'The timetables held cover four operators (docs under Behind the data). Buses reported nearby are still listed.'
+  :emptyKind==='no_coverage'?'The timetables held cover four operators (see How it’s built). Buses reported nearby are still listed.'
   :emptyKind==='old'?`Reports older than ${expiryMinutes} minutes are not drawn as current.`
   :emptyKind==='unsettled'?'The operator’s reported destination can settle it as the bus goes on. Nothing else is guessed.'
   :null;

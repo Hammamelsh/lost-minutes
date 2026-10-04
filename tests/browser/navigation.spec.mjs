@@ -1,6 +1,6 @@
 // The passenger's page and the views behind the data, and coming back to the app. FIXTURE buses on a
 // FIXTURE timetable over real NaPTAN stops around Stretford Mall. The passenger's page has no tabs
-// and never waits for the recording; the engineering views sit under "Behind the data", open from
+// and never waits for the recording; the engineering views sit under "How it’s built" (the "Behind the data" area), open from
 // a link or the address, and going there and back changes nothing the passenger chose.
 import {test, expect} from '@playwright/test';
 import {fastConfig, movingLive, serveLive, serveMotion, servePatterns, waitForPaint} from './fixtures.mjs';
@@ -32,7 +32,10 @@ test('the passenger’s page has no tabs, and finding a stop does not wait for t
   await expect(page.getByRole('button', {name: 'Buses near me'})).toBeVisible();
   await expect(page.getByRole('tab')).toHaveCount(0);
   await expect(page.getByText('Loading the Manchester recording')).toHaveCount(0);
-  await expect(page.getByRole('link', {name: /^Behind the data/}).first()).toBeVisible();
+  await expect(page.getByRole('link', {name: 'How it’s built'}).first()).toBeVisible();
+  // What the site is, on the first screen at every size, under its name.
+  await expect(page.locator('.brand-tagline')).toHaveText('Live Manchester buses');
+  await expect(page.locator('.brand-tagline')).toBeInViewport();
 });
 
 test('with no recording at all the passenger’s page still works, and the recorded view says why it is empty', async ({page}) => {
@@ -49,7 +52,7 @@ test('behind the data: one entry, three views, links straight to each, and Back 
   await open(page);
   await page.goto('/');
   await waitForPaint(page);
-  await page.getByRole('link', {name: /^Behind the data/}).first().click();
+  await page.getByRole('link', {name: 'How it’s built'}).first().click();
   await expect(page).toHaveURL(/#behind-the-data$/);
   await expect(dataTitle(page)).toBeFocused();
   await expect(page.locator('.data-steps li')).toHaveCount(4);
@@ -94,7 +97,7 @@ test('going behind the data and back keeps the stop, the chosen bus, the ride-al
     await expect(map(page)).toHaveAttribute('data-ride', 'off');
     await expect(card).toHaveAttribute('data-vehicle', vehicle);
   }
-  await page.getByRole('link', {name: /^Behind the data/}).first().click();
+  await page.getByRole('link', {name: 'How it’s built'}).first().click();
   await expect(dataTitle(page)).toBeVisible();
   await expect(page.locator('#follow')).toHaveAttribute('inert', '');
   await page.waitForTimeout(12_000);                  // publications go by while the passenger is away

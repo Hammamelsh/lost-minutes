@@ -102,6 +102,20 @@ test.describe('with the device\'s location allowed', () => {
   });
 });
 
+// Fit journey (4 October 2026): with nothing chosen it moved the camera about 35 m, to the buses nearest the middle,
+// while its name promised "you, your stop and the selected bus". It is offered with something to frame, named by it.
+test('Fit journey is offered only with something of the passenger\'s to frame, and its name says what it frames', async ({page}) => {
+  await open(page);
+  await expect(follow(page)).toHaveAttribute('data-panel', 'home');
+  await expect(page.getByRole('button', {name: /^Fit journey/})).toHaveCount(0);
+  await open(page, `/?stop=${STOP_A}`);
+  const fit = page.getByRole('button', {name: /^Fit journey/});
+  // No location was allowed here: the stop, and the bus the page suggests for it, and not "you".
+  await expect(fit).toHaveAccessibleName('Fit journey: your stop and the suggested bus', {timeout: 15_000});
+  await page.locator('.waiting .follow-row').first().click();
+  await expect(fit).toHaveAccessibleName('Fit journey: your stop and your bus');
+});
+
 // A shared bus link (4 October 2026). It opened the start, the bus's card under the fold saying "not in the list below"
 // with no list there. It opens what the page that shared it showed: the bus's details, over the stop the link names.
 const COMING = encodeURIComponent('BNML|FX-COMING|256|inbound|FX-FX-COMING');

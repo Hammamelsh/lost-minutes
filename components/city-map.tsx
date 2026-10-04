@@ -2250,6 +2250,26 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   });
  },[here,stop,selected,buses,walk,destination,journey,framing,move]);
 
+ // What Fit journey frames, in words, as fitRelevant frames it: a trip's step, or a journey's legs, or you, your stop, the
+ // bus shown, the walk and the destination. With none of those it has nothing of the passenger's to frame, and is not
+ // offered: on 4 October 2026, with nothing chosen, it moved the camera about 35 m, to the buses nearest the middle,
+ // while its name promised "you, your stop and the selected bus". You alone is Locate me's to show.
+ const fitWords=(()=>{
+  if(framing&&framing.points.length)return 'this step of your trip';
+  if(journey){
+   const legs=journey.focus==='whole'?journey.legs:journey.legs.filter(l=>l.n===(journey.focus==='first'?1:2));
+   if(!legs.length&&!journey.transfer)return null;
+   const what=journey.legs.length<2?'your journey':legs.length>1?'both legs of your journey'
+    :`the ${legs[0]?.n===2?'second':'first'} leg of your journey`;
+   return journey.transfer?`${what} and the change`:what;
+  }
+  const label=busLabel.replace(/ · .*$/,'').toLowerCase();
+  const bus=selected?(label.startsWith('your ')?label:`the ${label}`):null;
+  const parts=[stop||selected||walk||destination?here&&'you':null,stop&&'your stop',walk&&'the walk',bus,
+   destination&&'your destination'].filter((part):part is string=>Boolean(part));
+  return parts.length?parts.length===1?parts[0]:`${parts.slice(0,-1).join(', ')} and ${parts.at(-1)}`:null;
+ })();
+
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
  // bus, a found location. It never moves on an ordinary refresh.
  const fitLatest=useRef(fitRelevant);
@@ -2579,11 +2599,11 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     <button aria-pressed={view==='2d'} onClick={()=>onViewChange('2d')}>2D</button>
     <button aria-pressed={view==='city'} onClick={()=>onViewChange('city')}>City</button>
    </div>
-   <button className="fit-journey" onClick={()=>{
+   {fitWords&&<button className="fit-journey" onClick={()=>{
      if(onWantMap){onWantMap();requestAnimationFrame(()=>requestAnimationFrame(()=>fitRelevant(VIEW_CAMERA[view],true)))}
      else fitRelevant(VIEW_CAMERA[view],true);
     }}
-    aria-label="Fit journey: you, your stop and the selected bus"><Scan size={15}/>Fit journey</button>
+    aria-label={`Fit journey: ${fitWords}`} data-fit={fitWords}><Scan size={15}/>Fit journey</button>}
   </div>}
 
   <div className="map-tools">

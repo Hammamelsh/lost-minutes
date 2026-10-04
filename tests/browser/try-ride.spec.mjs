@@ -149,7 +149,7 @@ test('three different services come first, and a row keeps its destination whole
   }
 });
 
-test('the way in from the first screen: a quiet line under Buses near me opens the section', async ({page}, testInfo) => {
+test('the way in from the first screen: a secondary button under Buses near me opens the section', async ({page}, testInfo) => {
   await servePatterns(page);
   await roadOnly(page);
   await noRecordings(page);
@@ -158,12 +158,22 @@ test('the way in from the first screen: a quiet line under Buses near me opens t
   await waitForPaint(page);
   const link = page.locator('[data-try-ride-link]');
   await expect(link).toBeVisible();
-  await expect(link).toContainText('Or try Ride-along');
-  // Finding a stop stays the primary task: the big button is Buses near me, the ride is a text line.
+  // A button, recognisably (4 October 2026, the owner: "a clearly recognisable secondary button"; it was a line of
+  // text, 144 x 37 px), saying the ride is drawn from the bus's reports, not predicted.
+  await expect(link).toHaveAccessibleName(/^Try Ride-along/);
+  await expect(link).toContainText('from its reports');
+  // Finding a stop stays the primary task: Buses near me is first, filled and taller; the ride is outlined, not filled.
   const primary = page.getByRole('button', {name: 'Buses near me'});
   const [big, small] = await Promise.all([primary.boundingBox(), link.boundingBox()]);
   expect(big.height).toBeGreaterThan(small.height);
   expect(small.y).toBeGreaterThan(big.y);
+  expect(small.width, 'a whole target, not a line of text').toBeGreaterThanOrEqual(44);
+  expect(small.height).toBeGreaterThanOrEqual(44);
+  const look = await Promise.all([primary, link].map(b => b.evaluate(e => {
+    const s = getComputedStyle(e); return {fill: s.backgroundColor, border: s.borderTopWidth};
+  })));
+  expect(look[1].fill, 'the secondary is not filled like the primary').not.toBe(look[0].fill);
+  expect(parseFloat(look[1].border), 'and has an outline').toBeGreaterThan(0);
   await link.click();
   await expect(section(page)).toBeInViewport({timeout: 5000});
   if (testInfo.project.name === 'mobile') await expect(page.locator('.follow')).toHaveAttribute('data-sheet', 'full');

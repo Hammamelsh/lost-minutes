@@ -2438,7 +2438,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
    })()}
    <div className="follow-pickers">
     <label className="sr-only" htmlFor="follow-route">Route</label>
-    <div className="picker route"><span>Route</span>
+    <div className="picker route"><span aria-hidden="true">Route</span>
      <select id="follow-route" value={route} onChange={e=>pick({route:e.target.value,direction:'all'})}>
       {routeChoices.map(id=><option key={id} value={id}>{routeNumber(id)}</option>)}
      </select></div>

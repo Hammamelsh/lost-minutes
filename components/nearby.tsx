@@ -1,6 +1,6 @@
 "use client";
 
-import {LocateFixed,MapPin,Navigation} from 'lucide-react';
+import {Armchair,LocateFixed,MapPin,Navigation} from 'lucide-react';
 import type {PatternCatalogue} from '@/lib/patterns';
 import {patternsCallingAt,servicesAt,towardsWords} from '@/lib/patterns';
 import {bearingWords,distanceWords,nearestStops,stopPlace,type Stop} from '@/lib/stops';
@@ -21,7 +21,7 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
  /** The map's centre after the passenger moved it and asked for stops there: the list is
   *  centred on it instead of on the device until they go back to their location. */
  browseAt?:{lat:number;lon:number}|null;onStopBrowsing?:()=>void;
- /** Try Ride-along, further down the panel: one quiet line under the primary task, so the ride
+ /** Try Ride-along, further down the panel: a secondary button under the primary task, so the ride
   *  is found from the first screen without competing with finding a stop. */
  onTryRide?:()=>void;
  outsideArea:boolean;onSelect:(stop:Stop)=>void;onLocate:()=>void;locating:boolean;
@@ -34,8 +34,8 @@ export default function Nearby({stops,patterns,here,outsideArea,onSelect,onLocat
    <button className="nearby-action" onClick={onLocate} disabled={locating}>
     <Navigation size={19}/>{locating?'Finding you…':'Buses near me'}</button>
    <p className="nearby-or">or search above, without sharing a location</p>
-   {onTryRide&&<button className="text-action nearby-try-ride" onClick={onTryRide} data-try-ride-link>
-    Or try Ride-along<small>the map rides with one bus</small></button>}
+   {onTryRide&&<button className="nearby-try-ride" onClick={onTryRide} data-try-ride-link>
+    <Armchair size={18} aria-hidden="true"/><span>Try Ride-along<small>the map follows one bus, from its reports</small></span></button>}
   </div>
 
   {locationError&&<p className="nearby-note warn">{locationError}</p>}

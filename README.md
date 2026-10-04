@@ -20,7 +20,9 @@ Scheduled, not live: the 255 to Partington Terminus at 21:55, timetabled, in 10 
   drawing status shown.
 - **Follow one bus** on the map, drawn between its own reports, or ride along with it in 3D. On three evaluated routes
   a clearly labelled estimate may run up to two minutes past the last report; nothing is ever stored as a report.
-- **Plan a journey**, direct or with one change, from the operators' registered timetables, with the walks.
+- **Plan a journey**, direct or with one change, from the operators' registered timetables, and **make it a step at a
+  time**: the walk to the stop (a walking route on request), the wait, the bus you board followed to the stop to get
+  off at (said before it comes), and the walk on.
 - **Behind the data**: the pipeline's runs, cycles and publications as it recorded them, the evidence behind the
   figures, and a replay of a recorded archive sample.
 

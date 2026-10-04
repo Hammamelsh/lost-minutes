@@ -97,6 +97,9 @@ type Props = {
  /** A journey with a change (lib/connections.ts), drawn whole: both legs, the four stops and the walk
   *  between them, and which of it the camera frames when asked. */
  journey?:JourneyOverlay|null;
+ /** A trip being made (lib/trip.ts): what its current step is about, framed in place of everything else when a fit is
+  *  asked for (each step asks once); `whole` for the whole trip, which may be framed further out than is readable. */
+ frame?:{key:string;points:[number,number][];whole?:boolean}|null;
  /** The server's clock minus this device's, so estimates run on the clock report ages use. */
  clockOffsetMs?:number;
  /** Whether movement may be estimated at all, and if not, why. */
@@ -429,6 +432,17 @@ const NAME_ROOM=60;
 // Below this zoom no boarding point is drawn (`lm-stops-dot` starts at 13.5) and streets lose
 // their names, so a camera taken below it has stopped showing a place.
 const READABLE_ZOOM=14.2;
+/** Where a followed bus is held, from the middle of the canvas, in pixels: the middle of the map the controls, the top
+ *  bar and a phone's sheet leave (fitPadding). Measured at most twice a second, since it is read every frame. */
+const followShiftCache=new WeakMap<object,{at:number;shift:[number,number]}>();
+function followShift(instance:MapLibreMap,now:number,fresh=false):[number,number]{
+ const kept=followShiftCache.get(instance);
+ if(kept&&!fresh&&now-kept.at<500)return kept.shift;
+ const p=fitPadding(instance.getContainer());
+ const shift:[number,number]=[Math.round((p.left-p.right)/2),Math.round((p.top-p.bottom)/2)];
+ followShiftCache.set(instance,{at:now,shift});
+ return shift;
+}
 function fitPadding(container:HTMLElement){
  const box=container.getBoundingClientRect();
  const within=container.closest('.vector-map');
@@ -658,7 +672,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
                                  stops=NO_STOP_CATALOGUE,onSelectStop,onWantMap,onPanned,findHere=null,
                                  onUnavailable,view,onViewChange,theme,onThemeChange,fitRequest=0,
                                  onLocate,locating,originKind='device',device=null,originEpoch=0,destination=null,pickingOrigin=false,onPickOrigin,
-                                 rideOverlay,busLabel='Your bus',walk=null,journey=null,
+                                 rideOverlay,busLabel='Your bus',walk=null,journey=null,frame:framing=null,
                                  clockOffsetMs=0,motion,onMotion,onRideState,stopsAhead=NO_STOPS,onSimpleMap}:Props){
  const root=useRef<HTMLDivElement>(null);
  const container=useRef<HTMLDivElement>(null);
@@ -1598,6 +1612,12 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
   source?.setData({type:'FeatureCollection',features});
  },[ready,walk]);
 
+ // What a trip's step frames, for a check to read.
+ useEffect(()=>{
+  const el=root.current;
+  if(framing)el?.setAttribute('data-frame',framing.key);else el?.removeAttribute('data-frame');
+ },[framing]);
+
  // --- a journey with a change ------------------------------------------------------------
  useEffect(()=>{
   if(!ready||!map.current)return;
@@ -2005,10 +2025,15 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
       :from+Math.sign(gap)*Math.min(Math.abs(gap),(gap<0?PITCH_RISE:PITCH_SETTLE)*dt)};
     }
     state.lastCamT=t;
+    // Followed on the flat map, the bus is held in the middle of what the top bar and a phone's sheet leave of it,
+    // not the middle of the canvas under them, which at half a phone's height is the sheet's own top edge.
+    const shift=input.view==='ride'?[0,0] as const:followShift(instance,t);
     const at=instance.project([v.lon,v.lat]),centre=instance.project(instance.getCenter());
-    if(!cut&&Math.hypot(at.x-centre.x,at.y-centre.y)>SETTLE_PX)
-     instance.easeTo({center:[v.lon,v.lat],...bearing,...pitch,duration:prefersReducedMotion()?0:280});
-    else instance.jumpTo({center:[v.lon,v.lat],...bearing,...pitch});
+    const hold=shift[0]||shift[1]?instance.unproject([at.x-shift[0],at.y-shift[1]]):null;
+    const aim:[number,number]=hold?[hold.lng,hold.lat]:[v.lon,v.lat];
+    if(!cut&&Math.hypot(at.x-centre.x-shift[0],at.y-centre.y-shift[1])>SETTLE_PX)
+     instance.easeTo({center:aim,...bearing,...pitch,duration:prefersReducedMotion()?0:280});
+    else instance.jumpTo({center:aim,...bearing,...pitch});
    }
   }
   // Diagnostics a few times a second, and always on the last frame before the loop rests, so a
@@ -2169,6 +2194,9 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    if(journey.transfer){const t=journey.transfer;points.push([t.from.lon,t.from.lat],[t.to.lon,t.to.lat]);if(t.path)points.push(...t.path)}
    whole=true;
   }
+  // A trip's step frames what that step is about, in place of all of it: the walk and the stop, the stop and the bus
+  // coming to it, the bus ridden, the walk on.
+  if(framing&&framing.points.length){points.length=0;points.push(...framing.points);whole=Boolean(framing.whole)}
   // With nothing chosen yet, frame the buses nearest the middle of the map, not the whole
   // city: one distant bus must not shrink everything else to specks.
   if(!points.length&&buses.length){
@@ -2183,7 +2211,9 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    return;
   }
   if(points.length===1){
-   move(m=>m.easeTo({center:points[0],zoom:15.4,...camera,duration:reduce?0:500}));
+   // One place, in the middle of the map that can be seen.
+   move(m=>{const p=fitPadding(m.getContainer());
+    m.easeTo({center:points[0],zoom:15.4,offset:[(p.left-p.right)/2,(p.top-p.bottom)/2],...camera,duration:reduce?0:500})});
    return;
   }
   const lons=points.map(p=>p[0]),lats=points.map(p=>p[1]);
@@ -2218,7 +2248,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
     m.easeTo({center:fitted.center,zoom:fitted.zoom,...camera,duration:reduce?0:500});
    else m.fitBounds(bounds,{padding,maxZoom:16.2,...camera,duration:reduce?0:500});
   });
- },[here,stop,selected,buses,walk,destination,journey,move]);
+ },[here,stop,selected,buses,walk,destination,journey,framing,move]);
 
  // The camera goes to what the passenger asked for: the first buses, a new stop, service or
  // bus, a found location. It never moves on an ordinary refresh.
@@ -2246,7 +2276,7 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
  useEffect(()=>{
   if(!ready||!follow||!selected||!map.current||view==='ride')return;
   if(estimateRef.current?.mode==='estimated'){kick();return}
-  move(m=>m.easeTo({center:[selected.lon,selected.lat],zoom:Math.max(m.getZoom(),15),
+  move(m=>m.easeTo({center:[selected.lon,selected.lat],zoom:Math.max(m.getZoom(),15),offset:followShift(m,performance.now(),true),
                     duration:prefersReducedMotion()?0:450}));
  },[ready,follow,selected,view,move,kick]);
 
@@ -2575,8 +2605,10 @@ export default function CityMap({paused=false,buses,fleet,emphasis,onDrawn,mirro
    <div className="map-legend-chips" aria-hidden="true">
     {here&&<span className="legend-you">{originKind==='chosen'?'Starting point':'You'}</span>}
     {walk&&<span className="legend-walk">Walk</span>}
-    {journey&&<span className="legend-leg1">1 · {journey.legs[0]?.line}</span>}
-    {journey&&<span className="legend-leg2">2 · {journey.legs[1]?.line}</span>}
+    {/* A journey with a change names both buses; a direct trip has one, named without a number. */}
+    {journey&&journey.legs.length>1&&<span className="legend-leg1">1 · {journey.legs[0]?.line}</span>}
+    {journey&&journey.legs.length>1&&<span className="legend-leg2">2 · {journey.legs[1]?.line}</span>}
+    {journey&&journey.legs.length===1&&<span className="legend-leg1">{journey.legs[0].line}</span>}
     {stop&&<span className="legend-stop">Your stop</span>}
     {selected&&<span className="legend-bus">{busLabel}</span>}
     {/* Every bus in the publication is on the map, each drawn from its own reports (lib/fleet.ts). */}

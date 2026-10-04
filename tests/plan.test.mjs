@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {directOptions,planText,transitHandoff} from '../lib/plan.ts';
+import {directFromKey,directOptions,planText,transitHandoff} from '../lib/plan.ts';
 import {looksLikePostcode,looksLikePartialPostcode,stopPlaces,postcodePlaces,addressPlaces,inside} from '../lib/places.ts';
 
 // A straight road running north with stops every 300 m, and one pattern each way.
@@ -95,4 +95,17 @@ test('the plan link is read defensively and written back without touching the re
  const written=withPlan('?stop=1800SJ00811&bus=BNML%7CV',{lat:53.44365,lon:-2.30780,label:'M32 8LZ'},{lat:53.4,lon:-2.3,label:'Work'});
  assert.equal(written,'?stop=1800SJ00811&bus=BNML%7CV&from=53.44365%2C-2.30780&fromLabel=M32+8LZ&to=53.40000%2C-2.30000&toLabel=Work');
  assert.equal(withPlan(written,null,null),'?stop=1800SJ00811&bus=BNML%7CV');
+});
+
+test('a chosen direct option is rebuilt from its key, as a trip under way is after a reload; one no longer running is let go', () => {
+ const o=directOptions(at(1),at(5),catalogue,stops,MONDAY)[0];
+ const byId=new Map(stops.map(s=>[s.id,s]));
+ const again=directFromKey(o.key,catalogue,byId,MONDAY,at(1),at(5));
+ assert.equal(again.key,o.key);
+ assert.deepEqual([again.board.id,again.alight.id,again.boardIndex,again.alightIndex,again.rideStops,again.rideMetres],
+  [o.board.id,o.alight.id,o.boardIndex,o.alightIndex,o.rideStops,o.rideMetres]);
+ assert.ok(Math.abs(again.walkToBoardMetres-o.walkToBoardMetres)<1&&Math.abs(again.walkFromAlightMetres-o.walkFromAlightMetres)<1);
+ assert.equal(directFromKey(`d:${weekend.id}|S1|S5`,catalogue,byId,MONDAY),null,'a weekend pattern on a Monday is let go');
+ assert.equal(directFromKey(`d:${north.id}|S5|S1`,catalogue,byId,MONDAY),null,'stops in the wrong order');
+ assert.equal(directFromKey('c:whatever',catalogue,byId,MONDAY),null);
 });

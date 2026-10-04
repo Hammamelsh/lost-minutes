@@ -249,3 +249,20 @@ result without the phone.
       **Use my location** asks the phone once and then lists the buses. *unchecked*
 - [ ] A chosen journey's stop leads with the plan (board here, get off there, the walk on); **Other options** and
       **Back to your options** both return to the list with the places kept. *unchecked*
+
+## A trip, a step at a time (4 October 2026; backlog 51)
+
+- [ ] Plan to a real place, **Go**, and walk to the stop with the phone in a pocket: the wait begins by itself on
+  arriving, once, and not while still across the road (35–60 m, by the fix's own accuracy). *unchecked*
+- [ ] **Show the walking route** on the walk: the route drawn, the minutes and metres, and the route following the walk
+  without dragging the map about. *unchecked*
+- [ ] At the stop, **I'm on the bus** as the bus pulls away: the right bus offered (or asked about when two are near),
+  and the map following it in the part of the map the sheet leaves. *unchecked*
+- [ ] On the bus: the stops to go counting down; "Get off at the next stop" said, and felt (Android), in time to press
+  the bell. With the screen locked: what is lost (no alert), said in the release record, not hidden. *unchecked*
+- [ ] **I've got off**, the walk on, and "You've arrived" near the door of the destination, not a street away.
+  *unchecked*
+- [ ] A reload, a look at the stop's board and back, and an incoming call on the bus: the trip is at the same step,
+  with the same bus. *unchecked*
+- [ ] A journey with a change: the change walked with **Google Maps directions**, and the second wait beginning by
+  itself at the second stop. *unchecked*

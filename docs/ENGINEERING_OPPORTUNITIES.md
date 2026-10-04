@@ -2528,3 +2528,33 @@ runs with `--require`, so a runner without `systemd-analyze` fails and says so r
 runner (systemd 255): the units as committed passed (all 9 and the login sessions' ceiling); a temporary branch with
 `MemoryMax` misspelt failed with "Unknown key name 'MemoryMaxx' … ignoring", though `systemd-analyze` itself exited 0;
 the branch was then deleted. Locally, an impossible timer time and a missing executable also failed. Status: `fixed`.
+
+## 82. A screen's main action under a phone's sheet edge, seen only with real names
+
+**Problem and evidence.** Building the trip (backlog 51), every browser check passed on the fixtures while, on the
+same build with the served site's real data, "I'm at the stop" sat at 822 px and "I'm on the bus" at 879 px of an
+844 px phone: under the half sheet's edge (`scripts/probes/journey-study.mjs`, `outputs/probes/journey-study/trip/`).
+The fixtures' services have one short line ("256 towards Piccadilly Gardens"); the 142 from Oxford Road has two sibling
+lines and three destinations, and the walking-route offer added two lines more. Reordered and shortened, the same walk
+reads 758–804 px and 784–830 px. The trip's checks now assert each step's action is on the screen as it stands
+(`onScreen`), but only on the fixtures' names.
+
+**Who hits it, workaround.** Anyone changing a phone panel's content; the workaround was a study probe on real data
+and reading the frames.
+
+**Recurrence and effort.** Once here, about an hour; the same class (content longer in life than in the fixture) is
+likely wherever a fixture's words stand in for real ones. Unknown elsewhere.
+
+**Small fix, script, tool or product.** A small fix in this repository: a fixture leg with long real-world names
+(sibling lines, long destinations, a long stop name) in the trip's checks, so the half-sheet budget is held against
+the worst case, and the study probe's `seen` measure run on real data at each release that changes a phone panel. No
+new tool: Playwright and the existing `onScreen` helper are enough. A visual interface would not help.
+
+**Next cheap step.** Add one long-named leg to `tests/browser/trip.spec.mjs`'s world and assert the same `onScreen`
+checks on it. Status: `observed`.
+
+**4 October 2026, later: done.** `tests/browser/trip.spec.mjs` now makes a trip on a leg with three sibling lines and
+long destinations to a venue with a long name, and asserts each step's action on the screen as it stands. It failed
+at once on a phone: the wait step's "for any 256, 256X or 256B: each calls at both your stops" and three departures
+wrapped to four lines and pushed "I'm on the bus" off the screen. Shortened ("for the 256, 256B or 256X, any of them";
+the next two by the timetable), it passes on both sizes. Status: `fixed`.

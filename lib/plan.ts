@@ -106,6 +106,31 @@ export function directOptions(from:LatLon,to:LatLon,catalogue:PatternCatalogue|n
  return [...byPair.values()].slice(0,PLAN_RULES.candidates);
 }
 
+/**
+ * A chosen direct option rebuilt from its key (`d:<pattern>|<board>|<alight>`), with every bus between the same two
+ * stops, as the planner built it: what a trip under way is restored from after a reload. A pattern that no longer
+ * runs on the day, or whose stops no longer follow in that order, is let go (null), never shown. The walks are
+ * measured from `from` and to `to` where they are given.
+ */
+export function directFromKey(key:string,catalogue:PatternCatalogue|null,stopById:Map<string,Stop>,day:string|string[],
+                              from?:LatLon|null,to?:LatLon|null):DirectOption|null{
+ if(!catalogue||!key.startsWith('d:'))return null;
+ const [patternId,boardId,alightId]=key.slice(2).split('|');
+ const usable=usablePatterns(catalogue,day);
+ const pattern=usable.find(p=>p.id===patternId);
+ const board=stopById.get(boardId),alight=stopById.get(alightId);
+ if(!pattern||!board||!alight)return null;
+ const i=pattern.stops.indexOf(boardId),j=pattern.stops.indexOf(alightId,i+1);
+ if(i<0||j<0)return null;
+ const mi=pattern.metres?.[i],mj=pattern.metres?.[j];
+ const rideMetres=typeof mi==='number'&&typeof mj==='number'?mj-mi:null;
+ const leg:Leg={pattern,line:pattern.line,operator:pattern.operator??null,headsign:pattern.destination??'?',
+  board,boardIndex:i,alight,alightIndex:j,rideStops:j-i,rideMetres,also:legsBetween(board,alight,usable,pattern.id)};
+ return {key,leg,pattern,line:pattern.line,operator:pattern.operator??null,direction:pattern.direction??null,headsign:pattern.destination??'?',
+  board,boardIndex:i,walkToBoardMetres:from?straightLineMetres(from,board):0,alight,alightIndex:j,
+  walkFromAlightMetres:to?straightLineMetres(alight,to):0,rideStops:j-i,rideMetres,tracked:[],caution:null,score:0};
+}
+
 // --------------------------------------------------------------------- timing, from the timetable
 
 export type DirectRow={departure:ScheduledDeparture;departMs:number;arriveMs:number|null;

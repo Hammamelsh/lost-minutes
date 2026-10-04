@@ -61,6 +61,30 @@ async function camera(page) {
   const [zoom, lat, lon] = ((await map(page).getAttribute('data-camera')) || '0,0,0').split(',').map(Number);
   return {zoom, lat, lon};
 }
+/**
+ * Whether a place is held in the middle of the map that can be seen, by the camera's own centre and zoom (the flat
+ * map: no tilt): inside the map, below the top bar and above a phone's sheet, and within a fifth of that band's size
+ * of its middle each way. Following on the flat map holds the bus there (4 October 2026): until then it was held at
+ * the middle of the canvas, which on a phone with the sheet at half height is the sheet's own top edge, and these
+ * checks measured that, as the camera's centre within 40 m of the bus.
+ */
+async function heldInView(page, at) {
+  return page.evaluate(({lat, lon}) => {
+    const map = document.querySelector('.vector-map'), canvas = map?.querySelector('canvas');
+    const raw = map?.getAttribute('data-camera');
+    if (!canvas || !raw) return false;
+    const [z, clat, clon] = raw.split(',').map(Number);
+    const ws = 512 * 2 ** z, m = (la, lo) => [(lo + 180) / 360 * ws, (1 - Math.log(Math.tan(Math.PI / 4 + la * Math.PI / 360)) / Math.PI) / 2 * ws];
+    const c = canvas.getBoundingClientRect(), [cx, cy] = m(clat, clon), [x, y] = m(lat, lon);
+    const px = c.left + c.width / 2 + x - cx, py = c.top + c.height / 2 + y - cy;
+    const sheet = document.querySelector('.follow > .panel')?.getBoundingClientRect();
+    const bar = document.querySelector('.follow > .follow-top')?.getBoundingClientRect();
+    const bottom = sheet && sheet.width > 0 && sheet.top > c.top + c.height / 4 && sheet.top < c.bottom ? sheet.top : c.bottom;
+    const top = bar && bar.width > 0 && bar.bottom > c.top && bar.top < c.top + c.height / 2 ? bar.bottom : c.top;
+    return px > c.left && px < c.right && py > top && py < bottom
+      && Math.abs(py - (top + bottom) / 2) < (bottom - top) / 5 && Math.abs(px - (c.left + c.right) / 2) < c.width / 5;
+  }, {lat: at.lat, lon: at.lon});
+}
 async function drawn(page) {
   const [lat, lon] = ((await map(page).getAttribute('data-display')) || ',').split(',').map(Number);
   return {lat, lon};
@@ -128,16 +152,16 @@ test('Follow keeps the bus that was shown through reordering, absence, return an
   for (const phase of [1, 2, 3]) {
     await publish(page, feed, phase);
     expect(await cardVehicle(page), `publication ${phase}: the card still describes the bus being followed`).toBe(ALPHA.id);
-    await expect.poll(async () => metres(await camera(page), ALPHA), {timeout: 5000,
-      message: `publication ${phase}: the camera stays on the followed bus`}).toBeLessThan(40);
+    await expect.poll(() => heldInView(page, ALPHA), {timeout: 5000,
+      message: `publication ${phase}: the followed bus is held in the middle of the map that can be seen`}).toBe(true);
   }
   // A theme change, then a filter to a service the followed bus is not on: it is still the bus
   // followed, on the card, the strip and the map, and the strip says it is not in the list below.
   await page.getByRole('button', {name: 'Switch to the night map'}).click();
   await publish(page, feed, 2);
   expect(await cardVehicle(page), 'after a theme change').toBe(ALPHA.id);
-  await expect.poll(async () => metres(await camera(page), ALPHA), {timeout: 5000,
-    message: 'after a theme change the camera stays on the followed bus'}).toBeLessThan(40);
+  await expect.poll(() => heldInView(page, ALPHA), {timeout: 5000,
+    message: 'after a theme change the followed bus is still held in view'}).toBe(true);
   const otherService = page.locator('.service-chip', {hasText: 'Chester'});
   await otherService.click();
   await expect(otherService).toHaveAttribute('aria-pressed', 'true');
@@ -323,8 +347,8 @@ test('a followed bus that starts another journey: the map stops following it and
   await card(page).getByRole('button', {name: 'Follow the new journey'}).click();
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(map(page)).toHaveAttribute('data-motion', 'estimated', {timeout: 15_000});
-  await expect.poll(async () => metres(await camera(page), await drawn(page)), {timeout: 8000,
-    message: 'followed again'}).toBeLessThan(40);
+  await expect.poll(async () => heldInView(page, await drawn(page)), {timeout: 8000,
+    message: 'followed again, held in the middle of the map that can be seen'}).toBe(true);
 });
 
 test('the bus is kept from the keyboard, or with a tap on the phone, and Details takes focus to its card', async ({page}) => {

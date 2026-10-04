@@ -11,6 +11,37 @@ One page, kept current. What is running, what is verified, what is not, and what
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
 
+## 4 October: planning a journey, then making it a step at a time (built and gated; not deployed)
+
+**From the owner:** "any way you can simplify it more and also when i plan a journey can it be easier similar to google
+maps where their walking help to the bus stop then when your in the buss you can follow it". Backlog 51 has the
+account; `docs/JOURNEY_STATE.md` what is kept and what moves a trip on.
+
+- **Each option in one look** (`components/plan-panel.tsx`): walk › bus › walk, leave–arrive and how long, when to
+  leave for which bus by the timetable, and **Go**; the legs, tracked buses and the change folded under it. On the
+  same real journey, 457–458 px and 128–129 words an option before, 215 px and 64–67 after.
+- **Go starts a trip** (`lib/trip.ts`, `components/trip-view.tsx`): walk to the stop (estimated, or a walking route
+  on request) → wait (the next buses by the timetable, the leg's buses on their way) → on the bus (stops to go by its
+  last report, then "Get off at the next stop", felt where the phone can) → (the change) → walk on → arrived. The
+  device's own location moves the walks on; getting on and off is the passenger's word; with more than one bus that
+  could be theirs, the page asks. Before, choosing opened the boarding stop's whole board, ten sections, with the walk
+  2,743 px down and no way on to the bus.
+- **Following the bus boarded**, on the map and in Ride along, whose card carries the stop to get off at and "I've got
+  off". On a phone a followed bus is now held in the middle of the map the sheet leaves, not at the sheet's edge.
+- **The journey card for a journey with a change is retired**: its chosen connection, the change offered and never
+  imposed, the onward times, withheld times, extra time to change and Share are in the trip.
+- **Not claimed:** times are the timetable's, and a bus's place its last report; no arrival is predicted (predictions
+  stay off in both directions); getting off is not detected; nothing alerts a locked phone. Emulation only.
+- **Verified:** Node 358, Python 191; the full gate on the final build 544 checks, 491 passed, 51 skipped by design, 2 failed (1.4 h, 18:26–19:52 BST): both
+  the phone's checks that a bus followed on the flat map is held by the camera, which measured the camera's centre
+  within 40 m of the bus. That premise was changed on purpose (on a phone the centre now sits 227 m above the bus, so
+  the bus is in the middle of the map the sheet leaves, not at its edge); restated as the bus held in the middle of the
+  visible map, `selection.spec` then passed 23, 1 skipped by design, on the gated build itself. On real data (this build with the served site's data, a 390 × 844
+  phone, `scripts/probes/journey-study.mjs`): every step's action on the screen as it stands, the walking route from
+  the walk's own card, "Which bus are you on?" offering the two buses around the stop, and a 142 followed with "23 stops
+  to go".
+- **Not deployed:** a deployment and a push wait for the owner's word.
+
 ## 3 October: a wording pass on the reader-facing documents (no code, no deploy)
 
 - **Contribution:** the README says what the owner does, as evidenced, and keeps the AI-assistance disclosure.

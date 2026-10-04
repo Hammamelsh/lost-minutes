@@ -1459,26 +1459,18 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .plan-options{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 .plan-option{padding:12px 14px;border-radius:14px;border:1px solid #2d4250;background:#101d27}
 .plan-option.on{border-color:rgba(198,243,106,.55)}
-.plan-option-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.plan-option-head strong{font-size:14.5px}.plan-option-head small{color:#8aa8b9;font-size:12px}
 .plan-legs{margin:8px 0 6px;padding-left:20px;font-size:13.5px;line-height:1.55}
 .plan-legs em{color:#8aa8b9;font-style:normal;font-size:12px}
-.plan-tracked{margin:0 0 6px;font-size:12.5px;line-height:1.5;color:#a7bac5}
+.plan-tracked,.plan-ride-km{margin:0 0 6px;font-size:12.5px;line-height:1.5;color:#a7bac5}
 .plan-caution{margin:0 0 8px;padding:6px 10px;border-radius:9px;background:rgba(255,180,89,.12);border:1px solid rgba(255,180,89,.35);font-size:12.5px;color:#ffce8f}
 .plan-option .action{min-height:44px}
 .plan-handoffs{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .plan-handoffs a{display:inline-flex;align-items:center;gap:6px;color:#c6f36a;text-decoration:underline;text-underline-offset:2px}
-.plan-share{margin-top:4px}
-.plan-share-preview{margin-top:8px;padding:10px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:13px}
-.plan-share-preview pre{white-space:pre-wrap;font:inherit;margin:8px 0;padding:8px 10px;border-radius:9px;background:#0b1720;color:#e6eff3}
 .plan-attribution{margin:10px 0 0;font-size:11px;color:#6f8797}
 .plan-empty{margin:0}
 .stop-search-option.device{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center}
 .stop-search-option.device small,.place-search .stop-search-option small{grid-column:2}
 .place-search .stop-search-option{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center}
-.plan-summary{display:flex;align-items:flex-start;gap:8px;margin:0;padding:9px 12px;border-radius:12px;background:#13222d;border:1px solid #2d4250;font-size:13px;line-height:1.5}
-.plan-summary svg{flex-shrink:0;margin-top:3px;color:#c6f36a}
-.plan-summary .text-action{margin-left:auto;white-space:nowrap}
 
 /* =====================================================================================
    22 September 2026: one workspace. The map beside one focused panel on a wide screen, the
@@ -1771,54 +1763,8 @@ body.above{overflow:hidden}
  .preview-banner a{min-height:32px}
 }
 
-/* ---- A journey with a change (components/journey-card.tsx): one compact card, the next thing to
-   do first, the rest in order once, every time labelled as the timetable's. */
-.journey-card{margin:6px 0 14px;padding:12px 13px 10px;border-radius:14px;border:1px solid #2d4250;background:#101d27}
-.journey-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-.journey-eyebrow{margin:0;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:#c6f36a}
-.journey-actions{display:flex;gap:12px;align-items:center}
-.journey-actions .text-action{display:inline-flex;align-items:center;gap:4px;font-size:13px}
-.journey-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.journey-step{display:grid;grid-template-columns:26px 1fr;column-gap:10px;padding:8px 0;position:relative}
-.journey-step+.journey-step{border-top:1px solid #21323e}
-.journey-n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800;color:#fff;
- background:#2b7a80;box-shadow:0 0 0 2px #0b1720;margin-top:1px}
-.journey-step[data-step="2"] .journey-n{background:#8a4fb0}
-.journey-step.change .journey-n{background:#2f86d6}
-.journey-step-copy{display:flex;flex-direction:column;gap:2px;font-size:13.5px;line-height:1.45;color:#c3d2db}
-.journey-step-copy strong{font-size:15px;color:#edf3f5}
-.journey-step-copy b{font-weight:700;color:#e6eff3}
-.journey-step.tone-now{background:linear-gradient(90deg,rgba(198,243,106,.08),transparent 70%);margin:0 -13px;padding:8px 13px}
-.journey-step.tone-now .journey-step-copy strong::after{content:' · now';font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#c6f36a}
-.journey-step.tone-riding,.journey-step.tone-soon{background:linear-gradient(90deg,rgba(198,243,106,.08),transparent 70%);margin:0 -13px;padding:8px 13px}
-.journey-step.tone-riding .journey-next{font-size:15px;font-weight:700;color:#edf3f5}
-.journey-step.tone-riding .journey-next::after{content:' · next';font-size:11px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;color:#c6f36a}
-.journey-step.tone-done{opacity:.62}
-.journey-step.tone-done .journey-step-copy strong{text-decoration:line-through;text-decoration-color:#6e8593;text-decoration-thickness:1px}
-.journey-tracked{display:block;margin-top:3px;font-size:12.5px;color:#dff5bd}
-.journey-tracked.none{color:#a7bac5}
-.journey-provisional{font-size:12px;color:#f0d49a}
-.journey-times{margin:8px 0 4px;padding:8px 10px;border-radius:11px;background:#0b1720;border:1px solid #23394a}
-.journey-note{margin:0;font-size:12.5px;line-height:1.5;color:#a7bac5}
-.journey-note.warn{color:#f6dcb4;padding:6px 8px;border-radius:9px;background:#2a2419;border:1px solid #7e6541}
-.journey-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.journey-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;padding:5px 6px;border-radius:9px}
-.journey-row.next{background:#13222d}
-.journey-row-leg{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 7px;font-size:13px;min-width:0}
-.journey-row-leg strong{font-size:15px;font-variant-numeric:tabular-nums}
-.journey-row-leg small{font-size:11.5px;color:#a7bac5}
-.journey-row-arrow{color:#8aa8b9;flex-shrink:0}
-.journey-basis{margin:8px 0 0;font-size:11.5px;line-height:1.5;color:#8ea4b1}
-.journey-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:10px}
-.journey-controls .action{margin-top:0;min-height:44px}
-.journey-controls .text-action{display:inline-flex;align-items:center;gap:5px;min-height:44px}
-.journey-focus{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:13px}
-.journey-focus .text-action{min-height:36px}
-.journey-details{margin-top:6px;font-size:12.5px;color:#a7bac5}
-.journey-details summary{cursor:pointer;display:inline-flex;align-items:center;gap:5px;min-height:36px;color:#c9d9e0}
-.journey-details ul{margin:4px 0 0;padding-left:18px;line-height:1.55}
-.journey-more-time{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
-.plan-option.connection .plan-option-head .route-pill+.plan-then{color:#8aa8b9;font-weight:700}
+/* ---- A journey with a change: the allowance to change, asked for in the trip's details. */
+.journey-more-time{display:inline-flex;align-items:center;gap:7px;cursor:pointer;min-height:40px}
 .plan-note{margin:0 0 4px;font-size:13px;color:#a7bac5}
 /* A listed journey's next connection by the timetable; journeys with one change folded beside direct buses. */
 .plan-next{margin:2px 0 6px;font-size:13px;line-height:1.5;color:#dbe7ec}
@@ -1834,12 +1780,9 @@ body.above{overflow:hidden}
 @media (prefers-reduced-motion:reduce){.plan-connections>summary::before{transition:none}}
 .plan-connections[open]>summary{margin-bottom:4px}
 /* A bus that leaves under two minutes after the walk to its stop would be done. */
-.plan-tight,.journey-tight{color:#f2c27a}
+.plan-tight,.trip-tight{color:#f2c27a}
 .nightly-jobs-tight{color:#f2c27a}
-.journey-rows.onward .journey-row{grid-template-columns:1fr}
-/* The chosen connection, and a change to it that waits for the passenger to accept. */
-.journey-chosen{margin:0 0 8px}
-.journey-chosen-label{display:block;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#c9f36a;margin:0 0 4px}
+/* A change to the chosen connection that waits for the passenger to accept. */
 .journey-change{margin:0 0 10px;padding:9px 10px;border-radius:10px;background:#2a2419;border:1px solid #7e6541;color:#f6dcb4;font-size:13px;line-height:1.5}
 .journey-change p{margin:0 0 6px}
 .journey-change-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
@@ -1850,12 +1793,6 @@ body.above{overflow:hidden}
 .ride-next-leg{margin:8px 0 0;padding:7px 9px;border-radius:10px;background:#13222d;border:1px solid #2d4250;font-size:12.5px;line-height:1.45}
 .ride-next-leg strong{display:block;font-size:13px;color:#edf3f5}
 .ride-next-leg .text-action{display:inline-flex;align-items:center;gap:5px;margin-top:3px;min-height:34px}
-@media(max-width:640px){
- .journey-card{padding:10px 11px 8px}
- .journey-step.tone-now,.journey-step.tone-riding,.journey-step.tone-soon{margin:0 -11px;padding:8px 11px}
- .journey-row{grid-template-columns:1fr;gap:2px}
- .journey-row-arrow{display:none}
-}
 
 /* ---- Finding the way (1 October 2026). The planner's matches sat under a wrapper with no position, so they were
    placed against the whole panel and drawn below the bottom of the screen, on a phone and a computer alike: "9 places
@@ -1872,6 +1809,133 @@ body.above{overflow:hidden}
 .plan-needs-start p{margin:0 0 10px;font-size:14px;line-height:1.5;color:#dbe7ec}
 .plan-needs-start-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
 .plan-needs-start-actions .action{display:inline-flex;align-items:center;gap:6px;min-height:44px}
-.plan-summary-actions{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 14px;margin-left:auto}
-.plan-summary .plan-summary-actions .text-action{margin-left:0}
 .panel-head .panel-back span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:min(62vw,340px)}
+
+/* ---- A trip, made a step at a time (components/trip-view.tsx, 4 October 2026): what to do now in one card with one
+   main action, the steps as a strip above it, the rest folded below. Sized to sit in a phone's half sheet. */
+.trip{margin:0 0 12px}
+.trip-head{display:flex;align-items:baseline;margin:0 0 6px;font-size:13px;line-height:1.4;color:#a7bac5;white-space:nowrap}
+.trip-head-to{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.trip-head-at{flex:0 0 auto}
+.trip-head strong{color:#e6eff3;font-variant-numeric:tabular-nums}
+.trip-head small{font-size:12px}
+.trip-times-line .trip-label{display:inline;margin:0 4px 0 0;font-size:12.5px;font-weight:600;letter-spacing:0;text-transform:none}
+.trip-strip{list-style:none;display:flex;align-items:center;gap:3px;margin:0 0 8px;padding:0;overflow-x:auto;scrollbar-width:none}
+.trip-strip::-webkit-scrollbar{display:none}
+.trip-chip{display:flex;align-items:center;flex:0 0 auto}
+.trip-chip+.trip-chip::before{content:'';width:8px;height:2px;margin-right:3px;border-radius:1px;background:#2d4250}
+.trip-chip.done+.trip-chip::before,.trip-chip.now+.trip-chip.later::before{background:#2d4250}
+.trip-chip.done+.trip-chip.done::before,.trip-chip.done+.trip-chip.now::before{background:#6f8f3c}
+.trip-chip-mark{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:28px;padding:0 5px;border-radius:14px;
+ border:1px solid #2d4250;background:#13222d;color:#a7bac5}
+.trip-chip-mark .route-pill{min-width:0;padding:2px 5px;font-size:11.5px}
+.trip-chip.done .trip-chip-mark{opacity:.55}
+.trip-chip.now .trip-chip-mark{border-color:#c6f36a;background:#1d2f1b;color:#e6ffb8;box-shadow:0 0 0 2px rgba(198,243,106,.18)}
+.trip-chip.now .trip-chip-mark .route-pill{background:#c6f36a;color:#1e2b15}
+.trip-now{padding:12px 13px;border-radius:14px;border:1px solid #2d4250;background:#101d27;outline:none}
+.trip-now:focus-visible{border-color:#c6f36a}
+.trip-title{display:flex;align-items:flex-start;gap:8px;margin:0 0 6px;font-size:16px;font-weight:600;line-height:1.35;color:#edf3f5}
+.trip-title svg{flex-shrink:0;margin-top:2px;color:#c6f36a}
+.trip-title b{font-weight:700}
+.trip-big{margin:0 0 6px;font-size:14px;color:#dbe7ec}
+.trip-big strong{font-size:20px;font-weight:700;letter-spacing:-.3px;color:#f2f8fa;font-variant-numeric:tabular-nums}
+.trip-big small{font-size:12.5px;color:#a7bac5}
+.trip-for{margin:-2px 0 8px;font-size:13.5px;color:#c3d2db}
+.trip-when{margin:0 0 6px;font-size:14px;line-height:1.45;color:#dbe7ec}
+.trip-when strong{color:#e6ffb8}
+.trip-when strong.urgent{color:#ffce8f}
+.trip-when small{font-size:12px;color:#a7bac5}
+.trip-when.warn,.trip-sub.warn{color:#f6dcb4}
+.trip-sub{margin:0 0 6px;font-size:12.5px;line-height:1.5;color:#a7bac5}
+.trip-here{margin:0 0 6px;font-size:12.5px;color:#a7bac5}
+.trip-here.unknown{color:#f6dcb4}
+.trip-here .text-action{font-size:13px;min-height:36px}
+.trip-label{margin:0 0 4px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8aa8b9}
+.trip-departures,.trip-next-leg{margin:4px 0 6px}
+.trip-times-line{margin:0;font-size:14px;color:#c3d2db}
+.trip-times-line strong{font-size:16px;font-variant-numeric:tabular-nums;color:#edf3f5}
+.trip-times-line small{font-size:12.5px;color:#a7bac5}
+.trip-next-leg{padding:8px 10px;border-radius:11px;background:#0b1720;border:1px solid #23394a}
+.trip-times{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.trip-times li{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;font-size:13px;color:#c3d2db}
+.trip-times li strong{font-size:15px;font-variant-numeric:tabular-nums;color:#edf3f5}
+.trip-times li small{font-size:12px;color:#a7bac5}
+.trip-times li svg{color:#8aa8b9}
+.trip-times li.chosen{padding:4px 7px;margin:0 -7px;border-radius:9px;background:#1a2b22;box-shadow:inset 3px 0 0 #c6f36a}
+.trip-times-label{flex-basis:100%;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#c9f36a}
+.trip-coming{list-style:none;margin:2px 0 8px;padding:0;display:flex;flex-direction:column;gap:4px}
+.trip-coming li{display:flex;align-items:baseline;gap:7px;font-size:13px;color:#dff5bd}
+.trip-coming li b{color:#e6ffb8}
+.trip-coming li small{color:#a7bac5}
+.trip-suggest{margin:0 0 8px;padding:8px 10px;border-radius:10px;background:#1a2b22;border:1px solid #4c6b39;font-size:13.5px;line-height:1.5;color:#dbe7ec}
+.trip-suggest .text-action{min-height:36px}
+.trip-ask{margin:4px 0 8px}
+.trip-ask p{margin:0 0 6px;font-size:14px;color:#e6eff3}
+.trip-ask p small{font-size:12px;color:#a7bac5}
+.trip-ask ul{list-style:none;margin:0 0 6px;padding:0;display:flex;flex-direction:column;gap:6px}
+.trip-choice{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;width:100%;min-height:48px;padding:7px 10px;
+ border-radius:11px;border:1px solid #2d4250;background:#13222d;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.trip-choice:hover,.trip-choice:focus-visible{border-color:rgba(198,243,106,.55)}
+.trip-choice strong{display:block;font-size:14px;color:#edf3f5}
+.trip-choice small{display:block;font-size:12px;color:#a7bac5}
+.trip-alert{display:flex;align-items:flex-start;gap:8px;margin:0 0 8px;padding:9px 11px;border-radius:11px;background:#c6f36a;color:#13230c;
+ font-size:14.5px;font-weight:600;line-height:1.4}
+.trip-alert svg{flex-shrink:0;margin-top:2px}
+.trip-next-stops{margin:0 0 6px;font-size:13px;color:#c3d2db}
+.trip-done{margin:4px 0 8px;font-size:18px;font-weight:700;color:#e6ffb8}
+.trip-ask-route{display:flex;flex-direction:column;gap:2px;margin:0 0 8px}
+.trip-ask-route .text-action{min-height:40px}
+.trip-ask-route small{font-size:11.5px;line-height:1.45;color:#8ea4b1}
+.trip-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-top:8px}
+.trip-actions .action{margin-top:0;min-height:46px;display:inline-flex;align-items:center;gap:7px;font-weight:600}
+.trip-actions .action.secondary{background:transparent;color:#c6f36a;border-color:#4c6b39}
+.trip-actions .text-action{min-height:44px}
+.trip-maps{font-size:13px}
+.trip-stops{margin-top:8px;font-size:13px;color:#a7bac5}
+.trip-stops summary{cursor:pointer;min-height:36px;display:flex;align-items:center;color:#c9d9e0}
+.trip-stops ol{margin:2px 0 0;padding-left:20px;line-height:1.6}
+.trip-stops li.passed{opacity:.55}
+.trip-stops li.next{color:#e6eff3}
+.trip-stops li.alight{color:#e6ffb8;font-weight:700}
+.trip-all{margin-top:8px;font-size:13px;color:#a7bac5}
+.trip-all summary{cursor:pointer;min-height:40px;display:flex;align-items:center;color:#c9d9e0}
+.trip-list{margin:2px 0 6px;padding-left:22px;line-height:1.5}
+.trip-list li.done{opacity:.6}
+.trip-list li.now::marker{color:#c6f36a}
+.trip-list .text-action{font-size:13px;font-weight:400;color:#dbe7ec;min-height:34px;text-align:left}
+.trip-list li.now .text-action{color:#e6ffb8}
+.trip-all-actions{display:flex;flex-wrap:wrap;gap:4px 16px;margin:2px 0 6px}
+.trip-all-actions .text-action{min-height:40px;font-size:13px}
+.trip-details{margin:4px 0 6px;padding-left:18px;font-size:12.5px;line-height:1.55}
+.trip-basis{margin:6px 0 0;font-size:11.5px;line-height:1.5;color:#8ea4b1}
+/* One line back to a trip kept while a stop's board, a bus or the options are looked at. */
+.trip-resume{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:9px;width:100%;min-height:52px;margin:0 0 10px;padding:8px 12px;
+ border-radius:12px;border:1px solid #4c6b39;background:#1a2b22;color:#dbe7ec;font:inherit;text-align:left;cursor:pointer}
+.trip-resume svg{color:#c6f36a}
+.trip-resume strong{display:block;font-size:14px;color:#edf3f5}
+.trip-resume small{display:block;font-size:12px;color:#a7bac5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Over the map while riding the bus boarded on a trip: where to get off, and getting off. */
+.ride-trip{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;margin:8px 0 0;padding:7px 9px;border-radius:10px;background:#1a2b22;
+ border:1px solid #4c6b39;font-size:12.5px;line-height:1.45;color:#c3d2db}
+.ride-trip strong{flex-basis:100%;font-size:14px;color:#edf3f5}
+.ride-trip-alert{flex-basis:100%;padding:3px 7px;border-radius:7px;background:#c6f36a;color:#13230c;font-weight:700}
+.ride-trip .text-action{min-height:36px}
+/* An option in one look: walk, bus, walk; leave and arrive; Go. */
+.plan-option-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;margin:0 0 4px}
+.plan-strip{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px;min-width:0}
+.plan-strip-part{display:inline-flex;align-items:center;gap:2px}
+.plan-strip-sep{color:#6f8797}
+.plan-strip-walk{display:inline-flex;align-items:center;gap:1px;font-size:12.5px;color:#a7bac5;font-variant-numeric:tabular-nums}
+.plan-when{display:inline-flex;align-items:baseline;gap:7px;margin-left:auto}
+.plan-when strong{font-size:15.5px;font-variant-numeric:tabular-nums;color:#f2f8fa}
+.plan-when small{font-size:12px;color:#a7bac5}
+.plan-next b{color:#e6ffb8;font-weight:700}
+.plan-go{display:flex;align-items:center;gap:12px;margin:6px 0 2px}
+.plan-go .action{margin-top:0;min-width:84px;font-weight:700}
+.plan-go-words{font-size:12.5px;line-height:1.4;color:#a7bac5;min-width:0}
+.plan-more{margin-top:4px;font-size:13px;color:#a7bac5}
+.plan-more>summary{cursor:pointer;min-height:36px;display:flex;align-items:center;color:#c9d9e0}
+@media(max-width:640px){
+ .trip-now{padding:11px 11px}
+ .trip-big strong{font-size:19px}
+}

@@ -4,7 +4,9 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 2 October 2026, night (the documentation for a reader arriving cold: a new README with the real
+Last updated: 4 October 2026 (planning a journey and then making it, the way Google Maps does: simpler options with
+one Go, and a trip a step at a time, walk to the stop, wait, the bus boarded followed to the stop to get off at, the
+walk on; built and gated, not deployed). Before that, 2 October 2026, night (the documentation for a reader arriving cold: a new README with the real
 architecture, an evidence page, two setup paths each run from a fresh clone, four case studies, a docs index with
 superseded material labelled; the planner's places deployed as `fead20d`, the gated `11eebf5` build; a
 live-departures feasibility note). Before that, 2 October 2026, evening (where a report's age went: each collector stage timed in its own journal, the publication's two whole-history reads (per-cycle medians 20.0 s and 7.5 s) bounded to their windows, a report's age on reaching a phone 51.9 → about 20 s at the median; the place results chosen only as a passenger can, which found the planner's places running off a phone's right edge: `1155e2f`, `11eebf5`). Before that, 1 October 2026, evening (finding the way: every screen a step the phone's Back undoes, named for where it goes; places in the main search, planned to from here; the planner's places on the screen, which had been drawn below it since 22 September; from the owner after a conference: `d178c24`, `95d1df6`). Before that, 1 October 2026, night (every bus with no checked road drawn along the map's streets between its reports, not on straight lines over the houses, measured across two whole fleets against the map; checked roads and streets from the zoom a stop opens at; no street graph built in a frame; from the owner's phone: `8dd1a8c`, `4d91c79`). Before that, 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
@@ -30,6 +32,25 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **4 October — a journey planned, then made a step at a time** (`docs/RELEASE.md`, top; backlog 51;
+  `docs/JOURNEY_STATE.md`).
+  - **From the owner:** planning "similar to Google Maps": walking help to the stop, then, on the bus, following it;
+    and simpler.
+  - **Walked first on the served site with real data** (`scripts/probes/journey-study.mjs`): options 457–458 px and
+    about 129 words each; a chosen journey opened its stop's whole board (ten sections, the walk 2,743 px down), and
+    nothing led from the plan to the bus.
+  - **Now:** each option in one look with **Go** (215 px, 64–67 words); **Go** starts a trip (`lib/trip.ts`,
+    `components/trip-view.tsx`): walk → wait → on the bus → (change) → walk on, one card for what to do now. The
+    device's own location moves the walks on; getting on and off is the passenger's word, and the page asks which bus
+    when more than one could be theirs; the bus boarded is followed, the stops to go counted from its last report and
+    "Get off at the next stop" said before it comes. The journey card is retired into the trip.
+  - **Found on the way:** a followed bus held at a phone's sheet edge (now in the middle of the map the sheet leaves);
+    a trip restored after a reload not taking the device's location up again; real services' longer names pushing the
+    step's action under the half sheet where the fixtures' did not (opportunity 82).
+  - **Verified:** Node 358, Python 191; the full gate 491 passed, 51 skipped, 2 failed: the phone's two follow checks
+    measuring the camera's centre on the bus, a premise changed on purpose (the bus is now held in the middle of the map
+    the sheet leaves); restated, `selection.spec` 23 passed on the gated build. Emulation only; **not deployed**, waiting for the owner.
 
 - **2 October, night — the documentation, and the planner's fix served** (`docs/RELEASE.md`, top; `docs/README.md`).
   - **Deployed `fead20d`**: the gated `11eebf5` build re-stamped (gate: 534 checks, 483 passed, 51 skipped, 0 failed),
@@ -1405,6 +1426,9 @@ node scripts/probes/public-preview.mjs --base https://….trycloudflare.com
 node scripts/probes/passenger-layouts.mjs --base http://127.0.0.1:8098/ [--label name]
                             # the passenger's flow at 360/390 px portrait, landscape and desktop: frames,
                             # touch targets, covered controls, and a round trip behind the data
+node scripts/probes/journey-study.mjs [label] [base] [destination] [lat,lon]
+                            # a phone planning a journey and making it (walk, wait, board, ride) on any build,
+                            # with the served site's real data; records whether each step's action is on the screen
 node scripts/probes/camera-switch.mjs --base http://127.0.0.1:8098/ [--real]
                             # outside and street preview in turn: no restart, reset, jump or frozen camera
 node scripts/make-icons.mjs # the PNG icons (Apple 180 px, 192, 512, maskable 512) from the SVGs

@@ -1132,6 +1132,75 @@ What it found:
 data and the real place providers, **7 of 7 steps** (1 of 8 before). Deployed as `95d1df6`. Emulation only: the
 phone's own Back gesture is on the physical-device checklist.
 
+## 51. Planning a journey and then making it: easier, the way Google Maps does — built 4 October 2026
+
+**From the owner:** "any way you can simplify it more and also when i plan a journey can it be easier similar to
+google maps where their walking help to the bus stop then when your in the buss you can follow it".
+
+**Walked first, as a phone on the served site with real data** (`scripts/probes/journey-study.mjs`, 390 × 844,
+location allowed, "Didsbury" from Oxford Road; 4 October, about 17:58 BST):
+- each option was 457–458 px tall and 128–129 words, four sentences of legs, walks and tracked buses before its button;
+- choosing one opened the boarding stop's whole board: ten sections, the plan's one line at the top and the walking
+  help (the stop's walk guide) 2,743 px down, under 1,183 px of services and 1,167 px of a suggested bus's card;
+- from the plan there was no next step at all: no "I'm at the stop", no "I'm on the bus", nothing that said where to
+  get off once riding. Following a bus meant finding it in the board, opening its details and pressing Ride along.
+
+**Now** (`lib/trip.ts`, `components/trip-view.tsx`, `components/plan-panel.tsx`; `docs/JOURNEY_STATE.md`):
+- *Each option in one look*: walk minutes › the bus › walk minutes; leave–arrive and how long; "Leave in 4 min · 142
+  18:04 from Oxford Road Station (Stop B) · at Didsbury Village 18:35 · by the timetable, not live"; **Go**. The legs,
+  the tracked buses and the change are folded under it. 215 px and 64–67 words, on the same journey.
+- *Go starts a trip*, a screen of its own over the options (Back returns to them, with one line back to the trip):
+  **Walk to the stop** (the walk estimated, or a walking route on request, with when to leave for which bus and how far
+  you are) → **Wait** (the next buses by the timetable on one line; the leg's buses on their way, a bus on the chosen
+  connection said to be) → **On the bus** (stops to go by its last report, the next stops by name, then "Get off at
+  the next stop", felt as well where the phone can) → (**Walk to the second stop** → **Wait** → **On the bus**) →
+  **Walk to the destination**, and arrival.
+- *The device's own location moves the walks on*: at the stop the wait begins by itself, once; arrival at the
+  destination is said. Getting on and off a bus is the passenger's word; when more than one bus could be theirs the
+  page asks, and a bus beside a device that has left the stop is offered, never chosen.
+- *Following*: the bus boarded is chosen and followed on the map, and **Ride along** carries the stop to get off at and
+  "I've got off" on the ride's own card. On a phone a followed bus is now held in the middle of the map the sheet
+  leaves; until today it was held at the middle of the canvas, which at half a phone's height is the sheet's top edge.
+- *The map frames each step once*: the walk and the stop; the stop and the bus coming when within 400 m (or on
+  request); the bus ridden; the walk between stops; the walk on. No bus is suggested during a trip: a suggestion drew a
+  second label, a Ride along button and a line about it over the very stop the step framed.
+- *Kept*: a reload, a look at the stop's board or a bus, and the ride each come back to the trip at its step, with the
+  bus boarded. A link carries the journey and starts it from its first step. End, New journey or a new destination
+  clear it. The journey card for a journey with a change is retired; its chosen connection, the change offered and
+  never imposed, the onward times, withheld times, the extra time to change and Share are in the trip.
+
+**After, on the same walk with real data** (this build, the served site's own data; 4 October, about 18:00 BST): every
+step a screen of its own, none needing a scroll; "I'm at the stop" at 758–804 px and "I'm on the bus" at 784–830 px of
+844, both on the screen as it stands; the walking route asked for from the walk's own card; "Which bus are you on?"
+offering the 142 two stops past the stop and the 42B two before it; on the 142, "23 stops to go"; Ride along with
+"Get off at Didsbury Village (Stop E)".
+
+**Found on the way:**
+- a followed bus held at a phone's sheet edge (above), fixed for the flat map and for a fit to one place;
+- a trip restored after a reload did not take the device's location up again, so Back showed a planner with no start:
+  now it does where location is already allowed, as the planner itself does;
+- real services' longer names (the 142 with the 42 and 42B, three destinations) pushed the step's action under the
+  half sheet where the fixtures' short ones did not: the card was reordered and the sibling lines said once ("for the
+  142, 42 or 42B, any of them"); the study probe records whether the action is on the screen, and a check holds it
+  against a leg of three long-named lines (opportunity 82);
+- the ride's own Details, on a trip, left the trip's screen in front of the bus's details the history had opened;
+  fixed, with a check.
+
+**Not claimed, and left open:**
+- Times are the timetable's. On a bus, a clock time is given only from that bus's own journey where its timetable has
+  been checked against its buses (the rule of the bus card); otherwise the stops to go. No arrival is predicted
+  (predictions stay off in both directions).
+- Getting off is not detected: "I've got off" is the passenger's. A stop reached is judged by the device's location
+  within its accuracy (35–60 m), never measured on a phone.
+- Nothing alerts a phone whose screen is locked or whose browser is in the background: there are no notifications.
+- Emulation only: the alert's vibration, the location at a stop, a locked screen on a bus and real walking are on the
+  physical-device checklist.
+
+**Verified:** Node 358, Python 191; `trip.spec` 10 passed (both sizes), and the connection, planner and finding-the-way
+specs restated around the trip; the full gate on the final build 491 passed, 51 skipped, 2 failed, both the phone's
+checks that measured a followed bus by the camera's centre (moved on purpose, above), restated and passing on the gated
+build (`selection.spec` 23, 1 skipped). Not deployed: waiting for the owner.
+
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.
 - An AI feature added to claim AI engineering. A model earns its place or stays out.

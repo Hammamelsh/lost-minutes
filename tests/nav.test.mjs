@@ -32,3 +32,14 @@ test('with nothing of the page\'s own below (a shared link), Back goes to the st
  assert.equal(backWords(replaced(null, {panel: 'stop'})), 'Back to the start');
  assert.equal(backWords(null), 'Back to the start');
 });
+
+test('a trip is a screen of its own over the options: its Back goes to them, and a ride over it comes back to it (4 October 2026)', () => {
+ const plan = pushed(replaced(null, {panel: 'home', name: screenName('home')}), {panel: 'plan', name: screenName('plan', {planned: true})});
+ const trip = pushed(plan, {panel: 'trip', name: screenName('trip')});
+ assert.equal(screenOf(withScreen(null, trip))?.panel, 'trip');
+ assert.equal(backWords(trip), 'Back to your options');
+ const ride = pushed(trip, {panel: 'trip', ride: true, name: screenName('trip')});
+ assert.equal(backWords(ride), 'Back to your trip');
+ const board = pushed(trip, {panel: 'stop', name: screenName('stop', {stop: 'Stretford Mall (Stop A)'})});
+ assert.equal(backWords(board), 'Back to your trip');
+});

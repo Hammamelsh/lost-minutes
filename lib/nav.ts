@@ -10,7 +10,7 @@
  * phone's Back: the same step, named for where it goes.
  *
  * What an entry records, beside the address (which keeps the stop, the filter, the bus and the plan):
- *  - `panel`, the screen: the start, a stop's board, a bus's details, or the planner;
+ *  - `panel`, the screen: the start, a stop's board, a bus's details, the planner, or a trip being made (4 October);
  *  - `ride`, whether the ride-along is on; `search`, whether the search's matches are open;
  *  - `route`, a route chosen from the search (at the start, with no stop);
  *  - `depth`, how many of the page's own entries lie below it: with none, Back would leave the site, and the page's
@@ -18,11 +18,11 @@
  *  - `back`, the name of the screen below, for the button's words; `name`, this screen's own, kept up to date by the
  *    page as it changes (a stop's planner becomes "your options" once there are some), for the next one's `back`.
  */
-export type Panel = 'home' | 'stop' | 'bus' | 'plan';
+export type Panel = 'home' | 'stop' | 'bus' | 'plan' | 'trip';
 export type Screen = {panel: Panel; ride: boolean; search: boolean; route: string | null; depth: number; back: string | null; name: string};
 
 const KEY = 'lm';
-const PANELS = new Set<Panel>(['home', 'stop', 'bus', 'plan']);
+const PANELS = new Set<Panel>(['home', 'stop', 'bus', 'plan', 'trip']);
 
 /** The screen a history entry records, or null for an entry the page did not write (or wrote before 1 October). */
 export function screenOf(state: unknown): Screen | null {
@@ -59,5 +59,6 @@ export function screenName(panel: Panel, {stop, route, planned}: {stop?: string 
  if (panel === 'stop' && stop) return stop;
  if (panel === 'bus') return route ? `the ${route}` : 'the bus';
  if (panel === 'plan') return planned ? 'your options' : 'the planner';
+ if (panel === 'trip') return 'your trip';
  return 'the start';
 }

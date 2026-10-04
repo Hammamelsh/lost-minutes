@@ -57,12 +57,12 @@ test.describe('with the device\'s location allowed', () => {
     await expect(choose).toBeVisible({timeout: 30_000});
     await expect(back(page)).toHaveText('Back to the start');
     await choose.click();
-    // The stop it boards at, led by the plan: where to get off and the walk on are in view.
-    await expect(follow(page)).toHaveAttribute('data-panel', 'stop');
-    await expect(page.locator('.your-stop-copy strong')).toContainText('Stretford Mall');
-    const summary = page.locator('[data-plan-summary]');
-    await expect(summary).toContainText('Fixture Conference Centre');
-    await expect.poll(() => seen(summary), {message: 'the plan is in view'}).toBe(true);
+    // The trip, a step at a time (4 October 2026): the walk to the stop it boards at, in view, and its way back.
+    await expect(follow(page)).toHaveAttribute('data-panel', 'trip');
+    await expect(page.locator('.trip .trip-title')).toContainText('Walk to Stretford Mall');
+    const summary = page.locator('.trip .trip-head');
+    await expect(summary).toContainText('To Fixture Conference Centre');
+    await expect.poll(() => seen(page.locator('.trip [data-trip-next]')), {message: 'the step’s action is in view'}).toBe(true);
     await expect(back(page)).toHaveText('Back to your options');
     await page.screenshot({path: info.outputPath(`${info.project.name}-plan-chosen.png`)});
     // The phone's Back: the options again, the places kept.

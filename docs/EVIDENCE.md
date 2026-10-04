@@ -27,6 +27,7 @@ exists only on the production server or this author's machine (`no`), in which c
 | A failed or shrunken timetable download never replaces the last valid catalogue | `pipeline/patterns.py`, `collect_timetables` | `tests/test_timetable_catalogue.py`, `test_a_page_that_is_not_a_zip_is_kept_apart_not_stored_as_a_timetable` | yes |
 | Coverage, 2 October 2026: 4 TfGM operator datasets, 206 observed services with a valid timetable, 585 patterns on 183 lines, 133 observed services with no timetable held | the server's nightly `pipeline.patterns build` | `coverage` in the served `/data/patterns.json` (built 02:43 UTC) | no: the clone's `patterns.json` is the 22 September build (576 patterns) |
 | Journey planning uses timetables and published boards only, and says when a timetable is unchecked | `lib/connections.ts`, `lib/plan.ts` | `tests/connections.test.mjs`, `tests/planner-regression.test.mjs` (ten cases with an independent oracle) | yes |
+| A trip moves on only by the passenger's word or this device's own location reaching the stop it walks to, never by a bus's position; the bus followed is the one the passenger says they boarded, asked about when more than one could be | `lib/trip.ts`, `components/trip-view.tsx`, `components/follow-view.tsx` | `tests/trip.test.mjs`; `tests/browser/trip.spec.mjs` and `tests/browser/connection.spec.mjs` (FIXTURE timetable and positions, Chromium's location; emulation, not a phone) | yes |
 
 ## Measurements
 

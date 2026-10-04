@@ -18,6 +18,8 @@ on a stop it did not serve.
 | Last journey (an **offer**) | localStorage | `lost-minutes.journey.v1` | 12 h | every journey change |
 | Active journey (this tab) | sessionStorage | `lost-minutes.journey.session.v1` | the tab | every journey change |
 | Walking origin the passenger chose | sessionStorage | `lost-minutes.walking-origin.v1` | the tab | Choose starting point |
+| Destination being planned to | sessionStorage | `lost-minutes.destination.v1` | the tab | a destination chosen; cleared with it |
+| A trip being made (4 October 2026) | sessionStorage | `lost-minutes.trip.v1` | the tab | Go, each step, a bus boarded; cleared by End, New journey or a new destination |
 | The address | URL `?stop&service&bus` | — | — | explicit choices and links only |
 
 A **journey** is `{stop, service filter, bus}` where the bus is `operator|vehicle|route|direction`:
@@ -86,7 +88,7 @@ start with the plan gone (`scripts/probes/nav-study.mjs`: 6 of 8 steps failed on
 passenger opens is an entry, and the page's own Back (`data-panel-back`, named for where it goes) is the phone's Back:
 `window.history.back()` whenever an entry of the page's own lies below, else "Back to the start".
 
-An entry carries its screen in `history.state.lm` (`lib/nav.ts`): `panel` (home, stop, bus, plan), `ride`, `search`,
+An entry carries its screen in `history.state.lm` (`lib/nav.ts`): `panel` (home, stop, bus, plan, trip), `ride`, `search`,
 `route` (a route chosen from the search), `depth` (the page's own entries below it), `back` (the name of the screen
 below, for the button) and `name` (its own, kept up to date as it changes: a planner becomes "your options"). The
 address still carries the stop, the filter, the bus and the plan, and Back and Forward still apply it (`app/page.tsx`);
@@ -97,12 +99,45 @@ the screen is applied beside it (`applyEntry` in `components/follow-view.tsx`).
 | The search's matches | pushed, marked as on the way (`lmIntermediate`) | closes them; still on the page |
 | A stop, a route or a place chosen from the matches | takes the matches' entry's place | the screen before the search |
 | The planner (Plan, a place, Other options) | pushed | the screen it was opened from |
-| A journey chosen from the planner (direct or with a change) | its first stop pushed | the options, with the places kept |
+| A journey chosen from the planner (Go, direct or with a change) | the trip pushed (until 4 October, its first stop) | the options, with the places kept and one line back to the trip |
+| A stop's own board, a bus or the options, from the trip | pushed over it | the trip, at the step it was at |
 | A bus's details | the screen below made to name the bus, then pushed | that screen, the bus still chosen |
 | Another bus from the details | in its place | the same screen as before |
 | The ride | pushed over the screen it was entered from | that screen (Exit, Escape and Details do the same) |
-| A stage of a journey with a change | in place (progress, not a new screen) | — |
+| A step of a trip (walk, wait, ride, change, walk on) | in place (progress, not a new screen) | — |
 | New journey | the start, in place | what came before it, as any undone step |
 
 A reload keeps the screen it was on (the planner, a bus's details) and never a ride or the search's matches. Back or
 Forward never begins a ride: a ride is begun by the passenger. On a computer, Escape is Back.
+
+## A trip, a step at a time (4 October 2026)
+
+The owner asked for planning to work the way Google Maps does: walking help to the stop, then, on the bus, following
+it. Walked as a phone on the served site, a chosen journey had opened its boarding stop's whole board, nine sections
+deep, the walking help 2,743 px down and no way from the plan to the bus. **Go** now starts a trip (`lib/trip.ts`,
+`components/trip-view.tsx`): the steps it is made of, one of them current, each about one stop or one bus.
+
+| Step | The page's stop | Filter | Chosen bus | Walk asked for (once allowed) | The map frames |
+|---|---|---|---|---|---|
+| Walk to the stop | the boarding stop | the leg's service | none | from the start to the stop | the start, the stop and the walk |
+| Wait | the boarding stop | the leg's service | none | none | the stop, and the bus coming when within 400 m (or on request) |
+| Ride | the stop to get off at | — | the bus the passenger said they boarded | none | that bus, followed |
+| Change (a journey with one) | the second boarding stop | — | none | from the device to that stop; the stop-to-stop walk is the list's own | the two stops and the walk |
+| Walk on | the stop got off at | — | none | from the device (else that stop) to the destination | the stop, the destination and the walk |
+
+- **What moves it on.** The passenger's word ("I'm at the stop", "I'm on the bus", "I've got off", "I've arrived"),
+  or this device's own location reaching the stop it walks to (within its accuracy, never under 35 m or over 60 m),
+  once per arrival: a passenger who goes back a step at the stop is not pushed on again. Never a bus's position.
+- **Which bus.** "I'm on the bus" takes the one bus of the leg (or its sibling lines) reported from two stops before
+  the stop to four after it; with more than one it asks, nearest the device first; with none it goes on untracked and
+  offers them later. A bus whose last report is beside a device that has left the stop is offered, never chosen.
+- **What is kept.** `lost-minutes.trip.v1` holds the journey's public key (`d:` or `c:`, as a link's `plan=`), the step,
+  the bus boarded by `operator|vehicle` and the leg it was boarded for, and for a journey with a change the chosen
+  connection and the extra time to change. A reload restores all of it at the same step, and takes the device's
+  location up again where it is already allowed. A tab kept before 4 October holds a journey with a change by its
+  stage (`lost-minutes.journey-plan.v1`), which is read once as the matching step and then replaced.
+- **A link** carries the journey (`plan=`) with the destination, and starts it from its first step, from wherever it is
+  opened; never a location and never a step or a bus.
+- **What is not stored or sent.** The trip's times are computed on the device from the timetables already fetched; the
+  device's location stays on the device unless the passenger asks for a walking route, which sends it rounded to about
+  10 m, as everywhere else.

@@ -76,6 +76,7 @@ test('New journey empties both journey stores and leaves recents and saved thing
 test('a link carries a vehicle on a route, not a trip: the journey reference is not invented', () => {
  const bare = initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO%7C15%7Cinbound', store(), NOW, store());
  assert.equal(bare.bus.journeyRef, '', 'a link with no reference never claims which trip it was');
+ assert.equal(bare.bus.observedAtMs, 0, 'nor a time the bus was last seen: a link carries no report');
  const named = initialJourney('?stop=1800SJ32251&bus=BNML%7CMF74NPO%7C15%7Cinbound%7C1108', store(), NOW, store());
  assert.equal(named.bus.journeyRef, '1108', 'a link that carries the trip keeps it');
  const session = store();

@@ -156,7 +156,8 @@ test('Follow keeps the bus that was shown through reordering, absence, return an
       message: `publication ${phase}: the followed bus is held in the middle of the map that can be seen`}).toBe(true);
   }
   // A theme change, then a filter to a service the followed bus is not on: it is still the bus
-  // followed, on the card, the strip and the map, and the strip says it is not in the list below.
+  // followed, on the card and the map, and the card says it is not in the stop's list, which is above it in a stop's
+  // panel. ("Below" was written on 14 September for a strip above the lists; since 22 September it is on the card.)
   await page.getByRole('button', {name: 'Switch to the night map'}).click();
   await publish(page, feed, 2);
   expect(await cardVehicle(page), 'after a theme change').toBe(ALPHA.id);
@@ -168,7 +169,7 @@ test('Follow keeps the bus that was shown through reordering, absence, return an
   await publish(page, feed, 3);
   expect(await cardVehicle(page), 'filtered to another service').toBe(ALPHA.id);
   await expect(page.locator('.active-bus')).toHaveAttribute('data-vehicle', ALPHA.id);
-  await expect(page.locator('.active-bus')).toContainText('not in the list below');
+  await expect(page.locator('.active-bus')).toContainText('not in the list above');
   await expect(map(page)).toHaveAttribute('data-selected-key', /FX-ALPHA/);
   await otherService.click();
   await expect(otherService).toHaveAttribute('aria-pressed', 'false');
@@ -503,6 +504,9 @@ test('a bus drawn on the vector map, clicked or tapped where it is drawn, is cho
   await expect(card(page)).toHaveAttribute('data-vehicle', BRAVO.id);
   await expect(card(page)).toHaveAttribute('data-selection', 'active');
   await expect(map(page)).toHaveAttribute('data-selected-key', /FX-BRAVO/);
+  // Its details open over the stop, and their Back names the stop (4 October 2026: it named the bus itself).
+  await expect(page.locator('.follow')).toHaveAttribute('data-panel', 'bus');
+  await expect(page.locator('[data-panel-back]')).toContainText('Back to Stretford Mall');
   for (const phase of [2, 3]) {
     await publish(page, feed, phase);
     expect(await cardVehicle(page), `publication ${phase}: still the bus chosen on the map`).toBe(BRAVO.id);

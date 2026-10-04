@@ -41,6 +41,12 @@ async function serveAbove(page, {photo3d = true, provider = 'sample', tileset = 
 }
 
 async function open(page) {
+  // Every test here opens the shared link to FX-MOVING, which opens that bus's details (4 October 2026). The view from
+  // above is offered at the start, in Try Ride-along: one Back away, with the bus still chosen.
+  await expect(page.locator('.follow')).toHaveAttribute('data-panel', 'bus', {timeout: 15_000});
+  await page.locator('[data-panel-back]').click();
+  await expect(page.locator('.follow')).toHaveAttribute('data-panel', 'home');
+  await expect(map(page)).toHaveAttribute('data-selected-key', 'BNML|FX-MOVING');
   const link = page.locator('[data-try-ride-link]');
   if (await link.isVisible()) await link.click();
   const entry = page.locator('[data-above-entry]');

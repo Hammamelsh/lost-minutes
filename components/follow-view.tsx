@@ -311,6 +311,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // plan. Each entry carries its screen's name (kept up to date below), for the Back of the screen opened over it;
  // `screen` is the entry the page is on, for its own Back's words.
  const [screen,setScreen]=useState<Screen|null>(null);
+ // Whether the page opened on a shared link that names a bus, whose details are still to be opened (below).
+ const linkedBus=useRef(false);
  function openScreen(next:Partial<Screen>&{panel:Panel},options:ScreenWrite={}){
   setScreen(writeScreen(next,options));
  }
@@ -976,6 +978,10 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // predicted nor followed until the passenger says to go on with it: it is drawn at its reports.
  const pausedJourney=selection.kind==='new_journey';
  const identity=shown??pin?.bus;
+ // A link carries a bus's route and direction, not where it goes: one not yet seen here is named by its vehicle, not
+ // sent "to an unnamed destination", which says the operator named none (4 October 2026, a shared link to a bus gone).
+ const headedTo=identity&&identity.route&&(shown||identity.destination)?`to ${destinationLabel(identity.destination)}`:null;
+ const busWords=identity?headedTo?`${identity.route||'Bus'} ${headedTo}`:`${identity.route?`${identity.route} · `:''}vehicle ${identity.vehicle}`:'';
  const cardRelation=shown&&stop?(relations.get(shown.key)??relateToStop(shown,stop.id,patternsById)):undefined;
  const cardStanding=cardRelation?standing(cardRelation):null;
  const relevant=!stop||cardStanding==='coming';
@@ -1098,7 +1104,11 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
   // details), never a ride or the search's matches, which a reload does not bring back. Off the render path.
   const timer=setTimeout(()=>{
    const s=entryNow();
-   if(!s){openScreen({panel:new URLSearchParams(window.location.search).get('stop')?'stop':'home'},{place:'replace'});return}
+   if(!s){
+    const params=new URLSearchParams(window.location.search);
+    linkedBus.current=Boolean(params.get('bus'))&&!params.get('ride');
+    openScreen({panel:params.get('stop')?'stop':'home'},{place:'replace'});return;
+   }
    const kept={...s,ride:false,search:false};
    if(s.ride||s.search)window.history.replaceState(withScreen(window.history.state,kept),'',window.location.href);
    setScreen(kept);
@@ -1448,7 +1458,6 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const stripStatus=selection.kind==='absent'?''
   :selection.kind==='new_journey'?`Now on another journey · ${ageChip(selection.bus)}`
   :shown?[progressText,activityAdds?activityLine?.text:null].filter(Boolean).join(' · '):'';
- const inList=!pin||(stop?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key);
 
  // ------------------------------------------------------------ the trip's step, as the page shows it
  // The device's own position says when a stop is reached, which bus a passenger on board is most likely on, and when
@@ -1771,13 +1780,43 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  const exploringBus=Boolean(stop&&pinned&&!absent&&cardStanding!==null&&cardStanding!=='coming'&&cardStanding!=='maybe');
  const panelMode:Panel=planOpen?'plan':tripOpen&&(tripPlan||pendingTrip)?'trip':busOpen&&identity?'bus':stop?'stop':'home';
  const inStop=!!stop&&(panelMode==='stop'||panelMode==='bus');
+ // A chosen bus in none of the list being browsed says so, and says where that list is: a stop's lists are below the
+ // card in a bus's details (and when the chosen bus is not coming), above it otherwise; at the start the list is a
+ // route's buses, below; a bus's details with no stop have none (4 October 2026: a shared bus's card said "not in the
+ // list below" with nothing below but "No stop chosen").
+ const listPlace=stop&&board?(panelMode==='bus'||exploringBus?'below':panelMode==='stop'?'above':null)
+  :panelMode==='home'&&onRoute.length>1?'below':null;
+ const notListed=pin&&listPlace&&!(stop&&board?mapBuses:onRoute).some(bus=>bus.key===pin.bus.key)?`not in the list ${listPlace}`:null;
  // What this screen is called, for the Back of the next; and the latest handlers, for listeners set up once.
  const screenNameNow=screenName(panelMode,{stop:stopLabel,route:identity?.route??null,planned:Boolean(destination&&planFrom)});
- // The entry's own name follows its screen (a stop's planner becomes "your options"), for the next one's Back.
+ // The entry's own name follows its screen (a stop's planner becomes "your options"), for the next one's Back: only
+ // the entry that is that screen. A bus tapped on the map opens its details a moment before their entry is written,
+ // and the start's own entry, named after the bus in that moment, put "Back to the 38" on them (4 October 2026).
  useEffect(()=>{
   const s=entryNow();
-  if(s&&!s.search&&s.name!==screenNameNow)window.history.replaceState(withScreen(window.history.state,{...s,name:screenNameNow}),'',window.location.href);
- },[screenNameNow]);
+  if(s&&!s.search&&s.panel===panelMode&&s.name!==screenNameNow)window.history.replaceState(withScreen(window.history.state,{...s,name:screenNameNow}),'',window.location.href);
+ },[screenNameNow,panelMode,screen]);
+ // A shared link that names a bus opens that bus's details, as the page that shared it showed them, over the stop the
+ // link names (or the start), so Back goes there and not off the site. Decided once, when the link's stop is known
+ // and before anything else is opened (4 October 2026: such a link opened the start, the card under the fold).
+ useEffect(()=>{
+  if(!linkedBus.current||initialJourney===undefined)return;
+  const linked=initialJourney?.source==='link'&&Boolean(initialJourney.bus||initialJourney.busKey)&&mode!=='archive'&&!recording;
+  const stopId=initialJourney?.stopId??null;
+  if(linked&&stopId&&stop?.id!==stopId&&!(stops.length>0&&!stops.some(s=>s.id===stopId)))return;
+  const timer=setTimeout(()=>{
+   if(!linkedBus.current)return;
+   linkedBus.current=false;
+   const s=entryNow();
+   if(!linked||!pin||!s||s.search||s.depth>0||s.panel==='bus'||planOpen||tripOpen||view==='ride')return;
+   // The entry below is named first, so the details' Back says where it goes: the link's stop, or the start.
+   if(s.panel===panelMode&&s.name!==screenNameNow)window.history.replaceState(withScreen(window.history.state,{...s,name:screenNameNow}),'',window.location.href);
+   openScreen({panel:'bus'},{place:'push'});
+   setBusOpen(true);setSheet(sh=>sh==='peek'?'half':sh);
+  },0);
+  return()=>clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[initialJourney,stop,stops,pin,screen]);
  useEffect(()=>{
   goBackRef.current=goBack;panelRef.current=panelMode;
   applyEntry.current=applyEntryNow;startRideRef.current=startRide;letGoRef.current=letGo;selectStopRef.current=selectStop;
@@ -1787,8 +1826,8 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
  // The sheet's one line when it is folded down: what the panel is about, and the next thing to do.
  const handleWords=panelMode==='trip'?tripHandle:panelMode==='plan'?'Plan a journey'
   :chosenJourney&&panelMode!=='bus'?`Your journey · ${chosenJourney.first.line} then ${chosenJourney.second.line}${stripStatus?` · ${stripStatus}`:''}`
-  :panelMode==='bus'&&identity?`${identity.route||'Bus'} to ${destinationLabel(identity.destination)}${stripStatus?` · ${stripStatus}`:''}`
-  :stop?`${stopLabel}${identity?` · ${identity.route} to ${destinationLabel(identity.destination)}`:board?.coming.length?` · ${board.coming.length} coming`:''}`
+  :panelMode==='bus'&&identity?`${busWords}${stripStatus?` · ${stripStatus}`:''}`
+  :stop?`${stopLabel}${identity?` · ${busWords}`:board?.coming.length?` · ${board.coming.length} coming`:''}`
   :'Find your stop';
  // The list's own scroll position is the passenger's place in it and survives the sheet moving:
  // showing the map for a moment and coming back must not lose it. (A new task scrolls it itself.)
@@ -2207,14 +2246,15 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
     <header className="bus-card-head">
      <span className="route-badge">{identity.route||'?'}</span>
      <div className="bus-card-title">
-      {/* A link that named only a vehicle, never seen since: its route and destination are unknown. */}
-      <strong>{identity.route?`to ${destinationLabel(identity.destination)}`:`Vehicle ${identity.vehicle}`}</strong>
+      {/* A link that named only a vehicle, or its route but not where it goes, never seen since: named by its vehicle. */}
+      <strong>{headedTo??`Vehicle ${identity.vehicle}`}</strong>
       <small>{[directionLabel(identity.direction),identity.operator].filter(Boolean).join(' · ')}</small>
      </div>
      {shown&&!absent?<span className={`age-chip ${mode==='archive'?'archive':shown.freshness??'unknown'}`}>{ageChip(shown)}</span>
+      :loading?<span className="age-chip unknown" data-age-checking>Checking…</span>
       :<span className="age-chip stale">No current report</span>}
     </header>
-    {(stripStatus||!inList)&&<p className="active-bus-copy"><small>{stripStatus}{!inList?' · not in the list below':''}</small></p>}
+    {(stripStatus||notListed)&&<p className="active-bus-copy"><small>{[stripStatus,notListed].filter(Boolean).join(' · ')}</small></p>}
    </div>
    {selectionKind==='suggested'&&<p className="bus-card-suggestion">Shown because it is {stop?'coming to your stop':'the latest report on this route'}.
     It stays shown while it is; following it or riding along keeps it chosen.</p>}
@@ -2226,7 +2266,7 @@ export default function FollowView({paused=false,mode,live,buses,roads,onRefresh
      :selection.kind==='absent'&&selection.last?`Last seen ${clock(selection.last.observedAtMs,true)}`
      :selection.kind==='absent'&&selection.pin.bus.observedAtMs?`Last seen ${clock(selection.pin.bus.observedAtMs,true)}`
      :'Not in the latest positions'}</strong>
-     {' '}· drawn where it last reported, not moved on. Nothing else has been chosen in its place.</p>
+     {' '}· {shown?'drawn where it last reported, not moved on':'not on the map until it reports again'}. Nothing else has been chosen in its place.</p>
     <div className="selection-actions">
      <button className="text-action strong" onClick={letGo}>Stop following</button>
     </div>

@@ -185,7 +185,9 @@ export function initialJourney(search:string,storage:Pick<Storage,'getItem'>|nul
    &&(linked.route===null||(b.route===linked.route&&b.direction===linked.direction)))??null;
   const bus:SavedBus|null=remembered??(linked&&linked.route&&linked.direction
    ?{key:linked.key,operator:linked.key.split('|')[0],vehicle:linked.key.split('|')[1],route:linked.route,direction:linked.direction,
-     destination:'',journeyRef:linked.journeyRef,observedAtMs:nowMs}:null);
+     // A link carries no report: no time it was last seen (4 October 2026: the card said "Last seen" at the moment
+     // the link was opened, of a bus this device had never seen).
+     destination:'',journeyRef:linked.journeyRef,observedAtMs:0}:null);
   return {stopId:shared.stopId,serviceKey:shared.serviceKey,busKey:linked?.key??null,bus,source:'link'};
  }
  if(active)return {stopId:active.stopId,serviceKey:active.serviceKey,busKey:active.bus?.key??null,bus:active.bus,source:'session'};

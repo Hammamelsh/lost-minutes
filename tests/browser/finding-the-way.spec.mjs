@@ -7,7 +7,7 @@
 // is found in the main search and planned to from here; the planner's places are on the screen and taken by a tap.
 // FIXTURE positions and timetables; the place providers mocked; the stop catalogue real. Both sizes.
 import {test, expect} from '@playwright/test';
-import {chooseOption, departureBoard, journeyLive, onScreen, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
+import {chooseOption, departureBoard, fastConfig, journeyLive, onScreen, serveDepartures, servePatterns, serveLive, waitForPaint} from './fixtures.mjs';
 
 const STOP_A = '1800SJ00811';
 // Beside Stretford Mall: where the fixture's 256 starts its walk from.
@@ -100,6 +100,65 @@ test.describe('with the device\'s location allowed', () => {
     await back(page).click();
     await expect(follow(page)).toHaveAttribute('data-panel', 'home');
   });
+});
+
+// A shared bus link (4 October 2026). It opened the start, the bus's card under the fold saying "not in the list below"
+// with no list there. It opens what the page that shared it showed: the bus's details, over the stop the link names.
+const COMING = encodeURIComponent('BNML|FX-COMING|256|inbound|FX-FX-COMING');
+const card = page => page.locator('article.bus-card');
+
+test('a shared bus link opens that bus\'s details over its stop, and Back and Forward step between them', async ({page}, info) => {
+  await open(page, `/?stop=${STOP_A}&bus=${COMING}`);
+  await expect(follow(page)).toHaveAttribute('data-panel', 'bus', {timeout: 15_000});
+  await expect(back(page)).toContainText('Back to Stretford Mall');
+  await expect(card(page)).toHaveAttribute('data-selection', 'active', {timeout: 15_000});
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+  await expect(card(page)).not.toContainText('not in the list');
+  await page.screenshot({path: info.outputPath(`${info.project.name}-shared-bus-at-stop.png`)});
+  await page.goBack();
+  await expect(follow(page)).toHaveAttribute('data-panel', 'stop');
+  await expect(page.locator('.waiting .follow-row[aria-pressed="true"]')).toContainText('3 stops before yours');
+  await expect(back(page)).toHaveText('Back to the start');
+  await page.goForward();
+  await expect(follow(page)).toHaveAttribute('data-panel', 'bus');
+  await expect(back(page)).toContainText('Back to Stretford Mall');
+  // With no stop named, over the start; the page's own Back goes there and the bus stays chosen.
+  await open(page, `/?bus=${COMING}`);
+  await expect(follow(page)).toHaveAttribute('data-panel', 'bus', {timeout: 15_000});
+  await expect(back(page)).toHaveText('Back to the start');
+  await expect(card(page)).toHaveAttribute('data-selection', 'active', {timeout: 15_000});
+  await expect(card(page)).not.toContainText('not in the list');
+  await expect(card(page).locator('.bus-card-title')).toContainText('to Piccadilly Gardens');
+  await page.screenshot({path: info.outputPath(`${info.project.name}-shared-bus.png`)});
+  await back(page).click();
+  await expect(follow(page)).toHaveAttribute('data-panel', 'home');
+  await expect(card(page)).toHaveAttribute('data-vehicle', 'FX-COMING');
+});
+
+test('a shared bus link says what is known: checking while the first positions load, and a bus not reporting is not drawn and not claimed to be', async ({page}, info) => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await servePatterns(page);
+  await serveDepartures(page, {board: departureBoard({nowMs: Date.now()})});
+  await page.route('**/data/config.json*', route => route.fulfill({json: fastConfig()}));
+  await page.route('**/data/live.json*', async route => { await held; await route.fulfill({json: journeyLive()}); });
+  await page.goto(`/?bus=${encodeURIComponent('BNML|FX-GONE|256|inbound|FX-FX-GONE')}`);
+  await expect(follow(page)).toHaveAttribute('data-panel', 'bus', {timeout: 15_000});
+  // Nothing is known yet: neither found nor missing.
+  await expect(card(page).locator('[data-age-checking]')).toHaveText('Checking…');
+  await expect(card(page)).not.toContainText('No current report');
+  await page.screenshot({path: info.outputPath(`${info.project.name}-shared-bus-checking.png`)});
+  release();
+  // In: the vehicle is not in the publication and this device holds no report of it, so nothing is drawn for it.
+  await expect(card(page)).toContainText('No current report', {timeout: 15_000});
+  await expect(card(page)).toContainText('Not in the latest positions · not on the map until it reports again');
+  await expect(card(page)).not.toContainText('drawn where it last reported');
+  await expect(card(page)).not.toContainText('Last seen');
+  // The link named its route and direction, not where it goes: named by its vehicle, not "to an unnamed destination".
+  await expect(card(page).locator('.bus-card-title')).toContainText('Vehicle FX-GONE');
+  await expect(card(page)).not.toContainText('unnamed');
+  await expect(page.locator('.vector-map')).not.toHaveAttribute('data-selected-key', /FX-GONE/);
+  await page.screenshot({path: info.outputPath(`${info.project.name}-shared-bus-gone.png`)});
 });
 
 test('the search\'s matches are a step: the phone\'s Back closes them and stays; a stop chosen from them takes their place', async ({page}) => {

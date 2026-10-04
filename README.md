@@ -16,7 +16,8 @@ Scheduled, not live: the 255 to Partington Terminus at 21:55, timetabled, in 10 
 ## What it does
 
 - **Find a stop** by name, bus number or place, or nearby. A stop shows its timetabled departures (labelled as the
-  timetable) and the buses on its routes, each placed by its last report, with the report's age.
+  timetable) and the buses on its routes. The map draws buses using their position reports, with the report age and
+  drawing status shown.
 - **Follow one bus** on the map, drawn between its own reports, or ride along with it in 3D. On three evaluated routes
   a clearly labelled estimate may run up to two minutes past the last report; nothing is ever stored as a report.
 - **Plan a journey**, direct or with one change, from the operators' registered timetables, with the walks.

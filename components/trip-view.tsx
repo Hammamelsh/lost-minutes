@@ -29,6 +29,8 @@ export type TripRideStop={name:string;state:'passed'|'next'|'later'|'alight'};
 
 const stopWords=(s:{name:string;indicator?:string|null})=>s.indicator?`${s.name} (${s.indicator})`:s.name;
 const distance=(m:number)=>m<1000?`${Math.max(10,Math.round(m/10)*10)} m`:`${(m/1000).toFixed(1)} km`;
+/** A leg's lines on a small pill, as the options show them: "256", "43/41", "142/42/42B", or "142 +4" for a long family. */
+const pillOf=(lines:string)=>{const names=lines.replace(' or ',', ').split(', ');return names.length>3?`${names[0]} +${names.length-1}`:names.join('/')};
 const ordinal=(n:number)=>{const t=n%100;if(t>=11&&t<=13)return 'th';return n%10===1?'st':n%10===2?'nd':n%10===3?'rd':'th'};
 
 export default function TripView({steps,index,to,legs,arriveMs,leave,timesNote,departures,departuresNote,nextLeg,
@@ -105,7 +107,7 @@ export default function TripView({steps,index,to,legs,arriveMs,leave,timesNote,d
  const chip=(s:TripStep,i:number)=><li key={i} className={`trip-chip ${i<index?'done':i===index?'now':'later'} kind-${s.kind}`} data-trip-chip={i}>
   <span className="trip-chip-mark">
    {s.kind==='walk'||s.kind==='change'||s.kind==='arrive'?<Footprints size={14} aria-hidden="true"/>
-    :s.kind==='wait'?<MapPin size={14} aria-hidden="true"/>:<span className="route-pill">{legOf(s.leg).lines.split(' or ')[0]}</span>}
+    :s.kind==='wait'?<MapPin size={14} aria-hidden="true"/>:<span className="route-pill">{pillOf(legOf(s.leg).lines)}</span>}
   </span></li>;
 
  // Every step on one line, for the list of them all.
@@ -187,9 +189,10 @@ export default function TripView({steps,index,to,legs,arriveMs,leave,timesNote,d
       ?<><p className="trip-label">{departures[0].chosen?'Your connection, by the timetable':'Next by the timetable'}</p>{times(departures.slice(0,departures[0].chosen?1:2))}</>
       :times(departures.slice(0,2),'Next by the timetable:')}</div>
     :departuresNote&&<p className="trip-when warn" data-trip-departures="none">{departuresNote}</p>}
+   {/* The nearest bus on its way, where it is first; a second only where there are no times to read. */}
    {coming.length>0
-    ?<ul className="trip-coming" aria-label="Tracked buses coming">{coming.slice(0,2).map(b=><li key={b.key} data-trip-coming={b.key}>
-      <span className="route-pill">{b.line}</span><span>{b.tag&&<b>{b.tag} · </b>}{b.where}<small> · reported {b.age}</small></span></li>)}</ul>
+    ?<ul className="trip-coming" aria-label="Tracked buses coming">{coming.slice(0,departures&&departures.length?1:2).map(b=><li key={b.key} data-trip-coming={b.key}>
+      <span className="route-pill">{b.line}</span><span><strong>{b.where}</strong><small>{b.tag&&<> · <b>{b.tag}</b></>} · reported {b.age}</small></span></li>)}</ul>
     :<p className="trip-sub" data-trip-coming="none">No {leg.lines} is reporting on its way here. That is not “no bus”: the timetable still stands.</p>}
    {suggestion&&!asking&&<p className="trip-suggest" role="status" data-trip-suggest={suggestion.key}>
     Are you on the <b>{suggestion.line}</b>? Its last report is near you.{' '}

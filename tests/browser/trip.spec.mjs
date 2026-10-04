@@ -279,22 +279,30 @@ test('with sibling lines and long names, as real services have, each step’s ac
   // FIXTURE sibling lines on the same stops, with long destinations, and a venue with a long name.
   const catalogue = fixtureCatalogue();
   const main = catalogue.patterns[0];
+  // Five lines in all, as the 142's family is in the evening.
   catalogue.patterns.push({...main, id: 'FX:256X:long', line: '256X', destination: 'Davenport Arms via Stretford, Old Trafford and Hulme'},
-    {...main, id: 'FX:256B:long', line: '256B', destination: 'Stockport Interchange (Bus Station) via the Precinct'});
+    {...main, id: 'FX:256B:long', line: '256B', destination: 'Stockport Interchange (Bus Station) via the Precinct'},
+    {...main, id: 'FX:256C:long', line: '256C', destination: 'Cheadle Post Office'},
+    {...main, id: 'FX:256D:long', line: '256D', destination: 'Thornley Lane South (Shopping Centre)'});
   const venue = {features: [{...VENUE.features[0], properties: {...VENUE.features[0].properties,
     name: 'Fixture Conference Centre and Exhibition Halls, North Entrance'}}]};
   const world = {at: 5};
   await serveWorld(page, world, Date.now(), {catalogue, venue});
   const option = await goToVenue(page, 'Exhibition Halls', '.plan-option');
   // One option, its three lines together (which leads is the planner's order).
-  await expect(option.locator('[data-plan-strip] .route-pill')).toHaveText(/^(?=.*256X)(?=.*256B)256\w?\/256\w?\/256\w?$/);
+  await expect(option.locator('[data-plan-strip] .route-pill')).toHaveText(/^256\w? \+4$/);
+  await expect(option.locator('.plan-go-words')).toHaveText(/^any 256\w?, 256\w?, 256\w?, 256\w? or 256\w? · 2 stops$/);
+  // The strip and the times on one line.
+  const [strip, when] = await Promise.all([option.locator('[data-plan-strip]'), option.locator('[data-plan-when]')].map(l => l.boundingBox()));
+  expect(Math.abs(strip.y + strip.height / 2 - (when.y + when.height / 2)), 'one line').toBeLessThan(12);
   await option.locator('[data-choose-plan]').click();
   await expect(trip(page)).toHaveAttribute('data-trip-step', 'walk');
+  await expect(trip(page).locator('.trip-chip .route-pill')).toHaveText(/^256\w? \+4$/);
   await inView(page, '[data-trip-next]');
   expect(await trip(page).locator('.trip-head').evaluate(e => e.getBoundingClientRect().height), 'one line, the name cut short').toBeLessThan(26);
   await context.setGeolocation(AT_STOP_A);
   await expect(trip(page)).toHaveAttribute('data-trip-step', 'wait', {timeout: 15_000});
-  await expect(trip(page).locator('.trip-for')).toHaveText(/^for the 256\w?, 256\w? or 256\w?, any of them$/);
+  await expect(trip(page).locator('.trip-for')).toHaveText(/^for the 256\w?, 256\w?, 256\w?, 256\w? or 256\w?, any of them$/);
   await page.screenshot({path: test.info().outputPath(`${test.info().project.name}-long-wait.png`)});
   await inView(page, '[data-trip-board]');
   await trip(page).locator('[data-trip-board]').click();

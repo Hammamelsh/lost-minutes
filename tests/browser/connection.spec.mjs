@@ -161,7 +161,7 @@ test('From and To give a journey with one change; Go starts it: one step at a ti
   // Ready at +10:53 (arrival at the change, a 110 s walk, 2 min): the 53 at +9 is gone, the +17 is the one.
   await expect(chosen).toContainText('10 min to change');
   await expect(trip(page).locator('[data-change]')).toHaveCount(0);
-  await expect(trip(page).locator('[data-trip-coming="BNML|FX-MOVING"]')).toContainText(/On your connection · \d+ stops? away/);
+  await expect(trip(page).locator('[data-trip-coming="BNML|FX-MOVING"]')).toContainText(/^\d+ stops? away · On your connection · reported/);
   await page.screenshot({path: info.outputPath(`${info.project.name}-wait-connection.png`)});
   // The page's stop is the first boarding point, filtered to the first bus: one tap to its own board.
   await trip(page).locator('[data-trip-stop]').click();

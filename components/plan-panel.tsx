@@ -23,6 +23,11 @@ export type PlanTo={lat:number;lon:number;label:string;detail?:string};
 
 const metresWords=(m:number)=>`about ${Math.max(10,Math.round(m/10)*10)} m`;
 const minutes=(seconds:number)=>`${Math.max(1,Math.round(seconds/60))} min`;
+/** A leg's lines on its pill: "142/42/42B", and for a longer family the first and how many more ("142 +4"), so the
+ *  strip and the times share one line (the 142 from Oxford Road runs with four sibling lines in the evening). */
+const pill=(leg:ConnectionOption['first'])=>{const lines=lineShort(leg).split('/');return lines.length>3?`${lines[0]} +${lines.length-1}`:lines.join('/')};
+/** A leg's buses beside Go: where each goes, while that is short; else the lines, any of which calls at both stops. */
+const goWords=(leg:ConnectionOption['first'])=>{const service=legService(leg);return service.length<=60?service:`any ${lineNames(leg)}`};
 
 export default function PlanPanel({stops,day,nowMs,from,to,device,onUseDevice,onChooseFrom,onSetTo,onChoose,onShowOnMap,chosenKey,compact=false,resume=null,
                                   direct=[],directTimes=null,lead='direct',checking=false,connections=[],connectionTimes=null,onChooseConnection}:{
@@ -111,7 +116,7 @@ export default function PlanPanel({stops,day,nowMs,from,to,device,onUseDevice,on
      const chosen=o.key===chosenKey;
      return <article key={o.key} className={`plan-option${chosen?' on':''}`} data-plan-option={o.line}>
       <div className="plan-option-top">
-       <Strip parts={[{walk:access.seconds},{lines:lineShort(o.leg)},{walk:egress.seconds}]}/>
+       <Strip parts={[{walk:access.seconds},{lines:pill(o.leg)},{walk:egress.seconds}]}/>
        {row&&<When setOffMs={row.departMs-access.seconds*1000} arriveMs={row.arriveMs===null?null:row.arriveMs+egress.seconds*1000} clock={clock}/>}
       </div>
       <NextDirect option={o} timing={timing} clock={clock} nowMs={nowMs}/>
@@ -119,7 +124,7 @@ export default function PlanPanel({stops,day,nowMs,from,to,device,onUseDevice,on
       <div className="plan-go">
        <button className="action" onClick={()=>onChoose(o)} data-choose-plan
         aria-label={`${chosen?'Continue':'Go'}: the ${o.line} from ${stopWords(o.board)} to ${stopWords(o.alight)}`}>{chosen?'Continue':'Go'}</button>
-       <span className="plan-go-words">{legService(o.leg)} · {o.rideStops} stop{o.rideStops===1?'':'s'}</span>
+       <span className="plan-go-words">{goWords(o.leg)} · {o.rideStops} stop{o.rideStops===1?'':'s'}</span>
       </div>
       <details className="plan-more">
        <summary>Steps and tracked buses</summary>
@@ -144,7 +149,7 @@ export default function PlanPanel({stops,day,nowMs,from,to,device,onUseDevice,on
      const chosen=o.key===chosenKey;
      return <article key={o.key} className={`plan-option connection${chosen?' on':''}`} data-plan-connection={`${o.first.line}|${o.second.line}`}>
       <div className="plan-option-top">
-       <Strip parts={[{walk:access.seconds},{lines:lineShort(o.first)},...(o.transfer.sameStop?[]:[{walk:between.seconds}]),{lines:lineShort(o.second)},{walk:egress.seconds}]}/>
+       <Strip parts={[{walk:access.seconds},{lines:pill(o.first)},...(o.transfer.sameStop?[]:[{walk:between.seconds}]),{lines:pill(o.second)},{walk:egress.seconds}]}/>
        {row?.second&&<When setOffMs={row.first.departMs-access.seconds*1000} arriveMs={row.second.arriveMs===null?null:row.second.arriveMs+egress.seconds*1000} clock={clock}/>}
       </div>
       <NextConnection option={o} timing={timing} clock={clock} nowMs={nowMs}/>

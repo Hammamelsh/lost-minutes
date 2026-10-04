@@ -74,7 +74,7 @@ test('behind the data: one entry, three views, links straight to each, and Back 
   await expect(search(page)).toBeVisible();
 });
 
-test('how it’s built: the architecture and the evidence are on its first screen, each tab names its own panel, and a wide table is reachable by keyboard', async ({page}) => {
+test('how it’s built: the architecture and the evidence are on its first screen, each tab names its own panel and says only what is true, and a wide table is reachable by keyboard', async ({page}) => {
   await open(page);
   await page.goto('/#behind-the-data');
   await expect(dataTitle(page)).toBeVisible();
@@ -105,6 +105,21 @@ test('how it’s built: the architecture and the evidence are on its first scree
         : {scrolls: false, role: null, tabindex: null, named: false});
     }
     if (tab === 'Recorded journeys') await expect(page.getByRole('slider', {name: 'Replay time'})).toBeVisible();
+    // Movement between reports, a labelled estimate and arrival predictions said apart (4 October 2026: the
+    // Evidence view said the bus never moves between reports, and the recording promised delay figures).
+    if (tab === 'Evidence') {
+      const how = page.locator('.how-live-works');
+      await expect(how).toContainText('Nothing here predicts an arrival.');
+      await expect(how).toContainText('drawn travelling from one reported position to the next');
+      await expect(how).toContainText('on three evaluated routes a labelled estimate may run up to two minutes past it');
+      await expect(how).not.toContainText('the bus never does');
+    }
+    if (tab === 'Recorded journeys') {
+      const next = page.locator('.next-measure');
+      await expect(next).toContainText('A recording: observed positions only.');
+      await expect(next).toContainText('Arrival estimates were evaluated against criteria fixed in advance and are switched off');
+      await expect(next).not.toContainText('will appear');
+    }
   }
   await page.getByRole('tab', {name: 'Operations'}).click();
   const totals = page.getByRole('region', {name: 'Do the totals add up?'});

@@ -3,6 +3,7 @@
 import {useEffect,useMemo,useState} from 'react';
 import {decodePolyline} from '@/lib/motion';
 import {clock} from '@/lib/replay';
+import {ScrollRegion} from '@/components/ui/table';
 
 type Stat={p50:number|null;p80:number|null;p90:number|null};
 type Bin={upTo:number;n:number;model:Stat;baseline:Stat;betterThanBaseline:number|null;bandCoverage:number|null};
@@ -87,13 +88,13 @@ export default function MotionEvidence(){
    <div><dt>Scored on (held out)</dt><dd>later captures: {evaluation.data.heldOut.sequences} journeys, {evaluation.data.heldOut.fixes} reports</dd></div>
    <div><dt>Reports file</dt><dd className="mono">SHA-256 {evaluation.data.reportsSha256.slice(0,12)}…</dd></div>
   </dl>
-  <div className="motion-table-wrap"><table className="motion-table">
+  <ScrollRegion className="motion-table-wrap" label="Distance from the next report, by report age"><table className="motion-table">
    <thead><tr><th>Report age up to</th><th>Cases</th><th>Estimate, median</th><th>Estimate, 8 in 10</th>
     <th>Last report, median</th><th>Estimate closer</th><th>Band held it</th></tr></thead>
    <tbody>{evaluation.heldOut.bins.map(bin=><tr key={bin.upTo}>
     <td>{bin.upTo} s</td><td>{bin.n}</td><td>{metres(bin.model.p50)}</td><td>{metres(bin.model.p80)}</td>
     <td>{metres(bin.baseline.p50)}</td><td>{share(bin.betterThanBaseline)}</td><td>{share(bin.bandCoverage)}</td></tr>)}</tbody>
-  </table></div>
+  </table></ScrollRegion>
   {evaluation.visibleCorrections?.heldOut&&(()=>{
    const seen=evaluation.visibleCorrections.heldOut,constant=evaluation.visibleCorrections.heldOutConstantSpeed;
    const previous=evaluation.visibleCorrections.heldOutPrevious;

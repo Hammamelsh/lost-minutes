@@ -110,7 +110,7 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
    <h3>Do the totals add up?</h3>
    <p>Each row is computed twice, from different tables, and compared. A single unbalanced
    row means a count on this page cannot be trusted.</p>
-   <Table><TableHeader><TableRow>
+   <Table label="Do the totals add up?"><TableHeader><TableRow>
      <TableHead>Check</TableHead><TableHead>Expression</TableHead>
      <TableHead>Left</TableHead><TableHead>Right</TableHead><TableHead>Result</TableHead>
     </TableRow></TableHeader>
@@ -137,7 +137,7 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
    <p>Processing and publication are recorded separately, because a run can read its inputs
    perfectly and still publish nothing if the candidate snapshot fails validation.</p>
    <div className="ops-table-scroll">
-    <Table><TableHeader><TableRow>
+    <Table label="Run history"><TableHeader><TableRow>
       <TableHead>Started</TableHead><TableHead>Mode</TableHead><TableHead>Processing</TableHead>
       <TableHead>Sources</TableHead><TableHead>In area</TableHead><TableHead>New</TableHead>
       <TableHead>Repeats</TableHead><TableHead>Conflicts</TableHead><TableHead>Refused</TableHead>

@@ -74,6 +74,46 @@ test('behind the data: one entry, three views, links straight to each, and Back 
   await expect(search(page)).toBeVisible();
 });
 
+test('how it’s built: the architecture and the evidence are on its first screen, each tab names its own panel, and a wide table is reachable by keyboard', async ({page}) => {
+  await open(page);
+  await page.goto('/#behind-the-data');
+  await expect(dataTitle(page)).toBeVisible();
+  // 4 October 2026: the only way to either page was a GitHub link below the four steps, 862 px down on a 390 px phone.
+  const architecture = page.getByRole('link', {name: /^Architecture and design decisions/});
+  const evidence = page.getByRole('link', {name: /^The evidence behind each figure/});
+  await expect(architecture).toHaveAttribute('href', 'https://github.com/Hammamelsh/lost-minutes#how-it-works');
+  await expect(evidence).toHaveAttribute('href', 'https://github.com/Hammamelsh/lost-minutes/blob/main/docs/EVIDENCE.md');
+  for (const link of [architecture, evidence]) {
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAccessibleName(/opens in a new tab/);
+    await expect(link).toBeInViewport({ratio: 1});
+    expect((await link.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    expect(await link.evaluate(a => getComputedStyle(a).textDecorationLine)).toBe('underline');
+  }
+  // Each tab's aria-controls names the panel it shows (the panels keep their addresses as ids).
+  for (const [tab, panel] of [['Operations', 'operations'], ['Evidence', 'evidence'], ['Recorded journeys', 'recorded-journeys']]) {
+    await page.getByRole('tab', {name: tab}).click();
+    await expect(page.getByRole('tab', {name: tab})).toHaveAttribute('aria-controls', panel);
+    await expect(page.locator(`#${panel}`)).toHaveAttribute('role', 'tabpanel');
+    // Wider than its box, a table is a named region a keyboard can reach; one that fits adds no stop.
+    const boxes = page.locator(`#${panel} :is([data-slot=table-container], .motion-table-wrap)`);
+    if (tab !== 'Recorded journeys') await expect(boxes.first()).toBeVisible();
+    for (const box of await boxes.all()) {
+      const seen = await box.evaluate(c => ({scrolls: c.scrollWidth > c.clientWidth + 1, role: c.getAttribute('role'),
+        tabindex: c.getAttribute('tabindex'), named: !!c.getAttribute('aria-label')}));
+      expect(seen).toEqual(seen.scrolls ? {scrolls: true, role: 'region', tabindex: '0', named: true}
+        : {scrolls: false, role: null, tabindex: null, named: false});
+    }
+    if (tab === 'Recorded journeys') await expect(page.getByRole('slider', {name: 'Replay time'})).toBeVisible();
+  }
+  await page.getByRole('tab', {name: 'Operations'}).click();
+  const totals = page.getByRole('region', {name: 'Do the totals add up?'});
+  await totals.focus();
+  await expect(totals).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => totals.evaluate(c => c.scrollLeft)).toBeGreaterThan(0);
+});
+
 test('going behind the data and back keeps the stop, the chosen bus, the ride-along and the map itself', async ({page}) => {
   test.setTimeout(90_000);
   await open(page);

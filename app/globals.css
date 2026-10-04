@@ -1082,7 +1082,11 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .data-steps strong::before{content:counter(step) '  ';color:#8fbf4f;font-variant-numeric:tabular-nums}
 .data-steps span{display:block;font-size:13px;line-height:1.55;color:#bcd0da}
 .data-stack,.data-now{margin:14px 0 0;font-size:13px;line-height:1.6;color:#94aab8}
-.data-stack a{color:#c6f36a}
+.data-stack a{display:inline-flex;align-items:center;gap:4px;color:#c6f36a;text-decoration:underline;text-underline-offset:3px}
+.data-links{display:flex;flex-wrap:wrap;gap:0 24px;margin:10px 0 0}
+.data-links a{display:inline-flex;align-items:center;gap:5px;min-height:44px;font-size:14px;font-weight:600;color:#c6f36a;text-decoration:underline;text-underline-offset:3px}
+.data-links a:hover,.data-stack a:hover{color:#e2ffb2}
+[data-slot=table-container]:focus-visible,.motion-table-wrap:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 .data-now{color:#d6e4ea}
 .archive-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 14px;font-size:13px;color:#cfdce3}
 .archive-note small{color:#91a4b3}

@@ -7,7 +7,8 @@ strictly: **Implemented** exists in the code, **Verified** has an executed check
 Last updated: 5 October 2026, early (the first look and the way to the engineering, from an audit the owner approved
 item by item: what the site is under its name, *How it's built* opening on the architecture and the evidence with its
 accessibility faults cleared, the copy saying what is shown, a shared bus link opening its bus, Fit journey only with
-something to frame, whole touch targets and nothing cut short at 360 px; gated on `f9acb61`). Before that, 4 October
+something to frame, whole touch targets and nothing cut short at 360 px; deployed as `b7af0f0`, the gated `f9acb61`
+build re-stamped). Before that, 4 October
 2026 (planning a journey and then making it, the way Google Maps does: simpler options with
 one Go, and a trip a step at a time, walk to the stop, wait, the bus boarded followed to the stop to get off at, the
 walk on; deployed as `ace6538`, and a same-evening follow-up for a five-line family of buses). Before that, 2 October 2026, night (the documentation for a reader arriving cold: a new README with the real
@@ -54,9 +55,11 @@ journey change and fixed, and the view from above kept private behind a password
   - **Corrected on the way:** "no delay figures are calculated" held to the recording (the planner states a checked
     timetable's offset); my "Live" for the handle put back to "Live positions"; "not in the list below" says above or
     below.
-  - **Verified:** Node 358, Python 191; the full gate on `f9acb61` 554 checks, 501 passed, 52 skipped, 1 failed (a
-    check reading a moving card in two calls, restated in `5fa0f2e`; `trip.spec` 30 of 30). Emulation only. The
-    deploy is recorded in `docs/RELEASE.md`.
+  - **Verified:** Node 358, Python 191 (CI on `b7af0f0`: 355 and 190 passed, 3 and 1 skipped, none failed); the full
+    gate on `f9acb61` 554 checks, 501 passed, 52 skipped, 1 failed (a check reading a moving card in two calls,
+    restated in `5fa0f2e`; `trip.spec` 30 of 30). **Deployed as `b7af0f0`** (`ace6538` kept for rollback): served
+    byte-identical, the preview locked, the collector untouched; on the served site a shared link to a live bus and to
+    a gone one, a map-tapped bus's Back, Fit journey and the 360 px first screen each as intended. Emulation only.
 
 - **4 October — a journey planned, then made a step at a time** (`docs/RELEASE.md`, top; backlog 51;
   `docs/JOURNEY_STATE.md`).

@@ -1237,7 +1237,9 @@ nothing is cut short at 360 px. The commits are listed in `docs/RELEASE.md` (top
 
 **Verified:** Node 358, Python 191; axe-core 0 violations on each tab of *How it's built* at 360, 390 and 1280 px;
 the full gate on `f9acb61`'s build 554 checks, 501 passed, 52 skipped by design, 1 failed: a check that read a moving
-planner card in two calls, restated in `5fa0f2e` (`trip.spec` 30 of 30 on the gated build). Emulation only.
+planner card in two calls, restated in `5fa0f2e` (`trip.spec` 30 of 30 on the gated build). Deployed as `b7af0f0`,
+served byte-identical to the gated build but for its stamp; on the served site the shared links (a live bus, a gone
+one), a map-tapped bus's Back, Fit journey and the 360 px first screen each as intended. Emulation only.
 
 **Left:**
 - The card's head repeats "Last reported near …" under a bus with no stop chosen, as the block below it says; so before

@@ -2558,3 +2558,33 @@ long destinations to a venue with a long name, and asserts each step's action on
 at once on a phone: the wait step's "for any 256, 256X or 256B: each calls at both your stops" and three departures
 wrapped to four lines and pushed "I'm on the bus" off the screen. Shortened ("for the 256, 256B or 256X, any of them";
 the next two by the timetable), it passes on both sizes. Status: `fixed`.
+
+**4 October 2026, evening: the check's worst case was not the world's.** On the served site at 20:30 BST the 142's
+family had five lines, two more than the check's three, and the wait step's action fell off the screen again
+(815–861 px of 844). The check now has five lines, and the page says a long family briefly ("142 +4"; "any 142, 42,
+42A, 42B or 42C"). The lesson stands: a fixture's worst case is a guess; the real-data study probe at each release
+that changes a phone panel is what finds the world's. Status: `fixed` (this instance).
+
+## 83. Accessibility faults no check looks for
+
+**Problem and evidence.** The audit of 4 October 2026 ran axe-core 4.11.4 (WCAG 2.0–2.2 A and AA rules) on the served
+`ace6538`, then per tab on the local build (`outputs/audit/behind.mjs`). The first screens had none; *How it's built*
+had five kinds: each tab's `aria-controls` naming a panel id the custom addresses had replaced; a link told from its
+sentence by colour alone; three tables and the motion table that scroll sideways on a phone with no way to reach them
+from a keyboard; the replay slider's handle with no name. The 534 browser checks and lint passed throughout: lint's
+`jsx-a11y` rules read the JSX, not the rendered roles, ids and overflow. All five are fixed (`4ab6829`), and
+`navigation.spec` checks them by name; nothing scans for the next kind.
+
+**Who hits it, workaround.** Keyboard and screen-reader users, first; the workaround was a one-off script that injects
+axe-core from its transitive path (`node_modules/.pnpm/axe-core@4.11.4/...`), which a version bump would break.
+
+**Recurrence and effort.** Five kinds in one area at the first scan; unknown elsewhere (the stop, bus, planner, trip and
+ride screens were scanned only on their first screen). About an hour to fix once seen.
+
+**Small fix, script, tool or product.** An existing tool: axe-core (MPL-2.0), here only as a dependency of
+`eslint-plugin-jsx-a11y` through `eslint-config-next`. Using it in the gate means adding it, or `@axe-core/playwright`,
+as a direct development dependency, which is the owner's decision (a tooling addition). Then one spec scanning each
+screen at both sizes, failing on any violation. No new tool, and no visual interface.
+
+**Next cheap step.** The owner decides on the dependency; if yes, an `a11y.spec.mjs` over the start, a stop, a bus, the
+planner, a trip, the ride and the three tabs of *How it's built*. Status: `proposed`.

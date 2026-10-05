@@ -23,8 +23,9 @@ Scheduled, not live: the 255 to Partington Terminus at 21:55, timetabled, in 10 
 - **Plan a journey**, direct or with one change, from the operators' registered timetables, and **make it a step at a
   time**: the walk to the stop (a walking route on request), the wait, the bus you board followed to the stop to get
   off at (said before it comes), and the walk on.
-- **Behind the data**: the pipeline's runs, cycles and publications as it recorded them, the evidence behind the
-  figures, and a replay of a recorded archive sample.
+- **How it's built** (the link at the top of every page): the pipeline's runs, cycles and publications as it recorded
+  them, the evidence behind the figures, and a replay of a recorded archive sample, with links to this page's
+  architecture and to [`docs/EVIDENCE.md`](docs/EVIDENCE.md) on its first screen.
 
 It does not predict arrival times, show live departure minutes, or cover Metrolink.
 
@@ -146,13 +147,15 @@ prerequisites and the external services each one contacts, are in [`docs/SETUP.m
 
 ## Tests
 
-- **Python** (the pipeline, matching, the arrival protocol, restore): 191 tests, 190 passed, 1 skipped (it needs the
-  downloaded archive sample), 0 failed. **Node** (contracts, drawing, planning, navigation): 349 tests, 346 passed,
-  3 skipped, 0 failed. Both in CI on `fead20d` (2 Oct 2026), which runs them on every push with type checking, lint,
-  the static build, a scan of the built site for credential values, and a check of the systemd units that fails on
-  an unknown directive.
-- **Browser**: 534 checks in Chromium with software WebGL, desktop and phone emulation, about 1.4 hours locally; on
-  `11eebf5` (2 Oct 2026) 483 passed, 51 skipped by design, 0 failed. Not in CI: it depends on external map tiles.
+- **Python** (the pipeline, matching, the arrival protocol, restore) and **Node** (contracts, drawing, planning,
+  navigation): on `f9acb61` (5 Oct 2026, locally) Python 191 passed and Node 358 passed, none failed. CI runs both on
+  every push with type checking, lint, the static build, a scan of the built site for credential values, and a check
+  of the systemd units that fails on an unknown directive; in CI on `fead20d` (2 Oct 2026), Python 191 (190 passed,
+  1 skipped: it needs the downloaded archive sample) and Node 349 (346 passed, 3 skipped), none failed.
+- **Browser**: Chromium with software WebGL, desktop and phone emulation, about 1.4 hours locally. On `f9acb61`
+  (5 Oct 2026) 554 checks: 501 passed, 52 skipped by design, 1 failed, a check that read a moving card in two calls,
+  restated in `5fa0f2e` (its spec then 30 of 30 on the same build). On `11eebf5` (2 Oct 2026) 534 checks: 483 passed,
+  51 skipped by design, 0 failed. Not in CI: it depends on external map tiles.
 
 ```bash
 pnpm test && pnpm typecheck && pnpm lint

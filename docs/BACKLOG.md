@@ -1199,7 +1199,54 @@ offering the 142 two stops past the stop and the 42B two before it; on the 142, 
 **Verified:** Node 358, Python 191; `trip.spec` 10 passed (both sizes), and the connection, planner and finding-the-way
 specs restated around the trip; the full gate on the final build 491 passed, 51 skipped, 2 failed, both the phone's
 checks that measured a followed bus by the camera's centre (moved on purpose, above), restated and passing on the gated
-build (`selection.spec` 23, 1 skipped). Not deployed: waiting for the owner.
+build (`selection.spec` 23, 1 skipped). Deployed as `ace6538` on the owner's word.
+
+**Found on the served site that evening, and followed up:** the 142's family had five lines by evening, one more than
+the check's three, and the wait step's action fell off a phone's screen (815–861 px of 844). A long family is now
+"142 +4" on its pill and "any 142, 42, 42A, 42B or 42C" beside Go; the wait step lists the nearest coming bus with its
+distance first, and a second only without times; the check has five lines. Real walk after: 777–823 px.
+
+## 52. The first look, the way to the engineering, and a shared link — fixed 5 October 2026
+
+**From the owner:** an audit, nothing changed: the first impression, and for a hiring reviewer the way from the start to
+the engineering; copy, controls, phones, states and accessibility; at most five changes. Then the approval of all five,
+with four usability fixes found by the audit, a single attempt to reproduce a possibly hidden connection message, and
+conditions: movement between reports, labelled estimates and the switched-off arrival predictions said apart; "any"
+only where every service listed is valid; a shared link opening the right details, with true states and Back and
+Forward. No pipeline, data contract, prediction gate, privacy or wider motion change.
+
+**Measured first, on the served `ace6538`** (`outputs/audit/`, Chromium emulation at five sizes, the served data):
+- *Following a live bus:* 2 taps from a clean start (Or try Ride-along, then an offer), no typing or permission.
+- *To the engineering:* 2 activations, but only through a GitHub link below the four steps (862 px down on a 390 px
+  phone, 960 px at 360).
+- *axe-core 4.11.4:* the first screens clean; *Behind the data* three violations (five kinds once each tab was scanned).
+- *Touch:* the Ride-along entry a 144 × 37 px line of text; the route picker's select 32 px tall.
+- *At 360 px:* "Stop, bus number or plac"; "LIVE POSITIONS · 21S A…".
+- *Fit journey* offered with nothing chosen, moving the camera about 35 m; its name promised "you, your stop and the
+  selected bus".
+- *A shared bus link* opened the start, its card under the fold saying "· not in the list below" with no list there; a
+  bus tapped on the map opened its details with "Back to the 38".
+- *Copy:* the Evidence view said the bus never moves between reports (untrue since 21 September); the recording said
+  delay and reliability figures "will appear".
+
+**Now:** the site says what it is under its name ("Live Manchester buses"); **How it's built** opens on the architecture
+and the evidence; axe-core finds nothing on its three tabs; the copy says what is shown; a shared bus link opens its
+bus's details over its stop or the start, with true states while loading and when the bus is gone; Fit journey is
+offered only with something to frame and named by it; Try Ride-along is a button and the route picker one whole target;
+nothing is cut short at 360 px. The commits are listed in `docs/RELEASE.md` (top).
+
+**Verified:** Node 358, Python 191; axe-core 0 violations on each tab of *How it's built* at 360, 390 and 1280 px;
+the full gate on `f9acb61`'s build 554 checks, 501 passed, 52 skipped by design, 1 failed: a check that read a moving
+planner card in two calls, restated in `5fa0f2e` (`trip.spec` 30 of 30 on the gated build). Emulation only.
+
+**Left:**
+- The card's head repeats "Last reported near …" under a bus with no stop chosen, as the block below it says; so before
+  this pass too.
+- Accessibility is checked by hand, not in the gate (opportunity 83): adding axe-core as a development dependency is the
+  owner's decision.
+- The connection message on a real slow mobile network, with the service worker's saved copy, is not verified.
+- From a shared bus link, the view from above (preview only) is one Back away, at the start.
+- The search no longer says "number"; a bus number is still found by it.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

@@ -4,9 +4,13 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 4 October 2026 (planning a journey and then making it, the way Google Maps does: simpler options with
+Last updated: 5 October 2026, early (the first look and the way to the engineering, from an audit the owner approved
+item by item: what the site is under its name, *How it's built* opening on the architecture and the evidence with its
+accessibility faults cleared, the copy saying what is shown, a shared bus link opening its bus, Fit journey only with
+something to frame, whole touch targets and nothing cut short at 360 px; gated on `f9acb61`). Before that, 4 October
+2026 (planning a journey and then making it, the way Google Maps does: simpler options with
 one Go, and a trip a step at a time, walk to the stop, wait, the bus boarded followed to the stop to get off at, the
-walk on; built and gated, not deployed). Before that, 2 October 2026, night (the documentation for a reader arriving cold: a new README with the real
+walk on; deployed as `ace6538`, and a same-evening follow-up for a five-line family of buses). Before that, 2 October 2026, night (the documentation for a reader arriving cold: a new README with the real
 architecture, an evidence page, two setup paths each run from a fresh clone, four case studies, a docs index with
 superseded material labelled; the planner's places deployed as `fead20d`, the gated `11eebf5` build; a
 live-departures feasibility note). Before that, 2 October 2026, evening (where a report's age went: each collector stage timed in its own journal, the publication's two whole-history reads (per-cycle medians 20.0 s and 7.5 s) bounded to their windows, a report's age on reaching a phone 51.9 → about 20 s at the median; the place results chosen only as a passenger can, which found the planner's places running off a phone's right edge: `1155e2f`, `11eebf5`). Before that, 1 October 2026, evening (finding the way: every screen a step the phone's Back undoes, named for where it goes; places in the main search, planned to from here; the planner's places on the screen, which had been drawn below it since 22 September; from the owner after a conference: `d178c24`, `95d1df6`). Before that, 1 October 2026, night (every bus with no checked road drawn along the map's streets between its reports, not on straight lines over the houses, measured across two whole fleets against the map; checked roads and streets from the zoom a stop opens at; no street graph built in a frame; from the owner's phone: `8dd1a8c`, `4d91c79`). Before that, 30 September 2026, evening (the ride keeps its city: the camera looks down over the buildings between it and its bus instead of fading every building, and no bus reporting normally is called "gone quiet", both from the owner's phone: `1c601ff`, `a549583`). Before that, 30 September 2026 (the ride's bus no longer hidden inside a building, from the owner's phone; the nightly runs' trigger judged by the timer itself, after systemd 259's stale elapse had both runs recorded as manual and Operations calling them overdue: `937ce37`, `2347c6c`). Before that, 29 September 2026, afternoon (a bounded close-out: shared links checked by day; backlog 43 not reproduced with the recovered code and available inputs, cause unresolved, containment kept; both memory figures named, the kernel's own account recorded; results unable to approve themselves, a version pinned to its code: `9d77718`, `b507302`). Before that, 29 September 2026, early (arrival predictions kept off in both directions; the inbound-15 finding
@@ -33,6 +37,27 @@ true, and said on touch; a collector stop that DuckDB could swallow, now acted o
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
 
+- **5 October, early — the first look, the way to the engineering, and a shared link** (`docs/RELEASE.md`, top;
+  backlog 52; opportunity 83).
+  - **From the owner:** an audit only; then items 1–5 approved with four usability fixes and conditions, and the
+    polish pass to stop after this deploy.
+  - **Measured first, on the served `ace6538`:** a live bus 2 taps away; the architecture only through a GitHub link
+    862 px down on a 390 px phone; axe-core clean on the first screens, five kinds of fault in *Behind the data*; a
+    144 × 37 px Ride-along entry and a 32 px route select; the search and the handle cut at 360 px; Fit journey moving
+    the camera with nothing chosen; a shared bus link opening the start; "Back to the 38" on a bus tapped on the map;
+    the Evidence view saying the bus never moves between reports.
+  - **Now** (`55787bf`, `4ab6829`, `cc775e6`, `53d71c5`, `7c00898`, `264b91e`, `f9acb61`; item 5 was `107e062`):
+    "Live Manchester buses" under the name; **How it's built** opens on the architecture and the evidence, axe-core 0
+    on its tabs; the copy says what is shown; a shared bus link opens its bus's details over its stop or the start,
+    with true loading and gone states; Fit journey only with targets, named by them; Try Ride-along a button, the
+    route picker one target; nothing cut short at 360 px.
+  - **Corrected on the way:** "no delay figures are calculated" held to the recording (the planner states a checked
+    timetable's offset); my "Live" for the handle put back to "Live positions"; "not in the list below" says above or
+    below.
+  - **Verified:** Node 358, Python 191; the full gate on `f9acb61` 554 checks, 501 passed, 52 skipped, 1 failed (a
+    check reading a moving card in two calls, restated in `5fa0f2e`; `trip.spec` 30 of 30). Emulation only. The
+    deploy is recorded in `docs/RELEASE.md`.
+
 - **4 October — a journey planned, then made a step at a time** (`docs/RELEASE.md`, top; backlog 51;
   `docs/JOURNEY_STATE.md`).
   - **From the owner:** planning "similar to Google Maps": walking help to the stop, then, on the bus, following it;
@@ -50,7 +75,10 @@ journey change and fixed, and the view from above kept private behind a password
     step's action under the half sheet where the fixtures' did not (opportunity 82).
   - **Verified:** Node 358, Python 191; the full gate 491 passed, 51 skipped, 2 failed: the phone's two follow checks
     measuring the camera's centre on the bus, a premise changed on purpose (the bus is now held in the middle of the map
-    the sheet leaves); restated, `selection.spec` 23 passed on the gated build. Emulation only; **not deployed**, waiting for the owner.
+    the sheet leaves); restated, `selection.spec` 23 passed on the gated build. Emulation only. **Deployed as
+    `ace6538`**; the same evening the real walk on the served site found the 142's five-line family pushing the wait
+    step's action off a phone's screen, fixed in a follow-up (a long family said briefly, one coming bus with its
+    distance first).
 
 - **2 October, night — the documentation, and the planner's fix served** (`docs/RELEASE.md`, top; `docs/README.md`).
   - **Deployed `fead20d`**: the gated `11eebf5` build re-stamped (gate: 534 checks, 483 passed, 51 skipped, 0 failed),
@@ -1925,8 +1953,9 @@ Longford Park and Stretford are inside it.
 
 ## The passenger view
 
-**The passenger's page is the whole page.** It has no tabs: the header's one link, **Behind the
-data**, opens the engineering area. That area holds a four-step account of the pipeline (collect,
+**The passenger's page is the whole page.** It has no tabs: the header's one link, **How it's built**
+(*Behind the data* until 4 October 2026, still the area's own heading), opens the engineering area, which opens on links
+to the README's architecture and to `docs/EVIDENCE.md`. That area holds a four-step account of the pipeline (collect,
 check, publish, freshness), a "right now" line from the live publication, and three views:
 Operations, Evidence and Recorded journeys (the archive replay, dated and badged, never live). Each
 view has an address: `#behind-the-data`, `#operations`, `#evidence`, `#recorded-journeys`. The
@@ -1963,7 +1992,8 @@ page received. A schematic of named stops shows the order, labelled as not the r
 day theme and an ink night theme, cased roads, district names in spaced capitals, landmarks,
 detail admitted by zoom. **2D** is north up and flat; **City** tilts it and raises the
 buildings; **Fit journey** frames you, your stop and your bus without letting distant buses
-widen it. Buses with a reported bearing carry a nose pointing where they are heading.
+widen it, and is offered only when there is one of them (or a walk, a destination, a journey or a trip's step) to frame,
+its accessible name saying which. Buses with a reported bearing carry a nose pointing where they are heading.
 **Ride along** is one camera state at a time, shared by the map's frame loop, its HUD and the
 passenger card (`data-ride`): *entering* (straight to the bus, with no introduction: the camera
 first brings the drawn bus to the middle at the zoom shown, then zooms, tilts and turns around it,

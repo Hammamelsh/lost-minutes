@@ -4,14 +4,79 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`fead20d`**, deployed 2 October 2026, 20:43 UTC: the site is the gated `11eebf5` build, re-stamped; the collector runs the pipeline of `1155e2f`, unchanged since; the documentation is in the commit after it. The running release carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`ace6538`**, deployed 4 October 2026, 20:27 UTC: the gated build of the trip, re-stamped; a follow-up for a five-line family of buses is gated after it (this record says when it is served). The collector runs the pipeline of `1155e2f`, unchanged since. The running release carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
 
-## 4 October: planning a journey, then making it a step at a time (built and gated; not deployed)
+## 4–5 October, night: the first look, the way to the engineering, and a shared link (audit items 1–5)
+
+**From the owner:** an audit only (the first impression; for a hiring reviewer, the way from the start to the
+engineering; copy, controls, phones, states, accessibility), at most five changes, then "Approved: implement items
+1–5, with the following bounded additions and conditions", the polish pass to stop after this deploy. Nothing was
+redesigned or renamed beyond the items; no pipeline, data contract, prediction gate, privacy behaviour or motion
+changed. Backlog 52 has the account.
+
+**Measured first, on the served `ace6538`** (Chromium emulation at 360, 390 and 768 px, a phone on its side and
+1280 px; the served data): a live bus followed in 2 taps (Or try Ride-along, then an offer), with no typing or
+permission; the architecture 2 activations away, but only through a GitHub link below the four steps, 862 px down on a
+390 px phone; axe-core clean on the first screens and not in *Behind the data*; the Ride-along entry a 144 × 37 px line
+of text and the route picker's select 32 px tall; at 360 px "Stop, bus number or plac" and "LIVE POSITIONS · 21S A…";
+Fit journey offered with nothing chosen, moving the camera about 35 m; a shared bus link opening the start, its card
+under the fold saying "not in the list below" with no list there; a bus tapped on the map opening "Back to the 38"; the
+Evidence view saying the bus never moves between reports, and the recording promising delay figures. No blocker.
+
+**Changed**, a commit each:
+- `55787bf`: "Live Manchester buses" under the name at every size; the way in is **How it's built**, with no outward
+  arrow, since it stays on the site.
+- `107e062` (item 5): a long family of buses said briefly ("142 +4"), from the trip's follow-up below.
+- `4ab6829`: *How it's built* opens on **Architecture and design decisions** and **The evidence behind each figure**
+  (on GitHub, in a new tab): 257–345 px down on a 390 px phone, 315–403 px at 360, side by side on a computer. axe-core
+  4.11.4 on each tab at 360, 390 and 1280 px: 0 violations, where it found five kinds (each tab's `aria-controls`
+  naming a replaced id, a link told apart by colour alone, four tables scrolling sideways out of a keyboard's reach,
+  the replay slider's handle unnamed).
+- `cc775e6`: the Evidence view and the recording say what they show: nothing predicts an arrival; between two reports
+  a bus is drawn travelling from one to the next, a little behind them, its card giving the newest report's age; on the
+  three evaluated routes a labelled estimate may run up to two minutes past it. The recording: observed positions only;
+  arrival estimates evaluated against criteria fixed in advance, and switched off.
+- `53d71c5`: a shared bus link opens that bus's details, over the stop it names ("Back to Stretford Mall (Stop A)") or
+  the start ("Back to the start"), Back and Forward stepping between them; a bus tapped on the map has "Back to" the
+  screen under it, never itself; "not in the list" says where the list is, above or below, or nothing; "Checking…"
+  while positions load; a linked bus that is gone is not given the link's opening time as "Last seen", is "not on the
+  map until it reports again", and is named by its vehicle, not "to an unnamed destination".
+- `7c00898`: **Fit journey** only with something of the passenger's to frame, its accessible name listing what
+  ("Fit journey: your stop and your bus").
+- `264b91e`: **Try Ride-along** an outlined button under Buses near me, saying "the map follows one bus, from its
+  reports", still two taps to a ride; the route picker one 56 px target, caption included.
+- `f9acb61`: at 360 px the search reads "Stop, bus or place" (137 px of its 183); the handle keeps "Live positions"
+  (LIVE alone had read as if the timetabled departures were live), its age on a second line where the first is short.
+
+**Corrected on the way:** the approved "no delay figures are calculated" is held to the recording, because the planner
+does state a checked timetable's offset ("they run about 3 min behind it at the first stops"); my own first fix for the
+handle shortened it to "Live", undoing that decision (`8781f6d`), and was put back; "below" in the list note, written
+on 14 September for a strip above the lists, has been on the card, after a stop's lists, since `a387d54` (23 September).
+
+**The connection message that might be hidden (addition F)**, one reproduction with the existing fixtures (positions
+held 15 s, then refused): not confirmed. While positions load the handle says "Checking positions" and no failure is
+claimed (sampled at 2–12 s); at the failure, "Positions offline" and "No saved positions on this device · Your browser
+cannot reach us" agree. Not verified: a real slow mobile network, with the service worker's saved copy.
+
+- **Verified:** Node 358, Python 191; `pnpm typecheck`; lint 0 errors outside the git-ignored `outputs/` (4 warnings,
+  all older); each batch's specs: navigation, evidence-motion and operations-jobs 28 passed, 2 skipped by design; then
+  finding-the-way, journey-state, journey-context, selection, fleet, ride-quality, streets, occlusion, above, layout,
+  try-ride, sheet, search and passenger 204 passed, 20 skipped by design, 2 failed (the list note's side, fixed; the
+  four specs it touches then 63 passed, 7 skipped); the full gate on `f9acb61`'s build: 554 checks, 501 passed, 52
+  skipped by design, 1 failed (1.4 h, 00:52–02:15 BST): the trip's long-names check on the phone, which read a planner
+  card's strip and its times in two calls while the sheet was still rising to full; read at once (`5fa0f2e`, the check
+  only), `trip.spec` passed 30 of 30 on the gated build.
+- **To deploy:** the commit carrying this record, whose build is `f9acb61`'s but for the stamp: the commits after it
+  change one check and the records. The deploy, the rollback point and the evidence after it are in the commit after.
+
+**Not claimed:** emulation only; nothing on a phone in hand. Accessibility is not part of the gate (opportunity 83).
+
+## 4 October: planning a journey, then making it a step at a time (deployed as `ace6538`; a follow-up gated)
 
 **From the owner:** "any way you can simplify it more and also when i plan a journey can it be easier similar to google
 maps where their walking help to the bus stop then when your in the buss you can follow it". Backlog 51 has the
@@ -40,7 +105,17 @@ account; `docs/JOURNEY_STATE.md` what is kept and what moves a trip on.
   phone, `scripts/probes/journey-study.mjs`): every step's action on the screen as it stands, the walking route from
   the walk's own card, "Which bus are you on?" offering the two buses around the stop, and a 142 followed with "23 stops
   to go".
-- **Not deployed:** a deployment and a push wait for the owner's word.
+- **Deployed `ace6538`** (built 20:27 UTC) on the owner's word, with `fead20d` kept for `deploy/rollback.sh`: all 3,703
+  files equal to the gated build once the build ID, the stamped chunk's name and the stamp are swapped; the index and
+  the 9 scripts and stylesheets it names byte-identical on the served site; `/preview/` 401; the collector untouched
+  (PID 420726 throughout). `trip.spec` 10 of 10 against the served site.
+- **Found on the served site, the same evening:** walking the real journey again at about 20:30 BST, the 142 from
+  Oxford Road ran with four sibling lines (42, 42A, 42B, 42C), one more than the long-names check, and the wait step's
+  "I'm on the bus" fell to 815–861 px of 844 (off the screen) under a coming bus described on two lines; the option
+  beside Go named five destinations in six lines (297 px, 86 words). **Follow-up:** a long family is "142 +4" on its
+  pill and "any 142, 42, 42A, 42B or 42C" beside Go; the wait step lists the nearest coming bus, its distance first,
+  and a second only where there are no times; the long-names check now has five lines. On the same real walk: the
+  option 209 px and 48 words; "I'm at the stop" at 738–784 px and "I'm on the bus" at 777–823 px, both on the screen.
 
 ## 3 October: a wording pass on the reader-facing documents (no code, no deploy)
 

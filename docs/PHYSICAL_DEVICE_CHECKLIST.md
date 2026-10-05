@@ -29,8 +29,27 @@ On mobile data, in daylight, on the served site. One minute each; write what was
       at the end of its glide? Then Outside view. *unchecked*
 - [ ] **The sheet.** Leave the ride, and drag the sheet to full and back. Search a stop with the keyboard open:
       are the matches above the keyboard? Turn the phone on its side and back. *unchecked*
-- [ ] **Operations** (Behind the data). Do both nightly jobs read *scheduled · succeeded*, each with its whole job
+- [ ] **Operations** (How it's built). Do both nightly jobs read *scheduled · succeeded*, each with its whole job
       and its largest single process? Does Back return you to your bus? *unchecked*
+
+## The first look, and a shared link (4 October 2026)
+
+Checked in emulation at 360, 390 and 768 px, on its side and at 1280 px; on a phone, at its own width and text size.
+
+- [ ] **The first screen**, opened fresh. Is "Live Manchester buses" under the name, the search's "Stop, bus or
+      place" whole, and the handle's "Live · Ns ago" whole? Is *Try Ride-along* plainly a button, under *Buses near
+      me*, with neither crowded? *unchecked*
+- [ ] **A shared bus link**, sent to the phone and opened. Does it open that bus's details (with its stop, if the link
+      named one), "Back to the start" or "Back to" the stop? Does the phone's Back go there, and Forward come back?
+      A link to a bus that has finished: "No current report", and nothing drawn for it? *unchecked*
+- [ ] **A bus tapped on the map.** Do its details' Back name the screen under them (the stop, or the start), never the
+      bus itself? *unchecked*
+- [ ] **Fit journey.** Absent on a fresh start; there once a stop or a bus is chosen. With VoiceOver or TalkBack, does
+      its name say what it frames ("your stop and your bus")? *unchecked*
+- [ ] **The route picker** under *Or follow a route*: does a tap on its "ROUTE" caption open the choice? *unchecked*
+- [ ] **How it's built.** Are *Architecture and design decisions* and *The evidence behind each figure* on its first
+      screen, each opening GitHub in a new tab? With a screen reader, can the Operations tables that scroll sideways
+      be reached and scrolled, and are they announced by name? *unchecked*
 
 ## Location and the walk (needs a real GPS fix)
 

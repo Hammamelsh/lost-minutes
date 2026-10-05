@@ -27,7 +27,7 @@ pnpm start          # serves out/ at http://localhost:3000
 
 **What you will see.** The map; search over 3,498 Greater Manchester stops; each stop's routes and the journey
 planner, from the timetable catalogue committed on 22 September 2026; Try Ride-along's recorded ride (a 163 on 23
-September); and under *Behind the data*, the Operations and Evidence views and a replay of the 11 September 2026
+September); and under *How it's built*, the Operations and Evidence views and a replay of the 11 September 2026
 archive sample. **What you will not**: live buses (the committed `live.json` says, truthfully, that no credentials are
 configured) and stop departure boards (generated nightly on the server, not committed).
 

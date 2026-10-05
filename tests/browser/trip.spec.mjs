@@ -292,9 +292,15 @@ test('with sibling lines and long names, as real services have, each step’s ac
   // One option, its three lines together (which leads is the planner's order).
   await expect(option.locator('[data-plan-strip] .route-pill')).toHaveText(/^256\w? \+4$/);
   await expect(option.locator('.plan-go-words')).toHaveText(/^any 256\w?, 256\w?, 256\w?, 256\w? or 256\w? · 2 stops$/);
-  // The strip and the times on one line.
-  const [strip, when] = await Promise.all([option.locator('[data-plan-strip]'), option.locator('[data-plan-when]')].map(l => l.boundingBox()));
-  expect(Math.abs(strip.y + strip.height / 2 - (when.y + when.height / 2)), 'one line').toBeLessThan(12);
+  // The strip and the times on one line, both read at once. On a phone the card is still moving as the sheet rises to
+  // full for the planner (its top 685, then 541, then 537 px over the first half second), and two separate reads in the
+  // gate of 5 October 2026 most likely caught it at two places: 112 px apart, where one read at once gives one line.
+  await expect(option.locator('[data-plan-when]')).toBeVisible({timeout: 15_000});
+  const apart = await option.evaluate(el => {
+    const middle = node => { const r = node.getBoundingClientRect(); return r.top + r.height / 2; };
+    return Math.abs(middle(el.querySelector('[data-plan-strip]')) - middle(el.querySelector('[data-plan-when]')));
+  });
+  expect(apart, 'one line').toBeLessThan(12);
   await option.locator('[data-choose-plan]').click();
   await expect(trip(page)).toHaveAttribute('data-trip-step', 'walk');
   await expect(trip(page).locator('.trip-chip .route-pill')).toHaveText(/^256\w? \+4$/);

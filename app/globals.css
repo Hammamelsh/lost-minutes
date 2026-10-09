@@ -130,6 +130,7 @@ button:focus-visible,a:focus-visible { outline:2px solid var(--primary); outline
 .ops-heading>p{font-size:16px;line-height:1.65;color:#a3b7c3;margin:0}
 .ops-mode-labels{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
 .ops-mode{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;letter-spacing:.8px;padding:6px 9px;border-radius:7px;border:1px solid}
+.ops-mode.live{border-color:#5f7f3f;background:#1f2d1a;color:#c6f36a}
 .ops-mode.archive{border-color:#7e6541;background:#362d21;color:#f1c68a}
 .ops-mode.idle{border-color:#3a4d5a;background:#182a36;color:#9fb3bf}
 .ops-measures{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}

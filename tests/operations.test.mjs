@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {parseOperations,humanAge,statusTone,stamp,shortId} from '../lib/operations.ts';
+import {parseOperations,humanAge,runKinds,statusTone,stamp,shortId} from '../lib/operations.ts';
 import {parseReplay} from '../lib/replay.ts';
 
 const ops=parseOperations(JSON.parse(readFileSync(new URL('../public/data/operations.json',import.meta.url),'utf8')));
@@ -65,4 +65,13 @@ test('source age is reported honestly, including when unknown',()=>{
  assert.equal(shortId(null),'—');
  // The sample is a day-old archive, so the age must not read as fresh.
  assert.ok((ops.freshness.sourceAgeSecondsAtPublication??0)>3600);
+});
+
+test('the view labels a record by its own runs: live, archive or both, never archive over live runs',()=>{
+ // The committed record is the archive import's; the hosted server's holds the collector's and the nightly jobs' runs.
+ assert.deepEqual(runKinds(ops),{live:false,archive:true});
+ const live={...ops.runs[0],isHistorical:false};
+ assert.deepEqual(runKinds({runs:[live]}),{live:true,archive:false});
+ assert.deepEqual(runKinds({runs:[live,ops.runs[0]]}),{live:true,archive:true});
+ assert.deepEqual(runKinds({runs:[]}),{live:false,archive:false});
 });

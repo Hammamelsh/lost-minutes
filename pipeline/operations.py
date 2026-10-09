@@ -37,15 +37,33 @@ DEFINITIONS = {
                  'it measures the data, not the pipeline.',
 }
 
+# True of any record, wherever the pipeline runs.
 NOTES = [
-    'Every run listed here is a historical archive replay. Nothing is collected live.',
-    'This pipeline runs in one local WSL process. When the machine or the terminal stops, '
-    'collection stops; there is no scheduler and no hosted worker yet.',
     'Source freshness and processing time are different measurements and are shown separately.',
     'A run can process its inputs successfully and still publish nothing, if the candidate '
     'snapshot fails validation. Both outcomes are recorded.',
     'No expected-service coverage is shown, because no timetable denominator has been validated.',
 ]
+
+
+def notes_for(runs):
+    """The record's notes, the first saying what its runs are, read from the runs themselves.
+
+    Until 9 October 2026 these were fixed sentences from the archive-only release: "Every run listed here is a
+    historical archive replay. Nothing is collected live" and "This pipeline runs in one local WSL process ... there
+    is no scheduler and no hosted worker yet". The hosted server published them for nineteen days under its own live
+    runs. Where the pipeline runs is the deployment's to say (README, docs/RELEASE.md), not this record's."""
+    live = any(not run['isHistorical'] for run in runs)
+    archive = any(run['isHistorical'] for run in runs)
+    if live and archive:
+        kinds = ('Runs marked live are work on current data, such as the collector reading the national feed or a '
+                 'timetable rebuild. Runs marked archive replay a recorded sample; nothing in them is live.')
+    elif live:
+        kinds = ('Every run listed here is work on current data, such as the collector reading the national feed '
+                 'or a timetable rebuild.')
+    else:
+        kinds = 'Every run listed here is a historical archive replay. Nothing is collected live.'
+    return [kinds, *NOTES]
 
 
 def _iso(value):
@@ -224,7 +242,7 @@ def build_operations(con, replay_target=REPLAY_TARGET):
         'runs': runs,
         'publications': publications,
         'definitions': DEFINITIONS,
-        'notes': NOTES,
+        'notes': notes_for(runs),
     }
 
 

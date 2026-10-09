@@ -80,6 +80,15 @@ export function parseOperations(value:unknown):Operations{
 }
 
 /** Human duration for a source age. Deliberately blunt: days matter on an archive. */
+/**
+ * What a record's runs are: work on current data (the collector reading the feed, the nightly rebuilds), archive
+ * replays of a recorded sample, or both. The view labels itself from this. Until 9 October 2026 it said "HISTORICAL
+ * ARCHIVE REPLAY" and "LIVE RUNS ARE NOT IN THIS RECORD" whatever it held, over the hosted server's live runs.
+ */
+export function runKinds(ops:Pick<Operations,'runs'>):{live:boolean;archive:boolean}{
+ return {live:ops.runs.some(run=>!run.isHistorical),archive:ops.runs.some(run=>run.isHistorical)};
+}
+
 export function humanAge(seconds:number|null|undefined):string{
  if(seconds===null||seconds===undefined)return 'Unknown';
  const s=Math.max(0,Math.round(seconds));

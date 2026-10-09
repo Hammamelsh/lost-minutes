@@ -4,6 +4,7 @@
 // What is checked is what a person reads: the last attempt and how it ended, who started it, the
 // last success, and "overdue" judged from the last *scheduled* run, never from a run by hand.
 import {test, expect} from '@playwright/test';
+import {readFileSync} from 'node:fs';
 import {serveLive, journeyLive, servePatterns} from './fixtures.mjs';
 
 const HOUR = 3600_000;
@@ -104,4 +105,30 @@ test('the whole job and its largest process are said apart, with what the kernel
   await expect(killed).toHaveAttribute('data-memory', 'oom');
   await expect(killed.locator('[data-memory-oom]')).toHaveText(' · out of memory: 1 process killed');
   await expect(page.locator('[data-job="arrival-eval"]')).toContainText('failed: out of memory');
+});
+
+// The view's own labels follow the record's runs (lib/operations.ts, runKinds). Until 9 October 2026 it said "HISTORICAL
+// ARCHIVE REPLAY" and "LIVE RUNS ARE NOT IN THIS RECORD" whatever it held, over the hosted server's live runs, with
+// "When the archive published the file upstream" under its newest source.
+test('Operations labels its record by the record’s own runs: live runs are never called an archive replay', async ({page}) => {
+  const archive = JSON.parse(readFileSync(new URL('../../public/data/operations.json', import.meta.url), 'utf8'));
+  const live = {...archive, runs: archive.runs.map(run => ({...run, mode: 'live_capture', isHistorical: false})),
+    notes: ['Every run listed here is work on current data, such as the collector reading the national feed or a timetable rebuild.']};
+  await page.route('**/data/operations.json*', route => route.fulfill({json: live}));
+  await open(page, []);
+  const labels = page.locator('.ops-mode-labels');
+  await expect(labels).toHaveAttribute('data-ops-kinds', 'live');
+  await expect(labels).toContainText('LIVE RUNS');
+  await expect(labels).not.toContainText('ARCHIVE');
+  await expect(labels).not.toContainText('NOT IN THIS RECORD');
+  await expect(page.locator('.ops-measures')).toContainText('When the newest source was captured');
+  await expect(page.locator('.ops-measures')).not.toContainText('archive');
+  await expect(page.locator('.ops-note-row')).not.toContainText('historical archive');
+  await expect(page.locator('.ops')).toContainText('Published in the recorded sample');
+  // The committed record is the archive import's, and says so.
+  await page.unroute('**/data/operations.json*');
+  await page.reload();
+  await expect(page.locator('.ops-mode-labels')).toHaveAttribute('data-ops-kinds', 'archive', {timeout: 20_000});
+  await expect(page.locator('.ops-mode-labels')).toContainText('HISTORICAL ARCHIVE REPLAY');
+  await expect(page.locator('.ops-mode-labels')).toContainText('LIVE RUNS ARE NOT IN THIS RECORD');
 });

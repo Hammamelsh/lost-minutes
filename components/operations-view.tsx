@@ -1,8 +1,8 @@
 "use client";
 
-import {AlertTriangle, Check, Database, FileClock, GitCompareArrows, Info, ShieldAlert} from 'lucide-react';
+import {AlertTriangle, Check, Database, FileClock, GitCompareArrows, Info, Radio, ShieldAlert} from 'lucide-react';
 import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from '@/components/ui/table';
-import {Operations, humanAge, shortId, stamp, statusTone} from '@/lib/operations';
+import {Operations, humanAge, runKinds, shortId, stamp, statusTone} from '@/lib/operations';
 
 const NUMBER = new Intl.NumberFormat('en-GB');
 const n = (v:number) => NUMBER.format(v);
@@ -17,12 +17,14 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
  const unbalanced=ops.reconciliation.filter(r=>r.applicable!==false&&!r.balanced);
  const unchecked=ops.reconciliation.filter(r=>r.applicable===false);
  const latestRun=ops.runs[0];
+ // What this record holds, read from its runs: the labels below were the archive-only release's, whatever it held.
+ const kinds=runKinds(ops);
  // The page can only vouch for the file it actually loaded.
  const agreesWithPage=!servedSnapshotId||!servedSnapshot.snapshotId||servedSnapshotId===servedSnapshot.snapshotId;
 
  const measures=[
   {label:'Newest source captured',value:stamp(freshness.latestSourceCapturedAt),
-   note:'When the archive published the file upstream'},
+   note:kinds.live?'When the newest source was captured':'When the archive published the file upstream'},
   {label:'Source retrieved',value:stamp(freshness.latestSourceRetrievedAt),
    note:'When this machine downloaded it'},
   {label:'Last processing finished',value:stamp(freshness.lastProcessedAt),
@@ -38,11 +40,10 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
    <p>Every figure below is read from the DuckDB run history and from the snapshot file on
    disk. Nothing is a live reading, and no status is shown as healthy simply because a
    command exited.</p>
-   <div className="ops-mode-labels">
-    <span className="ops-mode archive"><FileClock size={14}/> HISTORICAL ARCHIVE REPLAY</span>
-    {/* This record is the archive import's; live collection runs are kept in the warehouse and
-        summarised in the live publication, not here. */}
-    <span className="ops-mode idle">LIVE RUNS ARE NOT IN THIS RECORD</span>
+   <div className="ops-mode-labels" data-ops-kinds={`${kinds.live?'live':''}${kinds.archive?' archive':''}`.trim()}>
+    {kinds.live&&<span className="ops-mode live"><Radio size={14}/> LIVE RUNS</span>}
+    {kinds.archive&&<span className="ops-mode archive"><FileClock size={14}/> HISTORICAL ARCHIVE REPLAY</span>}
+    {!kinds.live&&<span className="ops-mode idle">LIVE RUNS ARE NOT IN THIS RECORD</span>}
    </div>
   </header>
 
@@ -54,8 +55,8 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
   <div className="ops-note-row">
    <Info size={15}/>
    <p><strong>Source age at publication: {humanAge(freshness.sourceAgeSecondsAtPublication)}.</strong>{' '}
-   That is the gap between the newest source file and the moment it was published. On a
-   historical archive a large number is expected: it measures the data, not the pipeline.
+   That is the gap between the newest source file and the moment it was published.{kinds.live?' ':<>{' '}On a
+   historical archive a large number is expected: it measures the data, not the pipeline.{' '}</>}
    Source freshness and processing time are different things.</p>
   </div>
 
@@ -97,11 +98,12 @@ export default function OperationsView({ops,servedSnapshotId}:{ops:Operations;se
      <div><dt>Retained as observations</dt><dd>{n(totals.retainedObservations)}</dd></div>
      <div><dt>Repeats of an observation already held</dt><dd>{n(totals.repeatObservations)}</dd></div>
      <div><dt>Conflicting identities withheld</dt><dd>{n(totals.conflictIdentities)}</dd></div>
-     <div><dt>Outside the capture window</dt><dd>{n(totals.outsideCaptureWindow)}</dd></div>
-     <div><dt>Published to the map</dt><dd>{n(totals.publishedObservations)}</dd></div>
+     {/* The recorded sample's own counts: the live map is drawn from the live publication, not from these. */}
+     <div><dt>Outside the recorded sample’s capture window</dt><dd>{n(totals.outsideCaptureWindow)}</dd></div>
+     <div><dt>Published in the recorded sample</dt><dd>{n(totals.publishedObservations)}</dd></div>
     </dl>
     <p className="microcopy">{totals.rejectedRecords===0
-     ? 'No record in this sample was refused by validation. That is a property of this sample, not a guarantee about the feed.'
+     ? 'No record in these sources was refused by validation. That is a property of these sources, not a guarantee about the feed.'
      : `${n(totals.rejectedRecords)} records were refused. Reasons are listed below.`}</p>
    </section>
   </div>

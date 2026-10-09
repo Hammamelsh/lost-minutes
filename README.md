@@ -7,11 +7,12 @@ interactive 3D map.
 measured. The interface has been tested in desktop and phone emulation, not yet on a phone in hand. Arrival
 predictions were built, evaluated and are **switched off** (they did not meet criteria written before the results).
 
-<img src="docs/images/phone-stop-2026-10-02.png" width="320" alt="A 390 px phone screen: Piccadilly Gardens, Stop L, on
-the day map, with nearby buses labelled by route number, and below the map the stop's next departures marked
-Scheduled, not live: the 255 to Partington Terminus at 21:55, timetabled, in 10 minutes.">
+<img src="docs/images/phone-stop-2026-10-09.png" width="320" alt="A 390 px phone screen: lost minutes, Live
+Manchester buses. Piccadilly Gardens, Stop L, on the day map among buses labelled by route number (30, 43, 86, 143,
+192 and others); below it the stop's sheet, live positions 13 seconds old, and its next departures marked Scheduled,
+not live: the 15 to Roedean Gardens at 19:15, timetabled, in 3 minutes.">
 
-*The served site at 21:45 on 2 October 2026, real data, in phone emulation.*
+*The served site at 19:12 on 9 October 2026, real data, in phone emulation.*
 
 ## What it does
 
@@ -101,8 +102,10 @@ Where to look in the code:
    [Case study 2](docs/case-studies/02-latency-investigation.md).
 4. **Evaluate before releasing, and accept a no.** Release criteria for an arrival estimate were fixed before any
    held-out result was read, and the current evaluation (protocol `display-1`) is frozen and pinned to its code by
-   hash. On its revision days (21–26 September, route 15) it fails them; its confirmation days (29 September–
-   5 October) are read once, after 6 October. Predictions are off by the owner's decision.
+   hash. It failed them on its revision days (21–26 September, route 15), and then on its seven confirmation days
+   (29 September–5 October), scored nightly and read once on 9 October: outbound, a median error of 1.75 min against
+   ≤ 1.5 and an 80th percentile of 4.15 against ≤ 3.0; inbound, shown on 4.6% of moments against ≥ 50%. Predictions
+   stay off.
    [Case study 3](docs/case-studies/03-arrival-evaluation.md).
 5. **Reproduce production failures before fixing them.** A swallowed stop signal, an out-of-memory kill, a timetable
    that was an error page. [Case study 4](docs/case-studies/04-operational-failures.md).
@@ -111,7 +114,7 @@ Where to look in the code:
 
 | What | Value | Basis |
 |---|---|---|
-| Stored live observations | 12.8 million | the warehouse, about 17:45 UTC, 2 Oct 2026 |
+| Live observations kept | 19,962,857, beside 25,257,924 repeats recognised and not stored twice | the Operations record, 02:46 UTC, 9 Oct 2026, every reconciliation row balancing (12.8 million on 2 Oct) |
 | Vehicle activity records inside the area, per feed response | 630–658 | 203 responses, 17:54–19:17 UTC, 2 Oct 2026; a count per response, not buses in service |
 | Receipt to the file being written, per cycle (median) | 32.0 s → **4.8 s** | 72 and 131 cycles, consecutive live windows on 2 Oct 2026, before and after one change; not a same-input benchmark |
 | A report's age on reaching an emulated phone (median) | 51.9 s → 19.2 s and 22.6 s | one emulated phone, 20 minutes a run, same day |

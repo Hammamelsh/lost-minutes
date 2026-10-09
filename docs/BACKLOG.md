@@ -545,7 +545,12 @@ would show an estimate (`docs/ARRIVAL_DISPLAY_PROTOCOL.md`, protocol `display-1`
 confirmation day). On the revision days both directions fail (outbound 1.70/4.00 min; inbound coverage
 2.1%). The confirmation, 29 September to 5 October, is collected nightly and read once; nothing is shown
 without the owner's exact approval. What would change the outcome is a revised model or display, judged by
-a new confirmation after it. Kept below for the record:
+a new confirmation after it.
+
+**Read once, 9 October 2026: both directions fail the confirmation** (`/data/arrival-release.json`, 03:15 UTC: the
+window complete, nothing invalid or skipped). Outbound 15: median 1.75 min (95% 1.65–1.85), p80 4.15 (3.80–4.45),
+coverage 83.1%, over both error thresholds. Inbound 15: median 1.20, p80 2.45, coverage 4.6% against 50%. This model is
+finished; another needs a new version with its own window. Kept below for the record:
 
 
 The release criteria are read by the actual minutes before a bus passed the stop, known only
@@ -1249,6 +1254,25 @@ one), a map-tapped bus's Back, Fit journey and the 360 px first screen each as i
 - The connection message on a real slow mobile network, with the service worker's saved copy, is not verified.
 - From a shared bus link, the view from above (preview only) is one Back away, at the start.
 - The search no longer says "number"; a bus number is still found by it.
+
+## 53. The Operations record and its view called a live server an archive replay on a local machine — fixed 9 October 2026
+
+**Found** reading the served site before a public post: the Operations view, the page a reviewer opens from *How it's
+built*, labelled its record "HISTORICAL ARCHIVE REPLAY" and "LIVE RUNS ARE NOT IN THIS RECORD", captioned its newest
+source "When the archive published the file upstream", and ended on two notes: "Every run listed here is a historical
+archive replay. Nothing is collected live" and "This pipeline runs in one local WSL process … there is no scheduler and
+no hosted worker yet". Under them, the server's own record: 45,220,781 reports read from 74,560 source files, and its
+run history of live captures and nightly rebuilds. All of it was fixed text from the archive-only release of mid-
+September, published by the hosted server for nineteen days.
+
+**Now:** the view labels itself from the record's own runs (`runKinds` in `lib/operations.ts`): LIVE RUNS, HISTORICAL
+ARCHIVE REPLAY or both, and its captions follow. The record's first note is written from its runs (`notes_for` in
+`pipeline/operations.py`), and the note about a local process is gone: where the pipeline runs is the deployment's to
+say. The recorded sample's own counts are named as the sample's ("Published in the recorded sample"). The served
+record's notes change at the next nightly rebuild, which writes it; the view's labels change on deploy.
+
+**Verified:** `tests/test_operations_notes.py` (4), `tests/operations.test.mjs` (`runKinds`), and an
+`operations-jobs.spec` check serving a record of live runs (both profiles). Opportunity 80 has the pattern.
 
 ## Explicitly not doing
 - Spark, Kafka, a warehouse cluster or an orchestration platform for a dataset this size.

@@ -2505,6 +2505,14 @@ tool is justified.
 
 **Next cheap step.** Read the README's status lines as part of each release record. Status: `fixed` (this instance).
 
+**9 October 2026: the same, in the page itself.** Reading the served site before a public post found the Operations
+view, which a reviewer opens from *How it's built*, still labelled "HISTORICAL ARCHIVE REPLAY" and "LIVE RUNS ARE NOT
+IN THIS RECORD", with the notes "Nothing is collected live" and "one local WSL process … no scheduler and no hosted
+worker yet", over the hosted server's own live record (45.2 million reports read). The 2 October audit read documents,
+not the page's own text, and a static string in `pipeline/operations.py` is not a document. Fixed by deriving the labels
+and the first note from the record's runs (backlog 53). The lesson for the release-time read: it covers what the page
+says about the system, its engineering views included, not only the README. Status: `fixed` (this instance).
+
 ## 81. A CI check that cannot fail
 
 **Problem and evidence.** `.github/workflows/checks.yml` runs `systemd-analyze verify deploy/systemd/lost-minutes-*.service

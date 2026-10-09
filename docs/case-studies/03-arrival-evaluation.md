@@ -5,8 +5,10 @@ predictions. External live-departure data exists: NextBuses, run by TransportAPI
 tier of 30 requests a day, and larger use is paid (`docs/LIVE_DEPARTURES_FEASIBILITY.md`). None is integrated. So the
 project asked whether an estimate made here, from the buses' own reports, was good enough to show.
 
-**Status: arrival predictions are disabled in both directions, by the owner's decision.** The page shows timetabled
-departures labelled as such, and tracked buses by how many stops away their last report was, never as minutes.
+**Status: arrival predictions are disabled in both directions, by the owner's decision, and a held-out week confirmed
+it: the frozen evaluation failed its criteria on its seven confirmation days (read once, 9 October 2026).** The page
+shows timetabled departures labelled as such, and tracked buses by how many stops away their last report was, never as
+minutes.
 
 ## Criteria first (20 September 2026)
 
@@ -33,11 +35,14 @@ below is on route 15 (operator BNML), from this project's own captures: the deve
 | **1.** First held-out score (20 Sep) | fitted 11–14 Sep; scored once on 17–20 Sep; 63,397 moments, 1,436 passages | moments grouped by how far the bus truly was, 2–10 min | median and p80 over both thresholds | historical |
 | **2.** Outbound pilot reading (28 Sep) | held-out days 21–27 Sep, 253 journeys | (a) grouped by how far the bus truly was; (b) the moments a page would show, chosen by the *predicted* 2–10 min | (a) median 1.20, p80 2.48 min: pass; (b) median 1.57, p80 3.79 min: fail. No-go | historical; superseded by protocol `display-1` |
 | **3.** Protocol `display-1`, revision days | 21–26 Sep: outbound 252 journeys, 10,829 passages; inbound 249 journeys, 2,412 passages | the moments a page would show, every 5 s, as a page would compute them | outbound median 1.70 (95% by journey 1.60–1.80), p80 4.00 (3.70–4.30), coverage 84.8%; inbound median 1.65, p80 3.25, coverage 2.1%. Both fail | **current protocol**; revision days decide nothing |
-| **4.** Protocol `display-1`, confirmation | 29 Sep–5 Oct, scored nightly | as 3 | not yet read; three of seven days scored by 2 October, all under the pinned digest | **current**; read once, after 6 October |
+| **4.** Protocol `display-1`, confirmation | 29 Sep–5 Oct, seven days (five weekdays), each scored once, nightly, under the pinned digest: outbound 267 journeys, 11,068 passages; inbound 262 journeys, 2,751 passages | as 3 | outbound median 1.75 (95% 1.65–1.85), p80 4.15 (3.80–4.45), coverage 83.1%: fails both error thresholds, and beats the timetable where both exist (1.15 against 2.20); inbound median 1.20, p80 2.45, coverage **4.6%**: fails coverage. Both fail | **current**; read once, 9 October 2026 |
 
 Reading 2 (b) and protocol `display-1` ask the same question, which moments a passenger would see; `display-1` also
-reproduces the page's own timing and stop mapping, and is the one that counts. 6 October is a date for reading the
-confirmation results, not a release date.
+reproduces the page's own timing and stop mapping, and is the one that counts. Its confirmation was read once, on
+9 October 2026, from the verdict the nightly job publishes (`/data/arrival-release.json`: the window complete, no day
+invalid or skipped, nothing awaiting approval). A pass would have released nothing by itself; a fail ends this model.
+The interval a page might show held at about its claim on both directions (80.2% and 81.1% of moments against 80%),
+reported as fragile, since its 95% range crosses the line.
 
 ## Found on the way
 
@@ -60,6 +65,8 @@ confirmation results, not a release date.
   scored on the moments a passenger would actually see.
 - A stop-numbering error produced a confident, wrong operational finding; it was traced and withdrawn rather than
   left in the record.
+- The revision days' no held on a week nobody had looked at: the same model, the same code by hash, the same
+  thresholds, read once.
 - Releasing nothing is a valid outcome, and it is the current one.
 
 ## Evidence

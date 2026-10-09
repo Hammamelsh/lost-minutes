@@ -4,12 +4,46 @@ One page, kept current. What is running, what is verified, what is not, and what
 
 | | |
 |---|---|
-| **Commit** | **`b7af0f0`**, deployed 5 October 2026, 01:29 UTC: the gated build of `f9acb61`, re-stamped (the commits after it change one check and the records), with the trip's follow-up `107e062`. The collector runs the pipeline of `1155e2f`, unchanged since. The running release carries its own stamp in `RELEASE` on the server and in the feedback report |
+| **Commit** | **`a6996e8`**, deployed 9 October 2026, 18:23 UTC: the Operations wording made true, a link preview, and the records of the arrival confirmation; `b7af0f0` kept for rollback. The collector runs the pipeline of `1155e2f` with `554ea20`'s notes, which reach the served Operations record at its next nightly rebuild. The running release carries its own stamp in `RELEASE` on the server and in the feedback report |
 | **Build stamp on the page** | commit + build minute, in the feedback report and `lib/build.ts` |
 | **Public address** | **https://lost-minutes.duckdns.org** — a lasting address since 20 September 2026 (a free DuckDNS subdomain, Let's Encrypt) |
 | **Deployment status** | **hosted**: Hetzner CX23, Helsinki, no paid backups; `deploy/publish.sh` deploys, `deploy/rollback.sh` puts the previous release back |
 | **Collection** | continuous, under systemd on that server, with a watchdog and the nightly timetable and evaluation timers |
 | **Verdict** | **Ready for invited beta testing.** Everything is verified in Chromium emulation against fixtures and the real site; nothing yet on a phone in hand, which is the next step |
+
+## 9 October: ready to share: the confirmation read, the Operations record made true, a link preview (deployed as `a6996e8`)
+
+**From the owner, after five days unattended:** check everything that can be checked, and make it ready to post on
+LinkedIn.
+
+- **Five days unattended, read from the server (read-only).** The collector ran throughout, restarted only by each
+  nightly rebuild, as designed; both nightly jobs succeeded on their timers every night from 5 to 9 October; no
+  out-of-memory kill; all 1,590 health checks since 4 October healthy, none restarting anything; seven timetable
+  downloads timed out and were retried, and three malformed feed responses were set aside. At 17:57 UTC the
+  publication was 9 s old with 546 vehicles; the certificate runs to 19 December 2026; the disk is 34% used.
+- **The arrival confirmation, read once** (`/data/arrival-release.json`, written 03:15 UTC on 9 October: the window
+  complete, nothing invalid or skipped). Both directions fail, so predictions stay off: outbound 15 median 1.75 min
+  (95% 1.65–1.85) against ≤ 1.5 and p80 4.15 (3.80–4.45) against ≤ 3.0, coverage 83.1%; inbound 15 coverage 4.6%
+  against ≥ 50% (median 1.20, p80 2.45). Case study 3, the README, the evidence page and backlog 40 said "read once,
+  after 6 October" and now say this.
+- **Found: the Operations view called the live server an archive replay on a local machine** (backlog 53, `554ea20`).
+  "HISTORICAL ARCHIVE REPLAY", "LIVE RUNS ARE NOT IN THIS RECORD", "When the archive published the file upstream", and
+  the notes "Nothing is collected live" and "one local WSL process … no scheduler and no hosted worker yet", over a
+  record of 45,220,781 reports read live. The view now labels itself from the record's runs; the record's notes are
+  written from them, from the next nightly rebuild (about 02:45 UTC, 10 October), when the server rewrites it.
+- **A link preview** (`6efb5f3`). A shared link showed a bare address: the page had no Open Graph tags. It now carries
+  the title "Lost Minutes — live Manchester buses", a description, and a 1200 × 630 card made from the served site at
+  Piccadilly Gardens (public/og-image.png). Fetched as LinkedIn's crawler: the tags, and the card as a 1200 × 630 PNG.
+- **The README** shows the served site at 19:12 on 9 October, and its observation count is the server's record of that
+  morning: 19,962,857 kept beside 25,257,924 repeats, every reconciliation row balancing.
+- **Verified:** Node 359, Python 195, typecheck, lint 0 errors; `operations-jobs`, `navigation`, `evidence-motion` and
+  `layout` 47 passed, 7 skipped by design, the new check serving a record of live runs among them. No full gate: the
+  change is to the page's head, the Operations view's words and two images; the last full gate is `f9acb61`'s. CI on
+  `a6996e8`: Node 359 (356 passed, 3 skipped), Python 195 (194 passed, 1 skipped).
+- **Deployed `a6996e8`** (built 18:23 UTC), `b7af0f0` kept for `deploy/rollback.sh`: all 3,704 files equal to the
+  tested build once the build ID, the stamped chunk's name and the stamp are swapped; the index and its 9 scripts and
+  stylesheets byte-identical on the served site; `/preview/` 401; the collector untouched (PID 548253). On the served
+  site the Operations view reads LIVE RUNS; its last two notes change with tonight's rebuild.
 
 ## 4–5 October, night: the first look, the way to the engineering, and a shared link (deployed as `b7af0f0`)
 

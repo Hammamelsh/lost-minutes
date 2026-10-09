@@ -4,7 +4,10 @@ Working context for anyone (or any assistant) picking this up. Status words are 
 strictly: **Implemented** exists in the code, **Verified** has an executed check behind it,
 **Planned** does not exist yet, **Unknown** has not been established.
 
-Last updated: 5 October 2026, early (the first look and the way to the engineering, from an audit the owner approved
+Last updated: 9 October 2026, evening (ready to share: five unattended days read from the server, all well; the
+arrival evaluation's confirmation week read once, both directions failing, so predictions stay off; the Operations view
+and record no longer calling the live server an archive replay on a local machine; a link preview card; deployed as
+`a6996e8`). Before that, 5 October 2026, early (the first look and the way to the engineering, from an audit the owner approved
 item by item: what the site is under its name, *How it's built* opening on the architecture and the evidence with its
 accessibility faults cleared, the copy saying what is shown, a shared bus link opening its bus, Fit journey only with
 something to frame, whole touch targets and nothing cut short at 360 px; deployed as `b7af0f0`, the gated `f9acb61`
@@ -37,6 +40,18 @@ server held to a memory ceiling, with a wrapper for deliberate jobs; every repos
 true, and said on touch; a collector stop that DuckDB could swallow, now acted on; the obsolete preview
 tunnel stopped: `bf33c80`). Before that, 26 September, afternoon: the fleet's two jumps traced to a
 journey change and fixed, and the view from above kept private behind a password, `4d1f586`.
+
+- **9 October, evening — ready to share** (`docs/RELEASE.md`, top; backlog 40, 53; opportunity 80).
+  - **From the owner:** check what can be checked and make it ready to post on LinkedIn.
+  - **Five days unattended:** both nightly jobs succeeded every night, no unplanned restart, no OOM, 1,590 health
+    checks healthy; 546 vehicles live at 17:57 UTC.
+  - **The confirmation, read once** (protocol `display-1`, 29 Sep–5 Oct): outbound 15 median 1.75, p80 4.15 min; inbound
+    coverage 4.6%. Both fail; predictions stay off; this model is finished.
+  - **Found:** the Operations view and its record said "historical archive replay", "nothing is collected live" and
+    "one local WSL process … no hosted worker yet" over the server's live record; now read from the record's runs.
+  - **A link preview:** Open Graph and large-card tags, a 1200 × 630 card from the served site.
+  - **Verified:** Node 359, Python 195 (CI green); four specs 47 passed, 7 skipped; **deployed as `a6996e8`**
+    (`b7af0f0` kept for rollback), served byte-identical, the collector untouched. Emulation only.
 
 - **5 October, early — the first look, the way to the engineering, and a shared link** (`docs/RELEASE.md`, top;
   backlog 52; opportunity 83).

@@ -152,10 +152,10 @@ prerequisites and the external services each one contacts, are in [`docs/SETUP.m
 
 - **Python** (the pipeline, matching, the arrival protocol, restore) and **Node** (contracts, drawing, planning,
   navigation): CI runs both on every push with type checking, lint, the static build, a scan of the built site for
-  credential values, and a check of the systemd units that fails on an unknown directive. In CI on `b7af0f0` (5 Oct
-  2026): Python 191 (190 passed, 1 skipped: it needs the downloaded archive sample) and Node 358 (355 passed,
-  3 skipped), none failed. On `fead20d` (2 Oct 2026): Python 191 (190 passed, 1 skipped) and Node 349 (346 passed,
-  3 skipped), none failed.
+  credential values, and a check of the systemd units that fails on an unknown directive. In CI on `a6996e8` (9 Oct
+  2026): Python 195 (194 passed, 1 skipped: it needs the downloaded archive sample) and Node 359 (356 passed,
+  3 skipped), none failed. On `b7af0f0` (5 Oct 2026): Python 191 and Node 358, none failed. On `fead20d` (2 Oct
+  2026): Python 191 and Node 349, none failed.
 - **Browser**: Chromium with software WebGL, desktop and phone emulation, about 1.4 hours locally. On `f9acb61`
   (5 Oct 2026) 554 checks: 501 passed, 52 skipped by design, 1 failed, a check that read a moving card in two calls,
   restated in `5fa0f2e` (its spec then 30 of 30 on the same build). On `11eebf5` (2 Oct 2026) 534 checks: 483 passed,

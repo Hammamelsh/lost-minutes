@@ -195,15 +195,6 @@ scripts/setup-browser.sh && pnpm build && pnpm test:browser
 - **Delivery and operations.** A CDN with a short cache in front of the published objects, and polls timed to just
   after the next expected write. The stage timings exported as metrics with alerts.
 
-## How this was built
-
-Hammam Elshtewi owns and directs this project. He sets its goals and scope, chose its hosting, and sets the rules
-under which changes are deployed; he approved, for example, the planned collector restarts that measured its latency.
-He makes the product and release decisions recorded in these documents, among them keeping arrival predictions off,
-and reports the problems he finds using it on his own phone. Most of the code, tests and documentation were written with an AI
-coding assistant (Anthropic's Claude, through Claude Code), working under the project's written rules
-([`AGENTS.md`](AGENTS.md), [`CLAUDE.md`](CLAUDE.md)). The application itself contains no AI features.
-
 ## Documentation
 
 [`docs/README.md`](docs/README.md) is the index: start there for the case studies, the evidence page, the release
